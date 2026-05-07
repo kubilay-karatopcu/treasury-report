@@ -77,13 +77,20 @@ class PresentationSession:
     # ── Manifest ─────────────────────────────────────────────────────────────
 
     def get_manifest(self, fallback: Optional[dict] = None) -> Optional[dict]:
+        from presentations.migration import ensure_nested
         if self._manifest is not None:
             return self._manifest
         if self.manifest_path.exists():
-            self._manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            raw = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            migrated = ensure_nested(raw)
+            # If migration changed shape, persist immediately so it sticks.
+            if migrated is not raw and migrated != raw:
+                self.set_manifest(migrated)
+            else:
+                self._manifest = migrated
             return self._manifest
         if fallback is not None:
-            self.set_manifest(fallback)
+            self.set_manifest(ensure_nested(fallback))
             return self._manifest
         return None
 

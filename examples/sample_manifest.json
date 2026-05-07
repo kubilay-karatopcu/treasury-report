@@ -33,73 +33,99 @@
     }
   ],
   "blocks": [
-    { "id": "h_overview", "type": "section_header", "title": "Genel Bakış", "config": {} },
     {
-      "id": "b_kpi_deposits",
-      "type": "kpi",
-      "title": "Toplam Mevduat",
+      "id": "h_overview",
+      "type": "section_header",
+      "title": "Genel Bakış",
       "locked": false,
-      "source": "EDW.DEPOSITS_DAILY",
-      "config": {
-        "value": 487.2,
-        "unit": "B TRY",
-        "delta": 4.8,
-        "delta_label": "Q3'25'e karşı",
-        "period": "Q4 2025"
-      }
+      "config": {},
+      "children": [
+        {
+          "id": "b_kpi_deposits",
+          "type": "kpi",
+          "title": "Toplam Mevduat",
+          "locked": false,
+          "width": "1/2",
+          "source": "EDW.DEPOSITS_DAILY",
+          "config": {
+            "value": 487.2,
+            "unit": "B TRY",
+            "delta": 4.8,
+            "delta_label": "Q3'25'e karşı",
+            "period": "Q4 2025"
+          }
+        },
+        {
+          "id": "b_kpi_nii",
+          "type": "kpi",
+          "title": "Net Faiz Geliri",
+          "locked": false,
+          "width": "1/2",
+          "source": "EDW.NII_QUARTERLY",
+          "config": {
+            "value": 8.94,
+            "unit": "B TRY",
+            "delta": -1.2,
+            "delta_label": "Q3'25'e karşı",
+            "period": "Q4 2025"
+          }
+        },
+        {
+          "id": "b_narrative_intro",
+          "type": "narrative",
+          "title": "Çeyrek özeti",
+          "locked": false,
+          "source": "AI-generated narrative",
+          "config": {
+            "text": "Toplam mevduat bu çeyrekte 487B TRY'yi aştı; rakip oran baskısına rağmen bireysel bakiyelerde %6,2 artış gözlendi. Mevduatın kredilere göre daha hızlı yeniden fiyatlanması nedeniyle NII'da hafif bir daralma yaşandı."
+          }
+        }
+      ]
     },
     {
-      "id": "b_kpi_nii",
-      "type": "kpi",
-      "title": "Net Faiz Geliri",
+      "id": "h_branches",
+      "type": "section_header",
+      "title": "Şube Performansı",
       "locked": false,
-      "source": "EDW.NII_QUARTERLY",
-      "config": {
-        "value": 8.94,
-        "unit": "B TRY",
-        "delta": -1.2,
-        "delta_label": "Q3'25'e karşı",
-        "period": "Q4 2025"
-      }
+      "config": {},
+      "children": [
+        {
+          "id": "b_chart_branches",
+          "type": "bar_chart",
+          "title": "Mevduat Hacmi - En İyi 8 Şube",
+          "locked": false,
+          "source": "EDW.DEPOSITS_BY_BRANCH",
+          "config": {
+            "categories": ["Levent", "Maslak", "Kavaklıdere", "Bursa Mrk.", "Alsancak", "Konyaaltı", "Adana Mrk.", "Gaziantep"],
+            "series": [
+              { "name": "Mevduat (B TRY)", "values": [42.3, 38.1, 28.4, 22.7, 21.3, 17.8, 14.2, 12.6] }
+            ]
+          }
+        }
+      ]
     },
     {
-      "id": "b_narrative_intro",
-      "type": "narrative",
-      "title": "Çeyrek özeti",
+      "id": "h_nii",
+      "type": "section_header",
+      "title": "NII Trend Analizi",
       "locked": false,
-      "source": "AI-generated narrative",
-      "config": {
-        "text": "Toplam mevduat bu çeyrekte 487B TRY'yi aştı; rakip oran baskısına rağmen bireysel bakiyelerde %6,2 artış gözlendi. Mevduatın kredilere göre daha hızlı yeniden fiyatlanması nedeniyle NII'da hafif bir daralma yaşandı."
-      }
-    },
-    { "id": "h_branches", "type": "section_header", "title": "Şube Performansı", "config": {} },
-    {
-      "id": "b_chart_branches",
-      "type": "bar_chart",
-      "title": "Mevduat Hacmi - En İyi 8 Şube",
-      "locked": false,
-      "source": "EDW.DEPOSITS_BY_BRANCH",
-      "config": {
-        "categories": ["Levent", "Maslak", "Kavaklıdere", "Bursa Mrk.", "Alsancak", "Konyaaltı", "Adana Mrk.", "Gaziantep"],
-        "series": [
-          { "name": "Mevduat (B TRY)", "values": [42.3, 38.1, 28.4, 22.7, 21.3, 17.8, 14.2, 12.6] }
-        ]
-      }
-    },
-    { "id": "h_nii", "type": "section_header", "title": "NII Trend Analizi", "config": {} },
-    {
-      "id": "b_chart_nii_trend",
-      "type": "line_chart",
-      "title": "NII - Son 12 Ay",
-      "locked": false,
-      "source": "EDW.NII_MONTHLY",
-      "config": {
-        "x_axis": ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"],
-        "series": [
-          { "name": "Gerçekleşen", "values": [2.4, 2.6, 2.8, 3.1, 3.0, 2.9, 3.2, 3.1, 3.0, 2.95, 2.92, 2.98] },
-          { "name": "Tahmin", "values": [2.5, 2.7, 2.9, 3.0, 3.0, 3.0, 3.1, 3.05, 3.0, 3.0, 2.95, 3.0] }
-        ]
-      }
+      "config": {},
+      "children": [
+        {
+          "id": "b_chart_nii_trend",
+          "type": "line_chart",
+          "title": "NII - Son 12 Ay",
+          "locked": false,
+          "source": "EDW.NII_MONTHLY",
+          "config": {
+            "x_axis": ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"],
+            "series": [
+              { "name": "Gerçekleşen", "values": [2.4, 2.6, 2.8, 3.1, 3.0, 2.9, 3.2, 3.1, 3.0, 2.95, 2.92, 2.98] },
+              { "name": "Tahmin",      "values": [2.5, 2.7, 2.9, 3.0, 3.0, 3.0, 3.1, 3.05, 3.0, 3.0, 2.95, 3.0] }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

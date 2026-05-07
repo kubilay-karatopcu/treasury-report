@@ -97,8 +97,9 @@ class TestValidateBlock:
         assert errors
 
     def test_section_header(self):
-        block = {"id": "h1", "type": "section_header", "title": "Overview", "config": {}}
-        assert validate_block(block) == []
+        block = {"id": "h1", "type": "section_header", "title": "Overview",
+                 "locked": False, "config": {}, "children": []}
+        assert validate_block(block, allow_section=True) == []
 
     def test_unknown_type(self):
         block = {"id": "x1", "type": "unknown_type", "title": "T", "config": {}}
@@ -123,8 +124,9 @@ class TestValidateBlock:
         assert any("width" in e for e in errors)
 
     def test_section_header_must_not_have_width(self):
-        block = {"id": "h1", "type": "section_header", "title": "T", "width": "1/2", "config": {}}
-        errors = validate_block(block)
+        block = {"id": "h1", "type": "section_header", "title": "T",
+                 "locked": False, "width": "1/2", "config": {}, "children": []}
+        errors = validate_block(block, allow_section=True)
         assert any("width" in e for e in errors)
 
     def test_width_field_optional(self):
@@ -232,6 +234,53 @@ class TestValidateBlock:
         errors = validate_block(block)
         assert any("numeric" in e for e in errors)
 
+    # data_table (AG Grid block)
+    def test_valid_data_table(self):
+        block = {
+            "id": "dt1", "type": "data_table", "title": "T", "locked": False,
+            "config": {
+                "columns": [
+                    {"field": "branch", "header": "Şube", "type": "text"},
+                    {"field": "amt", "header": "Tutar", "type": "number"},
+                ],
+                "rows": [
+                    {"branch": "Levent", "amt": 42300000000},
+                    {"branch": "Maslak", "amt": 38100000000},
+                ],
+            },
+        }
+        assert validate_block(block) == []
+
+    def test_data_table_missing_columns(self):
+        block = {
+            "id": "dt1", "type": "data_table", "title": "T", "locked": False,
+            "config": {"rows": []},
+        }
+        errors = validate_block(block)
+        assert any("columns" in e for e in errors)
+
+    def test_data_table_column_without_field(self):
+        block = {
+            "id": "dt1", "type": "data_table", "title": "T", "locked": False,
+            "config": {
+                "columns": [{"header": "Şube"}],  # no `field`
+                "rows": [],
+            },
+        }
+        errors = validate_block(block)
+        assert any("columns[0]" in e for e in errors)
+
+    def test_data_table_rows_must_be_list(self):
+        block = {
+            "id": "dt1", "type": "data_table", "title": "T", "locked": False,
+            "config": {
+                "columns": [{"field": "x"}],
+                "rows": "not a list",
+            },
+        }
+        errors = validate_block(block)
+        assert any("rows" in e for e in errors)
+
     # bar_chart variants
     def test_bar_chart_with_stacked_flag(self):
         block = {
@@ -299,10 +348,15 @@ class TestValidateManifest:
         "meta": {"title": "T", "eyebrow": "E", "date": "2025", "author_label": "L"},
         "basket": [],
         "blocks": [
-            {"id": "h1", "type": "section_header", "title": "Overview", "config": {}},
             {
-                "id": "k1", "type": "kpi", "title": "KPI", "locked": False,
-                "config": {"value": 1.0, "unit": "TRY", "delta": 0.1, "delta_label": "L", "period": "P"},
+                "id": "h1", "type": "section_header", "title": "Overview",
+                "locked": False, "config": {},
+                "children": [
+                    {
+                        "id": "k1", "type": "kpi", "title": "KPI", "locked": False,
+                        "config": {"value": 1.0, "unit": "TRY", "delta": 0.1, "delta_label": "L", "period": "P"},
+                    },
+                ],
             },
         ],
     }
@@ -322,11 +376,18 @@ class TestValidateManifest:
         manifest = {
             "meta": {},
             "blocks": [
-                {"id": "b1", "type": "kpi", "title": "T", "locked": False, "config": {}},
+                {
+                    "id": "h1", "type": "section_header", "title": "T",
+                    "locked": False, "config": {},
+                    "children": [
+                        {"id": "b1", "type": "kpi", "title": "T",
+                         "locked": False, "config": {}},  # kpi missing required config fields
+                    ],
+                },
             ],
         }
         errors = validate_manifest(manifest)
-        assert errors  # kpi missing required config fields
+        assert errors
 
     def test_sample_manifest_is_valid(self):
         import json
@@ -335,3 +396,28 @@ class TestValidateManifest:
         manifest = json.loads(sample.read_text(encoding="utf-8"))
         errors = validate_manifest(manifest)
         assert errors == [], f"sample_manifest.json failed validation: {errors}"
+
+    def test_top_level_must_be_section_header(self):
+        manifest = {
+            "meta": {},
+            "blocks": [{"id": "k1", "type": "kpi", "title": "T", "locked": False,
+                        "config": {"value": 1, "unit": "T", "delta": 0,
+                                   "delta_label": "x", "period": "p"}}],
+        }
+        errors = validate_manifest(manifest)
+        assert any("section_header" in e.lower() for e in errors)
+
+    def test_section_header_inside_section_rejected(self):
+        manifest = {
+            "meta": {},
+            "blocks": [{
+                "id": "h1", "type": "section_header", "title": "Outer",
+                "locked": False, "config": {},
+                "children": [
+                    {"id": "h2", "type": "section_header", "title": "Inner",
+                     "locked": False, "config": {}, "children": []},
+                ],
+            }],
+        }
+        errors = validate_manifest(manifest)
+        assert any("nested" in e.lower() or "section" in e.lower() for e in errors)

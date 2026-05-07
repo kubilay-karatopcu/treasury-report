@@ -7,6 +7,7 @@ import AreaChart     from '../blocks/AreaChart.jsx';
 import PieChart      from '../blocks/PieChart.jsx';
 import Heatmap       from '../blocks/Heatmap.jsx';
 import RadialBar     from '../blocks/RadialBar.jsx';
+import DataTable     from '../blocks/DataTable.jsx';
 import Narrative     from '../blocks/Narrative.jsx';
 
 const BLOCK_MAP = {
@@ -18,6 +19,7 @@ const BLOCK_MAP = {
   pie_chart:      PieChart,
   heatmap:        Heatmap,
   radial_bar:     RadialBar,
+  data_table:     DataTable,
   narrative:      Narrative,
 };
 

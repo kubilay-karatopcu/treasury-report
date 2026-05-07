@@ -48,47 +48,39 @@ class NarrativeConfig(TypedDict):
     text: str
 
 
-BLOCK_TYPES = frozenset({
-    "section_header", "kpi", "narrative",
-    "bar_chart",          # cols / stacked / horizontal via config flags
-    "line_chart",
-    "area_chart",         # filled line
-    "pie_chart",          # also handles donut via config.donut=true
-    "heatmap",            # 2D matrix
-    "radial_bar",         # gauge-style single value w/ optional max
+# Block types — section_header is a CONTAINER (has children), all others are
+# leaf blocks that live INSIDE a section's children[].
+LEAF_BLOCK_TYPES = frozenset({
+    "kpi", "narrative",
+    "bar_chart", "line_chart", "area_chart",
+    "pie_chart", "heatmap", "radial_bar",
+    "data_table",       # AG Grid table block
 })
 
-# Fields that neither LLM patches nor any automated process may touch.
-# Users can still toggle `locked` via the direct store action.
+CONTAINER_BLOCK_TYPES = frozenset({"section_header"})
+
+BLOCK_TYPES = LEAF_BLOCK_TYPES | CONTAINER_BLOCK_TYPES
+
 IMMUTABLE_BLOCK_FIELDS = frozenset({"id", "type", "locked"})
 
-# Top-level paths that patches are permitted to target.
 ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/")
 
-# Block width — Phase 6. Optional; default "full" preserves the original
-# single-column layout. Frontend uses a 12-column CSS grid; widths map to spans.
+# Block width — Phase 6.
 WIDTH_VALUES = frozenset({"full", "1/2", "1/3", "2/3"})
-
-# section_header is always full-width; it acts as a row divider.
 NO_WIDTH_TYPES = frozenset({"section_header"})
 
-# Allowed values for style options on chart blocks.
+# Style option values.
 CURVE_VALUES = frozenset({"smooth", "straight", "stepline"})
 LEGEND_POSITIONS = frozenset({"top", "right", "bottom", "left"})
 
 
-# ── Block validators ──────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _is_scalar_label(v) -> bool:
-    """Acceptable axis-label types: string, int, float, bool. Anything else
-    (dict, list) means the LLM produced a structured value where a label was
-    expected — caller will reject."""
     return isinstance(v, (str, int, float, bool))
 
 
 def _validate_label_array(arr, field_name: str, bid: str) -> list[str]:
-    """All entries must be scalars (str/number). Reject if any entry is a
-    dict/list — common LLM mistake."""
     errors: list[str] = []
     for i, v in enumerate(arr):
         if not _is_scalar_label(v):
@@ -152,13 +144,11 @@ def _validate_chart_length(block: dict) -> list[str]:
 
 
 def _validate_chart_style(block: dict) -> list[str]:
-    """Per-chart-type style options (all optional)."""
     errors: list[str] = []
     config = block.get("config", {})
     btype = block.get("type")
     bid = block.get("id", "?")
 
-    # line_chart / area_chart
     if btype in ("line_chart", "area_chart"):
         if "curve" in config and config["curve"] not in CURVE_VALUES:
             errors.append(
@@ -175,14 +165,12 @@ def _validate_chart_style(block: dict) -> list[str]:
         if fo is not None and not (isinstance(fo, (int, float)) and 0 <= fo <= 1):
             errors.append(f"Block {bid!r}: fill_opacity must be a number in [0,1]")
 
-    # bar_chart
     if btype == "bar_chart":
         if "show_data_labels" in config and not isinstance(config["show_data_labels"], bool):
             errors.append(f"Block {bid!r}: show_data_labels must be bool")
         if "border_radius" in config and not isinstance(config["border_radius"], (int, float)):
             errors.append(f"Block {bid!r}: border_radius must be numeric")
 
-    # pie_chart
     if btype == "pie_chart":
         lp = config.get("legend_position")
         if lp is not None and lp not in LEGEND_POSITIONS:
@@ -193,7 +181,6 @@ def _validate_chart_style(block: dict) -> list[str]:
         if "show_data_labels" in config and not isinstance(config["show_data_labels"], bool):
             errors.append(f"Block {bid!r}: show_data_labels must be bool")
 
-    # heatmap
     if btype == "heatmap":
         if "show_values" in config and not isinstance(config["show_values"], bool):
             errors.append(f"Block {bid!r}: show_values must be bool")
@@ -201,7 +188,15 @@ def _validate_chart_style(block: dict) -> list[str]:
     return errors
 
 
-def validate_block(block: dict) -> list[str]:
+# ── Block validators ─────────────────────────────────────────────────────────
+
+def validate_block(block: dict, *, allow_section: bool = False) -> list[str]:
+    """Validate a single block.
+
+    `allow_section`: True when validating a top-level block (sections are only
+    allowed at the top level). False when validating a child of a section
+    (children must be leaves).
+    """
     errors: list[str] = []
     btype = block.get("type")
     bid = block.get("id", "?")
@@ -210,11 +205,16 @@ def validate_block(block: dict) -> list[str]:
         errors.append(f"Block {bid!r}: unknown type {btype!r}")
         return errors
 
-    # width validation (Phase 6) — optional field
+    if btype in CONTAINER_BLOCK_TYPES and not allow_section:
+        errors.append(
+            f"Block {bid!r}: section_header cannot be nested inside another section"
+        )
+        return errors
+
     width = block.get("width")
     if width is not None:
         if btype in NO_WIDTH_TYPES:
-            errors.append(f"Block {bid!r}: {btype} must not declare a width (always full)")
+            errors.append(f"Block {bid!r}: {btype} must not declare a width")
         elif width not in WIDTH_VALUES:
             errors.append(
                 f"Block {bid!r}: width {width!r} is invalid (allowed: {sorted(WIDTH_VALUES)})"
@@ -253,7 +253,27 @@ def validate_block(block: dict) -> list[str]:
         if "text" not in config:
             errors.append(f"Block {bid!r}: narrative config missing 'text'")
 
-    # section_header: config is {} — nothing to validate
+    elif btype == "data_table":
+        cols = config.get("columns")
+        rows = config.get("rows")
+        if not isinstance(cols, list) or not cols:
+            errors.append(f"Block {bid!r}: data_table config missing or empty 'columns'")
+        else:
+            for i, c in enumerate(cols):
+                if not isinstance(c, dict) or not c.get("field"):
+                    errors.append(f"Block {bid!r}: columns[{i}] must be {{field, header?}}")
+        if not isinstance(rows, list):
+            errors.append(f"Block {bid!r}: data_table config missing 'rows' (must be list)")
+
+    elif btype == "section_header":
+        # Children validation handled here so section_header errors propagate.
+        children = block.get("children", [])
+        if not isinstance(children, list):
+            errors.append(f"Block {bid!r}: section_header.children must be a list")
+        else:
+            for i, child in enumerate(children):
+                child_errors = validate_block(child, allow_section=False)
+                errors.extend(f"section[{bid!r}].children[{i}]: {e}" for e in child_errors)
 
     return errors
 
@@ -267,7 +287,38 @@ def validate_manifest(manifest: dict) -> list[str]:
         errors.append("Missing 'blocks' key")
         return errors
 
-    for block in manifest.get("blocks", []):
-        errors.extend(validate_block(block))
+    blocks = manifest.get("blocks", [])
+    for i, block in enumerate(blocks):
+        if block.get("type") != "section_header":
+            errors.append(
+                f"Top-level blocks[{i}] must be a section_header (got {block.get('type')!r})"
+            )
+            continue
+        errors.extend(validate_block(block, allow_section=True))
 
     return errors
+
+
+# ── Traversal helpers (used by other modules) ────────────────────────────────
+
+def iter_all_blocks(manifest: dict):
+    """Yield every block (sections + their children) flat. Useful for
+    operations that need to see every leaf, like locked-block check or
+    LLM context summary."""
+    for section in manifest.get("blocks", []):
+        yield section
+        for child in section.get("children", []) or []:
+            yield child
+
+
+def find_block_by_id(manifest: dict, block_id: str):
+    """Locate a block anywhere in the manifest. Returns (block, path) or
+    (None, None). `path` is the JSON-pointer-style path you can target with
+    a patch (e.g. '/blocks/0/children/2')."""
+    for si, section in enumerate(manifest.get("blocks", [])):
+        if section.get("id") == block_id:
+            return section, f"/blocks/{si}"
+        for ci, child in enumerate(section.get("children", []) or []):
+            if child.get("id") == block_id:
+                return child, f"/blocks/{si}/children/{ci}"
+    return None, None

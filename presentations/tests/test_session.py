@@ -14,10 +14,16 @@ class TestPresentationSession:
 
     def test_manifest_persistence_roundtrip(self, tmp_path):
         sess = PresentationSession("u1", "p1", tmp_path)
-        manifest = {"id": "p1", "version": 1, "blocks": [{"id": "b1", "type": "kpi"}]}
+        # Nested-shape manifest (post-Phase 8 schema).
+        manifest = {
+            "id": "p1", "version": 1,
+            "blocks": [{
+                "id": "h1", "type": "section_header", "title": "T",
+                "locked": False, "children": [],
+            }],
+        }
         sess.set_manifest(manifest)
 
-        # New session instance reads from disk
         sess2 = PresentationSession("u1", "p1", tmp_path)
         loaded = sess2.get_manifest()
         assert loaded == manifest

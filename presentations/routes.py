@@ -9,6 +9,7 @@ from flask_login import current_user, login_required
 from presentations import presentations_bp
 from presentations.graph import GraphState, run_pipeline
 from presentations import duck
+from presentations.migration import ensure_nested
 
 # Seed manifest used the first time p_demo is opened.
 _DEMO_MANIFEST = Path(__file__).parent.parent / "examples" / "sample_manifest.json"
@@ -429,10 +430,11 @@ def _get_session(pid: str):
 
 
 def _seed_manifest(pid: str) -> dict | None:
-    """Seed for the demo presentation only; new sessions start empty."""
+    """Seed for the demo presentation only; new sessions start empty.
+    Always migrated to nested form."""
     if pid == "p_demo":
         try:
-            return json.loads(_DEMO_MANIFEST.read_text(encoding="utf-8"))
+            return ensure_nested(json.loads(_DEMO_MANIFEST.read_text(encoding="utf-8")))
         except FileNotFoundError:
             return None
     return None

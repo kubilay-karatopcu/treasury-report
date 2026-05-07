@@ -101,35 +101,37 @@ class QwenClient:
 
 
 def _block_layout_summary(blocks: list[dict]) -> str:
-    """Produce a readable index-table for the LLM, alongside the JSON dump."""
+    """Index-table for the LLM. Top-level blocks are sections; their children
+    are listed indented with the path that targets them (`/blocks/N/children/M`)."""
     lines = []
-    for i, b in enumerate(blocks):
-        title = b.get("title", "")
-        typ = b.get("type", "?")
-        bid = b.get("id", "?")
-        marker = "  ▸ " if typ == "section_header" else "    "
-        lines.append(f"{marker}[{i}] {typ:14s} \"{title}\"  (id: {bid})")
-    return "\n".join(lines)
+    for si, section in enumerate(blocks):
+        title = section.get("title", "")
+        sid = section.get("id", "?")
+        lock = "  🔒" if section.get("locked") else ""
+        lines.append(f'▸ [/blocks/{si}]  section_header  "{title}"  (id: {sid}){lock}')
+        children = section.get("children", []) or []
+        for ci, child in enumerate(children):
+            ctype = child.get("type", "?")
+            ctitle = child.get("title", "")
+            cid = child.get("id", "?")
+            clock = "  🔒" if child.get("locked") else ""
+            cwidth = f"  width={child.get('width')}" if child.get("width") else ""
+            lines.append(
+                f'    [/blocks/{si}/children/{ci}]  {ctype:11s} "{ctitle}"  (id: {cid}){cwidth}{clock}'
+            )
+    return "\n".join(lines) if lines else "  (boş manifest — section eklenebilir)"
 
 
 def _section_insertion_indices(blocks: list[dict]) -> str:
-    """For each section_header, the index where a new block 'under' it should be added.
-
-    Rule: insert AFTER the section_header but BEFORE the next section_header.
-    For the last section, append (`-`) since there's no following section.
-    """
-    sections = [(i, b.get("title", "")) for i, b in enumerate(blocks)
-                if b.get("type") == "section_header"]
-    if not sections:
-        return "  (manifest'te section_header yok — yeni bloklar /blocks/- ile eklenir)"
-
+    """For each section, the path to append a new child block."""
+    if not blocks:
+        return "  (manifest boş — önce section_header ekle: /blocks/-)"
     lines = []
-    for k, (idx, title) in enumerate(sections):
-        if k + 1 < len(sections):
-            insert_at = str(sections[k + 1][0])
-        else:
-            insert_at = "-  (sona append)"
-        lines.append(f'  "{title}" altına ekle → /blocks/{insert_at}')
+    for si, section in enumerate(blocks):
+        title = section.get("title", "")
+        lines.append(
+            f'  "{title}" bölümüne yeni blok ekle → /blocks/{si}/children/-'
+        )
     return "\n".join(lines)
 
 
@@ -181,10 +183,10 @@ def compose_user_message(
 
     sel_info = "yok"
     if selected_block_id:
-        for i, b in enumerate(blocks):
-            if b.get("id") == selected_block_id:
-                sel_info = f"{selected_block_id} (idx {i})"
-                break
+        from presentations.manifest import find_block_by_id
+        block, path = find_block_by_id(manifest, selected_block_id)
+        if block is not None:
+            sel_info = f"{selected_block_id} (path: {path}, type: {block.get('type')})"
 
     full_json = json.dumps(manifest, ensure_ascii=False, indent=2)
     data_section = _data_summary_section(data_summary)

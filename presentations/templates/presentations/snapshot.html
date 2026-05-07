@@ -5,7 +5,22 @@
 {% block filter_panel %}{% endblock %}
 
 {% block head %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}">
+  <style>
+    .dev-banner { display: none !important; }
+    html, body { margin: 0 !important; overflow: hidden !important; }
+    .presentations-editor-mount {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 10 !important;
+      overflow: hidden !important;
+      background: #ffffff;
+    }
+  </style>
 {% endblock %}
 
 {% block content %}

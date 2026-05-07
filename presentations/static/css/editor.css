@@ -1,19 +1,21 @@
 /* ─── Presentations Editor — editor.css ─────────────────────────────────── */
 
-/* Mount point fills the page-body area Tabler leaves for content.
-   Fixed height (not min-height) so the sidebar/canvas own their own scroll
-   instead of stretching the whole page. */
+/* Mount fills the viewport directly. The editor.html template ALSO injects
+   an inline <style> that locks html/body/.page chain to 100vh — that combo
+   guarantees the canvas (and only the canvas) handles overflow, regardless
+   of Tabler's flex behaviour or browser :has() support. */
 .presentations-editor-mount {
   font-family: 'InterVar', system-ui, -apple-system, sans-serif;
-  height: calc(100vh - 3.5rem);
+  height: 100vh;
+  min-height: 0;
   overflow: hidden;
 }
 
-/* Root flex column: header + (sidebar | canvas) */
 .editor-root {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
@@ -304,12 +306,43 @@
 .blocks-grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
-  grid-auto-rows: min-content;       /* rows = content height, never stretch */
-  align-content: start;              /* grid hugs the top of the canvas */
-  grid-auto-flow: row dense;         /* re-pack when an item is removed   */
+  grid-auto-rows: min-content;
+  align-content: start;
+  grid-auto-flow: row dense;
   gap: 16px;
   max-width: 1400px;
   margin: 0 auto;
+}
+
+/* ── Nested sections (Phase 8) ───────────────────────────────────────────── */
+.sections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+
+.section-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-container.is-locked {
+  background: rgba(247, 103, 7, 0.03);
+  border-radius: 8px;
+  padding: 0 8px;
+}
+
+.section-children-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: min-content;
+  align-content: start;
+  grid-auto-flow: row dense;
+  gap: 16px;
 }
 
 .block-slot {
@@ -467,6 +500,17 @@
   font-size: 12px;
   color: #9aa0aa;
   font-style: italic;
+}
+
+/* ── Data table (AG Grid) ────────────────────────────────────────────────── */
+.data-table-wrapper {
+  width: 100%;
+  font-size: 12px;
+}
+
+.data-table-wrapper .ag-header-cell-label,
+.data-table-wrapper .ag-cell {
+  font-family: inherit;
 }
 
 /* ── Narrative block ─────────────────────────────────────────────────────── */

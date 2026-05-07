@@ -9,6 +9,7 @@ const TYPE_LABELS = {
   pie_chart:      'Pasta Grafik',
   heatmap:        'Isı Haritası',
   radial_bar:     'Radyal Gösterge',
+  data_table:     'Tablo',
   narrative:      'Metin',
 };
 
@@ -75,7 +76,13 @@ export default function PropertiesPanel() {
     );
   }
 
-  const block = manifest.blocks.find((b) => b.id === selectedBlockId);
+  // Nested traversal: section_headers at top, leaves under children.
+  let block = null;
+  for (const section of manifest.blocks || []) {
+    if (section.id === selectedBlockId) { block = section; break; }
+    const child = (section.children || []).find((c) => c.id === selectedBlockId);
+    if (child) { block = child; break; }
+  }
   if (!block) return null;
 
   return (
