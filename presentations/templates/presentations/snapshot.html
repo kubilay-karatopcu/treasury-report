@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ manifest.meta.title }} — Snapshot — Treasury Studio{% endblock %}
+
+{# Snapshots have no filter panel and no sidebar — pure read-only render. #}
+{% block filter_panel %}{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}">
+{% endblock %}
+
+{% block content %}
+<div
+  id="presentation-root"
+  class="presentations-editor-mount"
+  data-presentation-id="{{ manifest.id }}"
+  data-mode="snapshot"
+  data-snapshot-id="{{ snapshot_id }}"
+></div>
+<script id="initial-manifest" type="application/json">{{ manifest_json | safe }}</script>
+<script id="snapshot-meta" type="application/json">{{ meta | tojson | safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}"></script>
+{% endblock %}

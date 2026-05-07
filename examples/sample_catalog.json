@@ -1,0 +1,99 @@
+{
+  "domains": [
+    {
+      "id": "dom_mevduat",
+      "label": "Mevduat Verileri",
+      "icon": "building",
+      "tables": [
+        {
+          "id": "EDW.DEPOSITS_DAILY",
+          "desc": "Günlük mevduat bakiyeleri",
+          "rows": "12.4M",
+          "columns": [
+            { "name": "BRANCH_CODE", "type": "VARCHAR2(10)", "nullable": false },
+            { "name": "SEGMENT", "type": "VARCHAR2(20)", "nullable": false },
+            { "name": "DATE", "type": "DATE", "nullable": false },
+            { "name": "BALANCE_TRY", "type": "NUMBER(18,2)", "nullable": true },
+            { "name": "PRODUCT_CODE", "type": "VARCHAR2(10)", "nullable": true }
+          ],
+          "common_filters": [
+            { "label": "Sadece bireyseller", "expression": "SEGMENT = 'RETAIL'" },
+            { "label": "Bireysel + KOBİ", "expression": "SEGMENT IN ('RETAIL', 'SME')" },
+            { "label": "Sadece kurumsal", "expression": "SEGMENT = 'CORPORATE'" }
+          ]
+        },
+        {
+          "id": "EDW.DEPOSITS_BY_BRANCH",
+          "desc": "Şube bazlı agregasyon",
+          "rows": "1.8M",
+          "columns": [
+            { "name": "BRANCH_CODE", "type": "VARCHAR2(10)", "nullable": false },
+            { "name": "BRANCH_NAME", "type": "VARCHAR2(100)", "nullable": false },
+            { "name": "PERIOD", "type": "VARCHAR2(20)", "nullable": false },
+            { "name": "DEPOSITS_TRY", "type": "NUMBER(18,2)", "nullable": true }
+          ],
+          "common_filters": [
+            { "label": "Bu çeyrek", "expression": "PERIOD = current_quarter" },
+            { "label": "Geçen çeyrek", "expression": "PERIOD = previous_quarter" },
+            { "label": "YTD", "expression": "PERIOD LIKE TO_CHAR(SYSDATE, 'YYYY') || '%'" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dom_nii",
+      "label": "NII & Faiz",
+      "icon": "percent",
+      "tables": [
+        {
+          "id": "EDW.NII_QUARTERLY",
+          "desc": "Çeyreklik NII",
+          "rows": "240",
+          "columns": [
+            { "name": "PERIOD", "type": "VARCHAR2(20)", "nullable": false },
+            { "name": "NII_TRY", "type": "NUMBER(18,2)", "nullable": false }
+          ],
+          "common_filters": []
+        },
+        {
+          "id": "EDW.NII_MONTHLY",
+          "desc": "Aylık NII + tahmin",
+          "rows": "1.4K",
+          "columns": [
+            { "name": "MONTH", "type": "DATE", "nullable": false },
+            { "name": "NII_ACTUAL", "type": "NUMBER(18,2)", "nullable": true },
+            { "name": "NII_FORECAST", "type": "NUMBER(18,2)", "nullable": true }
+          ],
+          "common_filters": [
+            { "label": "Son 12 ay", "expression": "MONTH >= ADD_MONTHS(SYSDATE, -12)" },
+            { "label": "Son 6 ay", "expression": "MONTH >= ADD_MONTHS(SYSDATE, -6)" },
+            { "label": "Sadece tahmin", "expression": "NII_ACTUAL IS NULL" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dom_sektor",
+      "label": "Sektör Verileri",
+      "icon": "network",
+      "tables": [
+        {
+          "id": "EDW.COMPETITOR_RATES",
+          "desc": "Rakip mevduat oranları",
+          "rows": "42K",
+          "columns": [
+            { "name": "BANK_NAME", "type": "VARCHAR2(50)", "nullable": false },
+            { "name": "VADE", "type": "VARCHAR2(10)", "nullable": false },
+            { "name": "TUTAR_RANGE", "type": "VARCHAR2(50)", "nullable": false },
+            { "name": "RATE", "type": "NUMBER(6,4)", "nullable": false },
+            { "name": "DATE", "type": "DATE", "nullable": false }
+          ],
+          "common_filters": [
+            { "label": "Kısa vade", "expression": "VADE IN ('1M', '3M', '6M')" },
+            { "label": "Uzun vade", "expression": "VADE IN ('1Y', '2Y')" }
+          ]
+        }
+      ]
+    }
+  ]
+}

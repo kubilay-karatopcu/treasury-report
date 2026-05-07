@@ -1,0 +1,200 @@
+{
+  "fixtures": [
+    {
+      "name": "kpi_simple_value",
+      "before": {
+        "blocks": [
+          { "id": "b1", "type": "kpi", "title": "Total Deposits", "locked": false,
+            "config": { "value": 487.2, "unit": "B TRY", "delta": 4.8, "delta_label": "Q3", "period": "Q4 2025" } }
+        ]
+      },
+      "patches": [
+        { "op": "replace", "path": "/blocks/0/config/value", "value": 512.4 }
+      ],
+      "after": {
+        "blocks": [
+          { "id": "b1", "type": "kpi", "title": "Total Deposits", "locked": false,
+            "config": { "value": 512.4, "unit": "B TRY", "delta": 4.8, "delta_label": "Q3", "period": "Q4 2025" } }
+        ]
+      }
+    },
+    {
+      "name": "kpi_multi_field",
+      "before": {
+        "blocks": [
+          { "id": "b1", "type": "kpi", "title": "T", "locked": false,
+            "config": { "value": 487.2, "unit": "B TRY", "delta": 4.8, "delta_label": "Q3", "period": "Q4 2025" } }
+        ]
+      },
+      "patches": [
+        { "op": "replace", "path": "/blocks/0/config/value", "value": 14.0 },
+        { "op": "replace", "path": "/blocks/0/config/unit", "value": "B USD" }
+      ],
+      "after": {
+        "blocks": [
+          { "id": "b1", "type": "kpi", "title": "T", "locked": false,
+            "config": { "value": 14.0, "unit": "B USD", "delta": 4.8, "delta_label": "Q3", "period": "Q4 2025" } }
+        ]
+      }
+    },
+    {
+      "name": "remove_series_from_chart",
+      "before": {
+        "blocks": [
+          { "id": "c1", "type": "line_chart", "title": "T", "locked": false,
+            "config": {
+              "x_axis": ["A", "B", "C"],
+              "series": [
+                { "name": "Actual", "values": [1, 2, 3] },
+                { "name": "Forecast", "values": [1.5, 2.5, 3.5] }
+              ]
+            }
+          }
+        ]
+      },
+      "patches": [
+        { "op": "remove", "path": "/blocks/0/config/series/1" }
+      ],
+      "after": {
+        "blocks": [
+          { "id": "c1", "type": "line_chart", "title": "T", "locked": false,
+            "config": {
+              "x_axis": ["A", "B", "C"],
+              "series": [
+                { "name": "Actual", "values": [1, 2, 3] }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bar_top_n_truncation",
+      "before": {
+        "blocks": [
+          { "id": "c1", "type": "bar_chart", "title": "T", "locked": false,
+            "config": {
+              "categories": ["A", "B", "C", "D", "E", "F", "G", "H"],
+              "series": [{ "name": "v", "values": [42.3, 38.1, 28.4, 22.7, 21.3, 17.8, 14.2, 12.6] }]
+            }
+          }
+        ]
+      },
+      "patches": [
+        { "op": "replace", "path": "/blocks/0/config/categories", "value": ["A", "B", "C", "D", "E"] },
+        { "op": "replace", "path": "/blocks/0/config/series/0/values", "value": [42.3, 38.1, 28.4, 22.7, 21.3] }
+      ],
+      "after": {
+        "blocks": [
+          { "id": "c1", "type": "bar_chart", "title": "T", "locked": false,
+            "config": {
+              "categories": ["A", "B", "C", "D", "E"],
+              "series": [{ "name": "v", "values": [42.3, 38.1, 28.4, 22.7, 21.3] }]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "add_block_at_end",
+      "before": {
+        "blocks": [
+          { "id": "b1", "type": "section_header", "title": "Overview", "config": {} }
+        ]
+      },
+      "patches": [
+        { "op": "add", "path": "/blocks/-", "value": {
+          "id": "b2", "type": "narrative", "title": "Note", "locked": false,
+          "config": { "text": "Hello." }
+        }}
+      ],
+      "after": {
+        "blocks": [
+          { "id": "b1", "type": "section_header", "title": "Overview", "config": {} },
+          { "id": "b2", "type": "narrative", "title": "Note", "locked": false,
+            "config": { "text": "Hello." } }
+        ]
+      }
+    },
+    {
+      "name": "add_block_at_index",
+      "before": {
+        "blocks": [
+          { "id": "b1", "type": "section_header", "title": "A", "config": {} },
+          { "id": "b3", "type": "section_header", "title": "C", "config": {} }
+        ]
+      },
+      "patches": [
+        { "op": "add", "path": "/blocks/1", "value": {
+          "id": "b2", "type": "section_header", "title": "B", "config": {}
+        }}
+      ],
+      "after": {
+        "blocks": [
+          { "id": "b1", "type": "section_header", "title": "A", "config": {} },
+          { "id": "b2", "type": "section_header", "title": "B", "config": {} },
+          { "id": "b3", "type": "section_header", "title": "C", "config": {} }
+        ]
+      }
+    },
+    {
+      "name": "remove_block",
+      "before": {
+        "blocks": [
+          { "id": "b1", "type": "section_header", "title": "A", "config": {} },
+          { "id": "b2", "type": "section_header", "title": "B", "config": {} }
+        ]
+      },
+      "patches": [
+        { "op": "remove", "path": "/blocks/0" }
+      ],
+      "after": {
+        "blocks": [
+          { "id": "b2", "type": "section_header", "title": "B", "config": {} }
+        ]
+      }
+    },
+    {
+      "name": "meta_title_change",
+      "before": {
+        "meta": { "title": "Old", "date": "2025" },
+        "blocks": []
+      },
+      "patches": [
+        { "op": "replace", "path": "/meta/title", "value": "New" }
+      ],
+      "after": {
+        "meta": { "title": "New", "date": "2025" },
+        "blocks": []
+      }
+    }
+  ],
+  "invalid_patches": [
+    {
+      "name": "rejects_immutable_id",
+      "patches": [{ "op": "replace", "path": "/blocks/0/id", "value": "evil" }],
+      "reason": "id is immutable"
+    },
+    {
+      "name": "rejects_immutable_type",
+      "patches": [{ "op": "replace", "path": "/blocks/0/type", "value": "line_chart" }],
+      "reason": "type is immutable"
+    },
+    {
+      "name": "rejects_unsupported_op",
+      "patches": [{ "op": "move", "from": "/blocks/0", "path": "/blocks/1" }],
+      "reason": "move not supported"
+    },
+    {
+      "name": "rejects_chart_length_mismatch",
+      "patches": [{ "op": "replace", "path": "/blocks/0/config/categories", "value": ["A", "B"] }],
+      "context": "before block has 8 categories and 8 values; reducing only categories breaks invariant",
+      "reason": "categories.length must match series.values.length"
+    },
+    {
+      "name": "rejects_path_outside_scope",
+      "patches": [{ "op": "replace", "path": "/secret/admin", "value": true }],
+      "reason": "path must start with /blocks/ or /meta/"
+    }
+  ]
+}

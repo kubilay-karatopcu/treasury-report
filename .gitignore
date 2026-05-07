@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Node / esbuild output
+node_modules/
+presentations/static/js/bundle.js
+presentations/static/js/bundle.js.map
+
+# Local dev artifacts
+examples/sessions/
+examples/snapshots/
+examples/.flask_session/
+*.duckdb
+*.duckdb.wal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Secrets — never commit
+.env
+.env.local
+secrets.json
+
+# Claude Code state
+.claude/
+CLAUDE.local.md
+
+# Read-only copies of the host Treasury Platform (used as design reference
+# during dev; not part of this module's deliverable).
+reference/

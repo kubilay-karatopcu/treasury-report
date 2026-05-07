@@ -1,0 +1,20 @@
+{
+  "private": true,
+  "description": "Treasury Studio — presentations editor frontend",
+  "dependencies": {
+    "apexcharts": "^5.11.0",
+    "marked": "^9.1.6",
+    "react": "^18.3.1",
+    "react-apexcharts": "^2.1.0",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  },
+  "scripts": {
+    "build": "npx esbuild static/js/editor/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js",
+    "build:dev": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js",
+    "watch": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js --watch"
+  }
+}

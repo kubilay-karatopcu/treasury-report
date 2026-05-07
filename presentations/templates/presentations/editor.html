@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ manifest.meta.title }} — Treasury Studio{% endblock %}
+
+{# Remove the default filter panel — editor has its own layout. #}
+{% block filter_panel %}{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}">
+{% endblock %}
+
+{% block content %}
+<div
+  id="presentation-root"
+  class="presentations-editor-mount"
+  data-presentation-id="{{ presentation_id }}"
+></div>
+{# Initial manifest is injected here so React can read it synchronously before first render. #}
+<script id="initial-manifest" type="application/json">{{ manifest_json | safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}"></script>
+{% endblock %}

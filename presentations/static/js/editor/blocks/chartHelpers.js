@@ -1,0 +1,247 @@
+// Shared ApexCharts options for the Treasury presentations editor.
+// Mirrors the look used in reference/static/js/competitor.js so charts feel
+// native to the platform.
+import { theme } from '../theme.js';
+
+export function formatNumber(v) {
+  if (v == null || isNaN(v)) return '';
+  const abs = Math.abs(v);
+  if (abs >= 1e9)  return (v / 1e9).toFixed(1) + 'B';
+  if (abs >= 1e6)  return (v / 1e6).toFixed(1) + 'M';
+  if (abs >= 1e3)  return (v / 1e3).toFixed(1) + 'K';
+  if (abs < 1 && v !== 0) return v.toFixed(2);
+  return Math.round(v).toString();
+}
+
+// LLM sometimes emits objects like [{date: "2025-01-01"}, ...] instead of plain
+// strings for x_axis / categories. Coerce defensively so the chart still
+// renders something sensible. (The validator will also reject such patches
+// going forward, but legacy manifests may already contain them.)
+export function normalizeLabels(arr) {
+  return (arr || []).map((c) => {
+    if (c == null) return '';
+    if (typeof c === 'string' || typeof c === 'number') return c;
+    if (typeof c === 'object') {
+      return (
+        c.label ?? c.x ?? c.name ?? c.date ?? c.period ?? c.title ??
+        Object.values(c).find((v) => typeof v === 'string' || typeof v === 'number') ??
+        ''
+      );
+    }
+    return String(c);
+  });
+}
+
+const COMMON_AXIS_STYLE = {
+  style: { fontSize: '11px', colors: theme.chart.axisLabel },
+};
+
+const COMMON_GRID = {
+  borderColor: theme.chart.gridBorder,
+  strokeDashArray: 0,
+  yaxis: { lines: { show: true } },
+  xaxis: { lines: { show: false } },
+  padding: { left: 8, right: 8, top: 0, bottom: 0 },
+};
+
+export function barChartOptions({
+  categories, series, height = 260,
+  stacked = false, horizontal = false,
+  showDataLabels = false, borderRadius = 4,
+}) {
+  const distributed = series.length === 1 && !stacked;
+  return {
+    chart: {
+      type: 'bar',
+      height,
+      stacked,
+      toolbar: { show: false },
+      fontFamily: 'inherit',
+      animations: { enabled: true, speed: 250 },
+    },
+    plotOptions: {
+      bar: {
+        horizontal,
+        columnWidth: '55%',
+        barHeight:   '70%',
+        borderRadius,
+        borderRadiusApplication: stacked ? 'end' : 'around',
+        distributed,
+      },
+    },
+    dataLabels: {
+      enabled: showDataLabels,
+      formatter: showDataLabels ? formatNumber : undefined,
+      style: { fontSize: '11px' },
+    },
+    stroke: { show: true, width: 2, colors: ['transparent'] },
+    xaxis: {
+      type: horizontal ? 'numeric' : 'category',
+      categories,
+      labels: horizontal ? { ...COMMON_AXIS_STYLE, formatter: formatNumber } : COMMON_AXIS_STYLE,
+      axisBorder: { color: theme.chart.gridBorder },
+      axisTicks:  { color: theme.chart.gridBorder },
+    },
+    yaxis: {
+      labels: horizontal ? COMMON_AXIS_STYLE : { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+    },
+    tooltip: { y: { formatter: formatNumber } },
+    legend: { show: series.length > 1, position: 'top', fontSize: '12px' },
+    colors: theme.chart.palette,
+    grid: COMMON_GRID,
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
+  };
+}
+
+export function lineChartOptions({
+  categories, series, height = 260,
+  curve = 'smooth', strokeWidth = 2, showMarkers = false,
+}) {
+  return {
+    chart: {
+      type: 'line',
+      height,
+      toolbar: { show: false },
+      zoom: { enabled: false },
+      fontFamily: 'inherit',
+      animations: { enabled: true, speed: 250 },
+    },
+    stroke: { width: strokeWidth, curve },
+    dataLabels: { enabled: false },
+    markers: { size: showMarkers ? 4 : 0, hover: { size: 6 } },
+    xaxis: {
+      type: 'category',
+      categories,
+      labels: { ...COMMON_AXIS_STYLE, rotate: 0 },
+      axisBorder: { color: theme.chart.gridBorder },
+      axisTicks:  { color: theme.chart.gridBorder },
+    },
+    yaxis: {
+      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+    },
+    tooltip: { shared: true, intersect: false, y: { formatter: formatNumber } },
+    legend: { show: series.length > 1, position: 'top', fontSize: '12px' },
+    colors: theme.chart.palette,
+    grid: COMMON_GRID,
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
+  };
+}
+
+export function areaChartOptions({
+  categories, series, height = 260,
+  curve = 'smooth', strokeWidth = 2, showMarkers = false,
+  fillOpacity = 0.45,
+}) {
+  const opts = lineChartOptions({
+    categories, series, height, curve, strokeWidth, showMarkers,
+  });
+  opts.chart.type = 'area';
+  opts.fill = {
+    type: 'gradient',
+    gradient: {
+      opacityFrom: fillOpacity,
+      opacityTo:   Math.max(0, fillOpacity - 0.4),
+      shadeIntensity: 0.3,
+    },
+  };
+  return opts;
+}
+
+export function pieChartOptions({
+  labels, donut = false, height = 260,
+  legendPosition = 'right', showDataLabels = true,
+}) {
+  return {
+    chart: {
+      type: donut ? 'donut' : 'pie',
+      height,
+      fontFamily: 'inherit',
+      animations: { enabled: true, speed: 250 },
+    },
+    labels,
+    colors: theme.chart.palette,
+    legend: { position: legendPosition, fontSize: '12px' },
+    dataLabels: {
+      enabled: showDataLabels,
+      style: { fontSize: '11px', fontWeight: 500 },
+      dropShadow: { enabled: false },
+    },
+    tooltip: { y: { formatter: formatNumber } },
+    plotOptions: donut
+      ? { pie: { donut: { size: '60%', labels: { show: true, total: { show: true, label: 'Toplam', formatter: formatNumber } } } } }
+      : {},
+    stroke: { width: 1, colors: ['#ffffff'] },
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
+  };
+}
+
+export function heatmapOptions({ categories, series, height = 280, showValues = true }) {
+  return {
+    chart: {
+      type: 'heatmap',
+      height,
+      toolbar: { show: false },
+      fontFamily: 'inherit',
+      animations: { enabled: true, speed: 250 },
+    },
+    dataLabels: { enabled: showValues, style: { fontSize: '10px' } },
+    colors: [theme.chart.palette[0]],
+    xaxis: {
+      type: 'category',
+      categories,
+      labels: COMMON_AXIS_STYLE,
+    },
+    yaxis: { labels: COMMON_AXIS_STYLE },
+    plotOptions: {
+      heatmap: {
+        radius: 4,
+        enableShades: true,
+        shadeIntensity: 0.5,
+        useFillColorAsStroke: false,
+      },
+    },
+    tooltip: { y: { formatter: formatNumber } },
+    legend: { show: false },
+    grid: COMMON_GRID,
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
+  };
+}
+
+export function radialBarOptions({ value, max = 100, label = '', height = 260 }) {
+  // ApexCharts radialBar takes percentages; we normalize against `max`.
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return {
+    chart: {
+      type: 'radialBar',
+      height,
+      fontFamily: 'inherit',
+      animations: { enabled: true, speed: 250 },
+    },
+    series: [pct],
+    plotOptions: {
+      radialBar: {
+        startAngle: -135,
+        endAngle: 135,
+        track: { background: theme.chart.gridBorder, strokeWidth: '100%' },
+        dataLabels: {
+          name: { fontSize: '12px', color: theme.chart.axisLabel, offsetY: -10 },
+          value: {
+            fontSize: '28px',
+            fontWeight: 700,
+            color: '#1d273b',
+            formatter: () => formatNumber(value),
+          },
+        },
+        hollow: { size: '58%' },
+      },
+    },
+    fill: {
+      type: 'gradient',
+      gradient: { shade: 'light', shadeIntensity: 0.4, gradientToColors: [theme.chart.palette[1]], stops: [0, 100] },
+    },
+    colors: [theme.chart.palette[0]],
+    stroke: { lineCap: 'round' },
+    labels: [label || `Hedefin %${pct}`],
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
+  };
+}
