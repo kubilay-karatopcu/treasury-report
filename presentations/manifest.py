@@ -72,7 +72,10 @@ NO_WIDTH_TYPES = frozenset({"section_header"})
 # Style option values.
 CURVE_VALUES = frozenset({"smooth", "straight", "stepline"})
 LEGEND_POSITIONS = frozenset({"top", "right", "bottom", "left"})
-
+DATA_SOURCE_TYPES = frozenset({
+"kpi", "bar_chart", "line_chart", "area_chart", "pie_chart",
+"heatmap", "radial_bar", "data_table",
+})
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -275,6 +278,9 @@ def validate_block(block: dict, *, allow_section: bool = False) -> list[str]:
                 child_errors = validate_block(child, allow_section=False)
                 errors.extend(f"section[{bid!r}].children[{i}]: {e}" for e in child_errors)
 
+    if "data_source" in block:
+        errors.extend(_validate_data_source(block))
+
     return errors
 
 
@@ -322,3 +328,41 @@ def find_block_by_id(manifest: dict, block_id: str):
             if child.get("id") == block_id:
                 return child, f"/blocks/{si}/children/{ci}"
     return None, None
+
+
+def _validate_data_source(block: dict) -> list[str]:
+    """Block.data_source schema doğrulaması. Tüm alanlar opsiyonel-tipli ama
+    eğer varsa doğru tipte olmalı; ek olarak bu alanı section_header / narrative
+    block tipleri taşıyamaz.
+    """
+    errors: list[str] = []
+    bid = block.get("id", "?")
+    btype = block.get("type")
+    ds = block.get("data_source")
+
+    if not isinstance(ds, dict):
+        errors.append(f"Block {bid!r}: data_source must be an object")
+        return errors
+
+    if btype not in DATA_SOURCE_TYPES:
+        errors.append(
+            f"Block {bid!r}: {btype} cannot carry a data_source "
+            f"(allowed for: {sorted(DATA_SOURCE_TYPES)})"
+        )
+        return errors
+
+    if "sql" not in ds or not isinstance(ds["sql"], str) or not ds["sql"].strip():
+        errors.append(f"Block {bid!r}: data_source.sql must be a non-empty string")
+
+    # Other fields are produced server-side; we sanity-check types only, no
+    # strict requirement on presence (so older manifests upgrade gracefully).
+    if "row_count" in ds and not isinstance(ds["row_count"], int):
+        errors.append(f"Block {bid!r}: data_source.row_count must be an integer")
+    if "truncated" in ds and not isinstance(ds["truncated"], bool):
+        errors.append(f"Block {bid!r}: data_source.truncated must be a boolean")
+    if "columns" in ds and not isinstance(ds["columns"], list):
+        errors.append(f"Block {bid!r}: data_source.columns must be a list")
+    if "preview_rows" in ds and not isinstance(ds["preview_rows"], list):
+        errors.append(f"Block {bid!r}: data_source.preview_rows must be a list")
+
+    return errors
