@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta http-equiv="X-UA-Compatible" content="ie=edge"/>
+    <title>{% block title %}Treasury Studio{% endblock %}</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tabler.min.css') }}">
+    <style>
+      @import url('https://rsms.me/inter/inter.css');
+      :root {
+        --tblr-font-sans-serif: 'InterVar', -apple-system, BlinkMacSystemFont,
+          'San Francisco', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        overflow: hidden;
+      }
+      body { font-feature-settings: "cv03", "cv04", "cv11"; }
+    </style>
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+    {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
+  </body>
+</html>
