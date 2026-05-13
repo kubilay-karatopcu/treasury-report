@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "intro": {
+    "title": "Komut Yardımı",
+    "lead": "Sohbete yazdığın komutlar JSON Patch'lere çevrilir. İki mod var:",
+    "modes": [
+      {
+        "name": "Genel mod",
+        "when": "Hiçbir blok seçili değilken",
+        "scope": "Tüm sunum — bölüm ekleme, blok ekleme, taşıma, başlık değişikliği vs."
+      },
+      {
+        "name": "Blok modu",
+        "when": "Bir bloğa tıkladığında",
+        "scope": "Sadece o blok — değer/stil/SQL düzenleme."
+      }
+    ],
+    "tips": [
+      "Veri-bağımlı bloklarda LLM Oracle SQL üretir, sistem çalıştırır, sonucu otomatik bloğa işler.",
+      "Yeni bir veri görmek için sunum verilerinin tazelenmesi gerekirse blok altındaki 'Veri Tazele' butonunu kullan.",
+      "Bir bloğu kilitlemek (🔒), LLM'in ona dokunmasını engeller — referans değerleri korumak için faydalı.",
+      "Şu an çalışmayan veya henüz desteklenmeyen alanları LLM'e zorlama — geçersiz değer yazınca patch reddedilir."
+    ]
+  },
+
+  "plot_types": [
+    {
+      "type": "kpi",
+      "label": "KPI",
+      "icon": "trending-up",
+      "description": "Tek bir öne çıkan sayı + birim + değişim (delta). Genel Bakış bölümlerinin omurgası.",
+      "data_shape": "SQL tek satır, tek sayı dönmeli (örn. `SELECT SUM(...) AS value FROM ...`).",
+      "style_fields": [
+        { "key": "unit", "type": "string", "desc": "Birim etiketi — örn. 'B TRY', 'M USD', '%'." },
+        { "key": "delta", "type": "sayı", "desc": "Geçen döneme göre yüzde değişim (pozitif yeşil, negatif kırmızı)." },
+        { "key": "delta_label", "type": "string", "desc": "Delta'nın karşılaştırma etiketi — örn. \"Q3'25'e karşı\"." },
+        { "key": "period", "type": "string", "desc": "Hangi döneme ait olduğu — örn. 'Q4 2025'." }
+      ],
+      "examples": [
+        "Toplam mevduat KPI'sı ekle, B TRY birimi, Q4 2025 dönemi.",
+        "Değeri 487 yap.",
+        "Period'u 'Q1 2026' yap.",
+        "Delta'yı -1.5 yap."
+      ]
+    },
+
+    {
+      "type": "bar_chart",
+      "label": "Bar Chart",
+      "icon": "bar-chart-3",
+      "description": "Kategorik karşılaştırma. Şube, segment, ürün bazlı bakiyeler için.",
+      "data_shape": "SQL ilk kolon kategori (str), sonraki sayısal kolonlar her biri bir seri.",
+      "style_fields": [
+        { "key": "stacked", "type": "bool", "desc": "Yığınlanmış (true) veya yan yana (false)." },
+        { "key": "horizontal", "type": "bool", "desc": "Yatay barlar — uzun isimler için." },
+        { "key": "show_data_labels", "type": "bool", "desc": "Bar üstünde değer etiketi." },
+        { "key": "border_radius", "type": "sayı", "desc": "Köşe yuvarlatma (px)." }
+      ],
+      "examples": [
+        "Şubeye göre toplam mevduat bar chart ekle, ilk 8 şube.",
+        "Yatay bar'a çevir.",
+        "Değer etiketlerini görünür yap.",
+        "Border radius 4 yap."
+      ]
+    },
+
+    {
+      "type": "line_chart",
+      "label": "Line Chart",
+      "icon": "trending-up",
+      "description": "Zaman serisi trend. Aylık NII, günlük mevduat oranı vb.",
+      "data_shape": "SQL ilk kolon X ekseni (tarih veya kategori), sonraki sayısal kolonlar her biri bir seri.",
+      "style_fields": [
+        { "key": "curve", "type": "string", "desc": "Çizgi tipi — 'smooth' | 'straight' | 'stepline'. (true/false KULLANMA.)" },
+        { "key": "stroke_width", "type": "sayı", "desc": "Çizgi kalınlığı (px). 1-4 arası tipik." },
+        { "key": "show_markers", "type": "bool", "desc": "Noktalarda marker göster." }
+      ],
+      "examples": [
+        "Son 12 ayın NII trendi line chart.",
+        "Curve'ü stepline yap.",
+        "Stroke width 3 yap.",
+        "Marker'ları kapat.",
+        "Hem gerçekleşen hem tahmin çizgisini göster."
+      ]
+    },
+
+    {
+      "type": "area_chart",
+      "label": "Area Chart",
+      "icon": "activity",
+      "description": "Line chart'ın hacim hissi veren versiyonu. Birikmiş tutar görselleri için.",
+      "data_shape": "Line chart ile aynı.",
+      "style_fields": [
+        { "key": "curve", "type": "string", "desc": "'smooth' | 'straight' | 'stepline'." },
+        { "key": "stroke_width", "type": "sayı", "desc": "Çizgi kalınlığı." },
+        { "key": "show_markers", "type": "bool", "desc": "Marker göster." },
+        { "key": "fill_opacity", "type": "0..1", "desc": "Alan dolgu opaklığı (0=şeffaf, 1=opak)." }
+      ],
+      "examples": [
+        "Mevduat hacmi area chart ekle.",
+        "Fill opacity 0.3 yap.",
+        "Curve'ü smooth yap."
+      ]
+    },
+
+    {
+      "type": "pie_chart",
+      "label": "Pie / Donut",
+      "icon": "pie-chart",
+      "description": "Pay/dağılım. Segment, döviz, ürün dağılımları için.",
+      "data_shape": "SQL ilk kolon etiket (str), ikinci kolon değer (sayı).",
+      "style_fields": [
+        { "key": "donut", "type": "bool", "desc": "Donut görünümü (true) — pie yerine ortası boş." },
+        { "key": "legend_position", "type": "string", "desc": "'top' | 'right' | 'bottom' | 'left'." },
+        { "key": "show_data_labels", "type": "bool", "desc": "Dilim üzerinde yüzde etiketi." }
+      ],
+      "examples": [
+        "Segment dağılımı pie chart, donut görünümünde.",
+        "Legend'i sağ tarafa al.",
+        "Data label'ları aç."
+      ]
+    },
+
+    {
+      "type": "heatmap",
+      "label": "Heatmap",
+      "icon": "grid-3x3",
+      "description": "Matris/iki boyutlu yoğunluk. Şube × ay, vade × segment.",
+      "data_shape": "SQL üç kolon: X ekseni, seri adı, değer. Veya wide format: ilk kolon X, sonraki kolonlar her biri ayrı seri.",
+      "style_fields": [
+        { "key": "show_values", "type": "bool", "desc": "Hücre üstünde sayısal değer göster." }
+      ],
+      "examples": [
+        "Şube × ay mevduat değişimi heatmap.",
+        "Hücre değerlerini göster.",
+        "Show_values'u kapat."
+      ]
+    },
+
+    {
+      "type": "radial_bar",
+      "label": "Radial Bar",
+      "icon": "activity",
+      "description": "Tek değer için yüzde/hedef gösterimi. Hedef gerçekleşme, kapasite kullanımı için.",
+      "data_shape": "SQL tek satır tek sayı.",
+      "style_fields": [
+        { "key": "max", "type": "sayı", "desc": "Maksimum (yüzde için 100)." },
+        { "key": "label", "type": "string", "desc": "Ortada görünen etiket." }
+      ],
+      "examples": [
+        "Hedef gerçekleşme radial bar, max 100.",
+        "Label'ı '% Tamam' yap."
+      ]
+    },
+
+    {
+      "type": "data_table",
+      "label": "Tablo",
+      "icon": "table",
+      "description": "Ham veri listesi. Detay listeleri, ranking tabloları.",
+      "data_shape": "SQL'in tüm kolonları tabloya yansır.",
+      "style_fields": [
+        { "key": "columns[].type", "type": "string", "desc": "'text' | 'number' | 'date' | 'percent' — sütun formatlama." },
+        { "key": "columns[].header", "type": "string", "desc": "Görünen başlık (kolon adı yerine)." }
+      ],
+      "examples": [
+        "En büyük 20 mevduat müşterisi tablosu.",
+        "Amount kolonunu number formatlı yap.",
+        "Date kolonunun başlığını 'Tarih' yap."
+      ]
+    },
+
+    {
+      "type": "narrative",
+      "label": "Metin",
+      "icon": "file-text",
+      "description": "Serbest metin paragrafı. Çeyrek özetleri, yorumlar.",
+      "data_shape": "SQL yok — sadece metin.",
+      "style_fields": [],
+      "examples": [
+        "Çeyrek özeti narrative ekle: Toplam mevduat 487B TRY'ye ulaştı...",
+        "Metni 2 cümleye indir.",
+        "Daha temkinli bir ton kullan."
+      ]
+    },
+
+    {
+      "type": "section_header",
+      "label": "Bölüm Başlığı",
+      "icon": "hash",
+      "description": "Bölüm ayırıcı. Hiyerarşi/içindekiler için.",
+      "data_shape": "SQL yok.",
+      "style_fields": [],
+      "examples": [
+        "Sona 'NII' başlığı ekle.",
+        "Şube bölümünü en üste taşı.",
+        "'Genel Bakış' başlığını 'Özet' yap."
+      ]
+    }
+  ],
+
+  "global_commands": {
+    "title": "Genel Mod — Örnek Komutlar",
+    "examples": [
+      "Sona NII başlığı ekle.",
+      "Genel Bakış bölümüne toplam mevduat KPI'sı ekle.",
+      "Şube bölümünü NII'dan önceye taşı.",
+      "Mevduat Maliyeti bölümünü kaldır.",
+      "Tüm KPI'ları M TRY'den B TRY'ye çevir.",
+      "Son bölümün altına bir narrative ekle, çeyrek özeti yaz."
+    ]
+  },
+
+  "selected_commands": {
+    "title": "Blok Modu — Örnek Komutlar",
+    "examples": [
+      "Başlığı 'Top 8 Şube' yap.",
+      "Değeri 487.2 yap.",
+      "İlk 5 satıra düşür.",
+      "Curve'ü stepline yap.",
+      "Yatay bar'a çevir.",
+      "Period'u Q1 2026 yap."
+    ]
+  },
+
+  "limitations": {
+    "title": "Henüz Desteklenmeyenler",
+    "items": [
+      "Y ekseni min/max sabitleme (yakında eklenecek).",
+      "Custom renk paleti.",
+      "Annotation/vurgu çizgileri.",
+      "Chart eksport (PNG/PDF) — şimdilik Snapshot ile sayfa paylaşılabilir."
+    ]
+  }
+}

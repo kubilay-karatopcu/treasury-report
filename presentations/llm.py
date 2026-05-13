@@ -32,6 +32,7 @@ class LLMClient(Protocol):
         manifest: dict,
         selected_block_id: str | None = None,
         data_summary: dict | None = None,
+        catalog: dict | None = None,
     ) -> tuple[list[dict], str]: ...
 
 
@@ -65,10 +66,22 @@ class QwenClient:
         self.verify_ssl = verify_ssl
         self.force_json = force_json
 
-    def generate_patches(self, system, user_message, manifest, selected_block_id=None, data_summary=None):
-        # Embed manifest snapshot + layout summary + DuckDB data summary into the
-        # user message. The system prompt stays static (cache-friendly).
-        composed_user = compose_user_message(manifest, selected_block_id, user_message, data_summary)
+    def generate_patches(
+        self,
+        system,
+        user_message,
+        manifest,
+        selected_block_id=None,
+        data_summary=None,
+        catalog=None,
+    ):
+        # Embed manifest snapshot + layout summary + DuckDB data summary +
+        # catalog into the user message. The system prompt stays static.
+        composed_user = compose_user_message(
+            manifest, selected_block_id, user_message,
+            data_summary=data_summary,
+            catalog=catalog,
+        )
 
         payload = {
             "model": self.model,
@@ -80,7 +93,6 @@ class QwenClient:
             "stream": False,
         }
         if self.force_json:
-            # OpenAI-compatible JSON mode (Groq, OpenRouter, OpenAI, etc).
             payload["response_format"] = {"type": "json_object"}
 
         resp = requests.post(
@@ -91,7 +103,6 @@ class QwenClient:
             timeout=self.timeout,
         )
         if not resp.ok:
-            # Surface the provider's actual error so we can diagnose 400/429 etc.
             body = resp.text[:1000]
             raise RuntimeError(
                 f"LLM provider HTTP {resp.status_code}: {body}"
@@ -170,12 +181,54 @@ def _data_summary_section(data_summary: dict | None) -> str:
 
     return "\n".join(lines)
 
+def _catalog_section(catalog: dict | None) -> str:
+    """Render the data catalog as a compact, prompt-friendly Turkish section.
+    The LLM must ONLY use tables and columns listed here when producing SQL."""
+    if not catalog:
+        return ""
+
+    domains = catalog.get("domains") or []
+    if not domains:
+        return ""
+
+    lines = ["## Mevcut katalog (SQL üretirken SADECE bu tabloları/kolonları kullan)"]
+    lines.append("")
+    for dom in domains:
+        dom_label = dom.get("label") or dom.get("id") or ""
+        lines.append(f"### {dom_label}")
+        for t in dom.get("tables") or []:
+            tid = t.get("id", "")
+            desc = t.get("desc", "")
+            rows = t.get("rows", "")
+            meta_bits = []
+            if desc:
+                meta_bits.append(desc)
+            if rows:
+                meta_bits.append(f"~{rows} satır")
+            meta_str = f" — {' · '.join(meta_bits)}" if meta_bits else ""
+            lines.append(f"**{tid}**{meta_str}")
+            cols = t.get("columns") or []
+            for c in cols:
+                cname = c.get("name", "?")
+                ctype = c.get("type", "")
+                lines.append(f"  - {cname}  `{ctype}`")
+            filters = t.get("common_filters") or []
+            if filters:
+                lines.append("  Sık kullanılan filtreler:")
+                for f in filters:
+                    flabel = f.get("label", "")
+                    fexpr = f.get("expression", "")
+                    lines.append(f"    • {flabel}: `{fexpr}`")
+            lines.append("")
+    lines.append("")
+    return "\n".join(lines)
 
 def compose_user_message(
     manifest: dict,
     selected_block_id: str | None,
     user_message: str,
     data_summary: dict | None = None,
+    catalog: dict | None = None,
 ) -> str:
     blocks = manifest.get("blocks", [])
     layout = _block_layout_summary(blocks)
@@ -190,9 +243,11 @@ def compose_user_message(
 
     full_json = json.dumps(manifest, ensure_ascii=False, indent=2)
     data_section = _data_summary_section(data_summary)
+    catalog_section = _catalog_section(catalog)
 
     return (
         "# Bağlam\n\n"
+        f"{catalog_section}"
         "## Blok dizilimi (index sırasıyla)\n"
         f"{layout}\n\n"
         "## Section ekleme index'leri (yeni blok ALTINA ekleme için)\n"
@@ -247,7 +302,15 @@ class FakeLLM:
     Diğer her şey için patches=[] + neden döner.
     """
 
-    def generate_patches(self, system, user_message, manifest, selected_block_id=None, data_summary=None):
+    def generate_patches(
+        self,
+        system,
+        user_message,
+        manifest,
+        selected_block_id=None,
+        data_summary=None,
+        catalog=None,
+    ):
         # FakeLLM ignores data_summary — it's pure pattern matching against the
         # user's text. The signature matches QwenClient for drop-in replacement.
         msg = user_message.strip()
