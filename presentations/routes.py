@@ -10,10 +10,11 @@ from presentations import presentations_bp
 from presentations.graph import GraphState, run_pipeline
 from presentations import duck
 from presentations.migration import ensure_nested
+from .aggregation_gate import GateError
 
 # Seed manifest used the first time p_demo is opened.
 _DEMO_MANIFEST = Path(__file__).parent.parent / "examples" / "sample_manifest.json"
-_CATALOG_PATH = Path(__file__).parent.parent / "examples" / "sample_catalog.json"
+_CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
 # Ephemeral chat job table: token → job dict. Consumed by SSE stream.
 _CHAT_JOBS: dict[str, dict] = {}
@@ -420,6 +421,162 @@ def chat_stream(pid: str, token: str):
         },
     )
 
+@presentations_bp.route("/<pid>/block/sql/execute", methods=["POST"])
+@login_required
+def execute_block_sql_route(pid: str):
+    """Adım 1 manuel test endpoint'i. Bir block_id + Oracle SQL gönder,
+    aggregation gate çalışır, sonuç DuckDB'ye view olur, data_source döner.
+
+    Body:
+        { "block_id": "b_test_chart", "sql": "SELECT branch_code, SUM(...) ..." }
+
+    Response:
+        200 + data_source dict   (success)
+        400 + {error: ...}       (gate reddetti veya body kötü)
+        500 + {error: ...}       (Oracle error)
+    """
+    body = request.get_json(silent=True) or {}
+    block_id = (body.get("block_id") or "").strip()
+    sql = body.get("sql") or ""
+
+    if not block_id:
+        return Response(
+            json.dumps({"error": "block_id zorunlu."}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    session = _get_session(pid)
+    conn = session.get_duck_conn()
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return Response(
+            json.dumps({"error": "DATA_CLIENT yapılandırılmamış."}, ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    try:
+        data_source = duck.execute_block_sql(dc, conn, block_id, sql)
+    except GateError as exc:
+        return Response(
+            json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+    except Exception as exc:
+        current_app.logger.exception("execute_block_sql_route failed")
+        return Response(
+            json.dumps({"error": str(exc), "kind": "oracle"}, ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    return Response(
+        json.dumps(data_source, ensure_ascii=False, default=str),
+        mimetype="application/json",
+    )
+
+
+@presentations_bp.route("/<pid>/block/<bid>/refresh", methods=["POST"])
+@login_required
+def refresh_block_data(pid: str, bid: str):
+    """Re-run the block's stored SQL against Oracle and persist the fresh
+    data_source. Returns the full updated block so the UI can swap it in.
+
+    Errors:
+        404 {error: ...}                       — presentation/block missing
+        400 {error: ..., kind: "no_sql"}       — block has no SQL to refresh
+        400 {error: ..., kind: "gate"}         — aggregation gate rejected it
+        500 {error: ..., kind: "oracle"}       — Oracle execution failed
+        500 {error: ..., kind: "config"}       — DATA_CLIENT missing
+    """
+    session = _get_session(pid)
+    manifest = session.get_manifest()
+    if not manifest:
+        return Response(
+            json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    from .manifest import find_block_by_id
+    block, _path = find_block_by_id(manifest, bid)
+    if block is None:
+        return Response(
+            json.dumps({"error": f"Blok '{bid}' bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    ds = block.get("data_source") or {}
+    # Prefer original_sql (LLM intent) over the gate-wrapped `sql`.
+    sql = ds.get("original_sql") or ds.get("sql")
+    if not sql:
+        return Response(
+            json.dumps({
+                "error": "Bu blokta kaynak SQL yok — yenilenecek bir veri kaynağı tanımlı değil.",
+                "kind": "no_sql",
+            }, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    conn = session.get_duck_conn()
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return Response(
+            json.dumps({"error": "DATA_CLIENT yapılandırılmamış.", "kind": "config"},
+                       ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    try:
+        new_ds = duck.execute_block_sql(dc, conn, bid, sql)
+    except GateError as exc:
+        return Response(
+            json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+    except Exception as exc:
+        current_app.logger.exception("refresh_block_data failed")
+        msg = str(exc).strip().splitlines()[0][:240]
+        return Response(
+            json.dumps({"error": msg, "kind": "oracle"}, ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    # Persist new data_source on the block, bump manifest version.
+    block["data_source"] = new_ds
+
+    from .nodes.execute_block_sqls import apply_data_to_config
+    apply_data_to_config(block, new_ds)
+
+    manifest["version"] = manifest.get("version", 0) + 1
+    session.set_manifest(manifest)
+
+    return Response(
+        json.dumps({
+            "ok": True,
+            "version": manifest["version"],
+            "block": block,   # full updated block for UI re-render
+        }, ensure_ascii=False, default=str),
+        mimetype="application/json",
+    )
+
+@presentations_bp.route("/help.json")
+@login_required
+def help_doc():
+    """Serve the help catalog (plot types + examples). Hot-reloaded from disk
+    so editing help.json doesn't need a restart."""
+    help_path = Path(__file__).parent / "help.json"
+    if not help_path.exists():
+        return Response(
+            json.dumps({"error": "help.json bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+    try:
+        data = help_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        current_app.logger.exception("help_doc failed")
+        return Response(
+            json.dumps({"error": str(exc)}, ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+    return Response(data, mimetype="application/json")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
