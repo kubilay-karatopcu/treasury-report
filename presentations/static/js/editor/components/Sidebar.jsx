@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Database, Hash, Sparkles, Presentation, ArrowLeft } from 'lucide-react';
 import useStore from '../lib/store.js';
 import PropertiesPanel from './PropertiesPanel.jsx';
 import Basket from './Basket.jsx';
@@ -10,98 +11,160 @@ function scrollToBlock(blockId) {
 }
 
 export default function Sidebar() {
-  const manifest        = useStore((s) => s.manifest);
-  const viewMode        = useStore((s) => s.viewMode);
-  const setViewMode     = useStore((s) => s.setViewMode);
-  const selectedBlockId = useStore((s) => s.selectedBlockId);
-
-  const [topTab, setTopTab] = useState('properties');
-
-  useEffect(() => {
-    if (selectedBlockId && topTab !== 'properties') setTopTab('properties');
-  }, [selectedBlockId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const viewMode  = useStore((s) => s.viewMode);
+  const setViewMode = useStore((s) => s.setViewMode);
 
   if (viewMode === 'presentation') {
-    const headers = (manifest?.blocks || []).filter((b) => b.type === 'section_header');
-    return (
-      <aside className="editor-sidebar">
-        <div className="sidebar-section sidebar-section--toc">
-          <div className="sidebar-label">İçindekiler</div>
-          {headers.length === 0
-            ? <div className="sidebar-empty">Bölüm başlığı yok.</div>
-            : (
-              <div className="toc-list">
-                {headers.map((b, i) => (
-                  <button
-                    key={b.id}
-                    className="toc-item"
-                    onClick={() => scrollToBlock(b.id)}
-                    title={`'${b.title}' bölümüne git`}
-                  >
-                    <span className="toc-item-num">{i + 1}</span>
-                    <span className="toc-item-title">{b.title}</span>
-                  </button>
-                ))}
-              </div>
-            )
-          }
+    return <PresentationSidebar onExit={() => setViewMode('edit')} />;
+  }
+  return <EditSidebar onPresent={() => setViewMode('presentation')} />;
+}
+
+
+/* ── Edit-mode sidebar ─────────────────────────────────────────────────── */
+
+function EditSidebar({ onPresent }) {
+  const selectedBlockId = useStore((s) => s.selectedBlockId);
+
+  return (
+    <aside className="editor-sidebar">
+      <div className="sidebar-inner">
+        <div className="sidebar-section sidebar-section--sources ts-scroll">
+          <div className="sidebar-label">
+            <span className="sidebar-label-icon"><Database size={12} strokeWidth={2} /></span>
+            <span>Veri Kaynakları</span>
+          </div>
+          <Basket />
+        </div>
+
+        {selectedBlockId && (
+          <div className="sidebar-section sidebar-section--properties">
+            <div className="sidebar-label">
+              <span>Seçili Blok</span>
+            </div>
+            <PropertiesPanel />
+          </div>
+        )}
+
+        <div className="sidebar-section sidebar-section--chat">
+          <ChatBox />
         </div>
 
         <div className="sidebar-section sidebar-section--bottom">
           <button
-            className="mode-toggle-btn mode-toggle-btn--exit"
-            onClick={() => setViewMode('edit')}
+            type="button"
+            className="mode-cta mode-cta--present"
+            onClick={onPresent}
+            title="Sunum modu — düzenleme araçları gizlenir"
           >
-            ← Düzenleme Modu
+            <Presentation size={14} strokeWidth={2} />
+            <span>Sunum Formatına Geç</span>
           </button>
         </div>
-      </aside>
-    );
-  }
-
-  // Edit mode
-  return (
-    <aside className="editor-sidebar">
-      <div className="sidebar-tabs">
-        <button
-          className={`sidebar-tab${topTab === 'properties' ? ' is-active' : ''}`}
-          onClick={() => setTopTab('properties')}
-        >
-          Özellikler
-        </button>
-        <button
-          className={`sidebar-tab${topTab === 'basket' ? ' is-active' : ''}`}
-          onClick={() => setTopTab('basket')}
-        >
-          Veri
-          {(manifest?.basket?.length || 0) > 0 && (
-            <span className="sidebar-tab-badge">{manifest.basket.length}</span>
-          )}
-        </button>
-      </div>
-
-      <div className="sidebar-section sidebar-section--top">
-        {topTab === 'properties' && (
-          selectedBlockId
-            ? <PropertiesPanel />
-            : <div className="sidebar-empty">Düzenlemek için bir bloka tıklayın.</div>
-        )}
-        {topTab === 'basket' && <Basket />}
-      </div>
-
-      <div className="sidebar-section sidebar-section--chat">
-        <ChatBox />
-      </div>
-
-      <div className="sidebar-section sidebar-section--bottom">
-        <button
-          className="mode-toggle-btn mode-toggle-btn--present"
-          onClick={() => setViewMode('presentation')}
-          title="Sunum modu — düzenleme araçları gizlenir, sadece içerik gösterilir"
-        >
-          ▶ Sunu Modu
-        </button>
       </div>
     </aside>
   );
+}
+
+
+/* ── Presentation-mode sidebar ─────────────────────────────────────────── */
+
+function PresentationSidebar({ onExit }) {
+  const manifest = useStore((s) => s.manifest);
+
+  // Flatten section_header blocks at top level + inside children, in document order.
+  const headers = collectHeaders(manifest?.blocks || []);
+  const [activeId, setActiveId] = useState(headers[0]?.id);
+
+  // Scroll-spy: highlight the heading whose top is just above the 25% scroll line.
+  useEffect(() => {
+    if (!headers.length) return;
+    const main = document.querySelector('.blocks-canvas');
+    if (!main) return;
+
+    function update() {
+      const threshold = window.innerHeight * 0.25;
+      const els = headers
+        .map((h) => document.querySelector(`[data-block-id="${CSS.escape(h.id)}"]`))
+        .filter(Boolean);
+      let current = headers[0]?.id;
+      for (let i = 0; i < els.length; i++) {
+        const rect = els[i].getBoundingClientRect();
+        if (rect.top <= threshold) current = headers[i].id;
+      }
+      setActiveId(current);
+    }
+
+    main.addEventListener('scroll', update, { passive: true });
+    update();
+    return () => main.removeEventListener('scroll', update);
+  }, [headers.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <aside className="editor-sidebar">
+      <div className="sidebar-inner">
+        <div className="sidebar-section sidebar-section--toc ts-scroll">
+          <div className="sidebar-label">
+            <span className="sidebar-label-icon"><Hash size={12} strokeWidth={2} /></span>
+            <span>İçindekiler</span>
+          </div>
+
+          {headers.length === 0 ? (
+            <div className="sidebar-empty">Bölüm başlığı yok.</div>
+          ) : (
+            <nav className="toc-list">
+              {headers.map((b, idx) => {
+                const active = b.id === activeId;
+                return (
+                  <button
+                    type="button"
+                    key={b.id}
+                    className={`toc-item${active ? ' is-active' : ''}`}
+                    onClick={() => scrollToBlock(b.id)}
+                    title={`'${b.title}' bölümüne git`}
+                  >
+                    <span className="toc-item-num">{idx + 1}</span>
+                    <span className="toc-item-title">{b.title}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+
+          <div className="toc-helper">
+            <div className="toc-helper-title">
+              <Sparkles size={11} strokeWidth={2} style={{ color: 'var(--ts-primary)' }} />
+              <span>Sunum modu</span>
+            </div>
+            Bloklar düzenlenemez. Veri kaynakları gizli. Yan menüden başlıklara atlayabilirsiniz.
+          </div>
+        </div>
+
+        <div className="sidebar-section sidebar-section--bottom">
+          <button
+            type="button"
+            className="mode-cta mode-cta--exit"
+            onClick={onExit}
+          >
+            <ArrowLeft size={14} strokeWidth={2} />
+            <span>Düzenlemeye Dön</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+
+function collectHeaders(blocks) {
+  const out = [];
+  for (const b of blocks) {
+    if (b.type === 'section_header') out.push(b);
+    if (Array.isArray(b.children)) {
+      for (const c of b.children) {
+        if (c.type === 'section_header') out.push(c);
+      }
+    }
+  }
+  return out;
 }
