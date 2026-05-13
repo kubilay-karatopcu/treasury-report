@@ -1,18 +1,25 @@
 import { useState } from 'react';
+import {
+  Menu, ChevronRight, Presentation, FileText, ExternalLink, Home, HelpCircle,
+} from 'lucide-react';
 import useStore from '../lib/store.js';
 import { createSnapshot, createPresentation } from '../lib/api.js';
+import HelpModal from './HelpModal.jsx';
 
-export default function Header() {
+export default function Header({ sidebarOpen, onToggleSidebar }) {
   const manifest        = useStore((s) => s.manifest);
   const mode            = useStore((s) => s.mode);
+  const viewMode        = useStore((s) => s.viewMode);
   const openShareModal  = useStore((s) => s.openShareModal);
 
   const [snapshotting, setSnapshotting] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating]         = useState(false);
+  const [helpOpen, setHelpOpen]         = useState(false);
 
   if (!manifest) return null;
-  const { meta } = manifest;
-  const isSnapshot = mode === 'snapshot';
+  const meta = manifest.meta || {};
+  const isSnapshot     = mode === 'snapshot';
+  const isPresentation = viewMode === 'presentation';
   const listUrl = window.location.pathname.replace(/\/[^/]+$/, '/');
 
   async function takeSnapshot() {
@@ -44,53 +51,99 @@ export default function Header() {
   }
 
   return (
-    <div className="editor-header">
-      <div className="editor-header-left">
-        <div className="header-title-block">
-          <div className="header-eyebrow">
-            {meta.eyebrow}
-            {isSnapshot && <span className="header-snapshot-pill">Snapshot</span>}
-          </div>
-          <div className="header-title">{meta.title}</div>
-        </div>
-      </div>
-      <div className="editor-header-right">
-        {meta.date && (
-          <span className="header-meta">
-            {meta.date}{meta.author_label ? ` · ${meta.author_label}` : ''}
-          </span>
-        )}
-        {!isSnapshot && (
-          <>
-            <a href={listUrl} className="header-nav-link" title="Tüm sunumlarımı gör">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                   fill="none" stroke="currentColor" strokeWidth="2"
-                   strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12L5 10L12 3L19 10L21 12"/>
-                <path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1 -1V10"/>
-                <path d="M9 21V12h6v9"/>
-              </svg>
-              Sunumlarım
-            </a>
-            <NewPresentationButton
-              hasBasket={(manifest.basket?.length || 0) > 0}
-              creating={creating}
-              onCreate={newPresentation}
-            />
+    <>
+      <header className="editor-header">
+        <div className="editor-header-left">
+          {!isSnapshot && (
             <button
-              className="header-btn header-btn--secondary"
-              onClick={takeSnapshot}
-              disabled={snapshotting}
-              title="Sunum'un anlık halini paylaşılabilir bağlantı olarak dondur"
+              type="button"
+              className={`header-sidebar-toggle${sidebarOpen ? ' is-active' : ''}`}
+              onClick={onToggleSidebar}
+              title={sidebarOpen ? 'Paneli kapat' : 'Paneli aç'}
             >
-              {snapshotting ? 'Oluşturuluyor…' : 'Snapshot Al'}
+              <Menu size={16} strokeWidth={2} />
             </button>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+
+          <div className="header-logo">T</div>
+
+          <div className="header-breadcrumb">
+            <span>Hazine Platformu</span>
+            <ChevronRight size={12} />
+            <span>{isSnapshot ? 'Snapshot' : 'Sunumlar'}</span>
+            <ChevronRight size={12} />
+            <span className="header-breadcrumb-current" title={meta.title}>
+              {meta.title}
+            </span>
+          </div>
+
+          {!isSnapshot && (
+            <div className={`header-mode-pill${isPresentation ? ' is-presentation' : ''}`}>
+              {isPresentation
+                ? <Presentation size={11} strokeWidth={2.2} />
+                : <FileText size={11} strokeWidth={2.2} />}
+              <span>{isPresentation ? 'Sunum' : 'Düzenle'}</span>
+            </div>
+          )}
+
+          {isSnapshot && (
+            <span className="header-snapshot-pill">Snapshot</span>
+          )}
+        </div>
+
+        <div className="editor-header-right">
+          {meta.date && (
+            <span className="header-meta">
+              {meta.date}
+              {meta.author_label ? ` · ${meta.author_label}` : ''}
+            </span>
+          )}
+
+          {!isSnapshot && (
+            <>
+              <button
+                type="button"
+                className="header-sidebar-toggle"
+                onClick={() => setHelpOpen(true)}
+                title="Komut yardımı — blok tipleri ve örnekler"
+                style={{ marginRight: 0 }}
+              >
+                <HelpCircle size={16} strokeWidth={1.8} />
+              </button>
+
+              <a
+                href={listUrl}
+                className="btn-ghost"
+                title="Tüm sunumlarımı gör"
+              >
+                <Home size={13} strokeWidth={1.8} />
+                <span>Sunumlarım</span>
+              </a>
+              <NewPresentationButton
+                hasBasket={(manifest.basket?.length || 0) > 0}
+                creating={creating}
+                onCreate={newPresentation}
+              />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={takeSnapshot}
+                disabled={snapshotting}
+                title="Sunum'un anlık halini paylaşılabilir bağlantı olarak dondur"
+              >
+                <ExternalLink size={13} strokeWidth={1.8} />
+                <span>{snapshotting ? 'Oluşturuluyor…' : 'Snapshot Al'}</span>
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+    </>
   );
 }
+
 
 function NewPresentationButton({ hasBasket, creating, onCreate }) {
   const [open, setOpen] = useState(false);
@@ -98,7 +151,8 @@ function NewPresentationButton({ hasBasket, creating, onCreate }) {
   if (!hasBasket) {
     return (
       <button
-        className="header-btn header-btn--primary"
+        type="button"
+        className="btn-primary"
         onClick={() => onCreate(false)}
         disabled={creating}
         title="Yeni boş sunum başlat"
@@ -111,7 +165,8 @@ function NewPresentationButton({ hasBasket, creating, onCreate }) {
   return (
     <div className="new-pres-menu">
       <button
-        className="header-btn header-btn--primary"
+        type="button"
+        className="btn-primary"
         onClick={() => setOpen((v) => !v)}
         disabled={creating}
       >
@@ -120,12 +175,14 @@ function NewPresentationButton({ hasBasket, creating, onCreate }) {
       {open && (
         <div className="new-pres-dropdown" onMouseLeave={() => setOpen(false)}>
           <button
+            type="button"
             className="new-pres-dropdown-item"
             onClick={() => { setOpen(false); onCreate(false); }}
           >
             Boş başla
           </button>
           <button
+            type="button"
             className="new-pres-dropdown-item"
             onClick={() => { setOpen(false); onCreate(true); }}
           >
