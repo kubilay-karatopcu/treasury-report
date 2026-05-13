@@ -20,100 +20,75 @@ const WIDTH_OPTIONS = [
   { value: '1/3',  label: '1/3' },
 ];
 
-function LockToggle({ block }) {
-  const toggleLock = useStore((s) => s.toggleLock);
-  if (block.type === 'section_header') return null;
 
-  return (
-    <div className="prop-row">
-      <span className="prop-label">Kilit</span>
-      <button
-        className={`lock-toggle-btn${block.locked ? ' is-locked' : ''}`}
-        onClick={() => toggleLock(block.id)}
-        title={block.locked ? 'Kilidi kaldır' : 'Kilitle (LLM değiştiremez)'}
-      >
-        {block.locked ? '🔒 Kilitli' : '🔓 Kilitsiz'}
-      </button>
-    </div>
-  );
+// Find a block by id, searching top-level + children.
+function findBlock(blocks, id) {
+  if (!id || !Array.isArray(blocks)) return null;
+  for (const b of blocks) {
+    if (b.id === id) return b;
+    if (Array.isArray(b.children)) {
+      for (const c of b.children) {
+        if (c.id === id) return c;
+      }
+    }
+  }
+  return null;
 }
 
-function WidthPicker({ block }) {
-  const setBlockWidth = useStore((s) => s.setBlockWidth);
-  if (block.type === 'section_header') return null;
-
-  const current = block.width || 'full';
-
-  return (
-    <div className="prop-row">
-      <span className="prop-label">Genişlik</span>
-      <div className="width-picker">
-        {WIDTH_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            className={`width-picker-btn${current === opt.value ? ' is-active' : ''}`}
-            onClick={() => setBlockWidth(block.id, opt.value)}
-            title={`Genişlik: ${opt.label}`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function PropertiesPanel() {
-  const manifest         = useStore((s) => s.manifest);
-  const selectedBlockId  = useStore((s) => s.selectedBlockId);
-  const setSelectedBlock = useStore((s) => s.setSelectedBlock);
+  const manifest        = useStore((s) => s.manifest);
+  const selectedBlockId = useStore((s) => s.selectedBlockId);
+  const toggleLock      = useStore((s) => s.toggleLock);
+  const setBlockWidth   = useStore((s) => s.setBlockWidth);
 
-  if (!selectedBlockId || !manifest) {
-    return (
-      <div className="properties-panel properties-panel--empty">
-        Bir blok seçin.
-      </div>
-    );
-  }
-
-  // Nested traversal: section_headers at top, leaves under children.
-  let block = null;
-  for (const section of manifest.blocks || []) {
-    if (section.id === selectedBlockId) { block = section; break; }
-    const child = (section.children || []).find((c) => c.id === selectedBlockId);
-    if (child) { block = child; break; }
-  }
+  const block = findBlock(manifest?.blocks, selectedBlockId);
   if (!block) return null;
 
+  const isSectionHeader = block.type === 'section_header';
+
   return (
-    <div className="properties-panel">
-      <div className="prop-header">
-        <span className="prop-type-label">{TYPE_LABELS[block.type] || block.type}</span>
-        <button
-          className="prop-close-btn"
-          onClick={() => setSelectedBlock(null)}
-          aria-label="Seçimi kaldır"
-        >
-          ✕
-        </button>
+    <div className="props-panel">
+      <div className="props-row">
+        <span className="props-label">Tip</span>
+        <span className="props-type">{TYPE_LABELS[block.type] || block.type}</span>
       </div>
 
-      <div className="prop-title">{block.title}</div>
-
-      <LockToggle block={block} />
-      <WidthPicker block={block} />
-
-      {block.source && (
-        <div className="prop-row">
-          <span className="prop-label">Kaynak</span>
-          <span className="prop-value prop-value--mono">{block.source}</span>
+      {!isSectionHeader && (
+        <div className="props-row">
+          <span className="props-label">Genişlik</span>
+          <div className="width-picker">
+            {WIDTH_OPTIONS.map((opt) => {
+              const active = (block.width || 'full') === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`width-picker-btn${active ? ' is-active' : ''}`}
+                  onClick={() => setBlockWidth(block.id, opt.value)}
+                  title={`Genişlik: ${opt.label}`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      <div className="prop-row">
-        <span className="prop-label">ID</span>
-        <span className="prop-value prop-value--mono">{block.id}</span>
-      </div>
+      {!isSectionHeader && (
+        <div className="props-row">
+          <span className="props-label">Kilit</span>
+          <button
+            type="button"
+            className={`lock-toggle-btn${block.locked ? ' is-locked' : ''}`}
+            onClick={() => toggleLock(block.id)}
+            title={block.locked ? 'Kilidi kaldır' : 'Kilitle (LLM değiştiremez)'}
+          >
+            {block.locked ? '🔒 Kilitli' : '🔓 Kilitsiz'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
