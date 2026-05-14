@@ -1,0 +1,104 @@
+{
+  "domains": [
+      {
+      "id": "dom_mevduat",
+      "label": "Mevduat",
+      "icon": "building",
+      "tables": [
+        {
+          "id": "A16438.MEVDUAT_YETKILER",
+          "desc": "Günlük mevduat yetki limitleri (vadeli)",
+          "rows": "140K",
+          "columns": [
+            { "name": "DAT", "type": "DATE", "nullable": false },
+            { "name": "DOVIZ", "type": "VARCHAR2(5)", "nullable": false },
+            { "name": "VADE_BASLANGIC", "type": "NUMBER", "nullable": false },
+            { "name": "VADE_BITIS", "type": "NUMBER", "nullable": false },
+            { "name": "MAKSIMUM", "type": "NUMBER", "nullable": false },
+            { "name": "EKSTREM", "type": "NUMBER", "nullable": false },
+            { "name": "EKSTREM_LIMIT_ALTI", "type": "NUMBER", "nullable": false },
+            { "name": "ZARAR_YETKISI", "type": "NUMBER", "nullable": false },
+            { "name": "EKSTREM_TUZEL", "type": "NUMBER", "nullable": false },
+            { "name": "EKSTREM_LIMIT_ALTI_TUZEL", "type": "NUMBER", "nullable": false },
+            { "name": "ZARAR_YETKISI_TUZEL", "type": "NUMBER", "nullable": false }
+          ],
+          "common_filters": [
+            { "label": "Bugün", "expression": "TRUNC(DAT) = TRUNC(SYSDATE)" },
+            { "label": "Son 30 gün", "expression": "DAT >= ADD_MONTHS(SYSDATE, -1)" },
+            { "label": "Euro cinsi", "expression": "DOVIZ = 'EUR'" },
+            { "label": "Dolar cinsi", "expression": "DOVIZ = 'USD'" },
+            { "label": "TL cinsi", "expression": "DOVIZ = 'TRY'" }
+          ]
+        },
+        {
+          "id": "A16438.DEPOSITUSAGE_NEW",
+          "desc": "Günlük mevduat kullanım ve bakiye detayları",
+          "rows": "62M",
+          "columns": [
+            { "name": "DAT", "type": "DATE", "nullable": true },
+            { "name": "CUR", "type": "VARCHAR2(10)", "nullable": true },
+            { "name": "SEGMENT", "type": "VARCHAR2(10)", "nullable": true },
+            { "name": "TYPE", "type": "VARCHAR2(100)", "nullable": true },
+            { "name": "TYPE2", "type": "VARCHAR2(200)", "nullable": true },
+            { "name": "CUST_TP", "type": "VARCHAR2(10)", "nullable": true },
+            { "name": "AUM_TYPE", "type": "VARCHAR2(100)", "nullable": true },
+            { "name": "TRY_BALANCE", "type": "NUMBER", "nullable": true },
+            { "name": "USD_BALANCE", "type": "NUMBER", "nullable": true },
+            { "name": "ORIG_BALANCE", "type": "NUMBER", "nullable": true },
+            { "name": "TENOR", "type": "NUMBER", "nullable": true },
+            { "name": "INTEREST_RATE", "type": "NUMBER", "nullable": true },
+            { "name": "EFFICIENCY_RATE", "type": "NUMBER", "nullable": true },
+            { "name": "EFFICIENCY", "type": "NUMBER", "nullable": true },
+            { "name": "POOL", "type": "NUMBER", "nullable": true },
+            { "name": "MUNZAM", "type": "NUMBER", "nullable": true },
+            { "name": "SUBSIDY", "type": "NUMBER", "nullable": true },
+            { "name": "SUBSIDY2", "type": "NUMBER", "nullable": true },
+            { "name": "LIQUIDITY", "type": "NUMBER", "nullable": true },
+            { "name": "HEDGE", "type": "NUMBER", "nullable": true },
+            { "name": "BASE", "type": "NUMBER", "nullable": true },
+            { "name": "MATURITY_INFIMUM", "type": "NUMBER", "nullable": true },
+            { "name": "MATURITY_SUPREMUM", "type": "NUMBER", "nullable": true },
+            { "name": "AUM_INFIMUM", "type": "NUMBER", "nullable": true },
+            { "name": "AUM_SUPREMUM", "type": "NUMBER", "nullable": true },
+            { "name": "LCR_TP", "type": "VARCHAR2(20)", "nullable": true },
+            { "name": "SUB_SEGMENT", "type": "VARCHAR2(10)", "nullable": true },
+            { "name": "AUM_THRESHOLD", "type": "VARCHAR2(20)", "nullable": true },
+            { "name": "PRIORITY", "type": "VARCHAR2(20)", "nullable": true },
+            { "name": "SPEC_ACCT_CODE", "type": "VARCHAR2(3)", "nullable": true },
+            { "name": "CUSTOMER_NUMBER", "type": "NUMBER", "nullable": true },
+            { "name": "YEAR_END_AUM_TYPE", "type": "VARCHAR2(100)", "nullable": true },
+            { "name": "YEAR_END_AUM_INFIMUM", "type": "NUMBER", "nullable": true },
+            { "name": "YEAR_END_AUM_SUPREMUM", "type": "NUMBER", "nullable": true },
+            { "name": "YEAR_END_AUM_THRESHOLD", "type": "VARCHAR2(20)", "nullable": true },
+            { "name": "YEAR_END_PRIORITY", "type": "VARCHAR2(20)", "nullable": true },
+            { "name": "TRY_BALANCE_31_REMAINING", "type": "NUMBER", "nullable": true },
+            { "name": "ORIG_BALANCE_31_REMAINING", "type": "NUMBER", "nullable": true },
+            { "name": "INCENTIVE_RATE", "type": "NUMBER", "nullable": true }
+          ],
+           "common_filters": [
+          { "label": "Bugün", "expression": "TRUNC(DAT) = TRUNC(SYSDATE)" },
+          { "label": "Son 30 gün", "expression": "DAT >= ADD_MONTHS(SYSDATE, -1)" },
+          { "label": "TL Cinsi", "expression": "CUR = 'TRY'" },
+          { "label": "Dolar Cinsi", "expression": "CUR = 'USD'" },
+          { "label": "Euro Cinsi", "expression": "CUR = 'EUR'" },
+          { "label": "Vadesiz Mevduat", "expression": "TYPE = 'demand' OR TYPE2 LIKE '%Vadesiz%'" },
+          { "label": "Vadeli Mevduat", "expression": "TYPE = 'time' OR TYPE2 LIKE '%Vadeli%'" },
+          { "label": "Perakende Segmenti", "expression": "SEGMENT = 'FB' AND SUB_SEGMENT IN ('Perakende', 'Gerçek')" },
+          { "label": "KOBİ / Ticari Segmenti", "expression": "SEGMENT = 'FB' AND SUB_SEGMENT IN ('Ticari', 'TC')" },
+          { "label": "Kurumsal Segmenti", "expression": "SEGMENT = 'CB' OR SUB_SEGMENT = 'Finansal'" },
+          { "label": "Yüksek Öncelikli Müşteriler", "expression": "PRIORITY = 'High' OR YEAR_END_PRIORITY = 'High'" },
+          { "label": "AUM > 5M TRY", "expression": "TRY_BALANCE > 5000000" }
+        ]}
+      ]
+    }
+  ]
+}
+
+
+
+
+
+
+
+
+
