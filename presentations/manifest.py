@@ -57,7 +57,9 @@ LEAF_BLOCK_TYPES = frozenset({
     "data_table",       # AG Grid table block
 })
 
-CONTAINER_BLOCK_TYPES = frozenset({"section_header"})
+# section_header — yalnızca top-level; children: leaf VEYA carousel
+# carousel       — yalnızca section.children içinde; children: leaf ONLY
+CONTAINER_BLOCK_TYPES = frozenset({"section_header", "carousel"})
 
 BLOCK_TYPES = LEAF_BLOCK_TYPES | CONTAINER_BLOCK_TYPES
 
@@ -72,7 +74,10 @@ NO_WIDTH_TYPES = frozenset({"section_header"})
 # Style option values.
 CURVE_VALUES = frozenset({"smooth", "straight", "stepline"})
 LEGEND_POSITIONS = frozenset({"top", "right", "bottom", "left"})
-
+DATA_SOURCE_TYPES = frozenset({
+"kpi", "bar_chart", "line_chart", "area_chart", "pie_chart",
+"heatmap", "radial_bar", "data_table",
+})
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -190,12 +195,13 @@ def _validate_chart_style(block: dict) -> list[str]:
 
 # ── Block validators ─────────────────────────────────────────────────────────
 
-def validate_block(block: dict, *, allow_section: bool = False) -> list[str]:
+def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: bool = False) -> list[str]:
     """Validate a single block.
 
-    `allow_section`: True when validating a top-level block (sections are only
-    allowed at the top level). False when validating a child of a section
-    (children must be leaves).
+    `allow_section`: True when validating a top-level block (section_header
+    is only allowed at the top level).
+    `allow_carousel`: True when validating section.children (carousel can sit
+    next to leaf blocks). False inside carousel.children (only leaves).
     """
     errors: list[str] = []
     btype = block.get("type")
@@ -205,9 +211,14 @@ def validate_block(block: dict, *, allow_section: bool = False) -> list[str]:
         errors.append(f"Block {bid!r}: unknown type {btype!r}")
         return errors
 
-    if btype in CONTAINER_BLOCK_TYPES and not allow_section:
+    if btype == "section_header" and not allow_section:
         errors.append(
-            f"Block {bid!r}: section_header cannot be nested inside another section"
+            f"Block {bid!r}: section_header sadece üst seviyede olabilir"
+        )
+        return errors
+    if btype == "carousel" and not allow_carousel:
+        errors.append(
+            f"Block {bid!r}: carousel sadece section.children içinde olabilir"
         )
         return errors
 
@@ -266,15 +277,41 @@ def validate_block(block: dict, *, allow_section: bool = False) -> list[str]:
             errors.append(f"Block {bid!r}: data_table config missing 'rows' (must be list)")
 
     elif btype == "section_header":
-        # Children validation handled here so section_header errors propagate.
+        # Children: leaf OR carousel.
         children = block.get("children", [])
         if not isinstance(children, list):
             errors.append(f"Block {bid!r}: section_header.children must be a list")
         else:
             for i, child in enumerate(children):
-                child_errors = validate_block(child, allow_section=False)
+                child_errors = validate_block(
+                    child, allow_section=False, allow_carousel=True,
+                )
                 errors.extend(f"section[{bid!r}].children[{i}]: {e}" for e in child_errors)
 
+    elif btype == "carousel":
+        # Children: SADECE leaf (nested carousel veya section yok).
+        children = block.get("children", [])
+        if not isinstance(children, list):
+            errors.append(f"Block {bid!r}: carousel.children must be a list")
+        elif len(children) < 1:
+            errors.append(f"Block {bid!r}: carousel en az 1 slide içermeli")
+        else:
+            for i, child in enumerate(children):
+                child_errors = validate_block(
+                    child, allow_section=False, allow_carousel=False,
+                )
+                errors.extend(f"carousel[{bid!r}].children[{i}]: {e}" for e in child_errors)
+        # `active_idx` opsiyonel, varsa integer ve range içinde olmalı
+        ai = block.get("active_idx")
+        if ai is not None:
+            if not isinstance(ai, int):
+                errors.append(f"Block {bid!r}: carousel.active_idx must be integer")
+            elif isinstance(children, list) and not (0 <= ai < len(children)):
+                errors.append(f"Block {bid!r}: carousel.active_idx {ai} out of range")
+    
+    if "data_source" in block:
+        errors.extend(_validate_data_source(block))
+            
     return errors
 
 
@@ -302,23 +339,73 @@ def validate_manifest(manifest: dict) -> list[str]:
 # ── Traversal helpers (used by other modules) ────────────────────────────────
 
 def iter_all_blocks(manifest: dict):
-    """Yield every block (sections + their children) flat. Useful for
-    operations that need to see every leaf, like locked-block check or
-    LLM context summary."""
+    """Yield every block (sections + their children + carousel slides) flat.
+    Useful for operations that need to see every leaf, like locked-block check
+    or LLM context summary."""
     for section in manifest.get("blocks", []):
         yield section
         for child in section.get("children", []) or []:
             yield child
+            # Carousel'in slide'larını da yield et
+            if child.get("type") == "carousel":
+                for slide in child.get("children", []) or []:
+                    yield slide
 
 
 def find_block_by_id(manifest: dict, block_id: str):
     """Locate a block anywhere in the manifest. Returns (block, path) or
     (None, None). `path` is the JSON-pointer-style path you can target with
-    a patch (e.g. '/blocks/0/children/2')."""
+    a patch (e.g. '/blocks/0/children/2' or
+    '/blocks/0/children/2/children/1' for a carousel slide)."""
     for si, section in enumerate(manifest.get("blocks", [])):
         if section.get("id") == block_id:
             return section, f"/blocks/{si}"
         for ci, child in enumerate(section.get("children", []) or []):
             if child.get("id") == block_id:
                 return child, f"/blocks/{si}/children/{ci}"
+            # Carousel slides — 3. seviye nesting
+            if child.get("type") == "carousel":
+                for ki, slide in enumerate(child.get("children", []) or []):
+                    if slide.get("id") == block_id:
+                        return slide, f"/blocks/{si}/children/{ci}/children/{ki}"
     return None, None
+
+
+def _validate_data_source(block: dict) -> list[str]:
+    """Block.data_source schema doğrulaması. Tüm alanlar opsiyonel-tipli ama
+    eğer varsa doğru tipte olmalı; ek olarak bu alanı section_header / narrative
+    block tipleri taşıyamaz.
+    """
+    errors: list[str] = []
+    bid = block.get("id", "?")
+    btype = block.get("type")
+    ds = block.get("data_source")
+ 
+    if not isinstance(ds, dict):
+        errors.append(f"Block {bid!r}: data_source must be an object")
+        return errors
+ 
+    if btype not in DATA_SOURCE_TYPES:
+        errors.append(
+            f"Block {bid!r}: {btype} cannot carry a data_source "
+            f"(allowed for: {sorted(DATA_SOURCE_TYPES)})"
+        )
+        return errors
+ 
+    if "sql" not in ds or not isinstance(ds["sql"], str) or not ds["sql"].strip():
+        errors.append(f"Block {bid!r}: data_source.sql must be a non-empty string")
+ 
+    # Other fields are produced server-side; we sanity-check types only, no
+    # strict requirement on presence (so older manifests upgrade gracefully).
+    if "row_count" in ds and not isinstance(ds["row_count"], int):
+        errors.append(f"Block {bid!r}: data_source.row_count must be an integer")
+    if "truncated" in ds and not isinstance(ds["truncated"], bool):
+        errors.append(f"Block {bid!r}: data_source.truncated must be a boolean")
+    if "columns" in ds and not isinstance(ds["columns"], list):
+        errors.append(f"Block {bid!r}: data_source.columns must be a list")
+    if "preview_rows" in ds and not isinstance(ds["preview_rows"], list):
+        errors.append(f"Block {bid!r}: data_source.preview_rows must be a list")
+ 
+    return errors
+
+    

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { X, RefreshCw, Lock, Unlock, Trash2, Layers, Plus } from 'lucide-react';
 import useStore from '../lib/store.js';
 
 const TYPE_LABELS = {
@@ -11,7 +13,20 @@ const TYPE_LABELS = {
   radial_bar:     'Radyal Gösterge',
   data_table:     'Tablo',
   narrative:      'Metin',
+  carousel:       'Carousel',
 };
+
+const SLIDE_TYPES = [
+  { type: 'kpi',        label: 'KPI' },
+  { type: 'bar_chart',  label: 'Çubuk' },
+  { type: 'line_chart', label: 'Çizgi' },
+  { type: 'area_chart', label: 'Alan' },
+  { type: 'pie_chart',  label: 'Pasta' },
+  { type: 'heatmap',    label: 'Isı' },
+  { type: 'radial_bar', label: 'Gösterge' },
+  { type: 'data_table', label: 'Tablo' },
+  { type: 'narrative',  label: 'Metin' },
+];
 
 const WIDTH_OPTIONS = [
   { value: 'full', label: 'Tam' },
@@ -20,100 +35,799 @@ const WIDTH_OPTIONS = [
   { value: '1/3',  label: '1/3' },
 ];
 
-function LockToggle({ block }) {
-  const toggleLock = useStore((s) => s.toggleLock);
-  if (block.type === 'section_header') return null;
+const DATA_BOUND_TYPES = new Set([
+  'kpi', 'bar_chart', 'line_chart', 'area_chart',
+  'pie_chart', 'heatmap', 'radial_bar', 'data_table',
+]);
+
+
+function findBlock(blocks, id) {
+  if (!id || !Array.isArray(blocks)) return null;
+  for (const b of blocks) {
+    if (b.id === id) return b;
+    if (Array.isArray(b.children)) {
+      for (const c of b.children) {
+        if (c.id === id) return c;
+        // Carousel slides — 3. seviye
+        if (c.type === 'carousel' && Array.isArray(c.children)) {
+          for (const s of c.children) {
+            if (s.id === id) return s;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+
+export default function PropertiesPanel({ width, onResizeStart }) {
+  const manifest        = useStore((s) => s.manifest);
+  const selectedBlockId = useStore((s) => s.selectedBlockId);
+  const setSelectedBlock = useStore((s) => s.setSelectedBlock);
+  const viewMode        = useStore((s) => s.viewMode);
+
+  // ESC ile panel kapansın
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') setSelectedBlock(null);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setSelectedBlock]);
+
+  const block = findBlock(manifest?.blocks, selectedBlockId);
+  if (!block || viewMode !== 'edit') return null;
+
+  const isSection = block.type === 'section_header';
+  const isDataBound = DATA_BOUND_TYPES.has(block.type);
 
   return (
-    <div className="prop-row">
-      <span className="prop-label">Kilit</span>
+    <aside className="props-side-panel" style={width ? { width } : undefined}>
+      {onResizeStart && (
+        <div className="resize-handle resize-handle--left"
+             onMouseDown={onResizeStart} />
+      )}
+      <header className="props-side-panel__header">
+        <div>
+          <div className="props-side-panel__type">{TYPE_LABELS[block.type] || block.type}</div>
+          <div className="props-side-panel__id" title={block.id}>{block.id}</div>
+        </div>
+        <button
+          type="button"
+          className="props-close-btn"
+          onClick={() => setSelectedBlock(null)}
+          title="Kapat (ESC)"
+        >
+          <X size={16} strokeWidth={2} />
+        </button>
+      </header>
+
+      <div className="props-side-panel__body ts-scroll">
+        <Section title="Genel">
+          <TitleField block={block} />
+          {!isSection && <WidthField block={block} />}
+          {!isSection && <LockField block={block} />}
+        </Section>
+
+        {block.type === 'section_header' && <SectionHeaderControls block={block} />}
+        {block.type === 'kpi'        && <KpiControls block={block} />}
+        {block.type === 'bar_chart'  && <BarChartControls block={block} />}
+        {block.type === 'line_chart' && <LineChartControls block={block} type="line_chart" />}
+        {block.type === 'area_chart' && <LineChartControls block={block} type="area_chart" />}
+        {block.type === 'pie_chart'  && <PieChartControls block={block} />}
+        {block.type === 'heatmap'    && <HeatmapControls block={block} />}
+        {block.type === 'radial_bar' && <RadialBarControls block={block} />}
+        {block.type === 'narrative'  && <NarrativeControls block={block} />}
+
+        {isDataBound && <SqlEditor block={block} />}
+
+        <CarouselActions block={block} />
+
+        <DangerZone block={block} />
+      </div>
+    </aside>
+  );
+}
+
+
+function CarouselActions({ block }) {
+  const manifest                = useStore((s) => s.manifest);
+  const addSlideToCarousel      = useStore((s) => s.addSlideToCarousel);
+  const reorderSlide            = useStore((s) => s.reorderSlide);
+  const removeSlideFromCarousel = useStore((s) => s.removeSlideFromCarousel);
+  const setSelectedBlock        = useStore((s) => s.setSelectedBlock);
+  const deleteBlock             = useStore((s) => s.deleteBlock);
+
+  const [slideMenu, setSlideMenu] = useState(false);
+
+  // Carousel seçili → slide listesi + slide ekle
+  if (block.type === 'carousel') {
+    const slides = block.children || [];
+    return (
+      <Section title={`Slides (${slides.length})`}>
+        {slides.length === 0 ? (
+          <div className="props-form-hint" style={{ padding: 6 }}>
+            Henüz slide yok — aşağıdan ekle.
+          </div>
+        ) : (
+          <div className="carousel-slide-list">
+            {slides.map((s, i) => (
+              <div key={s.id} className="carousel-slide-row">
+                <button
+                  type="button"
+                  className="carousel-slide-row__label"
+                  onClick={() => setSelectedBlock(s.id)}
+                  title="Slide ayarlarını aç"
+                >
+                  <span className="carousel-slide-idx">{i + 1}.</span>
+                  <span className="carousel-slide-title">{s.title || s.id}</span>
+                  <span className="carousel-slide-type">{TYPE_LABELS[s.type] || s.type}</span>
+                </button>
+                <div className="carousel-slide-row__actions">
+                  <button
+                    type="button"
+                    className="props-btn props-btn--icon"
+                    onClick={() => reorderSlide(s.id, -1)}
+                    disabled={i === 0}
+                    title="Yukarı taşı"
+                  >↑</button>
+                  <button
+                    type="button"
+                    className="props-btn props-btn--icon"
+                    onClick={() => reorderSlide(s.id, +1)}
+                    disabled={i === slides.length - 1}
+                    title="Aşağı taşı"
+                  >↓</button>
+                  <button
+                    type="button"
+                    className="props-btn props-btn--icon props-btn--icon-danger"
+                    onClick={() => {
+                      if (window.confirm(`'${s.title || s.id}' slide'ı silinsin mi?`)) {
+                        deleteBlock(s.id);
+                      }
+                    }}
+                    title="Slide'ı sil"
+                  >🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Row label="Slide ekle">
+          <button
+            type="button"
+            className="props-btn props-btn--primary props-btn--block"
+            onClick={() => setSlideMenu((v) => !v)}
+          >
+            <Plus size={13} strokeWidth={2.5} />
+            <span>Yeni slide</span>
+          </button>
+          {slideMenu && (
+            <div className="props-inline-menu">
+              {SLIDE_TYPES.map((t) => (
+                <button
+                  key={t.type}
+                  type="button"
+                  className="props-inline-menu-item"
+                  onClick={() => {
+                    setSlideMenu(false);
+                    addSlideToCarousel(block.id, t.type);
+                  }}
+                >{t.label}</button>
+              ))}
+            </div>
+          )}
+        </Row>
+      </Section>
+    );
+  }
+
+  // Slide seçili (carousel.children içindeki leaf) — carousel'den çıkar butonu
+  const isSlide = (() => {
+    for (const sec of manifest?.blocks || []) {
+      for (const c of (sec.children || [])) {
+        if (c.type === 'carousel' && (c.children || []).some((s) => s.id === block.id)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  })();
+
+  if (isSlide) {
+    return (
+      <Section title="Bu Slide">
+        <Row label="Carousel'den çıkar" hint="Slide carousel'den ayrılır ve aynı section'ın sonuna taşınır.">
+          <button
+            type="button"
+            className="props-btn props-btn--block"
+            onClick={() => removeSlideFromCarousel(block.id)}
+          >
+            <Layers size={13} strokeWidth={2} />
+            <span>Carousel'den çıkar</span>
+          </button>
+        </Row>
+      </Section>
+    );
+  }
+
+  // Diğer durumlar (normal section.child leaf veya section_header): hiçbir şey
+  return null;
+}
+
+
+function DangerZone({ block }) {
+  const deleteBlock = useStore((s) => s.deleteBlock);
+  const isSection = block.type === 'section_header';
+  const childCount = isSection ? (block.children || []).length : 0;
+
+  function handleDelete() {
+    const msg = isSection
+      ? (childCount > 0
+          ? `'${block.title || block.id}' bölümünü ve içindeki ${childCount} bloğu silmek üzeresiniz. Devam edilsin mi?`
+          : `'${block.title || block.id}' bölümünü silmek üzeresiniz. Devam edilsin mi?`)
+      : `'${block.title || block.id}' bloğunu silmek üzeresiniz. Devam edilsin mi?`;
+    if (!window.confirm(msg)) return;
+    deleteBlock(block.id);
+  }
+
+  return (
+    <Section title="Tehlikeli İşlem">
       <button
+        type="button"
+        className="props-btn props-btn--danger"
+        onClick={handleDelete}
+      >
+        <Trash2 size={13} strokeWidth={2} />
+        <span>{isSection ? 'Bölümü Sil' : 'Bloğu Sil'}</span>
+      </button>
+    </Section>
+  );
+}
+
+
+/* ── Building blocks ─────────────────────────────────────────────────────── */
+
+function Section({ title, children }) {
+  return (
+    <section className="props-section">
+      <h4 className="props-section__title">{title}</h4>
+      <div className="props-section__body">{children}</div>
+    </section>
+  );
+}
+
+function Row({ label, children, hint }) {
+  return (
+    <div className="props-form-row">
+      <label className="props-form-label">{label}</label>
+      <div className="props-form-control">{children}</div>
+      {hint && <div className="props-form-hint">{hint}</div>}
+    </div>
+  );
+}
+
+
+/* ── Field components (all common) ──────────────────────────────────────── */
+
+function TitleField({ block }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const [local, setLocal] = useState(block.title || '');
+  useEffect(() => { setLocal(block.title || ''); }, [block.id, block.title]);
+
+  function commit() {
+    if (local !== (block.title || '')) {
+      setBlockField(block.id, 'title', local);
+    }
+  }
+
+  return (
+    <Row label="Başlık">
+      <input
+        type="text"
+        className="props-input"
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+          else if (e.key === 'Escape') {
+            setLocal(block.title || '');
+            e.currentTarget.blur();
+          }
+        }}
+      />
+    </Row>
+  );
+}
+
+function WidthField({ block }) {
+  const setBlockWidth = useStore((s) => s.setBlockWidth);
+  return (
+    <Row label="Genişlik">
+      <div className="width-picker">
+        {WIDTH_OPTIONS.map((opt) => {
+          const active = (block.width || 'full') === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              className={`width-picker-btn${active ? ' is-active' : ''}`}
+              onClick={() => setBlockWidth(block.id, opt.value)}
+            >{opt.label}</button>
+          );
+        })}
+      </div>
+    </Row>
+  );
+}
+
+function LockField({ block }) {
+  const toggleLock = useStore((s) => s.toggleLock);
+  return (
+    <Row label="Kilit">
+      <button
+        type="button"
         className={`lock-toggle-btn${block.locked ? ' is-locked' : ''}`}
         onClick={() => toggleLock(block.id)}
         title={block.locked ? 'Kilidi kaldır' : 'Kilitle (LLM değiştiremez)'}
       >
-        {block.locked ? '🔒 Kilitli' : '🔓 Kilitsiz'}
+        {block.locked
+          ? <><Lock size={13} strokeWidth={2} /> Kilitli</>
+          : <><Unlock size={13} strokeWidth={2} /> Kilitsiz</>}
       </button>
+    </Row>
+  );
+}
+
+
+/* ── Generic helpers (controlled-input pattern) ─────────────────────────── */
+
+function TextInput({ block, path, placeholder }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const initial = getByDotPath(block, path) ?? '';
+  const [local, setLocal] = useState(String(initial));
+  useEffect(() => { setLocal(String(initial ?? '')); }, [block.id, initial]);
+
+  function commit() {
+    if (local !== String(initial ?? '')) setBlockField(block.id, path, local);
+  }
+
+  return (
+    <input
+      type="text"
+      className="props-input"
+      value={local}
+      placeholder={placeholder}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+        else if (e.key === 'Escape') {
+          setLocal(String(initial ?? ''));
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
+function NumberInput({ block, path, min, max, step, suffix }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const initial = getByDotPath(block, path);
+  const [local, setLocal] = useState(initial == null ? '' : String(initial));
+  useEffect(() => { setLocal(initial == null ? '' : String(initial)); }, [block.id, initial]);
+
+  function commit() {
+    const num = local === '' ? null : Number(local);
+    if (num !== initial) setBlockField(block.id, path, num);
+  }
+
+  return (
+    <div className="props-num-wrap">
+      <input
+        type="number"
+        className="props-input props-input--num"
+        value={local}
+        min={min} max={max} step={step}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+          else if (e.key === 'Escape') {
+            setLocal(initial == null ? '' : String(initial));
+            e.currentTarget.blur();
+          }
+        }}
+      />
+      {suffix && <span className="props-num-suffix">{suffix}</span>}
     </div>
   );
 }
 
-function WidthPicker({ block }) {
-  const setBlockWidth = useStore((s) => s.setBlockWidth);
-  if (block.type === 'section_header') return null;
-
-  const current = block.width || 'full';
-
+function ToggleInput({ block, path }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const checked = !!getByDotPath(block, path);
   return (
-    <div className="prop-row">
-      <span className="prop-label">Genişlik</span>
-      <div className="width-picker">
-        {WIDTH_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            className={`width-picker-btn${current === opt.value ? ' is-active' : ''}`}
-            onClick={() => setBlockWidth(block.id, opt.value)}
-            title={`Genişlik: ${opt.label}`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-    </div>
+    <label className="props-toggle">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => setBlockField(block.id, path, e.target.checked ? true : null)}
+      />
+      <span className="props-toggle-slider" />
+    </label>
   );
 }
 
-export default function PropertiesPanel() {
-  const manifest         = useStore((s) => s.manifest);
-  const selectedBlockId  = useStore((s) => s.selectedBlockId);
-  const setSelectedBlock = useStore((s) => s.setSelectedBlock);
-
-  if (!selectedBlockId || !manifest) {
-    return (
-      <div className="properties-panel properties-panel--empty">
-        Bir blok seçin.
-      </div>
-    );
-  }
-
-  // Nested traversal: section_headers at top, leaves under children.
-  let block = null;
-  for (const section of manifest.blocks || []) {
-    if (section.id === selectedBlockId) { block = section; break; }
-    const child = (section.children || []).find((c) => c.id === selectedBlockId);
-    if (child) { block = child; break; }
-  }
-  if (!block) return null;
-
+function SelectInput({ block, path, options }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const value = getByDotPath(block, path) ?? '';
   return (
-    <div className="properties-panel">
-      <div className="prop-header">
-        <span className="prop-type-label">{TYPE_LABELS[block.type] || block.type}</span>
+    <select
+      className="props-input props-select"
+      value={value}
+      onChange={(e) => {
+        const v = e.target.value;
+        setBlockField(block.id, path, v === '' ? null : v);
+      }}
+    >
+      <option value="">(varsayılan)</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function getByDotPath(obj, path) {
+
+  if (!obj || !path) return undefined;
+  return path.split('.').reduce((acc, seg) => (acc == null ? acc : acc[seg]), obj);
+}
+
+function ColorInput({ block, path }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const value = getByDotPath(block, path) || '';
+  return (
+    <div className="props-color-wrap">
+      <input
+        type="color"
+        className="props-color"
+        value={value || '#1e293b'}
+        onChange={(e) => setBlockField(block.id, path, e.target.value)}
+      />
+      <input
+        type="text"
+        className="props-input props-input--hex"
+        placeholder="#1e293b"
+        value={value}
+        onChange={(e) => setBlockField(block.id, path, e.target.value || null)}
+      />
+      {value && (
         <button
-          className="prop-close-btn"
-          onClick={() => setSelectedBlock(null)}
-          aria-label="Seçimi kaldır"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div className="prop-title">{block.title}</div>
-
-      <LockToggle block={block} />
-      <WidthPicker block={block} />
-
-      {block.source && (
-        <div className="prop-row">
-          <span className="prop-label">Kaynak</span>
-          <span className="prop-value prop-value--mono">{block.source}</span>
-        </div>
+          type="button"
+          className="props-btn props-btn--ghost props-color-clear"
+          onClick={() => setBlockField(block.id, path, null)}
+          title="Varsayılana dön"
+        >×</button>
       )}
-
-      <div className="prop-row">
-        <span className="prop-label">ID</span>
-        <span className="prop-value prop-value--mono">{block.id}</span>
-      </div>
     </div>
+  );
+}
+
+
+/* ── Type-specific control groups ───────────────────────────────────────── */
+
+function SectionHeaderControls({ block }) {
+  return (
+    <Section title="Başlık Stili">
+      <Row label="Yazı boyutu (px)">
+        <NumberInput block={block} path="config.font_size" min={12} max={64} step={1} suffix="px" />
+      </Row>
+      <Row label="Renk">
+        <ColorInput block={block} path="config.color" />
+      </Row>
+      <Row label="Kalınlık">
+        <SelectInput block={block} path="config.weight" options={[
+          { value: 'normal',  label: 'İnce' },
+          { value: '500',     label: 'Orta' },
+          { value: '600',     label: 'Yarı kalın' },
+          { value: '700',     label: 'Kalın' },
+        ]} />
+      </Row>
+      <Row label="Hizalama">
+        <SelectInput block={block} path="config.text_align" options={[
+          { value: 'left',   label: 'Sol' },
+          { value: 'center', label: 'Orta' },
+          { value: 'right',  label: 'Sağ' },
+        ]} />
+      </Row>
+    </Section>
+  );
+}
+
+function KpiControls({ block }) {
+  return (
+    <Section title="KPI Ayarları">
+      <Row label="Birim"><TextInput block={block} path="config.unit" placeholder="örn. B TRY" /></Row>
+      <Row label="Dönem"><TextInput block={block} path="config.period" placeholder="örn. Q4 2025" /></Row>
+      <Row label="Delta etiketi"><TextInput block={block} path="config.delta_label" placeholder="Q3'25'e karşı" /></Row>
+    </Section>
+  );
+}
+
+function BarChartControls({ block }) {
+  return (
+    <Section title="Çubuk Grafik Ayarları">
+      <Row label="Yatay"><ToggleInput block={block} path="config.horizontal" /></Row>
+      <Row label="Yığılmış (stacked)"><ToggleInput block={block} path="config.stacked" /></Row>
+      <Row label="Çoklu renk (distributed)"
+           hint="Tek seri için her bar farklı renkte"><ToggleInput block={block} path="config.distributed" /></Row>
+      <Row label="Veri etiketleri"><ToggleInput block={block} path="config.show_data_labels" /></Row>
+      <Row label="Köşe yuvarlama"><NumberInput block={block} path="config.border_radius" min={0} max={20} step={1} suffix="px" /></Row>
+    </Section>
+  );
+}
+
+function LineChartControls({ block, type }) {
+  return (
+    <Section title={type === 'area_chart' ? 'Alan Grafiği Ayarları' : 'Çizgi Grafik Ayarları'}>
+      <Row label="Eğri tipi">
+        <SelectInput block={block} path="config.curve" options={[
+          { value: 'smooth', label: 'Yumuşak' },
+          { value: 'straight', label: 'Düz' },
+          { value: 'stepline', label: 'Basamaklı' },
+        ]} />
+      </Row>
+      <Row label="Çizgi kalınlığı"><NumberInput block={block} path="config.stroke_width" min={1} max={6} step={1} suffix="px" /></Row>
+      <Row label="Noktalar görünsün"><ToggleInput block={block} path="config.show_markers" /></Row>
+      {type === 'area_chart' && (
+        <Row label="Dolgu opaklığı" hint="0-1 arası">
+          <NumberInput block={block} path="config.fill_opacity" min={0} max={1} step={0.1} />
+        </Row>
+      )}
+    </Section>
+  );
+}
+
+function PieChartControls({ block }) {
+  return (
+    <Section title="Pasta Grafik Ayarları">
+      <Row label="Donut (halka)"><ToggleInput block={block} path="config.donut" /></Row>
+      <Row label="Lejant konumu">
+        <SelectInput block={block} path="config.legend_position" options={[
+          { value: 'top', label: 'Üst' },
+          { value: 'right', label: 'Sağ' },
+          { value: 'bottom', label: 'Alt' },
+          { value: 'left', label: 'Sol' },
+        ]} />
+      </Row>
+      <Row label="Veri etiketleri"><ToggleInput block={block} path="config.show_data_labels" /></Row>
+    </Section>
+  );
+}
+
+function HeatmapControls({ block }) {
+  return (
+    <Section title="Isı Haritası Ayarları">
+      <Row label="Değerler hücrede gözüksün"><ToggleInput block={block} path="config.show_values" /></Row>
+    </Section>
+  );
+}
+
+function RadialBarControls({ block }) {
+  return (
+    <Section title="Radyal Gösterge Ayarları">
+      <Row label="Maks değer"><NumberInput block={block} path="config.max" /></Row>
+      <Row label="Etiket"><TextInput block={block} path="config.label" /></Row>
+    </Section>
+  );
+}
+
+function NarrativeControls({ block }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const initial = block.config?.text || '';
+  const [local, setLocal] = useState(initial);
+  useEffect(() => { setLocal(initial); }, [block.id, initial]);
+
+  function commit() {
+    if (local !== initial) setBlockField(block.id, 'config.text', local);
+  }
+
+  return (
+    <Section title="Metin">
+      <Row label="İçerik" hint="Ctrl/⌘ + Enter ile kaydet">
+        <textarea
+          className="props-textarea"
+          rows={6}
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            // Ctrl/Cmd + Enter → commit + blur
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              e.currentTarget.blur();
+            } else if (e.key === 'Escape') {
+              setLocal(initial);
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      </Row>
+    </Section>
+  );
+}
+
+
+/* ── SQL şekil rehberi (manuel SQL yazarken neyin beklendiğini gösterir) ── */
+
+const SQL_SHAPE_HINTS = {
+  kpi: {
+    cols: 1,
+    summary: '1 satır × 1 kolon → tek sayı',
+    columns: [{ name: 'value', type: 'NUMBER', desc: 'KPI olarak gösterilecek sayı' }],
+    example: 'SELECT SUM(BALANCE_TRY)/1e9 AS value FROM EDW.DEPOSITS_DAILY',
+  },
+  radial_bar: {
+    cols: 1,
+    summary: '1 satır × 1 kolon → yüzde / oran',
+    columns: [{ name: 'value', type: 'NUMBER', desc: 'Tek sayı (radial bar değeri)' }],
+    example: 'SELECT AVG(MUZAKERE_ORANI_PCT) AS value FROM upload__x__y',
+  },
+  bar_chart: {
+    cols: '2+',
+    summary: 'N satır × 2+ kolon → 1. kolon kategori, sonraki kolonlar seriler',
+    columns: [
+      { name: 'category', type: 'VARCHAR', desc: 'X ekseni etiketi (örn. şube adı)' },
+      { name: 'value(s)', type: 'NUMBER', desc: 'Bar yükseklikleri — her ek kolon ayrı seri' },
+    ],
+    example: 'SELECT BRANCH_CODE, SUM(BALANCE_TRY)/1e9 FROM ... GROUP BY BRANCH_CODE ORDER BY 2 DESC',
+  },
+  line_chart: {
+    cols: '2+',
+    summary: 'N satır × 2+ kolon → 1. kolon x ekseni (tarih/kategori), sonraki kolonlar seriler',
+    columns: [
+      { name: 'x', type: 'DATE veya VARCHAR', desc: 'X ekseni (zaman veya kategori). ORDER BY ile sıralı gelmeli.' },
+      { name: 'value(s)', type: 'NUMBER', desc: 'Çizgi seri(leri) — her ek kolon ayrı seri' },
+    ],
+    example: 'SELECT DATE_COL, SUM(VAL) FROM ... GROUP BY DATE_COL ORDER BY DATE_COL',
+  },
+  area_chart: {
+    cols: '2+',
+    summary: 'N satır × 2+ kolon → 1. kolon x ekseni, sonraki kolonlar seriler (alan)',
+    columns: [
+      { name: 'x', type: 'DATE veya VARCHAR', desc: 'X ekseni. Sıralı gelmeli.' },
+      { name: 'value(s)', type: 'NUMBER', desc: 'Alan seri(leri)' },
+    ],
+    example: 'SELECT MONTH, REVENUE FROM ... ORDER BY MONTH',
+  },
+  pie_chart: {
+    cols: 2,
+    summary: 'N satır × 2 kolon → 1. kolon dilim etiketi, 2. kolon değer',
+    columns: [
+      { name: 'label', type: 'VARCHAR', desc: 'Dilim adı (örn. segment)' },
+      { name: 'value', type: 'NUMBER', desc: 'Dilim büyüklüğü' },
+    ],
+    example: 'SELECT SEGMENT, SUM(BALANCE_TRY) FROM ... GROUP BY SEGMENT',
+  },
+  heatmap: {
+    cols: 3,
+    summary: 'N satır × 3 kolon → 1. kolon x, 2. kolon y, 3. kolon değer (renk yoğunluğu)',
+    columns: [
+      { name: 'x', type: 'VARCHAR', desc: 'X ekseni etiketi' },
+      { name: 'y', type: 'VARCHAR', desc: 'Y ekseni etiketi' },
+      { name: 'value', type: 'NUMBER', desc: 'Hücre değeri — renk yoğunluğunu belirler' },
+    ],
+    example: 'SELECT BRANCH, MONTH, BALANCE FROM ... ORDER BY BRANCH, MONTH',
+  },
+  data_table: {
+    cols: 'N',
+    summary: 'N satır × N kolon → kolonlar olduğu gibi tabloya gelir',
+    columns: [
+      { name: 'col_1 … col_N', type: 'her tip', desc: 'Kolon adları başlık olarak kullanılır' },
+    ],
+    example: 'SELECT BRANCH_CODE, SEGMENT, BALANCE_TRY FROM ... FETCH FIRST 50 ROWS ONLY',
+  },
+};
+
+function SqlShapeHelper({ blockType }) {
+  const hint = SQL_SHAPE_HINTS[blockType];
+  if (!hint) return null;
+  return (
+    <div className="props-sql-helper">
+      <div className="props-sql-helper__summary">
+        <span className="props-sql-helper__badge">{hint.cols} kolon</span>
+        <span>{hint.summary}</span>
+      </div>
+      <table className="props-sql-helper__table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Kolon</th>
+            <th>Tip</th>
+            <th>Açıklama</th>
+          </tr>
+        </thead>
+        <tbody>
+          {hint.columns.map((c, i) => (
+            <tr key={i}>
+              <td>{i + 1}</td>
+              <td><code>{c.name}</code></td>
+              <td>{c.type}</td>
+              <td>{c.desc}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <details className="props-sql-helper__example">
+        <summary>Örnek</summary>
+        <code>{hint.example}</code>
+      </details>
+    </div>
+  );
+}
+
+
+/* ── SQL editor + refresh ───────────────────────────────────────────────── */
+
+function SqlEditor({ block }) {
+  const refreshBlock = useStore((s) => s.refreshBlock);
+  const initial = block.data_source?.original_sql || '';
+  const [sql, setSql] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  useEffect(() => { setSql(initial); setErr(null); }, [block.id, initial]);
+
+  const dirty = sql !== initial;
+
+  async function handleRefresh() {
+    setBusy(true);
+    setErr(null);
+    try {
+      // dirty değilse newSql null gönder → mevcut SQL re-execute
+      await refreshBlock(block.id, dirty ? sql : null);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Veri Kaynağı (SQL)">
+      <div className="props-sql-wrap">
+        <textarea
+          className="props-textarea props-textarea--sql"
+          rows={8}
+          spellCheck={false}
+          value={sql}
+          onChange={(e) => setSql(e.target.value)}
+        />
+        <div className="props-sql-footer">
+          <button
+            type="button"
+            className="props-btn props-btn--primary"
+            onClick={handleRefresh}
+            disabled={busy}
+          >
+            <RefreshCw size={13} strokeWidth={2} className={busy ? 'spin' : ''} />
+            <span>{dirty ? 'SQL\'i kaydet & tazele' : 'Veriyi tazele'}</span>
+          </button>
+          {dirty && (
+            <button
+              type="button"
+              className="props-btn props-btn--ghost"
+              onClick={() => { setSql(initial); setErr(null); }}
+            >Geri al</button>
+          )}
+        </div>
+        {err && <div className="props-sql-error">{err}</div>}
+        <SqlShapeHelper blockType={block.type} />
+      </div>
+    </Section>
   );
 }

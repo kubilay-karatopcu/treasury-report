@@ -1,0 +1,256 @@
+{# Rendered into #main-view via fetch. Must mirror chat.html's main-view children. #}
+{% set cnt = {'c': 0, 'd': 0,} %}
+{% macro incr(dct, key, inc=1)%}
+	{% if dct.update({key: dct[key] + inc}) %} {% endif %}
+{% endmacro %}
+
+<!-- Confirmation marker (read by demo.js syncChatInputLock) -->
+<div id="conf-state-marker" data-confirmed="{{ '1' if ps.confirmation_state == 2 else '0' }}" style="display:none"></div>
+
+<!-- LEFT PANEL -->
+<aside id="info-panel-left">
+	<div id="session-buttons">
+		<div class="session-top-row">
+			<button class="btn btn-primary" id="session-new" value="-1">
+				<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+					<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+					<path d="M12 5l0 14"/><path d="M5 12l14 0"/>
+				</svg>
+				Yeni Fiyatlama
+			</button>
+			<button id="info-panel-left-toggle" title="Paneli daralt" type="button">
+				<!-- Tabler: layout-sidebar-left-collapse -->
+				<svg xmlns="http://www.w3.org/2000/svg" class="icon" width="22" height="22" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+					<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+					<path d="M4 4m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/>
+					<path d="M9 4v16"/>
+					<path d="M15 10l-2 2l2 2"/>
+				</svg>
+			</button>
+		</div>
+
+		<div class="session-header">Oturumlarım</div>
+
+		<div id="session-list">
+		{% for label in lbl %}
+			{% if label.enabled %}
+			<button class="session-switch btn btn-outline-secondary text-start text-truncate {{ 'confirmed' if label.confirmed == True else '' }}"
+			        value="{{ loop.index0 }}"
+			        title="{{ label.text }}">
+				{% if label.confirmed %}
+					<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm me-1 text-green" width="16" height="16" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+						<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+						<path d="M5 12l5 5l10 -10"/>
+					</svg>
+				{% else %}
+					<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm me-1 text-muted" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+						<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+						<circle cx="12" cy="12" r="9"/>
+					</svg>
+				{% endif %}
+				{{ label.text }}
+			</button>
+			{% endif %}
+		{% endfor %}
+		</div>
+
+		<button class="btn btn-outline-primary" id="session-deposit-returns" value="-1" style="margin-top:12px;">
+			<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+				<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+				<path d="M9 14l-4 -4l4 -4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/>
+			</svg>
+			Dönüş Listesi
+		</button>
+	</div>
+	<!-- Collapsed-state toggle: shown only when panel is closed, expands it back -->
+	<button id="info-panel-left-toggle-collapsed" title="Paneli aç" type="button">
+		<svg xmlns="http://www.w3.org/2000/svg" class="icon" width="22" height="22" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+			<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+			<path d="M4 4m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/>
+			<path d="M9 4v16"/>
+			<path d="M14 10l2 2l-2 2"/>
+		</svg>
+	</button>
+</aside>
+
+<!-- CENTER COLUMN (conversation + chat input) -->
+<section id="center-col">
+<div id="conversation">
+	<div id="intro-msg" class="{{ 'hidden' if show_intro == 0 else '' }}">
+		<div id="intro-msg-1" class="{{ 'hidden' if show_intro < 3 else '' }}">Merhaba {{username}}.</div>
+		<div id="intro-msg-2" class="{{ 'hidden' if show_intro < 2 else '' }}">Bugünün dönüşlerini aşağıda bulabilirsin.</div>
+		<div id="intro-msg-3" class="{{ 'hidden' if show_intro < 2 else '' }}">Sana nasıl yardımcı olabilirim?</div>
+	</div>
+
+	{% set ns = namespace(counter=0) %}
+	{% for entry in ps.conversation %}
+		<div class="entry-container {{ entry.role }}">
+			{% if entry.role == 'assistant' %}
+				<div class="avatar assistant"></div>
+			{% endif %}
+
+			{% if entry.role == 'choice' %}
+				<div class="entry choice"
+				     data-cust-id="{{ rt[cnt.d].cust_info.cust_id }}"
+				     data-amount="{{ rt[cnt.d].amount }}"
+				     data-currency="{{ rt[cnt.d].currency }}"
+				     data-tenor="{{ rt[cnt.d].tenor }}"
+				     data-return-index="{{ rt[cnt.d].idx }}">
+					<div class="card card-sm shadow-sm border">
+						<div class="card-body">
+							<div class="d-flex align-items-start mb-3">
+								<span class="avatar avatar-sm bg-primary-lt me-2">
+									{{ rt[cnt.d].cust_info.full_nm[:2]|upper }}
+								</span>
+								<div class="flex-fill min-w-0">
+									<div class="fw-bold text-truncate" title="{{ rt[cnt.d].cust_info.full_nm }}">
+										{{ rt[cnt.d].cust_info.full_nm }}
+									</div>
+									<div class="text-secondary small">No: {{ rt[cnt.d].cust_info.cust_id }}</div>
+								</div>
+								<span class="badge bg-blue-lt text-blue ms-2">{{ rt[cnt.d].currency }}</span>
+							</div>
+							<div class="row g-2 text-center">
+								<div class="col-4">
+									<div class="text-secondary small mb-1">Tutar</div>
+									<div class="fw-bold">{{ '{:,.0f}'.format(rt[cnt.d].amount) }}</div>
+								</div>
+								<div class="col-4">
+									<div class="text-secondary small mb-1">Vade</div>
+									<div class="fw-bold">{{ rt[cnt.d].tenor }}<span class="text-secondary fw-normal"> gün</span></div>
+								</div>
+								<div class="col-4">
+									<div class="text-secondary small mb-1">Dönüş Oranı</div>
+									<div class="fw-bold text-primary">%{{ rt[cnt.d].return_price }}</div>
+								</div>
+							</div>
+							<div class="text-end mt-3">
+								<span class="text-primary small fw-medium">Fiyatla
+									<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm" width="14" height="14" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+										<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+										<path d="M5 12l14 0"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>
+									</svg>
+								</span>
+							</div>
+						</div>
+					</div>
+				</div>
+				{{ incr(cnt, 'd') }}
+			{% else %}
+				<div class="entry {{ entry.role }}">
+					{{ entry.content }}
+					{% if loop.index0 in ps.newPrices %}
+						<div class="chat-price-card card card-sm border-0 mt-3">
+							<div class="card-body p-3">
+								<div class="d-flex align-items-baseline mb-2">
+									<div class="text-white-50 small">Faiz Oranı</div>
+									<div class="ms-auto h2 mb-0 text-white fw-bold">%{{ ps.priceHistory[ns.counter].price }}</div>
+								</div>
+								<div class="row g-2 text-white-50 small">
+									<div class="col-6">Müşteri: <span class="text-white">{{ ps.cust_info.cust_id }}</span></div>
+									<div class="col-6 text-end">Vade: <span class="text-white">{{ ps.request.tenor }}g</span></div>
+									<div class="col-6">Tutar: <span class="text-white">{{ '{:,.0f}'.format(ps.priceHistory[ns.counter].amount) }} {{ ps.priceHistory[ns.counter].currency }}</span></div>
+									<div class="col-6 text-end">Revizyon: <span class="text-white">{{ ps.priceHistory[ns.counter].pricing_no }}</span></div>
+								</div>
+							</div>
+						</div>
+						{% set ns.counter = ns.counter + 1 %}
+					{% endif %}
+				</div>
+			{% endif %}
+
+			{% if entry.role == 'user' %}
+				<div class="avatar user"></div>
+			{% endif %}
+		</div>
+	{% endfor %}
+	<div id="anchor"></div>
+</div>
+
+<!-- CHAT INPUT (inside center column so it only spans the conversation width) -->
+<div id="chat-input-box" class="{{ 'hidden' if ps.confirmation_state == 2 else '' }}">
+	<form id="chat-input" action="{{ url_for('deposit.chat') }}" method="post" class="d-flex gap-2 align-items-center">
+		<input type="text" id="user_input" name="user_input"
+		       class="form-control"
+		       placeholder="Müşteri no, para birimi ve talep edilen oranı giriniz."
+		       autocomplete="off" autofocus />
+		<input id="chatSendBtn" type="submit" name="action" value="Gönder" class="btn btn-primary" />
+		<input type="submit" name="action" value="Sıfırla" class="btn btn-outline-secondary" />
+	</form>
+</div>
+</section>
+
+<!-- RIGHT PANEL -->
+<aside id="info-panel-right" class="{{ 'hidden' if ps.priced_before == False else '' }}">
+
+	<form id="pricing-data" class="card card-sm border-0 shadow-sm">
+		<div class="card-header border-bottom pricing-card-header">
+			<h3 class="card-title mb-0">Fiyatlama Özeti</h3>
+		</div>
+
+		<div class="card-body pricing-card-body">
+			<dl class="pricing-dl">
+				<dt>Müşteri Adı</dt>
+				<dd class="cust-name-cell" title="{{ ps.cust_info.full_nm }}">{{ ps.cust_info.full_nm }}</dd>
+
+				<dt>Müşteri No</dt>
+				<dd>{{ ps.cust_info.cust_id }}</dd>
+
+				<dt>AUM (TRY)</dt>
+				<dd>{{ '{:,.0f}'.format(ps.cust_info.total_aum) }}</dd>
+			</dl>
+
+			<hr class="pricing-hr">
+
+			<div class="rate-block">
+				<div class="rate-label">Faiz Oranı</div>
+				<div class="rate-value">%{{ ps.request.price }}</div>
+				<div class="rate-sub">Revizyon {{ ps.request.pricing_no }}</div>
+			</div>
+
+			<hr class="pricing-hr">
+
+			<dl class="pricing-dl">
+				<dt>Vade</dt>
+				<dd>{{ ps.request.tenor }} gün</dd>
+
+				<dt>Tutar</dt>
+				<dd>{{ '{:,.0f}'.format(ps.request.amount) }}</dd>
+
+				<dt>Para Birimi</dt>
+				<dd><span class="badge bg-blue-lt text-blue">{{ ps.request.currency }}</span></dd>
+			</dl>
+
+			{% if ps.confirmation_state == 2 %}
+				<div class="alert alert-success d-flex align-items-center mt-3 mb-0" role="alert">
+					<svg xmlns="http://www.w3.org/2000/svg" class="icon me-2" width="20" height="20" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+						<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+						<path d="M5 12l5 5l10 -10"/>
+					</svg>
+					<div class="small">Fiyatlama onaylandı.<br>Oturum kilitlendi.</div>
+				</div>
+			{% else %}
+				<div id="ip-button">
+					<input id="pricing-submit" type="submit" name="action" value="Fiyatlamayı Onayla"
+					       class="btn btn-primary pricing-confirm-btn" />
+				</div>
+			{% endif %}
+		</div>
+	</form>
+
+	<form id="pricing-confirm" class="card card-sm border-0 shadow-sm mt-3 {{ 'hidden' if ps.confirmation_state != 1 else '' }}">
+		<div class="card-body">
+			<div id="pc-label" class="text-center mb-3">
+				Yukarıdaki bilgilerle fiyatlamayı onaylamak istiyor musunuz?
+			</div>
+			<div id="pc-buttons" class="d-flex gap-2">
+				<input id="pricing-confirm-yes" type="submit" name="action" value="Onayla"
+				       class="btn btn-success flex-fill" />
+				<input id="pricing-confirm-no" type="submit" name="action" value="İptal"
+				       class="btn btn-outline-secondary flex-fill" />
+			</div>
+		</div>
+	</form>
+</aside>
+{# chat-input-box lives in chat.html body, NOT here — partial is injected into
+   #main-view (flex row) and chat-input must sit OUTSIDE that row. #}

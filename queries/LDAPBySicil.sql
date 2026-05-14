@@ -1,0 +1,6 @@
+SELECT
+	*
+FROM
+	A63837.TRESUARY_LDAP
+WHERE
+	SICIL = :user_sicil

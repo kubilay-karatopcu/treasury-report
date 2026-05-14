@@ -5,6 +5,7 @@
     "ag-grid-community": "^31.3.2",
     "ag-grid-react": "^31.3.2",
     "apexcharts": "^5.11.0",
+    "lucide-react": "^1.14.0",
     "marked": "^9.1.6",
     "react": "^18.3.1",
     "react-apexcharts": "^2.1.0",

@@ -1,0 +1,101 @@
+[
+  {
+    "key": "P",
+    "name": "Pricing",
+    "short": "PRIC",
+    "sub": "Fiyatlama",
+    "color": "#ea580c",
+    "color2": "#fb923c",
+    "sections": [
+      {
+        "title": "Fiyatlama Araçları",
+        "items": [
+          { "label": "Mevduat Asistanı", "url": "/deposit-assistant", "icon": "chat_dots" }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "R",
+    "name": "Reporting",
+    "short": "REPO",
+    "sub": "Raporlama",
+    "color": "#2563eb",
+    "color2": "#60a5fa",
+    "sections": [
+      {
+        "title": "Raporlar",
+        "items": [
+          { "label": "Tarihsel Veriler", "url": "/historic", "icon": "calendar" },
+          { "label": "Rapor Şablonları", "url": "/presentations/", "icon": "doc" }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "I",
+    "name": "Intelligence",
+    "short": "INTL",
+    "sub": "Pazar İstihbaratı",
+    "color": "#7c3aed",
+    "color2": "#a78bfa",
+    "sections": [
+      {
+        "title": "Pazar İstihbaratı",
+        "items": [
+          { "label": "Rakip Analizi", "url": "/competitor", "icon": "tournament" }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "S",
+    "name": "Simulation",
+    "short": "SIM",
+    "sub": "Simülasyon",
+    "color": "#059669",
+    "color2": "#34d399",
+    "sections": [
+      {
+        "title": "Simülasyonlar",
+        "items": [
+          { "label": "NII Simülasyonu", "url": "#", "icon": "chart_peaks" }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "M",
+    "name": "Management",
+    "short": "MGMT",
+    "sub": "Yönetim",
+    "color": "#be123c",
+    "color2": "#fb7185",
+    "sections": [
+      {
+        "title": "Mevduat Yönetimi",
+        "items": [
+          { "label": "Mevduat Paneli", "url": "/deposit-panel/params", "icon": "building_bank" },
+          { "label": "Rezervasyon Takibi", "url": "/deposit-panel/reservations", "icon": "calendar_check" }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "A",
+    "name": "Analytics",
+    "short": "ANLY",
+    "sub": "Analitik",
+    "color": "#0891b2",
+    "color2": "#22d3ee",
+    "sections": [
+      {
+        "title": "Gün İçi",
+        "items": [
+          { "label": "Oranlar", "url": "/oranlar", "icon": "percent" },
+          { "label": "Miktarlar", "url": "/miktarlar", "icon": "bars_v" }
+        ]
+      }
+    ]
+  }
+]

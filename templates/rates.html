@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-xl">
+    
+    <div class="page-header d-print-none mb-3">
+        <div class="row align-items-center">
+            <div class="col">
+                <h2 class="page-title">Oranlar Dashboard</h2>
+                <div class="text-muted mt-1" id="display-date">Yükleniyor...</div>
+            </div>
+            <div class="col-auto ms-auto d-print-none sticky-date-wrapper">
+                <div class="d-flex align-items-center bg-white p-2 rounded shadow-sm border">
+                    
+                    <button class="btn btn-icon btn-action" id="btn-prev-date" title="Bir Gün Geri">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                            <path d="M15 6l-6 6l6 6" />
+                        </svg>
+                    </button>
+            
+                    <div class="input-icon mx-2">
+                        <span class="input-icon-addon">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12z" /><path d="M16 3v4" />
+                                <path d="M8 3v4" /><path d="M4 11h16" /><path d="M11 15h1" /><path d="M12 15v3" />
+                            </svg>
+                        </span>
+                        <input class="form-control text-center" placeholder="Tarih Seçin" id="litepicker-date" value="{{ initial_date }}" readonly style="min-width: 140px;"/>
+                    </div>
+            
+                    <button class="btn btn-icon btn-action" id="btn-next-date" title="Bir Gün İleri">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg>
+                    </button>
+            
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards">
+        
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Verilen Oran Analizi</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-offered" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg>
+                        </a>
+                        <a href="#carousel-offered" class="btn-action text-dark" style="color: #000;" data-bs-slide="next">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg>
+                        </a>
+                    </div>
+                </div>
+                
+                <div id="carousel-offered" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Zaman İçindeki Değişim (Saatlik)</div>
+                                <div id="chart-offered" class="flex-grow-1" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Saatlik Performans (Anlık)</div>
+                                <div id="chart-offered-hourly" class="flex-grow-1" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Oran Dağılımı (Frekans)</div>
+                                <div id="chart-offered-dist" class="flex-grow-1" style="min-height: 300px;"></div>
+                                
+                                <div class="row g-2 mt-auto pt-3 border-top">
+                                    <div class="col-6">
+                                        <div class="p-2 border rounded" style="background: rgba(32, 107, 196, 0.05);">
+                                            <div class="text-muted small fw-bold text-uppercase">Ekstrem + Yetki Üzeri</div>
+                                            <div class="h2 mb-0 mt-1 text-primary" id="metric-ekstrem-yetki-off">%0.00</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="p-2 border rounded" style="background: rgba(214, 57, 57, 0.05);">
+                                            <div class="text-muted small fw-bold text-uppercase">Ekstrem Üzeri</div>
+                                            <div class="h2 mb-0 mt-1 text-danger" id="metric-ekstrem-off">%0.00</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">İstenen Oran Analizi</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-demanded" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg></a>
+                        <a href="#carousel-demanded" class="btn-action text-dark" style="color: #000;" data-bs-slide="next"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg></a>
+                    </div>
+                </div>
+                <div id="carousel-demanded" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Zaman İçindeki Değişim (Saatlik)</div>
+                                <div id="chart-demanded" class="flex-grow-1" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Saatlik Performans (Anlık)</div>
+                                <div id="chart-demanded-hourly" class="flex-grow-1" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Oran Dağılımı (Frekans)</div>
+                                <div id="chart-demanded-dist" class="flex-grow-1" style="min-height: 300px;"></div>
+                                
+                                <div class="row g-2 mt-auto pt-3 border-top">
+                                    <div class="col-6">
+                                        <div class="p-2 border rounded" style="background: rgba(32, 107, 196, 0.05);">
+                                            <div class="text-muted small fw-bold text-uppercase">Ekstrem + Yetki Üzeri</div>
+                                            <div class="h2 mb-0 mt-1 text-primary" id="metric-ekstrem-yetki-dem">%0.00</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="p-2 border rounded" style="background: rgba(214, 57, 57, 0.05);">
+                                            <div class="text-muted small fw-bold text-uppercase">Ekstrem Üzeri</div>
+                                            <div class="h2 mb-0 mt-1 text-danger" id="metric-ekstrem-dem">%0.00</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Rakip Banka Oran Analizi</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-competitor" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg></a>
+                        <a href="#carousel-competitor" class="btn-action text-dark" style="color: #000;" data-bs-slide="next"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg></a>
+                    </div>
+                </div>
+                <div id="carousel-competitor" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Zaman İçindeki Değişim (Saatlik)</div>
+                                <div id="chart-competitor" class="flex-grow-1" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Saatlik Performans (Anlık)</div>
+                                <div id="chart-competitor-hourly" class="flex-grow-1" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body d-flex flex-column" style="min-height: 500px;">
+                                <div class="text-muted small mb-2 text-center">Oran Dağılımı (Frekans)</div>
+                                <div id="chart-competitor-dist" class="flex-grow-1" style="min-height: 300px;"></div>
+                                
+                                <div class="row g-2 mt-auto pt-3 border-top">
+                                    <div class="col-6">
+                                        <div class="p-2 border rounded" style="background: rgba(32, 107, 196, 0.05);">
+                                            <div class="text-muted small fw-bold text-uppercase">Ekstrem + Yetki Üzeri</div>
+                                            <div class="h2 mb-0 mt-1 text-primary" id="metric-ekstrem-yetki-comp">%0.00</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="p-2 border rounded" style="background: rgba(214, 57, 57, 0.05);">
+                                            <div class="text-muted small fw-bold text-uppercase">Ekstrem Üzeri</div>
+                                            <div class="h2 mb-0 mt-1 text-danger" id="metric-ekstrem-comp">%0.00</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Spread Analizi (Verilen Oran - Market Max)</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-spread" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg>
+                        </a>
+                        <a href="#carousel-spread" class="btn-action text-dark" style="color: #000;" data-bs-slide="next">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg>
+                        </a>
+                    </div>
+                </div>
+                
+                <div id="carousel-spread" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        
+                        <div class="carousel-item active">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Spread</div>
+                                <div id="chart-spread" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+        
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Gün İçi Kümülatif Spread</div>
+                                <div id="chart-spread-cumulative" style="min-height: 350px;"></div>
+                            </div>
+                        </div>
+        
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script src="{{ url_for('static', filename='js/rates.js') }}?v=8"></script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        
+        // 1. Backend'den gelen uygun tarihleri al
+        window.availableDates = {{ available_dates | tojson }};
+
+        // 2. Litepicker'ı başlat
+        const picker = new Litepicker({
+            element: document.getElementById('litepicker-date'),
+            singleMode: true,
+            format: 'YYYY-MM-DD',
+            lang: 'tr-TR',
+            dropdowns: {
+                minYear: 2024,
+                maxYear: 2030,
+                months: true,
+                years: true
+            },
+
+            lockDaysFilter: (date1, date2, pickedDates) => {
+                const dateStr = date1.format('YYYY-MM-DD');
+                return !availableDates.includes(dateStr); 
+            },
+            setup: (picker) => {
+                picker.on('selected', (date1) => {
+                    const dateStr = date1.format('YYYY-MM-DD');
+                    console.log("Seçilen Tarih (HTML):", dateStr);
+
+                    const inputEl = document.getElementById('litepicker-date');
+                    inputEl.value = dateStr; 
+                    
+                    // Bu event, JS tarafındaki processAndDisplay'i tetikleyecek
+                    inputEl.dispatchEvent(new Event('date:updated'));
+                });
+            }
+        });
+
+        window.litePickerInstance = picker;
+    });
+</script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        
+
+        window.pyInitialDate = "{{ initial_date }}";
+
+        initDashboard(window.pyInitialDate);
+    });
+</script>
+
+{% endblock %}

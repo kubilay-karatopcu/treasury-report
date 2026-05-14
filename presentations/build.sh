@@ -16,6 +16,7 @@ fi
 echo "[build] esbuild bundle oluşturuluyor..."
 node_modules/.bin/esbuild static/js/editor/index.jsx \
   --bundle \
+  --jsx=automatic \
   --minify \
   --target=es2020 \
   --loader:.css=empty \

@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "presentations/_base_fullscreen.html" %}
 {% block title %}{{ manifest.meta.title }} — Treasury Studio{% endblock %}
 
 {# Remove the default filter panel — editor has its own layout. #}
@@ -7,7 +7,7 @@
 {% block head %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=19">
   <style>
     /* Editor view: pin the mount to the viewport with position:fixed so
        parent-chain layout (Tabler, dev banner, container-xl) can't push it

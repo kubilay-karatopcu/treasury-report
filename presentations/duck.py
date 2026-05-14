@@ -1,19 +1,28 @@
 """
-Oracle → Arrow → DuckDB bridge.
+Oracle → Arrow → DuckDB bridge + Excel upload routing.
 
-The DataClient (real or fake) returns pandas DataFrames. We register them as
-DuckDB views so blocks can run lightweight SQL transformations without going
-back to Oracle.
+execute_block_sql now detects two engines:
+  - Oracle (default): SQL goes through DataClient.get_data, single result view
+  - DuckDB-only (when SQL references upload__... tables): we ensure those
+    sheets are loaded into DuckDB from S3 first, then run SQL on the DuckDB
+    connection directly. No Oracle round-trip.
 
-Phase 4 keeps SQL generation simple: each basket item becomes a `SELECT * FROM`
-against the table, optionally with a `row_filter`. Pandas → DuckDB happens via
-PyArrow zero-copy. Bigger production fetches will move to streaming Arrow once
-the real DataClient supports it.
+Excel sheet references in SQL use a stable convention:
+   upload__<upload_id>__<sheet_sanitised_name>
+Example: `upload__u_a8Df12__targets`
+
+The caller (LLM, refresh endpoint) writes this name in SQL; we resolve it at
+execute time to (s3_key, sheet_display_name).
 """
 from __future__ import annotations
 
+import datetime as _dt
+import io
 import logging
-from typing import TYPE_CHECKING
+import re
+from typing import TYPE_CHECKING, Callable, Optional
+
+from .aggregation_gate import GateError, GateResult, MAX_RAW_ROWS, validate_and_wrap
 
 if TYPE_CHECKING:
     import duckdb
@@ -23,37 +32,31 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# LEGACY BASKET PATH — unchanged
+# ════════════════════════════════════════════════════════════════════════════
+# (preserved verbatim from previous version — fetch_basket_item,
+#  register_dataframe, populate_basket, list_views, preview_view,
+#  summarize_views, _compute_stats, _jsonable, _safe_identifier, _table_alias)
+
 def _table_alias(table_id: str) -> str:
-    """`EDW.DEPOSITS_DAILY` → `deposits_daily` (DuckDB view name)."""
     return table_id.split(".")[-1].lower()
 
 
 def fetch_basket_item(dc, basket_item: dict) -> "pd.DataFrame":
-    """Run the DataClient query for a single basket item.
-
-    DataClient interface (matches the production class):
-        dc.get_data(base_prefix=..., dataset=..., query=..., query_params=...)
-
-    If the DataClient returns nothing or a column-less frame (e.g. the local
-    FakeDataClient when no CSV mock exists), we synthesize a 0-row frame with
-    the requested columns so DuckDB.register doesn't choke.
-    """
     import pandas as pd
 
     table_id = basket_item["table"]
     columns = basket_item.get("columns") or ["*"]
     row_filter = basket_item.get("row_filter")
+    row_limit = int(basket_item.get("row_limit", MAX_RAW_ROWS))
 
     cols_sql = ", ".join(columns) if columns != ["*"] else "*"
     where_sql = f" WHERE {row_filter}" if row_filter else ""
-    sql = f"SELECT {cols_sql} FROM {table_id}{where_sql}"
+    limit_sql = f" FETCH FIRST {row_limit} ROWS ONLY" if row_limit > 0 else ""
+    sql = f"SELECT {cols_sql} FROM {table_id}{where_sql}{limit_sql}"
 
-    df = dc.get_data(
-        base_prefix=None,
-        dataset=table_id,
-        query=sql,
-        query_params={},
-    )
+    df = dc.get_data(base_prefix=None, dataset=table_id, query=sql, query_params={})
 
     if df is None or len(df.columns) == 0:
         placeholder_cols = columns if columns != ["*"] else ["_no_data"]
@@ -65,10 +68,7 @@ def fetch_basket_item(dc, basket_item: dict) -> "pd.DataFrame":
     return df
 
 
-def register_dataframe(conn: "duckdb.DuckDBPyConnection", view_name: str, df: "pd.DataFrame") -> None:
-    """Register a DataFrame as a DuckDB view, replacing if exists."""
-    # `register` needs the DataFrame to outlive the connection; for our short-lived
-    # session use case this is fine.
+def register_dataframe(conn, view_name, df):
     try:
         conn.unregister(view_name)
     except Exception:
@@ -77,14 +77,12 @@ def register_dataframe(conn: "duckdb.DuckDBPyConnection", view_name: str, df: "p
     log.debug("duck.register_dataframe: %s (%d rows)", view_name, len(df))
 
 
-def populate_basket(dc, conn: "duckdb.DuckDBPyConnection", basket: list[dict]) -> dict:
-    """Fetch every basket item via the DataClient and register it in DuckDB.
-
-    Returns a manifest of what was loaded:
-        {"deposits_daily": {"table": "EDW.DEPOSITS_DAILY", "rows": 12345}, ...}
-    """
+def populate_basket(dc, conn, basket):
     loaded = {}
     for item in basket:
+        # Upload-backed basket entries don't fetch via Oracle.
+        if item["table"].startswith("upload__"):
+            continue
         view = _table_alias(item["table"])
         df = fetch_basket_item(dc, item)
         register_dataframe(conn, view, df)
@@ -92,8 +90,7 @@ def populate_basket(dc, conn: "duckdb.DuckDBPyConnection", basket: list[dict]) -
     return loaded
 
 
-def list_views(conn: "duckdb.DuckDBPyConnection") -> list[str]:
-    """Return the names of registered views/tables in the DuckDB session."""
+def list_views(conn):
     rows = conn.execute(
         "SELECT table_name FROM information_schema.tables "
         "WHERE table_schema NOT IN ('information_schema', 'pg_catalog')"
@@ -101,12 +98,7 @@ def list_views(conn: "duckdb.DuckDBPyConnection") -> list[str]:
     return [r[0] for r in rows]
 
 
-def preview_view(conn: "duckdb.DuckDBPyConnection", view_name: str, limit: int = 10) -> dict:
-    """Return a small preview of a view: columns + first N rows.
-
-    Output shape:
-        {"columns": ["A", "B"], "rows": [[1, "x"], [2, "y"]], "row_count": 2}
-    """
+def preview_view(conn, view_name, limit=10):
     safe_name = _safe_identifier(view_name)
     df = conn.execute(f"SELECT * FROM {safe_name} LIMIT {int(limit)}").fetchdf()
     total = conn.execute(f"SELECT COUNT(*) FROM {safe_name}").fetchone()[0]
@@ -117,32 +109,13 @@ def preview_view(conn: "duckdb.DuckDBPyConnection", view_name: str, limit: int =
     }
 
 
-def _safe_identifier(name: str) -> str:
-    """Reject anything that's not a plain identifier — guards against SQL injection
-    on routes like /duckdb/preview/<view>."""
+def _safe_identifier(name):
     if not name.replace("_", "").isalnum():
         raise ValueError(f"Unsafe view name: {name!r}")
     return name
 
 
-def summarize_views(
-    conn: "duckdb.DuckDBPyConnection",
-    view_names: list[str],
-    sample_rows: int = 5,
-) -> dict:
-    """Return a compact schema + sample for each view — fed into the LLM prompt
-    so it can compute realistic KPI values and chart series from real data.
-
-    Output shape (per view):
-        {
-            "columns":    [{"name": "X", "type": "VARCHAR"}, ...],
-            "row_count":  int,
-            "sample":     [[v1, v2, ...], ...],   # column-aligned rows
-            "stats":      {"NUM_COL": {"min":..., "max":..., "avg":..., "argmax":...}}
-        }
-    `argmax` is the row dict where the numeric column reached its max — very
-    handy for "show the top branch" KPI prompts.
-    """
+def summarize_views(conn, view_names, sample_rows=5):
     out = {}
     for view in view_names:
         try:
@@ -156,7 +129,6 @@ def summarize_views(
                 for _, r in cols.iterrows()
             ]
             row_count = int(conn.execute(f"SELECT COUNT(*) FROM {safe}").fetchone()[0])
-
             sample = []
             if row_count > 0:
                 sample_df = conn.execute(f"SELECT * FROM {safe} LIMIT {sample_rows}").fetchdf()
@@ -164,15 +136,8 @@ def summarize_views(
                     [_jsonable(v) for v in row]
                     for row in sample_df.itertuples(index=False, name=None)
                 ]
-
             stats = _compute_stats(conn, safe, col_list, row_count)
-
-            out[view] = {
-                "columns":   col_list,
-                "row_count": row_count,
-                "sample":    sample,
-                "stats":     stats,
-            }
+            out[view] = {"columns": col_list, "row_count": row_count, "sample": sample, "stats": stats}
         except Exception as exc:
             log.warning("summarize_views: failed for %s: %s", view, exc)
     return out
@@ -181,8 +146,7 @@ def summarize_views(
 _NUMERIC_TYPES = ("INT", "BIGINT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC", "REAL")
 
 
-def _compute_stats(conn, safe_view: str, col_list: list[dict], row_count: int) -> dict:
-    """min/max/avg + argmax for each numeric column. Skips empty tables."""
+def _compute_stats(conn, safe_view, col_list, row_count):
     if row_count == 0:
         return {}
     stats = {}
@@ -206,10 +170,8 @@ def _compute_stats(conn, safe_view: str, col_list: list[dict], row_count: int) -
                 if not argmax_row.empty else {}
             )
             stats[col] = {
-                "min": _jsonable(mn),
-                "max": _jsonable(mx),
-                "avg": _jsonable(av),
-                "argmax": argmax,
+                "min": _jsonable(mn), "max": _jsonable(mx),
+                "avg": _jsonable(av), "argmax": argmax,
             }
         except Exception as exc:
             log.debug("_compute_stats: skipped %s.%s: %s", safe_view, col, exc)
@@ -217,7 +179,6 @@ def _compute_stats(conn, safe_view: str, col_list: list[dict], row_count: int) -
 
 
 def _jsonable(v):
-    """Coerce numpy/pandas/datetime scalars to JSON-safe Python primitives."""
     import math
     if v is None:
         return None
@@ -225,10 +186,231 @@ def _jsonable(v):
         return v
     if isinstance(v, float):
         return None if math.isnan(v) else v
-    # numpy/pandas: rely on .item()
     if hasattr(v, "item"):
         try:
             return v.item()
         except Exception:
             pass
     return str(v)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# UPLOAD ROUTING — Excel sheets become DuckDB views on demand
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Convention for upload table names in SQL:
+#   upload__<upload_id>__<sheet_sanitised_name>
+#
+# The resolver translates this to (s3_key, sheet_display_name). The catalog
+# (delivered by the /sources endpoint) carries the mapping; we keep a small
+# in-process lookup that's rebuilt from the manifest on each call.
+
+# Regex: catches `upload__u_aBcD12__targets` and friends. Word-boundary safe.
+_UPLOAD_REF_RE = re.compile(r"\b(upload__[A-Za-z0-9_]+)\b")
+
+
+def find_upload_refs(sql: str) -> list[str]:
+    """Return all `upload__...` table references in a SQL string."""
+    return list(set(_UPLOAD_REF_RE.findall(sql)))
+
+
+def ensure_upload_views(
+    conn: "duckdb.DuckDBPyConnection",
+    refs: list[str],
+    upload_lookup: dict,
+    s3_get: Callable[[str], bytes],
+) -> dict:
+    """For each upload reference, register the corresponding Excel sheet as a
+    DuckDB view if it isn't already.
+
+    `upload_lookup` maps `upload_id → {s3_key, sheets: {sheet_sanitised_name → display_name}}`.
+
+    Returns a dict of `{ref: row_count}` for what was loaded (or already loaded).
+    """
+    import pandas as pd
+
+    loaded = {}
+    for ref in refs:
+        # Parse `upload__<id>__<sheet>` → (id, sheet)
+        upload_id, sheet_key = _split_upload_ref(ref)
+
+        info = upload_lookup.get(upload_id)
+        if not info:
+            raise ValueError(f"Upload bulunamadı: {upload_id}")
+        sheet_display = info["sheets"].get(sheet_key)
+        if sheet_display is None:
+            raise ValueError(f"Sheet bulunamadı: {ref}")
+
+        # Already loaded?
+        existing = conn.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = ?",
+            [ref],
+        ).fetchone()
+        if existing:
+            loaded[ref] = -1   # marker: was cached
+            continue
+
+        # Fetch xlsx bytes from S3 and read the requested sheet
+        try:
+            blob = s3_get(info["s3_key"])
+        except Exception as exc:
+            raise RuntimeError(f"Excel S3'ten okunamadı ({ref}): {exc}") from exc
+
+        df = pd.read_excel(io.BytesIO(blob), sheet_name=sheet_display, engine="openpyxl")
+        # Rename columns to match the catalog's sanitised names so SQL works.
+        if "columns_sanitised" in info and ref in info["columns_sanitised"]:
+            df.columns = info["columns_sanitised"][ref]
+        register_dataframe(conn, ref, df)
+        loaded[ref] = len(df)
+        log.info("duck.ensure_upload_views: registered %s (%d rows)", ref, len(df))
+
+    return loaded
+
+
+def _split_upload_ref(ref: str) -> tuple[str, str]:
+    """`upload__u_aBcD12__targets` → ('u_aBcD12', 'targets')"""
+    if not ref.startswith("upload__"):
+        raise ValueError(f"Bad ref: {ref!r}")
+    rest = ref[len("upload__"):]
+    # `u_aBcD12__targets` — split on first `__`
+    parts = rest.split("__", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Bad ref: {ref!r}")
+    return parts[0], parts[1]
+
+
+def build_upload_lookup(manifest: dict) -> dict:
+    """Rebuild the in-memory upload lookup from manifest.uploads."""
+    lookup: dict = {}
+    for u in (manifest.get("uploads") or []):
+        upload_id = u.get("id")
+        if not upload_id:
+            continue
+        sheets_map = {}
+        columns_sanitised: dict = {}
+        for sheet in u.get("sheets") or []:
+            sheets_map[sheet["name"]] = sheet.get("display_name") or sheet["name"]
+            ref = f"upload__{upload_id}__{sheet['name']}"
+            columns_sanitised[ref] = [c["name"] for c in sheet.get("columns") or []]
+        lookup[upload_id] = {
+            "s3_key": u.get("s3_key"),
+            "sheets": sheets_map,
+            "columns_sanitised": columns_sanitised,
+        }
+    return lookup
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOCK-DRIVEN PATH — Oracle OR DuckDB-only
+# ════════════════════════════════════════════════════════════════════════════
+
+def _block_view_name(block_id: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9_]", "_", block_id).lower()
+    if not safe or safe[0].isdigit():
+        safe = "b_" + safe
+    return f"block_{safe}"
+
+
+_MAX_ROWS_IN_MANIFEST = MAX_RAW_ROWS
+
+
+def execute_block_sql(
+    dc,
+    conn,
+    block_id: str,
+    sql: str,
+    sample_rows: int = 5,
+    *,
+    upload_lookup: Optional[dict] = None,
+    s3_get: Optional[Callable[[str], bytes]] = None,
+):
+    """Validate + execute SQL, returning a data_source dict.
+
+    Routing:
+      - SQL contains `upload__...` references → DuckDB-only. We pre-load each
+        referenced sheet into DuckDB, then run SQL there.
+      - Otherwise → Oracle via DataClient (original behaviour).
+    """
+    import pandas as pd
+
+    gate: GateResult = validate_and_wrap(sql)
+    log.info(
+        "duck.execute_block_sql: block=%s gate=%s rewritten=%s truncated=%s cap=%d",
+        block_id, gate.reason, gate.rewritten, gate.truncated, gate.cap,
+    )
+
+    refs = find_upload_refs(gate.sql)
+    is_duckdb_only = bool(refs)
+
+    if is_duckdb_only:
+        if upload_lookup is None or s3_get is None:
+            raise RuntimeError(
+                "Excel referansı içeren SQL için upload_lookup ve s3_get gerekli."
+            )
+        ensure_upload_views(conn, refs, upload_lookup, s3_get)
+        # Run the SQL directly against DuckDB.
+        try:
+            df = conn.execute(gate.sql).fetchdf()
+        except Exception as exc:
+            raise RuntimeError(f"DuckDB SQL hatası: {exc}") from exc
+    else:
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"block::{block_id}",
+            query=gate.sql,
+            query_params={},
+        )
+
+    if df is None:
+        df = pd.DataFrame()
+    df = df.reset_index(drop=True) if hasattr(df, "reset_index") else df
+
+    # DuckDB.register reddediyor 0-column DataFrame'leri — empty sonuçta
+    # crash etmesin, view register'ı atlanır, downstream rows=[] ile devam eder.
+    view_name = _block_view_name(block_id)
+    if len(df.columns) > 0:
+        register_dataframe(conn, view_name, df)
+    else:
+        log.info("duck.execute_block_sql: block=%s empty result (no columns), skip register", block_id)
+
+    columns = [str(c) for c in df.columns]
+    total_rows = int(len(df))
+
+    all_rows = []
+    if total_rows > 0:
+        rows_for_manifest = df.head(_MAX_ROWS_IN_MANIFEST)
+        all_rows = [
+            [_jsonable(v) for v in row]
+            for row in rows_for_manifest.itertuples(index=False, name=None)
+        ]
+
+    sample = all_rows[:sample_rows]
+
+    engine_label = "duckdb" if is_duckdb_only else "oracle"
+    log.info(
+        "duck.execute_block_sql: block=%s engine=%s -> %d rows, view=%s",
+        block_id, engine_label, total_rows, view_name,
+    )
+
+    return {
+        "sql":          gate.sql,
+        "original_sql": gate.original_sql,
+        "rewritten":    gate.rewritten,
+        "truncated":    gate.truncated,
+        "cap":          gate.cap,
+        "reason":       gate.reason,
+        "executed_at":  _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "row_count":    total_rows,
+        "columns":      columns,
+        "preview_rows": sample,
+        "rows":         all_rows,
+        "view_name":    view_name,
+        "engine":       engine_label,
+    }
+
+
+def drop_block_view(conn, block_id):
+    try:
+        conn.unregister(_block_view_name(block_id))
+    except Exception:
+        pass

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}PRISMA — Hoş geldiniz{% endblock %}
+
+{# Home sayfası: breadcrumb ve filter panel yok — soldaki menü yeterli #}
+{% block breadcrumb %}{% endblock %}
+{% block filter_panel %}{% endblock %}
+
+{% block content %}
+<div class="content">
+  <div class="welcome">
+    <h1>Hoş geldiniz, <span class="gradient-text">{{ username }}.</span></h1>
+    <h3>Başlamak için lütfen görüntülemek istediğiniz veriyi seçin.</h3>
+
+    <div class="acronym-grid">
+      {% for g in prisma_groups %}
+        <div class="acro-card" data-key="{{ g.key }}">
+          <div class="L" style="color: {{ g.color }}">{{ g.key }}</div>
+          <div class="W">{{ g.name }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -21,6 +21,8 @@ export default function BarChart({ block }) {
     horizontal:     !!config.horizontal,
     showDataLabels: !!config.show_data_labels,
     borderRadius:   typeof config.border_radius === 'number' ? config.border_radius : 4,
+    distributed:    !!config.distributed,
+    colors:         Array.isArray(config.colors) ? config.colors : undefined,
   });
 
   // key={width} forces ApexCharts to re-measure when the user changes width

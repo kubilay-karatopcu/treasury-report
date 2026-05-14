@@ -1,0 +1,488 @@
+"""
+Run LLM-produced SQL (Oracle OR DuckDB) for any block touched by this batch.
+
+Routing:
+- SQL with `upload__...` references  → DuckDB-only path (Excel from S3)
+- Other SQL                          → Oracle via DataClient
+
+apply_data_to_config still runs after every execute, on both paths.
+section_header.children recursion preserved (Adım 5.1).
+"""
+from __future__ import annotations
+
+import logging
+
+from flask import current_app
+
+from presentations.aggregation_gate import GateError
+from presentations.duck import execute_block_sql, build_upload_lookup
+from presentations.manifest import DATA_SOURCE_TYPES, find_block_by_id
+
+log = logging.getLogger(__name__)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Config mapping — public so refresh endpoint can reuse it
+# ════════════════════════════════════════════════════════════════════════════
+
+_DATA_KEYS_BY_TYPE = {
+    "kpi":        {"value"},
+    "radial_bar": {"value"},
+    "bar_chart":  {"categories", "series"},
+    "line_chart": {"x_axis", "series"},
+    "area_chart": {"x_axis", "series"},
+    "heatmap":    {"x_axis", "series"},
+    "pie_chart":  {"labels", "values"},
+    "data_table": {"columns", "rows"},
+}
+
+
+def apply_data_to_config(block: dict, data_source: dict) -> None:
+    """Map SQL result (data_source.rows + columns) into block.config in place.
+    Style fields are preserved untouched."""
+    btype = block.get("type")
+    if btype not in _DATA_KEYS_BY_TYPE:
+        return
+
+    config = block.setdefault("config", {})
+    rows = data_source.get("rows") or []
+    columns = data_source.get("columns") or []
+
+    if not columns:
+        return
+
+    if btype in ("kpi", "radial_bar"):
+        target_col_idx = _pick_numeric_col_idx(columns, rows)
+        if target_col_idx is not None and rows:
+            value = rows[0][target_col_idx]
+            if isinstance(value, (int, float)) and value == value:
+                config["value"] = value
+        return
+
+    if btype == "pie_chart":
+        if len(columns) < 2 or not rows:
+            return
+        config["labels"] = [_safe_label(r[0]) for r in rows]
+        config["values"] = [_safe_number(r[1]) for r in rows]
+        return
+
+    if btype in ("bar_chart", "heatmap"):
+        if not rows:
+            config["categories"] = []
+            _zero_out_series(config)
+            return
+        config["categories"] = [_safe_label(r[0]) for r in rows]
+        config["series"] = _build_series(columns, rows, config.get("series"))
+        return
+
+    if btype in ("line_chart", "area_chart"):
+        if not rows:
+            config["x_axis"] = []
+            _zero_out_series(config)
+            return
+        config["x_axis"] = [_safe_label(r[0]) for r in rows]
+        config["series"] = _build_series(columns, rows, config.get("series"))
+        return
+
+    if btype == "data_table":
+        config["columns"] = [{"field": c, "header": c} for c in columns]
+        config["rows"] = [
+            {columns[i]: cell for i, cell in enumerate(row)}
+            for row in rows
+        ]
+        return
+
+
+def _build_series(columns, rows, existing_series):
+    series = []
+    existing = existing_series if isinstance(existing_series, list) else []
+    for col_idx in range(1, len(columns)):
+        col_name = columns[col_idx]
+        values = [_safe_number(row[col_idx]) for row in rows]
+        name = col_name
+        if col_idx - 1 < len(existing):
+            existing_name = existing[col_idx - 1].get("name")
+            if existing_name:
+                name = existing_name
+        series.append({"name": name, "values": values})
+    return series
+
+
+def _zero_out_series(config):
+    series = config.get("series")
+    if isinstance(series, list):
+        for s in series:
+            if isinstance(s, dict):
+                s["values"] = []
+
+
+def _pick_numeric_col_idx(columns, rows):
+    if not rows:
+        return 0 if columns else None
+    first_row = rows[0]
+    for i, c in enumerate(columns):
+        if str(c).lower() == "value":
+            return i
+    for i, v in enumerate(first_row):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return i
+    return 0
+
+
+def _safe_label(v):
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    return str(v)
+
+
+def _safe_number(v):
+    if v is None:
+        return 0
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, (int, float)):
+        if v != v:
+            return 0
+        return v
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Per-block executor
+# ════════════════════════════════════════════════════════════════════════════
+
+def _execute_one_block(block_value, dc, conn, state, errors, patch_idx, op,
+                       upload_lookup, s3_get):
+    block_id = block_value.get("id")
+    btype = block_value.get("type")
+
+    if btype not in DATA_SOURCE_TYPES:
+        _strip_data_source(block_value)
+        return
+
+    ds = block_value.get("data_source")
+    if not isinstance(ds, dict):
+        # Veri-bağımlı blok için data_source ZORUNLU. LLM'i retry'a zorla.
+        errors.append(
+            f"patch[{patch_idx}]: '{btype}' tipinde block '{block_id}' için "
+            f"`data_source.original_sql` zorunlu — SQL eklemeden bu bloğa "
+            f"veri getirilemez. Patch'i `data_source/original_sql` ve `config` "
+            f"alanlarıyla birlikte yeniden gönder."
+        )
+        return
+
+    new_sql = ds.get("original_sql") or ds.get("sql")
+    if not isinstance(new_sql, str) or not new_sql.strip():
+        # SQL boş → veri-bağımlı blok dolmaz. Retry tetikleyici hata.
+        errors.append(
+            f"patch[{patch_idx}]: block '{block_id}' için "
+            f"`data_source.original_sql` boş — config'i doldurmak için "
+            f"SQL üret. ÖRN: kpi → `SELECT SUM(X)/1e9 AS value FROM T`; "
+            f"bar_chart → `SELECT cat, val FROM T GROUP BY cat ORDER BY val DESC`."
+        )
+        return
+
+    # Cache: same SQL on an existing block → skip Oracle/DuckDB execute.
+    # But ONLY if the existing data_source has actual rows — seed manifests
+    # (and freshly-edited blocks) often have `original_sql` set but no rows
+    # yet, in which case we must run the SQL to populate config.
+    if op == "replace" and block_id:
+        existing_block, _ = find_block_by_id(state.manifest, block_id)
+        if existing_block is not None:
+            existing_ds = existing_block.get("data_source")
+            if (
+                isinstance(existing_ds, dict)
+                and _sql_equal(existing_ds.get("original_sql"), new_sql)
+                and isinstance(existing_ds.get("rows"), list)
+                and existing_ds.get("columns")
+            ):
+                block_value["data_source"] = dict(existing_ds)
+                apply_data_to_config(block_value, existing_ds)
+                log.info("execute_block_sqls: cache HIT for %s", block_id)
+                return
+
+    try:
+        new_ds = execute_block_sql(
+            dc, conn, block_id, new_sql,
+            upload_lookup=upload_lookup,
+            s3_get=s3_get,
+        )
+    except GateError as exc:
+        errors.append(f"patch[{patch_idx}]: block '{block_id}' SQL reddedildi → {exc}")
+        return
+    except Exception as exc:
+        msg = str(exc).strip().splitlines()[0][:240]
+        errors.append(f"patch[{patch_idx}]: block '{block_id}' SQL hatası → {msg}")
+        log.exception("execute_block_sqls: failure on block %s", block_id)
+        return
+
+    block_value["data_source"] = new_ds
+    apply_data_to_config(block_value, new_ds)
+
+
+def _sql_equal(a, b) -> bool:
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    return a.strip().rstrip(";").strip() == b.strip().rstrip(";").strip()
+
+
+def _strip_data_source(value):
+    if isinstance(value, dict) and "data_source" in value:
+        value.pop("data_source", None)
+
+
+def _strip_value_tree(value):
+    if not isinstance(value, dict):
+        return
+    _strip_data_source(value)
+    for child in (value.get("children") or []):
+        if isinstance(child, dict):
+            _strip_data_source(child)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Main node
+# ════════════════════════════════════════════════════════════════════════════
+
+def execute_block_sqls(state):
+    if not state.pending_patches:
+        return state
+
+    if state.session is None:
+        for p in state.pending_patches:
+            _strip_value_tree(p.get("value"))
+        return state
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        log.warning("execute_block_sqls: no DATA_CLIENT in config, skipping")
+        for p in state.pending_patches:
+            _strip_value_tree(p.get("value"))
+        return state
+
+    # Excel routing prerequisites — built from the manifest, plus an S3 reader
+    # injected at app startup via app.config["S3_GET"].
+    upload_lookup = build_upload_lookup(state.manifest or {})
+    s3_get = current_app.config.get("S3_GET")
+    if upload_lookup and s3_get is None:
+        log.warning(
+            "execute_block_sqls: manifest has uploads but S3_GET not configured; "
+            "Excel-backed blocks will error out at execute time"
+        )
+
+    conn = state.session.get_duck_conn()
+    errors: list[str] = []
+
+    # Track block IDs that were already handled by the dict-value branch so we
+    # don't double-execute when a sub-path patch also targets the same block.
+    handled_block_ids: set = set()
+
+    # Synthetic patches appended at the end so the frontend ALSO receives the
+    # SQL-driven config / data_source updates (otherwise only the original
+    # LLM patch is sent and the UI keeps stale config values).
+    extra_patches: list[dict] = []
+
+    for i, patch in enumerate(state.pending_patches):
+        op = patch.get("op")
+        if op not in ("add", "replace"):
+            continue
+        value = patch.get("value")
+
+        # ── Case A: whole-block value (add or full replace) ──
+        if isinstance(value, dict):
+            btype = value.get("type")
+            if btype in DATA_SOURCE_TYPES:
+                _execute_one_block(value, dc, conn, state, errors, i, op,
+                                   upload_lookup, s3_get)
+                if value.get("id"):
+                    handled_block_ids.add(value["id"])
+            else:
+                _strip_data_source(value)
+                if btype == "section_header" and isinstance(value.get("children"), list):
+                    for child in value["children"]:
+                        if isinstance(child, dict):
+                            if child.get("type") == "carousel":
+                                # Carousel children'a recursively SQL execute et
+                                _strip_data_source(child)
+                                for slide in (child.get("children") or []):
+                                    if isinstance(slide, dict):
+                                        _execute_one_block(slide, dc, conn, state, errors, i, "add",
+                                                           upload_lookup, s3_get)
+                                        if slide.get("id"):
+                                            handled_block_ids.add(slide["id"])
+                            else:
+                                _execute_one_block(child, dc, conn, state, errors, i, "add",
+                                                   upload_lookup, s3_get)
+                                if child.get("id"):
+                                    handled_block_ids.add(child["id"])
+                elif btype == "carousel" and isinstance(value.get("children"), list):
+                    # Carousel doğrudan eklendi (section.children/-)
+                    for slide in value["children"]:
+                        if isinstance(slide, dict):
+                            _execute_one_block(slide, dc, conn, state, errors, i, "add",
+                                               upload_lookup, s3_get)
+                            if slide.get("id"):
+                                handled_block_ids.add(slide["id"])
+            continue
+
+        # ── Case B: sub-path replace (e.g. /blocks/X/.../data_source/original_sql
+        #            or /blocks/X/.../config/colors) ──
+        # If the path targets ANYTHING inside a data-bound block, we need to
+        # re-execute that block's SQL after the patches apply, otherwise the
+        # config (categories/values) goes stale.
+        target_block = _resolve_block_from_path(state.manifest, patch.get("path", ""))
+        if target_block is not None and target_block.get("id") not in handled_block_ids:
+            bid = target_block.get("id")
+            btype = target_block.get("type")
+            if btype in DATA_SOURCE_TYPES:
+                # Simulate the patch on a shallow copy so we get the updated SQL
+                # *before* apply_patch runs.
+                simulated = _simulate_subpath_patch(target_block, patch)
+                if simulated is not None:
+                    _execute_one_block(simulated, dc, conn, state, errors, i, "replace",
+                                       upload_lookup, s3_get)
+                    # Copy executed fields back into the actual target_block in
+                    # state.manifest so apply_patch doesn't overwrite them.
+                    if "data_source" in simulated:
+                        target_block["data_source"] = simulated["data_source"]
+                    if "config" in simulated:
+                        target_block["config"] = simulated["config"]
+                    handled_block_ids.add(bid)
+
+                    # Emit synthetic patches so the frontend receives the new
+                    # config + data_source (otherwise it only sees the LLM's
+                    # narrow patch and config never re-renders).
+                    block_ptr = _block_pointer_from_path(patch.get("path", ""))
+                    if block_ptr and "config" in simulated:
+                        extra_patches.append({
+                            "op": "replace",
+                            "path": block_ptr + "/config",
+                            "value": simulated["config"],
+                        })
+                    if block_ptr and "data_source" in simulated:
+                        extra_patches.append({
+                            "op": "replace",
+                            "path": block_ptr + "/data_source",
+                            "value": simulated["data_source"],
+                        })
+
+    if extra_patches:
+        state.pending_patches.extend(extra_patches)
+
+    if errors:
+        state.validation_errors = (state.validation_errors or []) + errors
+
+    return state
+
+
+def _block_pointer_from_path(path: str) -> str | None:
+    """Strip everything after the block identity from a JSON pointer.
+
+      /blocks/0/children/1/data_source/original_sql              → /blocks/0/children/1
+      /blocks/0/children/1/children/0/data_source/original_sql   → /blocks/0/children/1/children/0
+      /blocks/2/data_source/original_sql                          → /blocks/2
+      /blocks/3                                                   → /blocks/3
+    """
+    if not isinstance(path, str) or not path.startswith("/blocks/"):
+        return None
+    parts = path.lstrip("/").split("/")
+    if len(parts) < 2:
+        return None
+    # 3-level slide (en spesifik)
+    if len(parts) >= 6 and parts[2] == "children" and parts[4] == "children":
+        return "/blocks/" + parts[1] + "/children/" + parts[3] + "/children/" + parts[5]
+    if len(parts) >= 4 and parts[2] == "children":
+        return "/blocks/" + parts[1] + "/children/" + parts[3]
+    return "/blocks/" + parts[1]
+
+
+def _resolve_block_from_path(manifest, path: str):
+    """Walk a JSON-Pointer-style path and return the nearest containing block
+    (the one with a `type` field). Returns None if the path doesn't land in a
+    block subtree. Handles 3-level nesting: section > carousel > slide."""
+    if not manifest or not isinstance(path, str) or not path.startswith("/blocks/"):
+        return None
+    parts = path.lstrip("/").split("/")
+    if len(parts) < 2:
+        return None
+    try:
+        section_idx = int(parts[1])
+    except ValueError:
+        return None
+    blocks = manifest.get("blocks") or []
+    if section_idx >= len(blocks):
+        return None
+    section = blocks[section_idx]
+    if len(parts) >= 4 and parts[2] == "children":
+        try:
+            child_idx = int(parts[3])
+        except ValueError:
+            return section
+        children = section.get("children") or []
+        if child_idx >= len(children):
+            return section
+        child = children[child_idx]
+        # 3. seviye — slide inside carousel
+        if len(parts) >= 6 and parts[4] == "children" and child.get("type") == "carousel":
+            try:
+                slide_idx = int(parts[5])
+            except ValueError:
+                return child
+            slides = child.get("children") or []
+            if slide_idx < len(slides):
+                return slides[slide_idx]
+            return child
+        return child
+    return section
+
+
+def _simulate_subpath_patch(block: dict, patch: dict):
+    """Return a deep copy of `block` with the patch applied IN MEMORY ONLY.
+    Used to capture the post-patch SQL so we can execute it before apply_patch
+    runs at the pipeline tail."""
+    import copy
+    op = patch.get("op")
+    path = patch.get("path", "")
+    parts = path.lstrip("/").split("/")
+    # We expect the path to start at /blocks/X[/children/Y]/<rest...>.
+    # Strip the head down to the block-relative part.
+    if len(parts) >= 4 and parts[2] == "children":
+        rest = parts[4:]   # everything after /blocks/X/children/Y/
+    elif len(parts) >= 2:
+        rest = parts[2:]   # everything after /blocks/X/
+    else:
+        return None
+    if not rest:
+        return None
+
+    out = copy.deepcopy(block)
+    target = out
+    for p in rest[:-1]:
+        if isinstance(target, list):
+            try:
+                p = int(p)
+            except ValueError:
+                return None
+        if isinstance(target, dict):
+            target = target.setdefault(p, {})
+        elif isinstance(target, list) and p < len(target):
+            target = target[p]
+        else:
+            return None
+    last = rest[-1]
+    try:
+        if isinstance(target, list):
+            target[int(last)] = patch.get("value")
+        else:
+            if op == "remove":
+                target.pop(last, None)
+            else:
+                target[last] = patch.get("value")
+    except Exception:
+        return None
+    return out

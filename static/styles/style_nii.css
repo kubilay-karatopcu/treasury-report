@@ -1,0 +1,56 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Mar 19 11:48:07 2026
+
+@author: A16438
+"""
+
+body {
+    overflow-x: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Sidebar Tasarımı */
+#sidebar-wrapper {
+    min-height: 100vh;
+    width: 260px;
+    background-color: #1e293b; /* Ekran görüntündeki koyu lacivert tonu */
+    transition: margin .25s ease-out;
+}
+
+.sidebar-category {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 1.5rem;
+}
+
+.list-group-item {
+    border: none;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.95rem;
+    color: #cbd5e1 !important;
+}
+
+.list-group-item:hover {
+    background-color: #334155 !important;
+    color: #fff !important;
+}
+
+.list-group-item.active {
+    background-color: #334155 !important;
+    color: #fff !important;
+    border-left: 4px solid #3b82f6; /* Aktif menüde solda mavi çizgi */
+}
+
+/* Main Content Alanı */
+#page-content-wrapper {
+    min-width: 0;
+    width: 100%;
+}
+
+.step-btn {
+    min-width: 160px;
+}

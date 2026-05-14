@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="tr" data-bs-theme="light">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>Mevduat Asistanım</title>
+
+	<!-- Tabler CSS — cdnjs path has ZERO "@" chars, so no proxy/Cloudflare
+	     email-obfuscation can mangle it into "[email protected]". -->
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler/1.0.0-beta20/css/tabler.min.css"
+	      onerror="window.__tablerLoadFailed = true;">
+
+	<style>
+		/* Bare-minimum fallback styles in case Tabler CDN is blocked.
+		   Keeps the page usable (3-column layout, clickable buttons)
+		   even if the entire framework fails to load. */
+		.btn { display:inline-block; padding:6px 14px; border-radius:6px; border:1px solid #ccc; background:#f0f0f0; cursor:pointer; font-size:14px; line-height:1.4; }
+		.btn-primary { background:#206bc4; color:#fff; border-color:#206bc4; }
+		.btn-outline-primary { background:#fff; color:#206bc4; border-color:#206bc4; }
+		.btn-outline-secondary { background:#fff; color:#5a6770; }
+		.btn-success { background:#2fb344; color:#fff; border-color:#2fb344; }
+		.btn-sm { padding:3px 9px; font-size:12px; }
+		.form-control { display:block; width:100%; padding:6px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px; }
+		.card { background:#fff; border:1px solid #e6e7e9; border-radius:8px; }
+		.card-body { padding:16px; }
+		.text-primary  { color:#206bc4; } .text-secondary{ color:#6c757d; }
+		.text-success  { color:#2fb344; } .text-muted    { color:#9ba2ac; }
+		.text-end { text-align:right; } .text-center { text-align:center; }
+		.text-truncate { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+		.fw-bold { font-weight:700; } .fw-medium { font-weight:500; } .small { font-size:.85em; }
+		.d-flex { display:flex; } .flex-fill { flex:1 1 auto; }
+		.align-items-center { align-items:center; } .justify-content-center { justify-content:center; }
+		.gap-2 { gap:8px; } .gap-3 { gap:12px; }
+		.mt-3 { margin-top:12px; } .mb-3 { margin-bottom:12px; }
+		.me-2 { margin-right:8px; } .ms-auto { margin-left:auto; }
+		.row { display:flex; flex-wrap:wrap; } .col-4{flex:0 0 33.33%; box-sizing:border-box; padding:0 4px;} .col-5{flex:0 0 41.66%;} .col-6{flex:0 0 50%;} .col-7{flex:0 0 58.33%;}
+		.shadow-sm { box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+		.border, .border-bottom { border:1px solid #e6e7e9; }
+		.bg-white { background:#fff; } .bg-light { background:#f8f9fa; }
+		.badge { display:inline-block; padding:3px 8px; font-size:11px; font-weight:600; border-radius:4px; background:#eee; }
+		.bg-blue-lt { background:#e7f1ff; } .bg-primary-lt { background:#e7f1ff; color:#206bc4; }
+		.text-blue { color:#206bc4; }
+		.alert { padding:12px; border-radius:6px; }
+		.alert-success { background:#dcf5e1; color:#1f7d2c; border:1px solid #b8e0bf; }
+		.display-6 { font-size:2.5rem; line-height:1.2; }
+		.h2 { font-size:1.75rem; font-weight:600; }
+		.text-white { color:#fff; } .text-white-50 { color:rgba(255,255,255,.5); }
+		.avatar { display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:50%; font-weight:600; }
+		.avatar-sm { width:28px; height:28px; font-size:11px; }
+		.icon { width:24px; height:24px; vertical-align:middle; }
+		.icon-sm { width:16px; height:16px; }
+		.navbar { display:flex; align-items:center; padding:12px 0; }
+		.navbar-brand { font-size:1.15rem; font-weight:600; text-decoration:none; }
+		.container-fluid { width:100%; padding:0 16px; box-sizing:border-box; }
+		dl, dd, dt { margin:0; }
+		dt { font-weight:400; padding:4px 0; } dd { padding:4px 0; }
+		hr { border:0; border-top:1px solid #e6e7e9; margin:12px 0; }
+		.min-w-0 { min-width:0; }
+	</style>
+
+	<!-- Chat-specific overrides -->
+	<link rel="stylesheet" href="{{ url_for('static', filename='deposit/style_new.css') }}">
+
+	<script>
+		// Blueprint base URL — demo.js prepends to every fetch.
+		window.DEPOSIT_BASE = "{{ url_for('deposit.chat').rstrip('/') }}";
+	</script>
+	<script src="{{ url_for('static', filename='deposit/demo.js') }}"></script>
+</head>
+<body>
+
+	<!-- HEADER (static; not re-rendered by AJAX) -->
+	<header id="header" class="navbar navbar-expand-md navbar-light border-bottom bg-white">
+		<div class="container-fluid d-flex align-items-center">
+			<a href="{{ url_for('deposit.chat') }}" class="navbar-brand d-flex align-items-center p-0" style="text-decoration:none;">
+				<img src="{{ url_for('static', filename='deposit/deposit_logo.png') }}"
+				     alt="Mevduat Asistanım"
+				     id="deposit-logo"
+				     onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+				<span style="display:none; font-weight:600; color:#1A3963;">Mevduat Asistanım</span>
+			</a>
+			<div class="ms-auto d-flex align-items-center gap-3">
+				<span class="text-secondary d-none d-sm-inline">{{ username }}</span>
+				<a href="/home" id="header-return-btn" class="btn btn-primary">
+					<svg xmlns="http://www.w3.org/2000/svg" class="icon me-1" width="18" height="18" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+						<path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+						<path d="M5 12l14 0"/><path d="M5 12l4 4"/><path d="M5 12l4 -4"/>
+					</svg>
+					Ana Uygulamaya Dön
+				</a>
+			</div>
+		</div>
+	</header>
+
+	<!-- MAIN VIEW (re-rendered by AJAX from chat_partial.html) -->
+	<div id="main-view">
+		{% include "deposit/chat_partial.html" %}
+	</div>
+
+</body>
+</html>

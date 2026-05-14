@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block title %}Mevduat Paneli – Parametreler{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/apexcharts@3/dist/apexcharts.css">
+<style>
+/* ── Strategy Slider Styling ─────────────────────────────────────── */
+.strategy-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.strategy-slider-row .band-label {
+    min-width: 100px;
+    font-weight: 600;
+    font-size: 0.8125rem;
+}
+.strategy-slider-wrap {
+    flex: 1;
+    position: relative;
+}
+
+input.strategy-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    outline: none;
+    transition: background 0.25s ease;
+}
+input.strategy-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    transition: background 0.25s ease;
+}
+input.strategy-range::-moz-range-thumb {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    transition: background 0.25s ease;
+}
+
+input.strategy-range.state-0              { background: #cce5ff; }
+input.strategy-range.state-0::-webkit-slider-thumb { background: #5ba7f5; }
+input.strategy-range.state-0::-moz-range-thumb     { background: #5ba7f5; }
+
+input.strategy-range.state-1            { background: #d4edda; }
+input.strategy-range.state-1::-webkit-slider-thumb { background: #2fb344; }
+input.strategy-range.state-1::-moz-range-thumb     { background: #2fb344; }
+
+input.strategy-range.state-2             { background: #f8d7da; }
+input.strategy-range.state-2::-webkit-slider-thumb { background: #d63939; }
+input.strategy-range.state-2::-moz-range-thumb     { background: #d63939; }
+
+.slider-ticks {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 2px;
+    margin-top: 4px;
+}
+.slider-ticks span {
+    font-size: 0.6875rem;
+    color: #667382;
+}
+.strategy-detail {
+    font-size: 0.75rem;
+    color: #667382;
+    margin-top: 2px;
+    font-family: 'Menlo', 'Consolas', monospace;
+}
+
+/* Locked card overlay */
+.card-locked {
+    position: relative;
+}
+.card-locked .card-body {
+    opacity: 0.55;
+    pointer-events: none;
+    user-select: none;
+}
+.card-locked .lock-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+}
+</style>
+{% endblock %}
+
+{% block filter_panel %}
+<!-- Empty -->
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+
+<!-- ═══ TIME SERIES CHART ═══ -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h3 class="card-title">Model Parametreleri – Tarihsel Seyir</h3>
+    </div>
+    <div class="card-body">
+        <div id="chart-params-ts" style="height: 320px;"></div>
+    </div>
+</div>
+
+<!-- ═══ INPUT SECTION ═══ -->
+<div class="row g-3 align-items-stretch" id="input-section">
+
+    <!-- ── LEFT COLUMN: Numeric Inputs ── -->
+    <div class="col-lg-4 d-flex flex-column gap-3">
+
+        <!-- Card: Model Parameters — everyone can edit -->
+        <div class="card flex-fill {% if not can_edit_hp %}card-locked{% endif %}">
+            {% if not can_edit_hp %}
+            <span class="lock-badge badge bg-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-lock me-1" width="14" height="14" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z" /><path d="M11 16a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 11v-4a4 4 0 1 1 8 0v4" /></svg>
+                Salt Okunur
+            </span>
+            {% endif %}
+            <div class="card-header">
+                <h3 class="card-title">Model Parametreleri</h3>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Market Max</label>
+                    <input type="number" step="0.01" class="form-control" id="inp-market-max" placeholder="Ör: 50.00" {% if not can_edit_hp %}disabled{% endif %}>
+                </div>
+                <div>
+                    <label class="form-label">New Funding Rate</label>
+                    <input type="number" step="0.01" class="form-control" id="inp-new-funding" placeholder="Ör: 48.00" {% if not can_edit_hp %}disabled{% endif %}>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card: Hyperparameters — locked if no permission -->
+        <div class="card flex-fill {% if not can_edit_hp %}card-locked{% endif %}">
+            {% if not can_edit_hp %}
+            <span class="lock-badge badge bg-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-lock me-1" width="14" height="14" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z" /><path d="M11 16a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 11v-4a4 4 0 1 1 8 0v4" /></svg>
+                Salt Okunur
+            </span>
+            {% endif %}
+            <div class="card-header">
+                <h3 class="card-title">Hyperparametreler</h3>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Tüzel Spread (CUST_TP_ADJ)</label>
+                    <input type="number" step="0.01" class="form-control hp-restricted" id="inp-cust-tp-adj"
+                           placeholder="Ör: -0.25" {% if not can_edit_hp %}disabled{% endif %}>
+                </div>
+
+                <hr class="my-3">
+
+                <label class="form-label mb-2">Market Adjust (bant bazlı)</label>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label small text-muted mb-1">0-5 Mn</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm market-adj-inp hp-restricted"
+                               data-band="0" placeholder="0" {% if not can_edit_hp %}disabled{% endif %}>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted mb-1">5-10 Mn</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm market-adj-inp hp-restricted"
+                               data-band="1" placeholder="0" {% if not can_edit_hp %}disabled{% endif %}>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted mb-1">10-25 Mn</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm market-adj-inp hp-restricted"
+                               data-band="2" placeholder="0.10" {% if not can_edit_hp %}disabled{% endif %}>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted mb-1">25+ Mn</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm market-adj-inp hp-restricted"
+                               data-band="3" placeholder="0.25" {% if not can_edit_hp %}disabled{% endif %}>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── RIGHT COLUMN: Strategy Sliders — everyone can edit ── -->
+    <div class="col-lg-8 d-flex">
+        <div class="card flex-fill">
+            <div class="card-header">
+                <h3 class="card-title">Fiyatlama Stratejisi</h3>
+            </div>
+            <div class="card-body d-flex flex-column">
+                <p class="text-muted mb-4" style="font-size:0.8125rem;">
+                    Seçilen strateji gün sonunda beklenen roll rasyosuna tekabül eder.
+                </p>
+
+                <div class="flex-fill d-flex flex-column justify-content-center">
+                    {% set bands = [("0-5 Milyon", 0), ("5-10 Milyon", 1), ("10-25 Milyon", 2), ("25 Üstü", 3)] %}
+                    {% for label, idx in bands %}
+                    <div class="strategy-slider-row">
+                        <div class="band-label">{{ label }}</div>
+                        <div class="strategy-slider-wrap">
+                            <input type="range" min="0" max="2" step="1" value="1"
+                                   class="strategy-range state-1"
+                                   id="slider-band-{{ idx }}" data-band="{{ idx }}">
+                            <div class="slider-ticks">
+                                <span>Maliyet Odaklı</span>
+                                <span>Dengeli</span>
+                                <span>Hacim Odaklı</span>
+                            </div>
+                            <div class="strategy-detail" id="detail-band-{{ idx }}"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ UPDATE BUTTON ═══ -->
+<div class="d-flex justify-content-end mt-3 mb-4">
+    <button class="btn btn-primary px-4" id="btn-update" disabled>
+        <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-device-floppy me-1" width="20" height="20" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M6 4h10l4 4v10a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2"/><path d="M12 14m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M14 4l0 4l-6 0l0 -4"/></svg>
+        Güncelle
+    </button>
+</div>
+
+<!-- Toast -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080">
+    <div id="toast-msg" class="toast align-items-center text-bg-success border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body" id="toast-body">Güncellendi.</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3"></script>
+<script>
+    const DEPOSIT_PANEL_BASE = "{{ url_for('deposit_panel.index') }}".replace(/\/$/, '');
+    const CAN_EDIT_HP = {{ can_edit_hp | tojson }};
+</script>
+<script src="{{ url_for('deposit_panel.static', filename='deposit_panel.js') }}?v=3"></script>
+{% endblock %}
