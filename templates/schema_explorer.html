@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+
+{% block title %}Schema Explorer — Treasury Report Platform{% endblock %}
+
+{% block head %}
+<style>
+    /* Override page-body padding for full-height graph */
+    .page-body { padding: 0 !important; }
+    .page-body > .container-xl { max-width: 100% !important; padding: 0 !important; }
+
+    #explorer-app { display: flex; height: calc(100vh - 0px); background: #0d1117; }
+
+    /* --- Sidebar --- */
+    #explorer-sidebar {
+        width: 300px;
+        min-width: 300px;
+        background: #161b22;
+        border-right: 1px solid #21262d;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    #explorer-sidebar .sidebar-header {
+        padding: 16px;
+        border-bottom: 1px solid #21262d;
+    }
+    #explorer-sidebar .sidebar-header h3 {
+        font-size: 14px;
+        color: #8b949e;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        margin: 0 0 12px 0;
+    }
+    #table-search {
+        width: 100%;
+        padding: 8px 12px;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        color: #c9d1d9;
+        font-size: 13px;
+        outline: none;
+    }
+    #table-search:focus { border-color: #388bfd; }
+    #table-search::placeholder { color: #484f58; }
+
+    .sidebar-stats {
+        display: flex;
+        gap: 8px;
+        padding: 8px 16px;
+        font-size: 12px;
+        color: #8b949e;
+        border-bottom: 1px solid #21262d;
+    }
+    .stat-badge {
+        background: #21262d;
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+
+    #node-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 4px 8px;
+    }
+    .node-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+        color: #c9d1d9;
+        transition: background 0.15s;
+    }
+    .node-item:hover { background: #1c2128; }
+    .node-item.active { background: #1a2332; border-left: 2px solid #388bfd; }
+    .node-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .node-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', Consolas, monospace; font-size: 12px; }
+    .node-badge {
+        background: #21262d;
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 11px;
+        color: #8b949e;
+    }
+
+    /* --- Graph area --- */
+    #graph-area { flex: 1; position: relative; overflow: hidden; }
+    #cosmograph-container { width: 100%; height: 100%; }
+
+    /* Upload zone */
+    #upload-zone {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 16px;
+        color: #8b949e;
+    }
+    #upload-zone .upload-icon { font-size: 48px; opacity: 0.3; margin-bottom: 8px; }
+    #upload-zone p { margin: 0; font-size: 14px; }
+    #upload-zone .upload-hint { font-size: 12px; max-width: 320px; text-align: center; line-height: 1.6; color: #484f58; }
+    #upload-zone label.upload-btn {
+        padding: 10px 24px;
+        background: #21262d;
+        color: #388bfd;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.15s;
+    }
+    #upload-zone label.upload-btn:hover { background: #1a2332; border-color: #388bfd; }
+
+    /* Legend */
+    #legend {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        background: rgba(22,27,34,0.92);
+        backdrop-filter: blur(8px);
+        border: 1px solid #21262d;
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 12px;
+        color: #8b949e;
+        display: none;
+    }
+    .legend-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+    /* Info panel */
+    #info-panel {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(22,27,34,0.95);
+        backdrop-filter: blur(8px);
+        border: 1px solid #21262d;
+        border-radius: 10px;
+        padding: 16px 20px;
+        min-width: 300px;
+        max-width: 420px;
+        max-height: 50vh;
+        overflow-y: auto;
+        display: none;
+        font-size: 13px;
+        color: #c9d1d9;
+    }
+    #info-panel h3 { font-size: 15px; margin: 0 0 12px 0; color: #fff; font-family: 'SF Mono', Consolas, monospace; }
+    #info-panel .label { color: #8b949e; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 12px; font-weight: 600; }
+    #info-panel .value { color: #c9d1d9; margin-top: 2px; }
+    #info-panel .link-row { padding: 3px 0; border-bottom: 1px solid #21262d; }
+    #info-panel .link-table { color: #388bfd; cursor: pointer; font-family: 'SF Mono', Consolas, monospace; font-size: 12px; }
+    #info-panel .link-table:hover { text-decoration: underline; }
+    #info-panel .link-cols { color: #8b949e; font-size: 11px; }
+</style>
+{% endblock %}
+
+{% block filter_panel %}
+<!-- No filter panel for schema explorer -->
+{% endblock %}
+
+{% block content %}
+<div id="explorer-app">
+    <!-- Sidebar -->
+    <div id="explorer-sidebar">
+        <div class="sidebar-header">
+            <h3>Schema Explorer</h3>
+            <input type="text" id="table-search" placeholder="Tablo ara..." />
+        </div>
+        <div class="sidebar-stats">
+            <span class="stat-badge" id="stat-nodes">0 tablo</span>
+            <span class="stat-badge" id="stat-edges">0 bağlantı</span>
+        </div>
+        <div id="node-list"></div>
+    </div>
+
+    <!-- Graph -->
+    <div id="graph-area">
+        <div id="upload-zone">
+            <div class="upload-icon">◎</div>
+            <p>CSV dosyalarını yükleyerek graf görselleştirme yapın</p>
+            <label class="upload-btn">
+                Nodes + Links CSV Seç
+                <input type="file" id="file-input" multiple accept=".csv" style="display:none" />
+            </label>
+            <p class="upload-hint">
+                <strong>cosmograph_nodes.csv</strong> ve <strong>cosmograph_links.csv</strong> dosyalarını birlikte seçin
+            </p>
+        </div>
+
+        <div id="cosmograph-container"></div>
+
+        <div id="legend">
+            <div class="legend-row"><div class="legend-dot" style="background:#D1605E"></div> Hub (8+ bağlantı)</div>
+            <div class="legend-row"><div class="legend-dot" style="background:#E59244"></div> Connector (4-7)</div>
+            <div class="legend-row"><div class="legend-dot" style="background:#84B5B2"></div> Standard (2-3)</div>
+            <div class="legend-row"><div class="legend-dot" style="background:#A77D9F"></div> Leaf (1)</div>
+        </div>
+
+        <div id="info-panel">
+            <h3 id="info-title"></h3>
+            <div class="label">TİP</div>
+            <div class="value" id="info-type"></div>
+            <div class="label">BAĞLANTI SAYISI</div>
+            <div class="value" id="info-degree"></div>
+            <div class="label">İLİŞKİLİ TABLOLAR</div>
+            <div id="info-links"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/cosmograph.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/papaparse.min.js') }}"></script>
+<script>
+    let cosmograph = null;
+    let nodesData = [];
+    let linksData = [];
+
+    // ---- CSV Loading ----
+    document.getElementById('file-input').addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length < 2) { alert('Lütfen hem nodes hem links CSV dosyasını seçin.'); return; }
+
+        let loaded = 0;
+        files.forEach(file => {
+            Papa.parse(file, {
+                header: true,
+                dynamicTyping: true,
+                skipEmptyLines: true,
+                complete: (result) => {
+                    const cols = Object.keys(result.data[0] || {});
+                    if (cols.includes('source') && cols.includes('target')) {
+                        linksData = result.data;
+                    } else if (cols.includes('id')) {
+                        nodesData = result.data;
+                    }
+                    loaded++;
+                    if (loaded === files.length) initGraph();
+                }
+            });
+        });
+    });
+
+    // ---- Build Graph ----
+    function initGraph() {
+        document.getElementById('upload-zone').style.display = 'none';
+        document.getElementById('legend').style.display = 'block';
+
+        // Build adjacency
+        const adjacency = {};
+        linksData.forEach(l => {
+            if (!adjacency[l.source]) adjacency[l.source] = [];
+            if (!adjacency[l.target]) adjacency[l.target] = [];
+            adjacency[l.source].push({ table: l.target, cols: l.shared_columns, weight: l.value });
+            adjacency[l.target].push({ table: l.source, cols: l.shared_columns, weight: l.value });
+        });
+
+        // Stats
+        document.getElementById('stat-nodes').textContent = nodesData.length + ' tablo';
+        document.getElementById('stat-edges').textContent = linksData.length + ' bağlantı';
+
+        // Populate sidebar
+        const listEl = document.getElementById('node-list');
+        listEl.innerHTML = '';
+        const sorted = [...nodesData].sort((a, b) => (b.node_value || 0) - (a.node_value || 0));
+        sorted.forEach(n => {
+            const div = document.createElement('div');
+            div.className = 'node-item';
+            div.innerHTML = `
+                <div class="node-dot" style="background:${n.node_color}"></div>
+                <span class="node-name">${n.id}</span>
+                <span class="node-badge">${(adjacency[n.id] || []).length}</span>
+            `;
+            div.addEventListener('click', () => selectNode(n.id));
+            div.dataset.name = n.id.toLowerCase();
+            listEl.appendChild(div);
+        });
+
+        // Search
+        document.getElementById('table-search').addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase();
+            listEl.querySelectorAll('.node-item').forEach(el => {
+                el.style.display = el.dataset.name.includes(q) ? '' : 'none';
+            });
+        });
+
+        // Init Cosmograph
+        const container = document.getElementById('cosmograph-container');
+        cosmograph = new Cosmograph.Cosmograph(container, {
+            nodeColor: (n) => n.node_color || '#84B5B2',
+            nodeSize: (n) => Math.max(2, Math.sqrt(n.node_value || 1) * 3),
+            nodeLabel: (n) => n.id,
+            nodeLabelAccessor: (n) => n.id,
+            nodeLabelColor: '#8b949e',
+            linkWidth: (l) => Math.max(0.3, (l.value || 1) * 0.8),
+            linkColor: () => 'rgba(88,96,105,0.25)',
+            linkArrows: false,
+            backgroundColor: '#0d1117',
+            spaceSize: 4096,
+            simulation: {
+                repulsion: 1.5,
+                linkDistance: 15,
+                gravity: 0.2,
+                friction: 0.85,
+            },
+            events: {
+                onClick: (node) => { if (node) selectNode(node.id); }
+            }
+        });
+
+        cosmograph.setData(nodesData, linksData);
+
+        function selectNode(nodeId) {
+            const panel = document.getElementById('info-panel');
+            const node = nodesData.find(n => n.id === nodeId);
+            if (!node) { panel.style.display = 'none'; return; }
+
+            panel.style.display = 'block';
+            document.getElementById('info-title').textContent = node.id;
+            document.getElementById('info-type').textContent = (node.type || '—').toUpperCase();
+            document.getElementById('info-degree').textContent = (adjacency[nodeId] || []).length + ' tablo';
+
+            const linksHtml = (adjacency[nodeId] || [])
+                .sort((a, b) => b.weight - a.weight)
+                .map(l => `
+                    <div class="link-row">
+                        <span class="link-table" onclick="selectNode('${l.table}')">${l.table}</span>
+                        <span class="link-cols"> — ${l.cols}</span>
+                    </div>
+                `).join('');
+            document.getElementById('info-links').innerHTML = linksHtml || '<span style="color:#484f58">Bağlantı yok</span>';
+
+            // Highlight in sidebar
+            document.querySelectorAll('.node-item').forEach(el => {
+                el.classList.toggle('active', el.dataset.name === nodeId.toLowerCase());
+            });
+
+            cosmograph.selectNode(node);
+        }
+
+        // Expose for inline onclick
+        window.selectNode = selectNode;
+    }
+</script>
+{% endblock %}

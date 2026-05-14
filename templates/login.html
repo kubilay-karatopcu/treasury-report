@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!-- saved from url=(0051)https://getbootstrap.com/docs/4.0/examples/sign-in/ -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <link rel="icon" href="{{ url_for('static',filename='logo.png') }}">
+	<link rel= "stylesheet" type= "text/css" href= "{{ url_for('static',filename='styles/login.css') }}">
+    <title>Tresuary Repory Platform</title>
+	<link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+  </head>
+
+  <body class="text-center d-flex align-items-center justify-content-center min-vh-100">
+	
+			
+		<div class = "container mainContainer">	
+			<h1 class="h3 display-3 font-weight-normal eurobondTitle"></h1>
+		
+	 
+		
+		  	<img class="eurobondIcon" src="{{ url_for('static',filename='logo.png') }}">
+		
+		
+	  
+	  
+		
+		  	<form action = "" method = "post" class="form-signin" novalidate>
+				{{ form.hidden_tag() }}
+				{{ form.sicil(size=32, class_ = "form-control", placeholder = "Sicil")}} 
+				{{ form.password(size=32, class_ = "form-control", placeholder = "Şifre")}} 
+			  
+			  <div class="checkbox mb-3">
+				{{ form.remember_me() }} {{ form.remember_me.label }}
+			  </div>
+				{{ form.submit(class_ = "btn btn-lg btn-primary btn-block", style="background-color:#1170C4") }}
+			  
+			  
+			</form>
+		</div>
+		
+	
+  
+
+    </body>
+</html>

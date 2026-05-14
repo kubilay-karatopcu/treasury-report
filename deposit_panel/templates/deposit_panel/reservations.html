@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block title %}Mevduat Paneli – Rezervasyon Takip{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+<style>
+.ag-theme-alpine {
+    --ag-header-height: 38px;
+    --ag-row-height: 34px;
+    --ag-font-size: 13px;
+}
+.theme-dark .ag-theme-alpine {
+    --ag-background-color: #1a2234;
+    --ag-header-background-color: #1f2937;
+    --ag-odd-row-background-color: #1e293b;
+    --ag-row-hover-color: rgba(32, 107, 196, 0.15);
+    --ag-header-foreground-color: #e2e8f0;
+    --ag-foreground-color: #cbd5e1;
+    --ag-border-color: #334155;
+    --ag-control-panel-background-color: #1a2234;
+    --ag-side-button-selected-background-color: #1f2937;
+}
+</style>
+{% endblock %}
+
+{% block filter_panel %}
+<!-- Empty -->
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <h3 class="card-title mb-0">Bugünkü Rezervasyonlar</h3>
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small" id="grid-info"></span>
+                <button class="btn btn-sm btn-outline-secondary" id="btn-reset-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-refresh me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></svg>
+                    Sıfırla
+                </button>
+                <button class="btn btn-sm btn-outline-primary" id="btn-export-csv">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-download me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" /><path d="M7 11l5 5l5 -5" /><path d="M12 4l0 12" /></svg>
+                    CSV İndir
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div id="reservations-grid" class="ag-theme-alpine" style="height: 700px; width: 100%;"></div>
+        </div>
+        
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body py-3">
+                    <div class="d-flex align-items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="icon me-2 text-muted flex-shrink-0" width="18" height="18" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 6h-6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>
+                            <path d="M11 13l9-9"/><path d="M15 4h5v5"/>
+                        </svg>
+                        <span class="text-muted small fw-bold me-2">Rakip banka oranları müşterilerden alınan geri bildirimler sonucu elde edilmiştir.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@31.3.2/dist/ag-grid-enterprise.min.noStyle.js"></script>
+<script>
+(function () {
+    "use strict";
+
+    const BASE = "{{ url_for('deposit_panel.index') }}".replace(/\/$/, '');
+
+    // ── Number formatter helpers ────────────────────────────────────
+    const fmtAmt = p => p.value != null ? Number(p.value).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) : "";
+    const fmtRate = p => p.value != null ? Number(p.value).toFixed(2) : "";
+
+    // ── Column Definitions ──────────────────────────────────────────
+    const COLUMN_DEFS = [
+        {
+            headerName: "Zaman",
+            field: "DATE_TIME_STR",
+            filter: "agTextColumnFilter",
+            width: 160,
+        },
+        {
+            headerName: "Kaynak",
+            field: "DATA_SRC",
+            filter: "agSetColumnFilter",
+            enableRowGroup: true,
+            enablePivot: true,
+            width: 100,
+        },
+        {
+            headerName: "Müşteri No",
+            field: "CUST_ID",
+            filter: "agTextColumnFilter",
+            width: 120,
+        },
+        {
+            headerName: "Müşteri Tipi",
+            field: "CUST_TP",
+            filter: "agSetColumnFilter",
+            enableRowGroup: true,
+            enablePivot: true,
+            width: 110,
+        },
+        {
+            headerName: "Para Birimi",
+            field: "CCY_CODE",
+            filter: "agSetColumnFilter",
+            enableRowGroup: true,
+            enablePivot: true,
+            width: 110,
+        },
+        {
+            headerName: "Vade Başlangıç",
+            field: "VADE_BASLANGIC",
+            filter: "agNumberColumnFilter",
+            enableRowGroup: true,
+            enablePivot: true,
+            width: 130,
+        },
+        {
+            headerName: "Rez. Tutarı",
+            field: "RESERVATION_AMT",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "sum",
+            width: 140,
+            valueFormatter: fmtAmt,
+        },
+        {
+            headerName: "Mevcut Tutar",
+            field: "CURRENTAMOUNT",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "sum",
+            width: 140,
+            valueFormatter: fmtAmt,
+        },
+        {
+            headerName: "Gelen Tutar",
+            field: "INCOMING_AMT",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "sum",
+            width: 130,
+            valueFormatter: fmtAmt,
+        },
+        {
+            headerName: "Verilen Oran",
+            field: "OFFERED_RATE",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "avg",
+            width: 120,
+            valueFormatter: fmtRate,
+        },
+        {
+            headerName: "Talep Oranı",
+            field: "DEMANDED_RATE",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "avg",
+            width: 120,
+            valueFormatter: fmtRate,
+        },
+        {
+            headerName: "Önerilen Fiyat",
+            field: "SUGGESTED_PRICE",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "avg",
+            width: 130,
+            valueFormatter: fmtRate,
+        },
+        {
+            headerName: "Market Max",
+            field: "MARKET_MAX_RT",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "avg",
+            width: 120,
+            valueFormatter: fmtRate,
+        },
+        {
+            headerName: "Ekstrem",
+            field: "EKSTREM",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "avg",
+            width: 110,
+            valueFormatter: fmtRate,
+        },
+        {
+            headerName: "Rakip Oranı",
+            field: "PERCENTILE_COMPETITOR_RTS",
+            filter: "agNumberColumnFilter",
+            enableValue: true,
+            aggFunc: "avg",
+            width: 120,
+            valueFormatter: fmtRate,
+        },
+        {
+            headerName: "Revize No",
+            field: "TALEP_REVIZE_NO",
+            filter: "agNumberColumnFilter",
+            enableRowGroup: true,
+            width: 100,
+        },
+        {
+            headerName: "Son Revize",
+            field: "IS_MAX_REVIZE",
+            filter: "agSetColumnFilter",
+            enableRowGroup: true,
+            enablePivot: true,
+            width: 110,
+            valueFormatter: p => p.value === true ? "Evet" : p.value === false ? "Hayır" : "",
+        },
+    ];
+
+    let gridApi = null;
+
+    const gridOptions = {
+        columnDefs: COLUMN_DEFS,
+        defaultColDef: {
+            sortable: true,
+            resizable: true,
+            filter: true,
+            floatingFilter: true,
+            flex: 1,
+            minWidth: 100,
+            enableRowGroup: false,
+            enablePivot: false,
+            enableValue: false,
+        },
+        autoGroupColumnDef: {
+            headerName: "Grup",
+            minWidth: 220,
+            cellRendererParams: { suppressCount: false },
+        },
+        rowData: [],
+        animateRows: true,
+        rowSelection: "multiple",
+        suppressMenuHide: true,
+
+        // ── Enterprise features ──────────────────────────────────
+        sideBar: {
+            toolPanels: [
+                {
+                    id: "columns",
+                    labelDefault: "Kolonlar",
+                    labelKey: "columns",
+                    iconKey: "columns",
+                    toolPanel: "agColumnsToolPanel",
+                    minWidth: 225,
+                    maxWidth: 400,
+                    width: 250,
+                },
+                {
+                    id: "filters",
+                    labelDefault: "Filtreler",
+                    labelKey: "filters",
+                    iconKey: "filter",
+                    toolPanel: "agFiltersToolPanel",
+                    minWidth: 180,
+                    maxWidth: 400,
+                    width: 250,
+                },
+            ],
+            position: "right",
+            defaultToolPanel: "",
+        },
+        rowGroupPanelShow: "always",
+        pivotPanelShow: "onlyWhenPivoting",
+        groupDefaultExpanded: 1,
+        suppressAggFuncInHeader: false,
+
+        statusBar: {
+            statusPanels: [
+                { statusPanel: "agTotalAndFilteredRowCountComponent", align: "left" },
+                { statusPanel: "agAggregationComponent", align: "right" },
+            ],
+        },
+
+        onFilterChanged: updateInfo,
+        onRowDataUpdated: updateInfo,
+        onModelUpdated: updateInfo,
+    };
+
+    function updateInfo() {
+        if (!gridApi) return;
+        const total = gridApi.getDisplayedRowCount();
+        const el = document.getElementById("grid-info");
+        if (el) el.textContent = total + " kayıt";
+    }
+
+    async function loadData() {
+        try {
+            const res = await fetch(BASE + "/api/get-today-data", {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            });
+            const data = await res.json();
+            gridApi.setRowData(data);
+        } catch (e) {
+            console.error("loadData:", e);
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const gridDiv = document.getElementById("reservations-grid");
+        gridApi = agGrid.createGrid(gridDiv, gridOptions);
+
+        document.getElementById("btn-reset-all").addEventListener("click", () => {
+            gridApi.setFilterModel(null);
+            gridApi.setColumnDefs(COLUMN_DEFS);
+            gridApi.setSideBarVisible(true);
+        });
+
+        document.getElementById("btn-export-csv").addEventListener("click", () => {
+            gridApi.exportDataAsCsv({ fileName: "rezervasyonlar.csv" });
+        });
+
+        loadData();
+    });
+})();
+</script>
+{% endblock %}

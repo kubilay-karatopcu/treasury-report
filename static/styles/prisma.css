@@ -1,0 +1,385 @@
+/* ================================================================
+   PRISMA Shell — rail + colored sidebar + content + dark mode
+   ================================================================ */
+* { box-sizing: border-box; }
+:root {
+  --active-c:  #ea580c;
+  --active-c2: #fb923c;
+}
+html, body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #eef2f7;
+  color: #1e293b;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app { display: flex; height: 100vh; }
+
+/* ===== Rail (en sol) ===== */
+.prisma-rail {
+  width: 62px;
+  background: #0f172a;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  box-shadow: inset -6px 0 18px rgba(0,0,0,0.35);
+  position: relative;
+  z-index: 2;
+}
+.rail-letters {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.rail-footer {
+  padding: 10px 0 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.rail-icon-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.rail-icon-btn:hover {
+  color: #ffffff;
+  background: rgba(255,255,255,0.1);
+}
+.rail-icon-btn.danger:hover {
+  color: #fca5a5;
+  background: rgba(248,113,113,0.12);
+}
+.rail-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ===== Letter tabs ===== */
+.letter-tab {
+  --c: #475569;
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.45rem;
+  line-height: 1;
+  color: rgba(255,255,255,0.45);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 0;
+  margin: 2px 0;
+  letter-spacing: 1px;
+  user-select: none;
+}
+.letter-tab .label {
+  font-size: 0.5rem;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  margin-top: 3px;
+  opacity: 0;
+  text-transform: uppercase;
+  transition: opacity 0.2s;
+}
+.letter-tab:hover {
+  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.06);
+}
+.letter-tab:hover .label { opacity: 0.7; }
+.letter-tab.active {
+  background: var(--c);
+  color: #ffffff;
+  border-radius: 0;
+  margin: 0;
+  height: 72px;
+}
+.letter-tab.active .label { opacity: 0.9; }
+
+/* ===== Sidebar (renkli) ===== */
+.sidebar {
+  width: 270px;
+  background: var(--active-c);
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  transition: background 0.45s ease;
+  box-shadow: 6px 0 24px rgba(15,23,42,0.10);
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+.sidebar-header {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.18);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.big-letter {
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.cat-title { font-size: 1.15rem; font-weight: 600; line-height: 1.2; }
+.cat-sub   {
+  font-size: 0.7rem;
+  opacity: 0.85;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+.sidebar-nav {
+  flex: 1;
+  padding: 14px 12px;
+  overflow-y: auto;
+}
+.menu-group { display: none; }
+.menu-group.active {
+  display: block;
+  animation: fadeSlide 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.menu-section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.6;
+  padding: 10px 14px 6px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  color: rgba(255,255,255,0.94);
+  font-size: 0.875rem;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  margin-bottom: 2px;
+  transition: background 0.15s, padding-left 0.2s;
+  border-left: 3px solid transparent;
+}
+.menu-item:hover {
+  background: rgba(255,255,255,0.14);
+  padding-left: 18px;
+  color: #ffffff;
+}
+.menu-item.active-item {
+  background: rgba(255,255,255,0.2);
+  border-left-color: rgba(255,255,255,0.95);
+}
+.menu-item .icon {
+  width: 18px;
+  height: 18px;
+  opacity: 0.95;
+  flex-shrink: 0;
+}
+
+/* ===== Main content =====
+   .main scrolls internally so rail+sidebar stay pinned to the viewport
+   on tall sub-pages. */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #eef2f7;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+  position: relative;  /* peek-overlay için anchor */
+}
+
+/* ===== Peek mode overlay =====
+   Kullanıcı HOME dışı bir harfe tıkladığında ana içerik (rail + sidebar
+   hariç) karartılır. Overlay'a tıklayınca HOME grubuna geri döner.
+   Rail = 62, Sidebar = 270 → left = 332px. Fixed ki .main'in iç scroll'u
+   ile birlikte kaymasın. */
+.peek-overlay {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: calc(62px + 270px);
+  right: 0;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+  z-index: 20;
+  cursor: pointer;
+  opacity: 0;
+  animation: peekFadeIn 0.18s ease forwards;
+}
+.peek-overlay[hidden] { display: none; }
+@keyframes peekFadeIn {
+  to { opacity: 1; }
+}
+body.theme-dark .peek-overlay {
+  background: rgba(0, 0, 0, 0.55);
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  height: 56px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  flex-shrink: 0;
+}
+.breadcrumb {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+.breadcrumb b {
+  color: var(--active-c);
+  transition: color 0.45s ease;
+}
+.topbar-right {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  min-height: 50vh;
+}
+
+/* ===== Welcome / home ===== */
+.welcome { text-align: center; max-width: 700px; }
+.welcome h1 {
+  font-size: 2.6rem;
+  font-weight: 500;
+  letter-spacing: -0.6px;
+  margin: 0 0 16px;
+  opacity: 0;
+  transform: translateY(30px);
+  animation: fadeUp 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.welcome h3 {
+  font-size: 1.15rem;
+  font-weight: 400;
+  color: #64748b;
+  margin: 0 0 32px;
+  opacity: 0;
+  transform: translateY(30px);
+  animation: fadeUp 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s forwards;
+}
+.gradient-text {
+  background: linear-gradient(90deg, var(--active-c), var(--active-c2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 600;
+  padding-bottom: 0.1em;
+  display: inline-block;
+  transition: background 0.45s ease;
+}
+@keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+.acronym-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-top: 8px;
+  opacity: 0;
+  transform: translateY(30px);
+  animation: fadeUp 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.6s forwards;
+}
+.acro-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.acro-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(15,23,42,0.10);
+}
+.acro-card .L {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.acro-card .W {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.footer {
+  padding: 14px 24px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  border-top: 1px solid #e2e8f0;
+}
+.footer .brand {
+  color: #64748b;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+/* ================================================================
+   Dark mode — body.theme-dark (uses same key as old base.html JS)
+   ================================================================ */
+body.theme-dark { background: #0b1220; color: #f1f5f9; }
+body.theme-dark .main { background: #0b1220; }
+body.theme-dark .topbar {
+  background: #111827;
+  border-bottom-color: #1f2937;
+}
+body.theme-dark .breadcrumb { color: #94a3b8; }
+body.theme-dark .welcome h1 { color: #f1f5f9; }
+body.theme-dark .welcome h3 { color: #94a3b8; }
+body.theme-dark .acro-card {
+  background: #1f2937;
+  border-color: #334155;
+}
+body.theme-dark .acro-card .W { color: #94a3b8; }
+body.theme-dark .footer {
+  color: #64748b;
+  border-top-color: #1f2937;
+}
+body.theme-dark .footer .brand { color: #94a3b8; }

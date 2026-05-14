@@ -32,6 +32,7 @@ class LLMClient(Protocol):
         manifest: dict,
         selected_block_id: str | None = None,
         data_summary: dict | None = None,
+        catalog: dict | None = None,
     ) -> tuple[list[dict], str]: ...
 
 
@@ -52,37 +53,66 @@ class QwenClient:
     def __init__(
         self,
         endpoint: str,
-        model: str,
         token: str,
+        model: str | None = None,
         timeout: int = 60,
         verify_ssl: bool = True,
         force_json: bool = False,
     ):
+        # `model` opsiyonel: Qwen GGUF endpoint'i kabul etmiyor → boş bırak.
+        # OpenAI / Groq / OpenRouter gibi public provider'lar için zorunlu.
         self.endpoint = endpoint
-        self.model = model
         self.token = token
+        self.model = model
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.force_json = force_json
 
-    def generate_patches(self, system, user_message, manifest, selected_block_id=None, data_summary=None):
-        # Embed manifest snapshot + layout summary + DuckDB data summary into the
-        # user message. The system prompt stays static (cache-friendly).
-        composed_user = compose_user_message(manifest, selected_block_id, user_message, data_summary)
+    def generate_patches(
+        self,
+        system,
+        user_message,
+        manifest,
+        selected_block_id=None,
+        data_summary=None,
+        catalog=None,
+    ):
+        # Embed manifest snapshot + layout summary + DuckDB data summary +
+        # catalog into the user message. The system prompt stays static.
+        composed_user = compose_user_message(
+            manifest, selected_block_id, user_message,
+            data_summary=data_summary,
+            catalog=catalog,
+        )
 
+        # Sanity check: catch runaway prompts before the server does.
+        # ~4 chars per token is the standard rule of thumb for English/Turkish.
+        approx_tokens = (len(system) + len(composed_user)) // 4
+        if approx_tokens > 100_000:
+            import logging
+            logging.warning(
+                "QwenClient: large prompt detected (~%d tokens, %d chars). "
+                "Manifest may need pruning.",
+                approx_tokens, len(system) + len(composed_user),
+            )
+ 
+        # NOTE: Qwen corporate endpoint, `model` body'de varsa reddediyor.
+        # OpenAI/Groq/OpenRouter ise model field'ı bekliyor — sadece self.model
+        # set edildiyse payload'a eklenir.
         payload = {
-            "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": composed_user},
             ],
             "temperature": 0.2,
+            "max_tokens": 2048,
             "stream": False,
         }
+        if self.model:
+            payload["model"] = self.model
         if self.force_json:
-            # OpenAI-compatible JSON mode (Groq, OpenRouter, OpenAI, etc).
             payload["response_format"] = {"type": "json_object"}
-
+ 
         resp = requests.post(
             self.endpoint,
             json=payload,
@@ -91,7 +121,6 @@ class QwenClient:
             timeout=self.timeout,
         )
         if not resp.ok:
-            # Surface the provider's actual error so we can diagnose 400/429 etc.
             body = resp.text[:1000]
             raise RuntimeError(
                 f"LLM provider HTTP {resp.status_code}: {body}"
@@ -169,6 +198,114 @@ def _data_summary_section(data_summary: dict | None) -> str:
         lines.append("")
 
     return "\n".join(lines)
+    
+def _catalog_section(catalog: dict | None) -> str:
+    """Render the data catalog as a compact, prompt-friendly Turkish section.
+    The LLM must ONLY use tables and columns listed here when producing SQL."""
+    if not catalog:
+        return ""
+ 
+    domains = catalog.get("domains") or []
+    if not domains:
+        return ""
+ 
+    lines = ["## Mevcut katalog (SQL üretirken SADECE bu tabloları/kolonları kullan)"]
+    lines.append("")
+    for dom in domains:
+        dom_label = dom.get("label") or dom.get("id") or ""
+        lines.append(f"### {dom_label}")
+        for t in dom.get("tables") or []:
+            tid = t.get("id", "")
+            desc = t.get("desc", "")
+            rows = t.get("rows", "")
+            meta_bits = []
+            if desc:
+                meta_bits.append(desc)
+            if rows:
+                meta_bits.append(f"~{rows} satır")
+            meta_str = f" — {' · '.join(meta_bits)}" if meta_bits else ""
+            lines.append(f"**{tid}**{meta_str}")
+            cols = t.get("columns") or []
+            for c in cols:
+                cname = c.get("name", "?")
+                ctype = c.get("type", "")
+                cvals = c.get("common_values") or []
+                if cvals:
+                    sample = ", ".join(f'"{v}"' for v in cvals[:10])
+                    suffix = "…" if len(cvals) > 10 else ""
+                    lines.append(
+                        f"  - {cname}  `{ctype}`  (gerçek değerler: {sample}{suffix} — SQL'de bunları AYNEN kullan)"
+                    )
+                else:
+                    lines.append(f"  - {cname}  `{ctype}`")
+            filters = t.get("common_filters") or []
+            if filters:
+                lines.append("  Sık kullanılan filtreler:")
+                for f in filters:
+                    flabel = f.get("label", "")
+                    fexpr = f.get("expression", "")
+                    lines.append(f"    • {flabel}: `{fexpr}`")
+            lines.append("")
+    lines.append("")
+    return "\n".join(lines)
+
+def _manifest_for_prompt(manifest: dict) -> dict:
+    """Return a copy of the manifest safe to send to the LLM.
+
+    The on-disk manifest carries `data_source.rows` (up to 5000 rows per block)
+    and `data_source.preview_rows` for every data-bound block. These can blow
+    past any reasonable context window. The LLM doesn't need raw data — it
+    sees the loaded views via `data_summary`. Keep only schema/SQL.
+
+    Also drops `data_source.columns` (kept) and other small fields are kept.
+    """
+    if not isinstance(manifest, dict):
+        return manifest
+
+    def _strip_ds(block):
+        if not isinstance(block, dict):
+            return block
+        out = dict(block)
+        ds = out.get("data_source")
+        if isinstance(ds, dict):
+            slim_ds = {k: v for k, v in ds.items()
+                       if k not in ("rows", "preview_rows")}
+            out["data_source"] = slim_ds
+        children = out.get("children")
+        if isinstance(children, list):
+            out["children"] = [_strip_ds(c) for c in children]
+        return out
+
+    out = dict(manifest)
+    out["blocks"] = [_strip_ds(b) for b in (manifest.get("blocks") or [])]
+
+    # uploads.sheets[].preview_rows can also be heavy; trim it.
+    uploads = manifest.get("uploads") or []
+    if uploads:
+        slim_uploads = []
+        for u in uploads:
+            slim_u = dict(u)
+            slim_sheets = []
+            for s in (u.get("sheets") or []):
+                slim_s = {k: v for k, v in s.items() if k != "preview_rows"}
+                slim_sheets.append(slim_s)
+            slim_u["sheets"] = slim_sheets
+            slim_uploads.append(slim_u)
+        out["uploads"] = slim_uploads
+
+    return out
+
+
+_BLOCK_SQL_SHAPE = {
+    "kpi":         "SELECT <tek_sayi> AS value FROM ...  (TEK satır, TEK sayı)",
+    "bar_chart":   "SELECT <category>, <value> FROM ... GROUP BY <category> ORDER BY <value> DESC",
+    "line_chart":  "SELECT <x_or_date>, <value> FROM ... ORDER BY <x_or_date>",
+    "area_chart":  "SELECT <x_or_date>, <value> FROM ... ORDER BY <x_or_date>",
+    "pie_chart":   "SELECT <label>, <value> FROM ... GROUP BY <label>",
+    "heatmap":     "SELECT <x>, <y_label>, <value> FROM ...",
+    "radial_bar":  "SELECT <tek_sayi> AS value FROM ...  (TEK satır, TEK sayı)",
+    "data_table":  "SELECT <col1>, <col2>, ... FROM ... LIMIT 50",
+}
 
 
 def compose_user_message(
@@ -176,28 +313,43 @@ def compose_user_message(
     selected_block_id: str | None,
     user_message: str,
     data_summary: dict | None = None,
+    catalog: dict | None = None,
 ) -> str:
     blocks = manifest.get("blocks", [])
     layout = _block_layout_summary(blocks)
     sec_indices = _section_insertion_indices(blocks)
 
     sel_info = "yok"
+    sel_shape_hint = ""
     if selected_block_id:
         from presentations.manifest import find_block_by_id
         block, path = find_block_by_id(manifest, selected_block_id)
         if block is not None:
-            sel_info = f"{selected_block_id} (path: {path}, type: {block.get('type')})"
+            btype = block.get("type")
+            sel_info = f"{selected_block_id} (path: {path}, type: {btype})"
+            shape = _BLOCK_SQL_SHAPE.get(btype)
+            if shape:
+                ds = (block.get("data_source") or {})
+                has_sql = bool((ds.get("original_sql") or "").strip())
+                empty_note = " — ŞU AN BOŞ, doldurman bekleniyor" if not has_sql else ""
+                sel_shape_hint = (
+                    f"\n  Beklenen SQL şekli ({btype}{empty_note}): {shape}\n"
+                    f"  → Kullanıcı blok tipini söylemese bile bu şekilde SQL üret. "
+                    f"data_source.original_sql DOLU yaz."
+                )
 
-    full_json = json.dumps(manifest, ensure_ascii=False, indent=2)
+    full_json = json.dumps(_manifest_for_prompt(manifest), ensure_ascii=False, indent=2)
     data_section = _data_summary_section(data_summary)
+    catalog_section = _catalog_section(catalog)
 
     return (
         "# Bağlam\n\n"
+        f"{catalog_section}"
         "## Blok dizilimi (index sırasıyla)\n"
         f"{layout}\n\n"
         "## Section ekleme index'leri (yeni blok ALTINA ekleme için)\n"
         f"{sec_indices}\n\n"
-        f"## Seçili blok\n  {sel_info}\n"
+        f"## Seçili blok\n  {sel_info}{sel_shape_hint}\n"
         f"{data_section}\n"
         "## Tam manifest (JSON, referans için)\n"
         f"```json\n{full_json}\n```\n\n"
@@ -247,7 +399,15 @@ class FakeLLM:
     Diğer her şey için patches=[] + neden döner.
     """
 
-    def generate_patches(self, system, user_message, manifest, selected_block_id=None, data_summary=None):
+    def generate_patches(
+        self,
+        system,
+        user_message,
+        manifest,
+        selected_block_id=None,
+        data_summary=None,
+        catalog=None,
+    ):
         # FakeLLM ignores data_summary — it's pure pattern matching against the
         # user's text. The signature matches QwenClient for drop-in replacement.
         msg = user_message.strip()

@@ -196,6 +196,18 @@ def validate_patches(state: dict, patches: list[dict]) -> list[str]:
         for block in new_state.get("blocks", []):
             errors.extend(_validate_chart_length(block))
     except Exception as exc:
-        errors.append(f"apply error: {exc}")
+        # Identify the specific patch that failed so the LLM retry sees a
+        # useful error (otherwise it gets just "apply error: 'blocks'" with
+        # no clue which patch to fix).
+        for i, p in enumerate(patches):
+            try:
+                apply_patches(state, patches[:i + 1])
+            except Exception as inner:
+                errors.append(
+                    f"patch[{i}] ({p.get('op')} {p.get('path')!r}) "
+                    f"apply hatası: {inner!r} — yol mevcut mu, indeks geçerli mi kontrol et"
+                )
+                return errors
+        errors.append(f"apply error: {exc!r}")
 
     return errors

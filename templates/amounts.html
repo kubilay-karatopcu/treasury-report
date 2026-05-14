@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-xl">
+    
+    <div class="page-header d-print-none mb-3">
+        <div class="row align-items-center">
+            <div class="col">
+                <h2 class="page-title">Oranlar Dashboard</h2>
+                <div class="text-muted mt-1" id="display-date">Yükleniyor...</div>
+            </div>
+            <div class="col-auto ms-auto d-print-none sticky-date-wrapper">
+                <div class="d-flex align-items-center bg-white p-2 rounded shadow-sm border">
+                    
+                    <button class="btn btn-icon btn-action" id="btn-prev-date" title="Bir Gün Geri">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                            <path d="M15 6l-6 6l6 6" />
+                        </svg>
+                    </button>
+            
+                    <div class="input-icon mx-2">
+                        <span class="input-icon-addon">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12z" /><path d="M16 3v4" />
+                                <path d="M8 3v4" /><path d="M4 11h16" /><path d="M11 15h1" /><path d="M12 15v3" />
+                            </svg>
+                        </span>
+                        <input class="form-control text-center" placeholder="Tarih Seçin" id="litepicker-date" value="{{ initial_date }}" readonly style="min-width: 140px;"/>
+                    </div>
+            
+                    <button class="btn btn-icon btn-action" id="btn-next-date" title="Bir Gün İleri">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg>
+                    </button>
+            
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Gün İçinde Hacim ve İşlem Grafiği</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-time-series" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg></a>
+                        <a href="#carousel-time-series" class="btn-action text-dark" style="color: #000;" data-bs-slide="next"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg></a>
+                    </div>
+                </div>
+                <div id="carousel-time-series" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Kümülatif</div>
+                                <div id="chart-time-cumulative" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Saatlik (O Saatteki Hacim)</div>
+                                <div id="chart-time-hourly" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards mt-2">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title text-primary">CURRENT AMOUNT (Roll Hacmi)</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-dist-current" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg></a>
+                        <a href="#carousel-dist-current" class="btn-action text-dark" data-bs-slide="next"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg></a>
+                    </div>
+                </div>
+                <div id="carousel-dist-current" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Hacim Bazlı Dağılım</div>
+                                <div id="chart-curr-pie-vol" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Adet Bazlı Dağılım</div>
+                                <div id="chart-curr-pie-count" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Tutar Dağılım Grafiği (Frekans)</div>
+                                <div id="chart-curr-hist" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards mt-2">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title text-success">INCOMING AMOUNT (Yeni Para)</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-dist-incoming" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg></a>
+                        <a href="#carousel-dist-incoming" class="btn-action text-dark" style="color: #000;" data-bs-slide="next"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg></a>
+                    </div>
+                </div>
+                <div id="carousel-dist-incoming" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Hacim Bazlı Dağılım</div>
+                                <div id="chart-inc-pie-vol" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Adet Bazlı Dağılım</div>
+                                <div id="chart-inc-pie-count" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Tutar Dağılım Grafiği (Frekans)</div>
+                                <div id="chart-inc-hist" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards mt-2 mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title text-warning">PORTFOLIO AMOUNT</h3>
+                    <div class="card-actions">
+                        <a href="#carousel-dist-portfolio" class="btn-action text-dark" style="color: #000;" data-bs-slide="prev"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M15 6l-6 6l6 6" /></svg></a>
+                        <a href="#carousel-dist-portfolio" class="btn-action text-dark" style="color: #000;" data-bs-slide="next"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="32" height="32" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" /></svg></a>
+                    </div>
+                </div>
+                <div id="carousel-dist-portfolio" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Hacim Bazlı Dağılım</div>
+                                <div id="chart-port-pie-vol" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Adet Bazlı Dağılım</div>
+                                <div id="chart-port-pie-count" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                        <div class="carousel-item">
+                            <div class="card-body">
+                                <div class="text-muted small mb-2 text-center">Tutar Dağılım Grafiği (Frekans)</div>
+                                <div id="chart-port-hist" style="min-height: 400px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script src="{{ url_for('static', filename='js/amounts.js') }}?v=2"></script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        
+        // 1. Backend'den gelen uygun tarihleri al
+        window.availableDates = {{ available_dates | tojson }};
+
+        // 2. Litepicker'ı başlat
+        const picker = new Litepicker({
+            element: document.getElementById('litepicker-date'),
+            singleMode: true,
+            format: 'YYYY-MM-DD',
+            lang: 'tr-TR',
+            dropdowns: {
+                minYear: 2024,
+                maxYear: 2030,
+                months: true,
+                years: true
+            },
+
+            lockDaysFilter: (date1, date2, pickedDates) => {
+                const dateStr = date1.format('YYYY-MM-DD');
+                return !availableDates.includes(dateStr); 
+            },
+            setup: (picker) => {
+                picker.on('selected', (date1) => {
+                    const dateStr = date1.format('YYYY-MM-DD');
+                    console.log("Seçilen Tarih (HTML):", dateStr);
+
+                    const inputEl = document.getElementById('litepicker-date');
+                    inputEl.value = dateStr; 
+                    
+                    // Bu event, JS tarafındaki processAndDisplay'i tetikleyecek
+                    inputEl.dispatchEvent(new Event('date:updated'));
+                });
+            }
+        });
+
+        window.litePickerInstance = picker;
+    });
+</script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        window.pyInitialDate = "{{ initial_date }}";
+        initAmountsDashboard(window.pyInitialDate);
+    });
+</script>
+{% endblock %}

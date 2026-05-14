@@ -1,43 +1,34 @@
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+*.pyc
+*.pyo
+*.pyd
 .venv/
 venv/
-env/
-.pytest_cache/
-.mypy_cache/
-*.egg-info/
+.env
+.env-s3
 
-# Node / esbuild output
+# Node
 node_modules/
-presentations/static/js/bundle.js
-presentations/static/js/bundle.js.map
 
-# Local dev artifacts
-examples/sessions/
-examples/snapshots/
-examples/.flask_session/
-*.duckdb
-*.duckdb.wal
+# OS
+.DS_Store
+Thumbs.db
 
 # IDE
 .vscode/
 .idea/
 *.swp
-.DS_Store
 
-# Secrets — never commit
-.env
-.env.local
-secrets.json
-
-# Claude Code state
+# Claude Code workspace (sessions, worktrees, memory)
 .claude/
-CLAUDE.local.md
 
-# Read-only copies of the host Treasury Platform (used as design reference
-# during dev; not part of this module's deliverable).
+# Build artifacts — prod ortamında `bash presentations/build.sh` ile üretilecek
+presentations/static/js/bundle.js
+presentations/static/js/bundle.js.map
+
+# DEV-only — local stub, sample data, reference dumps. PROD'da kullanılmaz.
+fake_db.py
+granted_tables.txt
+examples/
 reference/

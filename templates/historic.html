@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/litepicker.css') }}">
+
+<div class="page-header d-print-none">
+    <div class="container-xl">
+        <div class="row g-2 align-items-center">
+            <div class="col">
+                <h2 class="page-title">Tarihsel Trend Analizi</h2>
+            </div>
+            <div class="col-auto ms-auto d-print-none sticky-date-wrapper">
+                <div class="input-icon">
+                    <span class="input-icon-addon"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><rect x="4" y="5" width="16" height="16" rx="2" /><line x1="16" y1="3" x2="16" y2="7" /><line x1="8" y1="3" x2="8" y2="7" /><line x1="4" y1="11" x2="20" y2="11" /><line x1="11" y1="15" x2="12" y2="15" /><line x1="12" y1="15" x2="12" y2="18" /></svg></span>
+                    <input class="form-control" placeholder="Tarih Aralığı Seçin" id="litepicker-range" style="width: 250px;">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="page-body">
+    <div class="container-xl">
+        <div class="row row-deck row-cards">
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Genel Oran Trendleri (Ağırlıklı Ortalama)</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="chart-trend-rates" style="min-height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Hacim ve Market Max İlişkisi</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="chart-trend-volume" style="min-height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Ekstrem Yetki vs Talep Edilen Oran</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="chart-trend-auth" style="min-height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script>
+    window.rawHistoryData = {{ raw_data | safe }};
+</script>
+
+<script src="{{ url_for('static', filename='js/historic.js') }}?v=189"></script>
+{% endblock %}

@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block filter_panel %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-4">
+                <label class="form-label">Vade (Gün)</label>
+                <div class="dropdown">
+                    <button class="btn dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Vade Seç</button>
+                    <div class="dropdown-menu p-3" style="max-height:300px;overflow-y:auto;">
+                        <label class="form-check mb-2"><input type="checkbox" class="form-check-input select-all-master" data-group=".filter-vade-check"><span class="form-check-label fw-bold">Tümü</span></label>
+                        <hr class="dropdown-divider mb-2">
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="1-3"><span class="form-check-label">1 - 3 Gün</span></label>
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="4-31"><span class="form-check-label">4 - 31 Gün</span></label>
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="32-35" checked><span class="form-check-label">32 - 35 Gün</span></label>
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="36-45"><span class="form-check-label">36 - 45 Gün</span></label>
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="46-60"><span class="form-check-label">46 - 60 Gün</span></label>
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="61-91"><span class="form-check-label">61 - 91 Gün</span></label>
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="92-365"><span class="form-check-label">92 - 365 Gün</span></label>
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="366-10000"><span class="form-check-label">366+ Gün</span></label>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Banka</label>
+                <div class="dropdown">
+                    <button class="btn dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Banka Seç</button>
+                    <div class="dropdown-menu p-3" style="max-height:300px;overflow-y:auto;min-width:100%;">
+                        <label class="form-check mb-2"><input type="checkbox" class="form-check-input select-all-master" data-group=".filter-bank-check" checked><span class="form-check-label fw-bold">Tümü</span></label>
+                        <hr class="dropdown-divider mb-2">
+                        {% for bank in banks %}
+                        <label class="form-check"><input type="checkbox" class="form-check-input filter-bank-check" value="{{ bank }}" checked><span class="form-check-label">{{ bank }}</span></label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="text-muted small mt-2" id="filter-stats" style="line-height:1.2;"></div>
+            </div>
+        </div>
+        <div id="filter-tags-container" class="mt-3 d-none">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="text-muted small fw-bold me-1">Aktif Filtreler:</span>
+                <div id="active-tags" class="d-flex flex-wrap gap-2"></div>
+                <button type="button" class="btn btn-link btn-sm text-danger p-0 ms-2" id="clear-all-tags">Tümünü Temizle</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/litepicker.css') }}">
+
+<div class="page-header d-print-none">
+    <div class="container-xl">
+        <div class="row g-2 align-items-center">
+            <div class="col"><h2 class="page-title">Rakip Mevduat Faiz Analizi</h2></div>
+            <div class="col-auto ms-auto d-print-none sticky-date-wrapper">
+                <div class="input-icon">
+                    <span class="input-icon-addon"><svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><rect x="4" y="5" width="16" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="4" y1="11" x2="20" y2="11"/><line x1="11" y1="15" x2="12" y2="15"/><line x1="12" y1="15" x2="12" y2="18"/></svg></span>
+                    <input class="form-control" placeholder="Tarih Aralığı Seçin" id="litepicker-range" style="width:250px;">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="page-body">
+    <div class="container-xl">
+        <div class="row row-deck row-cards">
+
+            <!-- ═══ SECTION 1: GÜNLÜK SNAPSHOT ═══ -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Güncel Banka Sıralaması (Maks. Oran)</h3>
+                        <div class="card-actions"><span class="text-muted small" id="snapshot-date-label"></span></div>
+                    </div>
+                    <div class="card-body">
+                        <div id="chart-snapshot-bars" style="min-height:300px;"></div>
+                        <div id="chart-snapshot-change" style="min-height:200px;"></div>
+                        <div id="snapshot-summary" class="mt-4 p-4 border rounded-3" style="background: linear-gradient(135deg, rgba(32,107,196,0.04) 0%, rgba(32,107,196,0.08) 100%); border-color: rgba(32,107,196,0.15) !important;">
+                            <div class="d-flex align-items-start">
+                                <div class="me-3 flex-shrink-0" style="margin-top:2px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="icon text-primary" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                        <path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M4 13.5v-7.5a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-6m-8 -10h16m-10 -6v6"/>
+                                        <path d="M3 18a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"/><path d="M6.5 18h2"/><path d="M10 18a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="mb-2" style="font-size: 1rem; font-weight: 600; color: var(--tblr-body-color, #1d273b);">Piyasa Özeti</h4>
+                                    <p class="mb-0" id="summary-text" style="font-size: 0.95rem; line-height: 1.7; color: var(--tblr-body-color, #495057);">
+                                        <span class="text-muted"><em>Özet oluşturuluyor...</em></span>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ SECTION 2: TARİHSEL TREND ═══ -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">Tarihsel Faiz Trendi (Maks. Oran)</h3></div>
+                    <div class="card-body">
+                        <div id="chart-trend" style="min-height:400px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ SECTION 3: DETAY TABLO ═══ -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">Detay Tablosu</h3></div>
+                    <div class="card-body p-0">
+                        <div id="competitor-grid" class="ag-theme-alpine" style="width:100%;height:500px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ KAYNAKÇA ═══ -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body py-3">
+                        <div class="d-flex align-items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="icon me-2 text-muted flex-shrink-0" width="18" height="18" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 6h-6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>
+                                <path d="M11 13l9-9"/><path d="M15 4h5v5"/>
+                            </svg>
+                            <span class="text-muted small fw-bold me-2">Kaynakça:</span>
+                            <div id="source-links" class="d-flex flex-wrap gap-2"></div>
+                            <span class="text-muted small fw-bold me-2">Tüm veriler yanda belirtilen linklerdeki açık kaynaklardan elde edilmiştir.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ═══ KAYNAK UYARI POPUP ═══ -->
+<div class="modal fade" id="sourceDisclaimerModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title d-flex align-items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-info-circle text-primary me-2" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M12 9h.01" /><path d="M11 12h1v4h1" /></svg>
+                    Veri Kaynağı Bilgilendirmesi
+                </h5>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">Tüm veriler aşağıda belirtilen linklerdeki açık kaynaklardan elde edilmiştir.</p>
+                <div id="popup-source-links" class="d-flex flex-wrap gap-2 mb-2"></div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-primary" id="btn-close-disclaimer" disabled>
+                    Anladım (<span id="countdown-val">3</span>)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@31.3.2/dist/ag-grid-enterprise.min.noStyle.js"></script>
+
+<script>window.rawCompetitorData = {{ raw_data | safe }};</script>
+<script src="{{ url_for('static', filename='js/competitor.js') }}?v=5"></script>
+
+<!-- Source disclaimer popup + LLM disclaimer -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    // ── Popup countdown logic ──────────────────────────────────────
+    const modal = new bootstrap.Modal(document.getElementById('sourceDisclaimerModal'));
+    const btnClose = document.getElementById('btn-close-disclaimer');
+    const countdownSpan = document.getElementById('countdown-val');
+    let remaining = 3;
+
+    modal.show();
+
+    const timer = setInterval(() => {
+        remaining--;
+        countdownSpan.textContent = remaining;
+        if (remaining <= 0) {
+            clearInterval(timer);
+            btnClose.disabled = false;
+            btnClose.textContent = 'Anladım';
+        }
+    }, 1000);
+
+    btnClose.addEventListener('click', () => modal.hide());
+
+    // ── Populate popup source links after data loads ───────────────
+    // competitor.js calls updateSourceLinks which populates #source-links.
+    // We mirror those links into the popup after a short delay.
+    setTimeout(() => {
+        const srcEl = document.getElementById('source-links');
+        const popupEl = document.getElementById('popup-source-links');
+        if (srcEl && popupEl) {
+            popupEl.innerHTML = srcEl.innerHTML;
+        }
+    }, 2000);
+
+    // ── LLM summary disclaimer ────────────────────────────────────
+    // Observe #summary-text for content changes, append disclaimer
+    const summaryEl = document.getElementById('summary-text');
+    if (summaryEl) {
+        const observer = new MutationObserver(() => {
+            const text = summaryEl.textContent || '';
+            const disclaimer = ' Tüm veriler açık kaynaklardan elde edilmiştir.';
+            // Only append if summary has real content and doesn't already have disclaimer
+            if (text.length > 30 && !text.includes('açık kaynaklardan')) {
+                summaryEl.textContent = text.trimEnd() + disclaimer;
+            }
+        });
+        observer.observe(summaryEl, { childList: true, characterData: true, subtree: true });
+    }
+});
+</script>
+{% endblock %}

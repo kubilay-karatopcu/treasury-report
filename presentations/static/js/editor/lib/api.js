@@ -145,3 +145,122 @@ export function openChatStream(token, handlers) {
 
   return es;
 }
+
+
+/**
+ * Force a re-run of the block's stored SQL against Oracle. Returns the new
+ * `{ok, version, block}` shape so the caller can swap the block into the
+ * manifest without a full reload.
+ */
+export async function refreshBlockData(blockId, newSql) {
+  // newSql verilirse data_source.original_sql üzerine yazılır + execute edilir.
+  // newSql null/undefined ise block'taki mevcut SQL kullanılır.
+  const reqBody = newSql ? JSON.stringify({ sql: newSql }) : '{}';
+  const resp = await fetch(`${API_BASE}/block/${encodeURIComponent(blockId)}/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: reqBody,
+  });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const err = new Error(body.error || `Tazele isteği başarısız (${resp.status})`);
+    err.kind = body.kind;
+    throw err;
+  }
+  return body;
+}
+
+/**
+ * Help catalog — plot types, style fields, example prompts. Server hot-reloads
+ * the JSON file from disk so we can edit it without a Flask restart.
+ *
+ * Lives one level up at /presentations/help.json (presentation-independent).
+ */
+export async function fetchHelp() {
+  const collectionUrl = API_BASE.replace(/\/[^/]+$/, '');
+  const resp = await fetch(`${collectionUrl}/help.json`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!resp.ok) throw new Error(`Yardım yüklenemedi: ${resp.status}`);
+  return resp.json();
+}
+
+
+// ── Excel uploads ───────────────────────────────────────────────────────────
+
+export async function uploadParseFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await fetch(`${API_BASE}/uploads/parse`, { method: 'POST', body: fd });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Yükleme önizlenemedi: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export async function uploadParsePaste({ paste, tableName, hasHeader }) {
+  const resp = await fetch(`${API_BASE}/uploads/parse`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ paste, table_name: tableName, has_header: hasHeader }),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Yapıştırma önizlenemedi: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export async function uploadCommitFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', body: fd });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Yükleme kaydedilemedi: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export async function uploadCommitPaste({ paste, tableName, hasHeader }) {
+  const resp = await fetch(`${API_BASE}/uploads`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ paste, table_name: tableName, has_header: hasHeader }),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Yapıştırma kaydedilemedi: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+export async function uploadDelete(uploadId) {
+  const resp = await fetch(`${API_BASE}/uploads/${encodeURIComponent(uploadId)}`, {
+    method: 'DELETE',
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Silinemedi: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+
+// ── Table preview (for the docs modal) ─────────────────────────────────────
+
+/**
+ * First-5000 rows of a catalog table — for the docs modal's data preview.
+ * Server figures out Oracle vs Excel routing.
+ */
+export async function fetchTablePreview(tableId) {
+  const resp = await fetch(
+    `${API_BASE}/table/preview?table=${encodeURIComponent(tableId)}`,
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Önizleme alınamadı: ${resp.status}`);
+  }
+  return resp.json();
+}

@@ -48,8 +48,8 @@ export function barChartOptions({
   categories, series, height = 260,
   stacked = false, horizontal = false,
   showDataLabels = false, borderRadius = 4,
+  distributed = false, colors,
 }) {
-  const distributed = series.length === 1 && !stacked;
   return {
     chart: {
       type: 'bar',
@@ -87,7 +87,7 @@ export function barChartOptions({
     },
     tooltip: { y: { formatter: formatNumber } },
     legend: { show: series.length > 1, position: 'top', fontSize: '12px' },
-    colors: theme.chart.palette,
+    colors: Array.isArray(colors) && colors.length > 0 ? colors : theme.chart.palette,
     grid: COMMON_GRID,
     noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta http-equiv="X-UA-Compatible" content="ie=edge"/>
+
+  <title>{% block title %}Treasury Report Platform{% endblock %}</title>
+
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tabler.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles/styles.css') }}?v=20">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles/prisma.css') }}?v=3">
+
+  <style>
+    :root {
+      --tblr-font-sans-serif: 'InterVar', -apple-system, BlinkMacSystemFont, 'San Francisco', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    }
+    body { font-feature-settings: "cv03", "cv04", "cv11"; }
+    .main > .container-xl { padding-top: 16px; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+{% set active_grp = (prisma_groups | selectattr('key','equalto',active_group) | first) %}
+<div class="app">
+
+  <!-- ===== Letter rail ===== -->
+  <div class="prisma-rail">
+    <div class="rail-letters">
+      {% for group in prisma_groups %}
+        <div class="letter-tab{% if group.key == active_group %} active{% endif %}"
+             data-key="{{ group.key }}"
+             style="--c: {{ group.color }};"
+             data-c2="{{ group.color2 }}">
+          {{ group.key }}<span class="label">{{ group.short }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="rail-footer">
+      <a class="rail-icon-btn" id="theme-btn" href="javascript:void(0)" title="Karanlık Mod">
+        <span id="theme-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"/></svg></span>
+      </a>
+      <a class="rail-icon-btn danger" href="/logout" title="Çıkış Yap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2"/><path d="M9 12h12l-3 -3"/><path d="M18 15l3 -3"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- ===== Colored sidebar ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="big-letter" id="big-letter">{{ active_group }}</div>
+      <div>
+        <div class="cat-title" id="cat-title">{{ active_grp.name }}</div>
+        <div class="cat-sub" id="cat-sub">{{ active_grp.sub }}</div>
+      </div>
+    </div>
+    <div class="sidebar-nav">
+      {% for group in prisma_groups %}
+        <div class="menu-group{% if group.key == active_group %} active{% endif %}" data-key="{{ group.key }}">
+          {% for section in group.sections %}
+            <div class="menu-section-title">{{ section.title }}</div>
+            {% for item in section['items'] %}
+              <a class="menu-item{% if request.path == item.url %} active-item{% endif %}"
+                 href="{{ item.url }}">
+                {{ prisma_icons[item.icon] | safe }}
+                {{ item.label }}
+              </a>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <!-- ===== Main ===== -->
+  <main class="main">
+    <div class="topbar">
+      {% block breadcrumb %}
+      <div class="breadcrumb">
+        <b id="bc-cat">{{ active_item_label or active_grp.name }}</b>
+        {% block breadcrumb_extra %}{% endblock %}
+      </div>
+      {% endblock %}
+      <div class="topbar-right">
+        <span>{% if current_user.is_authenticated %}{{ current_user.sicil }}{% endif %}</span>
+      </div>
+    </div>
+    <div class="peek-overlay" id="peek-overlay" hidden></div>
+
+    <div class="container-xl">
+      {% block filter_panel %}
+        <div class="card mb-3">
+          <div class="card-body">
+            <div class="row g-2">
+              <div class="col-md-2">
+                <label class="form-label">Veri Kaynağı</label>
+                <select id="filter-src" class="form-select">
+                  <option value="MYU">MYU</option>
+                  <option value="TREASURY">Hazine</option>
+                  <option value="ALL">Tümü</option>
+                </select>
+              </div>
+
+              <div class="col-md-2">
+                <label class="form-label">Tutar</label>
+                <div class="dropdown">
+                  <button class="btn dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    Tutar Seç
+                  </button>
+                  <div class="dropdown-menu p-3" style="min-width: 100%;">
+                    <label class="form-check mb-2">
+                      <input type="checkbox" class="form-check-input select-all-master" data-group=".filter-bucket-check" checked>
+                      <span class="form-check-label fw-bold">Tümü</span>
+                    </label>
+                    <hr class="dropdown-divider mb-2">
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="0-5" checked><span class="form-check-label">0-5 Mn</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="5-10" checked><span class="form-check-label">5-10 Mn</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="10-25" checked><span class="form-check-label">10-25 Mn</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="25-100" checked><span class="form-check-label">25-100 Mn</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="100-200" checked><span class="form-check-label">100-200 Mn</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="200-500" checked><span class="form-check-label">200-500 Mn</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="500-1000" checked><span class="form-check-label">500 Mn -1 Mr</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-bucket-check" value="1000+" checked><span class="form-check-label">1 Mr +</span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-md-2">
+                <label class="form-label">Para Birimi</label>
+                <select id="filter-ccy" class="form-select">
+                  <option value="TRY">TRY</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="CAD">CAD</option>
+                  <option value="JPY">JPY</option>
+                  <option value="XAU">XAU</option>
+                </select>
+              </div>
+
+              <div class="col-md-2">
+                <label class="form-label">Vade (Gün)</label>
+                <div class="dropdown">
+                  <button class="btn dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    Vade Seç
+                  </button>
+                  <div class="dropdown-menu p-3" style="max-height: 300px; overflow-y: auto;">
+                    <label class="form-check mb-2">
+                      <input type="checkbox" class="form-check-input select-all-master" data-group=".filter-vade-check">
+                      <span class="form-check-label fw-bold">Tümü</span>
+                    </label>
+                    <hr class="dropdown-divider mb-2">
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="1-3"><span class="form-check-label">1 - 3 Gün</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="4-31"><span class="form-check-label">4 - 31 Gün</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="32-35" checked><span class="form-check-label">32 - 35 Gün</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="36-45"><span class="form-check-label">36 - 45 Gün</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="46-60"><span class="form-check-label">46 - 60 Gün</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="61-91"><span class="form-check-label">61 - 91 Gün</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="92-365"><span class="form-check-label">92 - 365 Gün</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-vade-check" value="366-10000"><span class="form-check-label">366+ Gün</span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-md-2">
+                <label class="form-label">Müşteri Tipi</label>
+                <div class="dropdown">
+                  <button class="btn dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    Tip Seç
+                  </button>
+                  <div class="dropdown-menu p-3">
+                    <label class="form-check mb-2">
+                      <input type="checkbox" class="form-check-input select-all-master" data-group=".filter-cust-check">
+                      <span class="form-check-label fw-bold">Tümü</span>
+                    </label>
+                    <hr class="dropdown-divider mb-2">
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-cust-check" value="G" checked><span class="form-check-label">Gerçek</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-cust-check" value="T"><span class="form-check-label">Tüzel</span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-md-2">
+                <label class="form-label">Revize</label>
+                <div class="dropdown">
+                  <button class="btn dropdown-toggle w-100 text-start" type="button" id="btn-filter-revize" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    Revize Seç
+                  </button>
+                  <div class="dropdown-menu p-3" style="min-width: 100%;">
+                    <label class="form-check mb-2">
+                      <input type="checkbox" class="form-check-input select-all-master" data-group=".filter-revize-check">
+                      <span class="form-check-label fw-bold">Tümü</span>
+                    </label>
+                    <hr class="dropdown-divider mb-2">
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-revize-check" value="MAX" checked><span class="form-check-label">Son Revize</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-revize-check" value="1"><span class="form-check-label">Revize 1</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-revize-check" value="2"><span class="form-check-label">Revize 2</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-revize-check" value="3"><span class="form-check-label">Revize 3</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-revize-check" value="4"><span class="form-check-label">Revize 4</span></label>
+                    <label class="form-check"><input type="checkbox" class="form-check-input filter-revize-check" value="5"><span class="form-check-label">Revize 5</span></label>
+                  </div>
+                </div>
+                <div class="text-muted small mt-2" id="filter-stats" style="line-height: 1.2;"></div>
+              </div>
+            </div>
+            <div id="filter-tags-container" class="mt-3 d-none">
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="text-muted small fw-bold me-1">Aktif Filtreler:</span>
+                <div id="active-tags" class="d-flex flex-wrap gap-2"></div>
+                <button type="button" class="btn btn-link btn-sm text-danger p-0 ms-2" id="clear-all-tags">Tümünü Temizle</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endblock %}{# filter_panel #}
+    </div>
+
+    {% block content %}{% endblock %}
+  </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0/dist/js/tabler.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+
+<script>
+  // ===== PRISMA letter switching (client-side, no page reload) =====
+  const PRISMA_GROUPS = {
+    {% for g in prisma_groups %}"{{ g.key }}": { name: "{{ g.name }}", sub: "{{ g.sub }}", c: "{{ g.color }}", c2: "{{ g.color2 }}" }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  };
+
+  // HOME_GROUP = kullanıcının asıl bulunduğu sayfanın grubu (server-injected).
+  // Peek mode: HOME'dan farklı bir harfe tıklanınca devreye girer — sidebar
+  // değişir, ana içerik karartılır, breadcrumb sabit kalır. Overlay'a veya
+  // HOME harfine tıklayınca peek kapanır.
+  const HOME_GROUP = "{{ active_group }}";
+
+  function activateLetter(key) {
+    const tab = document.querySelector('.letter-tab[data-key="' + key + '"]');
+    if (!tab) return;
+    document.querySelectorAll('.letter-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.menu-group').forEach(g => g.classList.remove('active'));
+    tab.classList.add('active');
+    const grp = document.querySelector('.menu-group[data-key="' + key + '"]');
+    if (grp) grp.classList.add('active');
+
+    const meta = PRISMA_GROUPS[key];
+
+    // Sidebar görseli ziyaret edilen grubun rengine geçer. Breadcrumb +
+    // gradient text ise HOME rengini korumalı; bu yüzden --active-c'yi
+    // ASLA değiştirmiyoruz, sadece sidebar background'unu inline veriyoruz.
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.style.background = meta.c;
+
+    document.getElementById('big-letter').textContent = key;
+    document.getElementById('cat-title').textContent  = meta.name;
+    document.getElementById('cat-sub').textContent    = meta.sub;
+    // Breadcrumb (#bc-cat) DEĞİŞMİYOR — kullanıcı hâlâ HOME sayfasında.
+
+    const peeking = key !== HOME_GROUP;
+    document.body.classList.toggle('peek-mode', peeking);
+    const overlay = document.getElementById('peek-overlay');
+    if (overlay) overlay.hidden = !peeking;
+  }
+
+  function exitPeek() {
+    if (document.body.classList.contains('peek-mode')) {
+      activateLetter(HOME_GROUP);
+    }
+  }
+
+  (function initActiveColors() {
+    const home = PRISMA_GROUPS[HOME_GROUP];
+    if (home) {
+      document.documentElement.style.setProperty('--active-c',  home.c);
+      document.documentElement.style.setProperty('--active-c2', home.c2);
+    }
+  })();
+
+  document.querySelectorAll('.letter-tab').forEach(tab => {
+    tab.addEventListener('click', () => activateLetter(tab.dataset.key));
+  });
+  document.querySelectorAll('.acro-card').forEach(card => {
+    card.addEventListener('click', () => activateLetter(card.dataset.key));
+  });
+  document.getElementById('peek-overlay')?.addEventListener('click', exitPeek);
+  // Escape ile de çıkış
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') exitPeek(); });
+
+  // ===== Dark mode (body.theme-dark + localStorage shared with old base) =====
+  const themeKey = 'tablerTheme';
+  const sunSvg  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7"/></svg>';
+  const moonSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"/></svg>';
+
+  function applyTheme(theme) {
+    const dark = (theme === 'dark');
+    document.body.classList.toggle('theme-dark', dark);
+    const ic = document.getElementById('theme-icon');
+    if (ic) ic.innerHTML = dark ? sunSvg : moonSvg;
+    const tb = document.getElementById('theme-btn');
+    if (tb) tb.title = dark ? 'Aydınlık Mod' : 'Karanlık Mod';
+  }
+  applyTheme(localStorage.getItem(themeKey) || 'light');
+
+  document.getElementById('theme-btn')?.addEventListener('click', e => {
+    e.preventDefault();
+    const next = document.body.classList.contains('theme-dark') ? 'light' : 'dark';
+    localStorage.setItem(themeKey, next);
+    applyTheme(next);
+  });
+</script>
+
+<!-- ===== FILTER TAGS (existing app behavior, only fires when filter_panel exists) ===== -->
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const activeTagsContainer = document.getElementById('active-tags');
+    const tagsWrapper = document.getElementById('filter-tags-container');
+    const clearAllBtn = document.getElementById('clear-all-tags');
+
+    function refreshEverything() {
+      if (typeof window.processAndDisplay === 'function') {
+        window.processAndDisplay();
+      }
+      updateFilterTags();
+    }
+
+    function updateFilterTags() {
+      if (!activeTagsContainer) return;
+      activeTagsContainer.innerHTML = '';
+
+      const groups = [
+        { selector: '.filter-bucket-check', label: 'Tutar' },
+        { selector: '.filter-vade-check', label: 'Vade' },
+        { selector: '.filter-cust-check', label: 'Müşteri' },
+        { selector: '.filter-revize-check', label: 'Revize' },
+        { selector: '.filter-bank-check', label: 'Banka' }
+      ];
+
+      let hasActiveFilter = false;
+
+      groups.forEach(group => {
+        const masterCb = document.querySelector(`.select-all-master[data-group="${group.selector}"]`);
+        const checkedBoxes = document.querySelectorAll(`${group.selector}:checked`);
+
+        if (masterCb && masterCb.checked) {
+          hasActiveFilter = true;
+          const tag = document.createElement('div');
+          tag.className = 'filter-tag';
+          tag.innerHTML = `
+            <span class="tag-category">${group.label}:</span>
+            <span>Tümü</span>
+            <span class="tag-remove" data-is-master="true" data-selector="${group.selector}">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </span>
+          `;
+          activeTagsContainer.appendChild(tag);
+        } else {
+          checkedBoxes.forEach(cb => {
+            if (cb.classList.contains('select-all-master')) return;
+            hasActiveFilter = true;
+            const labelElement = cb.closest('label')?.querySelector('.form-check-label');
+            const text = labelElement ? labelElement.textContent : cb.value;
+            const tag = document.createElement('div');
+            tag.className = 'filter-tag';
+            tag.innerHTML = `
+              <span class="tag-category">${group.label}:</span>
+              <span>${text}</span>
+              <span class="tag-remove" data-value="${cb.value}" data-selector="${group.selector}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </span>
+            `;
+            activeTagsContainer.appendChild(tag);
+          });
+        }
+      });
+
+      if (tagsWrapper) tagsWrapper.classList.toggle('d-none', !hasActiveFilter);
+    }
+
+    const allFilters = document.querySelectorAll(
+      '#filter-src, #filter-ccy, .filter-bucket-check, .filter-vade-check, .filter-cust-check, .filter-revize-check, .filter-bank-check, .select-all-master'
+    );
+    allFilters.forEach(filter => filter.addEventListener('change', refreshEverything));
+
+    if (activeTagsContainer) {
+      activeTagsContainer.addEventListener('click', function(e) {
+        const removeBtn = e.target.closest('.tag-remove');
+        if (!removeBtn) return;
+        const selector = removeBtn.getAttribute('data-selector');
+        const isMaster = removeBtn.getAttribute('data-is-master') === 'true';
+        if (isMaster) {
+          const masterCb = document.querySelector(`.select-all-master[data-group="${selector}"]`);
+          const children = document.querySelectorAll(selector);
+          if (masterCb) masterCb.checked = false;
+          children.forEach(cb => { cb.checked = false; });
+          refreshEverything();
+        } else {
+          const value = removeBtn.getAttribute('data-value');
+          const checkbox = Array.from(document.querySelectorAll(selector)).find(cb => cb.value === String(value));
+          if (checkbox) {
+            checkbox.checked = false;
+            const masterCb = document.querySelector(`.select-all-master[data-group="${selector}"]`);
+            if (masterCb) masterCb.checked = false;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      });
+    }
+
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', function() {
+        const allChecks = document.querySelectorAll('.filter-bucket-check, .filter-vade-check, .filter-cust-check, .filter-revize-check, .filter-bank-check');
+        allChecks.forEach(cb => { cb.checked = false; });
+        document.querySelectorAll('.select-all-master').forEach(m => { m.checked = false; });
+        refreshEverything();
+      });
+    }
+
+    refreshEverything();
+  });
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

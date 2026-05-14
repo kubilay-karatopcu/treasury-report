@@ -1,9 +1,16 @@
 """
-Pipeline runner: plan_fetch → (fetch_data) → generate → validate → (retry) → apply.
+Pipeline runner: plan_fetch → (fetch_data) → generate → validate → execute_sqls → apply.
 
-Phase 4 plugs in plan_fetch + fetch_data so the LLM sees a fresh DuckDB session
-when the basket changes. LangGraph can be swapped in later without changing the
-public surface (run_pipeline yielding SSE events).
+Phase 4 plugged in plan_fetch + fetch_data for the legacy basket path.
+Adım 2 inserts execute_block_sqls between validate and apply so LLM-produced
+Oracle SQL is actually run, results are registered in DuckDB, and provenance
+(sql + sample + meta) is persisted on each block.
+
+Retry semantics:
+- validate_patch errors → retry (schema fixes)
+- execute_block_sqls errors → retry (SQL fixes: gate rejections, Oracle errors)
+Both error kinds share state.validation_errors so the existing retry loop
+already handles them with one extra cycle.
 """
 from __future__ import annotations
 
@@ -14,6 +21,7 @@ from presentations.nodes.plan_fetch import plan_fetch
 from presentations.nodes.fetch_data import fetch_data
 from presentations.nodes.generate_patch import generate_patch
 from presentations.nodes.validate_patch import validate_patch
+from presentations.nodes.execute_block_sqls import execute_block_sqls
 from presentations.nodes.apply_patch import apply_patch
 
 
@@ -32,7 +40,8 @@ class GraphState:
     pending_patches: list = field(default_factory=list)
     validation_errors: list = field(default_factory=list)
     explanation: str = ""
-    retries_left: int = 1
+    retries_left: int = 2               # Bumped from 1: SQL errors deserve an
+                                        # extra retry vs pure schema errors.
     new_manifest: Optional[dict] = None
 
 
@@ -53,6 +62,13 @@ def run_pipeline(state: GraphState) -> Iterator[dict]:
     while True:
         state = generate_patch(state)
         state = validate_patch(state)
+
+        # Schema OK → run any embedded SQL. Adım 2 addition.
+        # We skip SQL execution if validate already failed — the LLM needs to
+        # fix the structure first.
+        if not state.validation_errors and state.pending_patches:
+            yield {"event": "status", "data": {"phase": "querying"}}
+            state = execute_block_sqls(state)
 
         if not state.validation_errors:
             break

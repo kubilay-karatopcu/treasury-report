@@ -1,19 +1,26 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { MessageSquare, X, Lock, Send, Loader2, HelpCircle } from 'lucide-react';
 import useStore from '../lib/store.js';
 import { postChatMessage, openChatStream } from '../lib/api.js';
+import HelpModal from './HelpModal.jsx';
 
-export default function ChatBox() {
+export default function ChatBox({ compact = false }) {
   const [input, setInput] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
   const messagesRef = useRef(null);
 
-  const chatHistory     = useStore((s) => s.chatHistory);
-  const loading         = useStore((s) => s.loading);
-  const setLoading      = useStore((s) => s.setLoading);
-  const addChatMessage  = useStore((s) => s.addChatMessage);
-  const applyPatches    = useStore((s) => s.applyPatches);
-  const selectedBlockId = useStore((s) => s.selectedBlockId);
+  const manifest         = useStore((s) => s.manifest);
+  const chatHistory      = useStore((s) => s.chatHistory);
+  const loading          = useStore((s) => s.loading);
+  const setLoading       = useStore((s) => s.setLoading);
+  const addChatMessage   = useStore((s) => s.addChatMessage);
+  const applyPatches     = useStore((s) => s.applyPatches);
+  const selectedBlockId  = useStore((s) => s.selectedBlockId);
+  const setSelectedBlock = useStore((s) => s.setSelectedBlock);
 
-  // Auto-scroll to bottom on new messages.
+  const selectedBlock = findBlock(manifest?.blocks, selectedBlockId);
+  const isLocked = !!selectedBlock?.locked;
+
   useEffect(() => {
     if (messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
@@ -22,7 +29,7 @@ export default function ChatBox() {
 
   async function send() {
     const msg = input.trim();
-    if (!msg || loading) return;
+    if (!msg || loading || isLocked) return;
 
     setInput('');
     addChatMessage({ role: 'user', text: msg });
@@ -61,58 +68,168 @@ export default function ChatBox() {
   }
 
   function onKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       send();
     }
   }
 
-  const placeholder = selectedBlockId
-    ? 'Seçili bloğu nasıl değiştirmek istersin?'
-    : 'Sunuyu nasıl değiştirmek istersin?';
+  const isBlockMode = !!selectedBlockId;
+  const placeholder = isBlockMode
+    ? blockPlaceholder(selectedBlock)
+    : 'Tüm sunuya yönelik bir komut yazın… (örn. "NII bölümüne forecast aralığı ekle")';
 
   return (
-    <div className="chat-box">
-      <div className="sidebar-label">Yapay Zeka</div>
-
-      <div className="chat-messages" ref={messagesRef}>
-        {chatHistory.length === 0 && !loading && (
-          <div className="chat-empty">
-            Bir blok seçip "1234" gibi bir sayı yaz, ya da "başlık: Yeni Başlık" dene.
+    <>
+      <div className={`chat-box${compact ? ' chat-box--compact' : ''}`}>
+        {!compact && (
+          <div className="chat-box-header">
+            <MessageSquare size={11} strokeWidth={2} />
+            {isBlockMode ? (
+              <>
+                <span>Düzenleniyor:</span>
+                <span className="chat-box-target" title={selectedBlock?.title}>
+                  {selectedBlock?.title || selectedBlockId}
+                </span>
+                <button
+                  type="button"
+                  className="chat-box-target-clear"
+                  onClick={() => setSelectedBlock(null)}
+                  title="Genel moda dön"
+                >
+                  <X size={12} />
+                </button>
+              </>
+            ) : (
+              <>
+                <span>Genel Komut</span>
+                <button
+                  type="button"
+                  className="chat-box-help"
+                  onClick={() => setHelpOpen(true)}
+                  title="Kullanılabilir blok tipleri ve örnek komutlar"
+                >
+                  <HelpCircle size={12} strokeWidth={1.8} />
+                </button>
+              </>
+            )}
           </div>
         )}
-        {chatHistory.map((m, i) => (
-          <div
-            key={`${m.ts}_${i}`}
-            className={
-              `chat-msg chat-msg--${m.role}`
-              + (m.status ? ` chat-msg--${m.status}` : '')
-            }
-          >
-            {m.text}
+
+        {isLocked && (
+          <div className="chat-box-locked-warn">
+            <Lock size={11} />
+            <span>Bu blok kilitli. Düzenlemek için kilidi kaldırın.</span>
           </div>
-        ))}
-        {loading && <div className="chat-msg chat-msg--loading">Düşünüyor…</div>}
+        )}
+
+        <div className="chat-messages ts-scroll" ref={messagesRef}>
+          {!compact && chatHistory.length === 0 && !loading && (
+            <div className="chat-empty">
+              Bir komut yaz, ya da bir bloğa tıklayıp onu hedefle.
+            </div>
+          )}
+          {chatHistory.map((m, i) => (
+            <div
+              key={`${m.ts || i}_${i}`}
+              className={
+                `chat-msg chat-msg--${m.role}`
+                + (m.status ? ` chat-msg--${m.status}` : '')
+              }
+            >
+              {m.text}
+            </div>
+          ))}
+          {loading && <div className="chat-msg chat-msg--loading">Düşünüyor…</div>}
+        </div>
+
+        {compact ? (
+          <div className="chat-input-wrap chat-input-wrap--compact">
+            <textarea
+              className="chat-input"
+              placeholder={placeholder}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              rows={4}
+              disabled={loading || isLocked}
+            />
+            <button
+              type="button"
+              className="chat-input-send"
+              onClick={send}
+              disabled={loading || isLocked || !input.trim()}
+              title="Gönder (Ctrl/⌘ + Enter)"
+            >
+              {loading
+                ? <Loader2 size={16} className="ts-spin" />
+                : <Send size={16} strokeWidth={2} />}
+            </button>
+          </div>
+        ) : (
+          <>
+            <textarea
+              className="chat-input"
+              placeholder={placeholder}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              rows={3}
+              disabled={loading || isLocked}
+            />
+            <div className="chat-footer">
+              <span className="chat-footer-hint">⌘/Ctrl + Enter ile gönder</span>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={send}
+                disabled={loading || isLocked || !input.trim()}
+              >
+                {loading
+                  ? <><Loader2 size={12} className="ts-spin" /><span>İşleniyor…</span></>
+                  : <><Send size={12} strokeWidth={2} /><span>Gönder</span></>}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="chat-input-row">
-        <textarea
-          className="chat-input"
-          placeholder={placeholder}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          rows={2}
-          disabled={loading}
-        />
-        <button
-          className="chat-send-btn"
-          onClick={send}
-          disabled={loading || !input.trim()}
-        >
-          Gönder
-        </button>
-      </div>
-    </div>
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+    </>
   );
+}
+
+
+function blockPlaceholder(block) {
+  if (!block) return 'Değişikliği tarif edin…';
+  switch (block.type) {
+    case 'kpi':         return 'örn. YTD\'ye çevir, USD\'de göster…';
+    case 'bar_chart':   return 'örn. ilk 5 şubeyi göster, artan sıralama…';
+    case 'line_chart':
+    case 'area_chart':  return 'örn. tahmin çizgisini kaldır, son 6 ay…';
+    case 'pie_chart':   return 'örn. küçük dilimleri "Diğer"de topla…';
+    case 'data_table':  return 'örn. tutara göre azalan sırala, ilk 20 satır…';
+    case 'narrative':   return 'örn. daha temkinli ton, 2 cümleye düşür…';
+    case 'section_header': return 'örn. başlığı "Q4 Özeti" yap…';
+    default:            return 'Değişikliği tarif edin…';
+  }
+}
+
+function findBlock(blocks, id) {
+  if (!id || !Array.isArray(blocks)) return null;
+  for (const b of blocks) {
+    if (b.id === id) return b;
+    if (Array.isArray(b.children)) {
+      for (const c of b.children) {
+        if (c.id === id) return c;
+        // Carousel slides — 3. seviye
+        if (c.type === 'carousel' && Array.isArray(c.children)) {
+          for (const s of c.children) {
+            if (s.id === id) return s;
+          }
+        }
+      }
+    }
+  }
+  return null;
 }

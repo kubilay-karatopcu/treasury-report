@@ -1,0 +1,345 @@
+/* ==========================================================================
+   LINUS "CLEAN & MIDNIGHT" THEME SYSTEM
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. GLOBAL ANİMASYONLAR & NAVBAR (HEM LIGHT HEM DARK)
+   -------------------------------------------------------------------------- */
+.navbar-vertical .nav-link {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    border-radius: 4px;
+}
+
+/* Hover Efekti: Sağa Kayma */
+.navbar-vertical .nav-link:hover {
+    transform: translateX(5px);
+    background-color: rgba(32, 107, 196, 0.05);
+}
+
+/* --- NAVBAR DROPDOWN TEMİZLİĞİ (İSTEĞİN ÜZERİNE) --- */
+/* Navbar içindeki dropdown'lardan tüm border, shadow ve kutu efektlerini siliyoruz */
+.navbar .dropdown-menu {
+    border: none !important;
+    box-shadow: none !important;
+    background-color: transparent !important; /* Arkaplanı da şeffaf yapıyoruz ki bütünleşsin */
+    padding-left: 10px; /* Hafif girinti verelim ki alt menü olduğu belli olsun */
+}
+
+/* Dropdown elemanları */
+.navbar .dropdown-item {
+    border-radius: 4px;
+    margin-bottom: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   2. FİLTRE ETİKETLERİ (TAGS) - LIGHT MODE (VARSAYILAN)
+   -------------------------------------------------------------------------- */
+.filter-tag {
+    display: inline-flex;
+    align-items: center;
+    background-color: #f1f5f9;  /* Açık gri-mavi zemin */
+    color: #1e293b;             /* Koyu lacivert yazı */
+    border: 1px solid #e2e8f0;  /* İnce çerçeve */
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.filter-tag:hover {
+    background-color: #e2e8f0;
+    border-color: #cbd5e1;
+}
+
+.filter-tag .tag-category {
+    color: #64748b;
+    margin-right: 4px;
+    font-weight: 400;
+}
+
+.filter-tag .tag-remove {
+    margin-left: 6px;
+    cursor: pointer;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+}
+
+.filter-tag .tag-remove:hover {
+    color: #d63939; /* Silme butonu kırmızı */
+}
+
+/* --------------------------------------------------------------------------
+   3. STICKY DATE WRAPPER (SAĞ ALT YUVARLAK)
+   -------------------------------------------------------------------------- */
+.sticky-date-wrapper {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    z-index: 1050;
+    transition: all 0.3s ease;
+}
+
+.sticky-date-wrapper > div {
+    background-color: #ffffff;
+    border: 1px solid #e6e8eb;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-radius: 50px;
+    padding: 5px 10px;
+}
+
+.sticky-date-wrapper .btn-action {
+    border: none;
+    background: transparent;
+    color: #6c757d;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.sticky-date-wrapper .btn-action:hover {
+    background-color: #f0f2f6;
+    color: #206bc4;
+    transform: scale(1.1);
+}
+
+.sticky-date-wrapper input.form-control {
+    border: none;
+    background: transparent;
+    font-weight: 600;
+    color: #2c3e50;
+    box-shadow: none !important;
+    width: 130px;
+    text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   4. DARK MODE: "MIDNIGHT PRO" (OKUNABİLİRLİK ODAKLI)
+   -------------------------------------------------------------------------- */
+.theme-dark {
+    /* Renk Tanımları */
+    --bg-body: #0f172a;       /* Ana Arkaplan */
+    --bg-sidebar: #1e293b;    /* Sidebar & Kartlar */
+    --bg-surface: #334155;    /* Inputlar */
+    --border-color: #334155;  /* Çizgiler */
+    --text-main: #f8fafc;     /* Ana Metin (Parlak Beyaz) */
+    --text-muted: #94a3b8;    /* Pasif Metin */
+    --primary-accent: #3b82f6; /* Vurgu */
+
+    background-color: var(--bg-body) !important;
+    color: var(--text-main) !important;
+}
+
+/* --- SIDEBAR (NAVBAR VERTICAL) --- */
+.theme-dark aside.navbar-vertical {
+    background-color: var(--bg-sidebar) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.3);
+}
+
+.theme-dark .navbar-vertical .nav-link {
+    color: var(--text-muted) !important;
+}
+
+.theme-dark .navbar-vertical .nav-link:hover {
+    color: #ffffff !important;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.theme-dark .navbar-vertical .nav-link.active {
+    background-color: rgba(59, 130, 246, 0.15) !important;
+    color: #60a5fa !important;
+    border-left: 3px solid var(--primary-accent);
+}
+
+/* --- KARTLAR --- */
+.theme-dark .card {
+    background-color: var(--bg-sidebar) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    color: var(--text-main) !important;
+}
+
+.theme-dark .card-title,
+.theme-dark .page-title {
+    color: #ffffff !important;
+}
+
+/* --- KRİTİK DÜZELTME: FİLTRELER VE DROPDOWNLAR --- */
+/* Form elemanlarını koyu yapıyoruz ama yazıları PARLAK BEYAZ yapıyoruz */
+
+.theme-dark .form-select, 
+.theme-dark .form-control, 
+.theme-dark .form-check-input,
+.theme-dark .btn.dropdown-toggle {
+    background-color: #020617 !important; /* Çok koyu zemin */
+    border: 1px solid var(--border-color) !important;
+    color: #ffffff !important; /* <--- YAZILARI BEYAZLATTIK */
+}
+
+/* Dropdown Açılır Menüler (Filtreler İçin) */
+/* DİKKAT: Navbar için değil, sayfadaki filtre dropdown'ları için */
+.theme-dark .dropdown-menu:not(.navbar .dropdown-menu) {
+    background-color: var(--bg-sidebar) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+}
+
+/* Dropdown İçi Yazılar */
+.theme-dark .dropdown-item {
+    color: #cbd5e1 !important; /* Hafif kırık beyaz */
+}
+
+.theme-dark .dropdown-item:hover {
+    background-color: var(--primary-accent) !important;
+    color: #ffffff !important;
+}
+
+/* Select Oku Beyazlatma (Okunabilirlik için şart) */
+.theme-dark .form-select {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") !important;
+}
+
+/* Checkbox Aktif Rengi */
+.theme-dark .form-check-input:checked {
+    background-color: var(--primary-accent) !important;
+    border-color: var(--primary-accent) !important;
+}
+
+/* --- FİLTRE ETİKETLERİ (DARK MODE) --- */
+.theme-dark .filter-tag {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #93c5fd;
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* --- STICKY DATE (DARK MODE) --- */
+.theme-dark .sticky-date-wrapper > div {
+    background-color: var(--bg-sidebar) !important;
+    border: 1px solid #475569 !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+}
+.theme-dark .sticky-date-wrapper input.form-control {
+    background-color: transparent !important;
+    color: #ffffff !important;
+}
+.theme-dark .sticky-date-wrapper .btn-action {
+    color: var(--text-muted);
+}
+.theme-dark .sticky-date-wrapper .btn-action:hover {
+    color: #ffffff;
+    background-color: rgba(255,255,255,0.1);
+}
+
+/* --- LITEPICKER (TAKVİM) --- */
+.theme-dark .litepicker {
+    background-color: var(--bg-sidebar) !important;
+    border-color: var(--border-color) !important;
+    color: #ffffff;
+}
+.theme-dark .litepicker .day-item { color: #f1f5f9; }
+.theme-dark .litepicker .day-item:hover { color: #fff; background-color: var(--primary-accent); }
+.theme-dark .litepicker .month-item-header { color: #fff; }
+
+/* --------------------------------------------------------------------------
+   5. GRAFİK KARTLARI (HIGH CONTRAST - BEYAZ)
+   -------------------------------------------------------------------------- */
+/* Grafikler Dark Mode'da bile BEYAZ kart içinde kalsın (Okunabilirlik Garantisi) */
+.theme-dark .card:has(.apexcharts-canvas) {
+    background-color: #ffffff !important;
+    border: none !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+}
+
+/* Kartın içindeki başlığı siyaha çevir */
+.theme-dark .card:has(.apexcharts-canvas) .card-title,
+.theme-dark .card:has(.apexcharts-canvas) h3 {
+    color: #1e293b !important;
+}
+
+/* 1. Dropdown içindeki TÜM metin elementlerini hedef alıyoruz (Label, Span, Div) */
+.theme-dark .dropdown-menu *, 
+[data-bs-theme="dark"] .dropdown-menu * {
+    color: #e2e8f0 !important; /* Parlak Beyaz/Gri Metin */
+}
+
+/* 2. Dropdown Kutusunun Kendisi */
+.theme-dark .dropdown-menu,
+[data-bs-theme="dark"] .dropdown-menu {
+    background-color: #1e293b !important; /* Koyu Lacivert Zemin */
+    border: 1px solid #334155 !important;
+}
+
+/* 3. Navbar içindeki Dropdownlar (Temiz Görünüm İsteğin) */
+/* Hem Light hem Dark modda kenarlıkları ve gölgeleri kaldırıyoruz */
+.navbar .dropdown-menu {
+    border: none !important;
+    box-shadow: none !important;
+    background-color: transparent !important;
+    margin-top: 0 !important;
+}
+
+/* 4. Hover Durumu (Üzerine gelince okunabilir kalsın) */
+.theme-dark .dropdown-item:hover,
+.theme-dark .dropdown-item:hover *,
+[data-bs-theme="dark"] .dropdown-item:hover,
+[data-bs-theme="dark"] .dropdown-item:hover * {
+    background-color: #3b82f6 !important; /* Mavi Arkaplan */
+    color: #ffffff !important; /* Beyaz Yazı */
+}
+
+/* 1. Tooltip Ana Kutusu (Koyu Zemin) */
+.theme-dark .apexcharts-tooltip,
+[data-bs-theme="dark"] .apexcharts-tooltip {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+    border-radius: 6px !important;
+}
+
+/* 2. Tooltip Başlığı (Tarih/Saat Kısmı) */
+.theme-dark .apexcharts-tooltip-title,
+[data-bs-theme="dark"] .apexcharts-tooltip-title {
+    background-color: #0f172a !important;
+    border-bottom: 1px solid #334155 !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    font-family: inherit !important;
+}
+
+/* 3. İçerikteki Yazılar (Seri İsimleri ve Değerler) */
+.theme-dark .apexcharts-tooltip-text,
+.theme-dark .apexcharts-tooltip-text-y-label,
+.theme-dark .apexcharts-tooltip-text-y-value,
+.theme-dark .apexcharts-tooltip-text-z-value,
+[data-bs-theme="dark"] .apexcharts-tooltip-text,
+[data-bs-theme="dark"] .apexcharts-tooltip-text-y-label,
+[data-bs-theme="dark"] .apexcharts-tooltip-text-y-value,
+[data-bs-theme="dark"] .apexcharts-tooltip-text-z-value {
+    color: #e2e8f0 !important; /* Parlak Gri/Beyaz */
+}
+
+/* 4. Marker (Nokta) Ayarlaması - Rengi bozulmasın diye sadece hizalama */
+.theme-dark .apexcharts-tooltip-marker,
+[data-bs-theme="dark"] .apexcharts-tooltip-marker {
+    margin-right: 8px !important;
+}
+
+/* --- MOBİL UYUMLULUK --- */
+@media (max-width: 768px) {
+    .sticky-date-wrapper {
+        bottom: 15px;
+        right: 15px;
+    }
+    .sticky-date-wrapper input.form-control {
+        width: 110px;
+        font-size: 0.9rem;
+    }
+}

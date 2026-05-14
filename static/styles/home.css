@@ -1,0 +1,43 @@
+.welcome-anim {
+    opacity: 0;
+    transform: translateY(30px);
+    animation: fadeSlideUp 2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.welcome-anim.fade-delay {
+    animation-delay: 0.4s;
+}
+
+@keyframes fadeSlideUp {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.gradient-text {
+    background: linear-gradient(90deg, #1A3963, #2466A0);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 600;
+    margin-left: 6px;
+    display: inline-block;
+    
+    padding-bottom: 0.2em; 
+    line-height: 1;
+    
+    animation: pulseGlow 3s ease-in-out infinite alternate;
+}
+
+/* Dark Mod */
+.theme-dark .gradient-text,
+[data-bs-theme="dark"] .gradient-text {
+    background: linear-gradient(90deg, #3b82f6, #93c5fd);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+@keyframes pulseGlow {
+    from { filter: drop-shadow(0 0 1px rgba(32, 107, 196, 0.2)); }
+    to { filter: drop-shadow(0 0 4px rgba(32, 107, 196, 0.4)); }
+}

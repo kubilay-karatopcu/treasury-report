@@ -1,0 +1,318 @@
+WITH RL AS (
+    SELECT
+        RES_ID,
+        APP_VER AS TALEP_REVIZE_NO,
+        RESERVATION_NO,
+        CREATE_DT,
+        CREATE_TM
+    FROM
+        EDW.TIME_DEPT_RESERVATION
+),
+RCL AS (
+    SELECT 
+        RESERVATION_ID AS RESERVATION_ID_RCL,
+        CUST_ID,
+        CURRENCY_CODE AS CCY_CODE,
+        CURRENTAMOUNT,
+        INCOMING_AMT,
+        PORTFOLIO_AMT,
+        RESERVATION_AMT,
+        CUST_REL,
+        RELATED_CUST_ID
+    FROM
+    EDW.TIME_DEPT_RSV_CUST
+),
+RIL AS (
+    SELECT 
+        RSI_ID,
+        RESERVATION_ID AS RESERVATION_ID_RIL,
+        MIN_TERM,
+        MAX_TERM,
+        MIN_TERM || '-' || MAX_TERM AS VADE,
+        AIRATE,
+        AIRATETYPE
+    FROM 
+        EDW.TIME_DEPT_RSV_INTRST
+),
+ENTRYTRANSACTION AS (
+    SELECT
+        USER_ORG_CODE AS ENTRYUSER_ORG_CD,
+        USR_CD AS ENTRY_USERCODE,
+        RESERVATION_ID AS RESERVATION_ID_ENTRY
+    FROM
+        EDW.TIME_DEPT_RSV_TRNSACTN
+    WHERE
+        STATE_CD = '01' 
+),
+PRCTRANSACTION AS (
+    SELECT
+		USR_CD AS FIYATLAYAN_USERCODE,
+		RESERVATION_ID AS RESERVATION_ID_PRCTRANSACTION
+	FROM
+		EDW.TIME_DEPT_RSV_TRNSACTN
+	WHERE
+		STATE_CD = '02'
+		AND USER_ORG_CODE = '20350'
+),
+OPL AS (
+    SELECT
+        INTRST_ID,
+        LISTAGG(COMPETITOR_BANK_RT,
+        '|') WITHIN GROUP (
+    ORDER BY
+        INTRST_ID) AS COMPETITOR_BANK_RTS
+    FROM
+        EDW.TIME_DEPT_RSV_OPPNTRT OPL
+    WHERE
+        COMPETITOR_BANK_RT <> 0
+    GROUP BY
+        INTRST_ID
+),
+OUTCOME_DATA AS (
+    SELECT 
+        CUST_ID AS CUST_ID_OUTCOME,
+        COUNT(ACCT_ID) AS ACCOUNT_COUNT,
+        ORIG_TERM,
+        CCY_CODE,
+        INTRST_RT AS ACCT_OPEN_RATE
+    FROM 
+    (
+        SELECT
+            ACCT_ID,
+            PART_ID,
+            ORIG_TERM,
+            INTRST_RT
+        FROM
+            HIST.TIME_DEP
+        WHERE
+                PART_ID = :part_id
+            AND VAL_DT = TO_DATE(:val_dt, 'DD/MM/YYYY')
+            AND ACCT_ST = 1
+    ) HIST_TIME_DEP
+    LEFT JOIN
+    (
+        SELECT
+            ACCT_ID AS ACCT_ID_2,
+            CUST_ID,
+            CCY_CODE
+        FROM
+            HIST.ACCT
+        WHERE
+            PART_ID = :part_id
+    )  HIST_ACCT
+    ON HIST_TIME_DEP.ACCT_ID = HIST_ACCT.ACCT_ID_2
+    GROUP BY CUST_ID, ORIG_TERM, INTRST_RT, CCY_CODE
+),
+RIRL AS (
+    SELECT 
+        INTRST_ID AS INTRST_ID_RIRL,
+        STATE_CD AS SUGGESTION_STATE_CODE,
+        DEM_RATE AS DEMANDED_RATE,
+        ACCPT_RATE AS OFFERED_RATE,
+        CREATE_DT AS OFFER_DATE,
+        CREATE_TM AS OFFER_TIME
+    FROM 
+        EDW.TIME_DEPT_RSV_INTRSTRT
+),
+ROLL AS (
+    SELECT
+        A.CUST_ID AS ROLL_CUST_ID,
+        SUM(A.BAL_CURR) AS ROLL_AMOUNT
+    FROM
+        HIST.TIME_DEP T
+    LEFT OUTER JOIN HIST.ACCT A ON
+        T.PART_ID = A.PART_ID
+        AND T.ACCT_ID = A.ACCT_ID
+    WHERE
+        A.PART_ID = :part_id_t_1
+        AND A.ACCT_TP IN '02'
+        AND T.MTRTY_DT = to_date(:mtrty_dt, 'dd/mm/yyyy')
+        AND T.ACCT_ST = 1
+        AND A.CCY_CODE IN 'TRY'
+        AND T.SPEC_ACCT_CODE  in '0'
+        AND A.BAL_CURR <> 0
+        and T.ORIG_TERM >= 32
+    GROUP BY A.CUST_ID
+),
+EKSTREM_YETKI AS (
+    SELECT 
+        DAT,
+        DOVIZ,
+        VADE_BASLANGIC,
+        VADE_BITIS,
+        EKSTREM,
+        ZARAR_YETKISI,
+        EKSTREM + ZARAR_YETKISI / 100 AS EKSTREM_YETKI
+    FROM 
+        A16438.MEVDUAT_YETKILER
+),
+FON AS (
+    SELECT
+        CUST_ID,
+        TRX_DT,
+        NVL(
+            SUM(
+                CASE
+                    WHEN (DSC LIKE '%Para Piyasa FON SATIŞ%') OR (DSC LIKE '%FI3 FON SATIŞ%') OR (DSC LIKE '%FSK FON SATIŞ%')  THEN -TRX_AMT
+                END
+        ),0) +  
+        NVL(
+            SUM(
+        CASE
+            WHEN (DSC LIKE '%Para Piyasa FON ALIŞ%') OR (DSC LIKE '%FI3 FON ALIŞ%') OR (DSC LIKE '%FSK FON ALIŞ%') THEN TRX_AMT
+        END
+        ),0) AS FON_NET	
+    FROM
+        EDW.ACCT_TRX
+    WHERE
+        TRX_DT < TO_DATE('31/12/2026' , 'dd/mm/yyyy')
+        AND TRX_DT > TO_DATE('25/11/2025' , 'dd/mm/yyyy')
+        AND TRX_AMT > 10000
+        AND CCY_CODE = 'TRY'
+        --AND cust_id IN (SELECT cust_id FROM RCL)
+        --AND TRX_TP = 2
+        AND (
+                (DSC LIKE '%Para Piyasa FON SATIŞ%') OR (DSC LIKE '%FI3 FON SATIŞ%') OR (DSC LIKE '%FSK FON SATIŞ%') 
+             OR (DSC LIKE '%Para Piyasa FON ALIŞ%') OR (DSC LIKE '%FI3 FON ALIŞ%') OR (DSC LIKE '%FSK FON ALIŞ%')
+             )
+        AND CUST_ID <> 9902378
+    GROUP BY 
+        CUST_ID,
+        TRX_DT
+),
+EFT AS (
+  SELECT 
+    EFT.TRX_DT ,
+    EFT.CCY AS EFT_CCY_CODE,
+    EFT.CUST_ID AS EFT_CUST_ID,
+    SUM(EFT.AMT) AS EFT_amt
+   -- MAX(BNK.bank_nm) AS banks_amt
+  FROM EDW.TRF eft
+  WHERE EFT.TRF_SUB_TP = 'GIDEFT'
+    AND EFT.AMT > 10000
+    AND acct_id <> 0
+    AND EFT.CUST_ID IN (SELECT UNIQUE(CUST_ID) FROM RCL)
+    AND TRX_DT >= to_date('01/04/2023', 'dd/mm/yyyy')
+  GROUP BY EFT.TRX_DT , EFT.CCY , EFT.CUST_ID
+),
+EDW_CUST AS (
+    SELECT
+        CUST_ID AS EDW_CUST_ID,
+        CUST_TP,
+        MAPPED_PC
+    FROM
+        EDW.T_CUST
+),
+EDW_DIM_IND AS (
+    SELECT
+        CUST_ID AS DIM_CUST_ID,
+        BRTH_DT,
+        OCCP_CODE,
+        MRTL_ST_CODE,
+        EDUC_LVL_CODE,
+        GND_CODE,
+        START_DT,
+        END_DT
+    FROM
+        EDW.DIM_IND
+),
+USD_SPOTRATE AS (
+    SELECT
+        CONVERTUSD,
+        DAT
+    FROM 
+        A16438.SPOTRATE
+    WHERE
+        CUR='TRY'
+),
+MARKET_MAX AS (
+    SELECT 
+        ASOFDATE AS MARKET_MAX_DATE, 
+        MARKET_MAX_RT 
+    FROM 
+        A16438.DEP_SMALL_APP_PARAMS
+),
+COMPARISON_DATA AS (
+    SELECT 
+        * 
+    FROM 
+        RL
+    LEFT JOIN
+        RCL
+    ON
+        RL.RES_ID = RCL.RESERVATION_ID_RCL
+    LEFT JOIN
+        RIL
+    ON RL.RES_ID = RIL.RESERVATION_ID_RIL
+    LEFT JOIN
+        ENTRYTRANSACTION
+    ON 
+        RL.RES_ID = ENTRYTRANSACTION.RESERVATION_ID_ENTRY
+    LEFT JOIN
+        PRCTRANSACTION
+    ON
+        RL.RES_ID = PRCTRANSACTION.RESERVATION_ID_PRCTRANSACTION
+    LEFT JOIN
+        OPL
+    ON 
+        RIL.RSI_ID = OPL.INTRST_ID
+    LEFT JOIN
+        OUTCOME_DATA
+    ON
+        RIL.MIN_TERM <= OUTCOME_DATA.ORIG_TERM
+        AND RIL.MAX_TERM >= OUTCOME_DATA.ORIG_TERM
+        AND RCL.CUST_ID = OUTCOME_DATA.CUST_ID_OUTCOME
+        AND RCL.CCY_CODE = OUTCOME_DATA.CCY_CODE
+    LEFT JOIN 
+        RIRL
+    ON
+        RIL.RSI_ID = RIRL.INTRST_ID_RIRL
+    LEFT JOIN
+         ROLL
+    ON 
+        RCL.CUST_ID = ROLL.ROLL_CUST_ID
+    LEFT JOIN
+        EDW_CUST
+    ON
+        RCL.CUST_ID = EDW_CUST.EDW_CUST_ID
+    LEFT JOIN
+        USD_SPOTRATE
+    ON
+        RL.CREATE_DT = USD_SPOTRATE.DAT
+    LEFT JOIN
+        EDW_DIM_IND
+    ON
+        RCL.CUST_ID = EDW_DIM_IND.DIM_CUST_ID AND RL.CREATE_DT BETWEEN EDW_DIM_IND.START_DT AND EDW_DIM_IND.END_DT
+    LEFT JOIN
+        MARKET_MAX
+    ON 
+        RL.CREATE_DT = MARKET_MAX.MARKET_MAX_DATE
+    LEFT JOIN 
+        EKSTREM_YETKI
+    ON
+        RL.CREATE_DT = EKSTREM_YETKI.DAT
+        AND RCL.CCY_CODE = EKSTREM_YETKI.DOVIZ
+        AND RIL.MIN_TERM >= EKSTREM_YETKI.VADE_BASLANGIC
+        AND RIL.MAX_TERM <= EKSTREM_YETKI.VADE_BITIS
+    WHERE RL.CREATE_DT =  TO_DATE(:val_dt, 'DD/MM/YYYY')
+    ORDER BY RES_ID ASC
+)
+SELECT 
+    COMPARISON_DATA.*,
+    CASE 
+        WHEN ACCT_OPEN_RATE <= OFFERED_RATE THEN 1 
+        ELSE 0 
+    END AS "OUTCOME"
+FROM 
+    COMPARISON_DATA
+WHERE 
+    1=1
+    --AND RESERVATION_AMT >= 50000
+    --AND CCY_CODE = 'TRY'
+    --AND VADE = '32-35'
+    --AND PERSONEL_SICIL IS NULL
+    --AND CUST_TP = 'T'
+    --AND AIRATETYPE IS NOT NULL
+   --AND SUGGESTION_STATE_CODE IN ('02', '04')
+
+

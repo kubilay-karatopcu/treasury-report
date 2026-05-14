@@ -1,0 +1,611 @@
+/* ==========================================================================
+   Mevduat Asistanım — chat-specific layout & components
+   Built on top of Tabler (CDN). Only overrides what Tabler doesn't cover.
+   ========================================================================== */
+
+:root {
+	--chat-sidebar-width: 280px;
+	--chat-rightpanel-width: 320px;
+	--chat-header-h: 64px;
+	--chat-input-h: 80px;
+	--chat-bubble-radius: 14px;
+}
+
+html, body { height: 100%; overflow: hidden; }
+
+body {
+	display: flex;
+	flex-direction: column;
+	background: var(--tblr-body-bg, #f6f8fb);
+	font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ============================== HEADER ============================== */
+#header {
+	flex: 0 0 var(--chat-header-h);
+	z-index: 10;
+}
+
+/* ============================== MAIN VIEW (3-col flex) ============================== */
+#main-view {
+	flex: 1 1 auto;
+	display: flex !important;
+	flex-direction: row !important;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* ============================== LEFT PANEL ============================== */
+
+/* Top row: New Pricing button + sidebar-collapse toggle side-by-side */
+.session-top-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	margin-bottom: 8px;
+}
+
+.session-top-row #session-new {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+#info-panel-left-toggle {
+	flex: 0 0 40px;
+	height: 40px;
+	width: 40px;
+	border: 1px solid var(--tblr-border-color, #e6e7e9);
+	background: var(--tblr-bg-surface, #fff);
+	color: var(--tblr-secondary, #6c757d);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 8px;
+	cursor: pointer;
+	padding: 0;
+	transition: all 0.15s ease;
+}
+
+#info-panel-left-toggle:hover {
+	color: var(--tblr-primary, #206bc4);
+	border-color: var(--tblr-primary, #206bc4);
+}
+
+/* Collapsed-state toggle button — only shown when panel is .closed */
+#info-panel-left-toggle-collapsed {
+	display: none;
+	width: 40px;
+	height: 40px;
+	margin: 16px auto;
+	border: 1px solid var(--tblr-border-color, #e6e7e9);
+	background: var(--tblr-bg-surface, #fff);
+	color: var(--tblr-secondary, #6c757d);
+	align-items: center;
+	justify-content: center;
+	border-radius: 8px;
+	cursor: pointer;
+	padding: 0;
+}
+
+#info-panel-left-toggle-collapsed:hover {
+	color: var(--tblr-primary, #206bc4);
+	border-color: var(--tblr-primary, #206bc4);
+}
+
+#info-panel-left.closed #info-panel-left-toggle-collapsed {
+	display: flex;
+}
+#info-panel-left {
+	flex: 0 0 var(--chat-sidebar-width);
+	width: var(--chat-sidebar-width);
+	border-right: 1px solid var(--tblr-border-color, #e6e7e9);
+	background: var(--tblr-bg-surface, #fff);
+	display: flex;
+	flex-direction: column;
+	transition: flex-basis 0.2s ease, width 0.2s ease;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+#info-panel-left.closed {
+	flex-basis: 48px !important;
+	width: 48px !important;
+}
+
+#info-panel-left.closed #session-buttons { display: none !important; }
+
+/* Force column layout regardless of whether Tabler .d-flex.flex-column loaded */
+#session-buttons {
+	display: flex !important;
+	flex-direction: column !important;
+	gap: 8px;
+	padding: 28px 14px 16px;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+#session-buttons > button,
+#session-buttons > div {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+#session-list {
+	display: flex !important;
+	flex-direction: column !important;
+	gap: 4px;
+	width: 100%;
+}
+
+.session-header {
+	text-transform: uppercase;
+	font-size: 11px;
+	font-weight: 700;
+	color: var(--tblr-secondary, #6c757d);
+	letter-spacing: 0.04em;
+	margin-top: 12px;
+	margin-bottom: 4px;
+	padding: 0 4px;
+}
+
+#info-panel-left.closed #info-panel-left-toggle {
+	display: none;  /* replaced by #info-panel-left-toggle-collapsed when closed */
+}
+
+.session-switch { transition: all 0.15s ease; }
+
+.session-switch.selected {
+	background: var(--tblr-primary, #206bc4) !important;
+	color: #fff !important;
+	border-color: var(--tblr-primary, #206bc4) !important;
+}
+
+.session-switch.selected svg { color: #fff !important; }
+
+.session-switch.confirmed {
+	border-color: var(--tblr-success, #2fb344) !important;
+}
+
+.session-switch.confirmed.selected {
+	background: var(--tblr-success, #2fb344) !important;
+	border-color: var(--tblr-success, #2fb344) !important;
+}
+
+/* ============================== HEADER ============================== */
+#header {
+	flex: 0 0 var(--chat-header-h);
+	z-index: 10;
+	padding-left: 20px;
+	padding-right: 20px;
+}
+
+#deposit-logo {
+	height: 36px;
+	width: auto;
+	max-width: 200px;
+	object-fit: contain;
+	display: block;
+}
+
+#header-return-btn {
+	padding: 8px 16px;
+	font-size: 14px;
+	font-weight: 500;
+	border-radius: 8px;
+	box-shadow: 0 1px 3px rgba(32, 107, 196, 0.2);
+}
+
+#header-return-btn:hover {
+	box-shadow: 0 2px 6px rgba(32, 107, 196, 0.3);
+}
+
+/* ============================== CENTER COLUMN ============================== */
+/* Parent of #conversation + #chat-input-box. Takes the remaining horizontal
+   space between #info-panel-left and #info-panel-right, stacks its children
+   vertically. Chat input sits at the bottom and only spans the center's width,
+   never the side panels. */
+#center-col {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;   /* allow flex shrink so conversation doesn't push rightpanel */
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* ============================== CONVERSATION ============================== */
+#conversation {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: 24px max(24px, 5%);
+	scroll-behavior: smooth;
+	min-width: 0;  /* allow flex shrink */
+	min-height: 0;
+}
+
+#intro-msg {
+	max-width: 720px;
+	margin: 8vh auto 0;
+	text-align: center;
+}
+
+#intro-msg-1 {
+	font-size: 2.25rem;
+	font-weight: 600;
+	background: linear-gradient(90deg, #1A3963, #2466A0);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+	margin-bottom: .75rem;
+	animation: fadeSlideUp 0.8s ease-out both;
+}
+
+#intro-msg-2 {
+	font-size: 1.25rem;
+	color: var(--tblr-body-color, #1d273b);
+	margin-bottom: .25rem;
+	animation: fadeSlideUp 0.8s 0.15s ease-out both;
+}
+
+#intro-msg-3 {
+	font-size: 1rem;
+	color: var(--tblr-secondary, #6c757d);
+	animation: fadeSlideUp 0.8s 0.3s ease-out both;
+}
+
+@keyframes fadeSlideUp {
+	from { opacity: 0; transform: translateY(20px); }
+	to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================== MESSAGES ============================== */
+.entry-container {
+	display: flex;
+	flex-direction: row;
+	margin-top: 18px;
+	max-width: 70%;
+	gap: 10px;
+	align-items: flex-end;
+	animation: fadeIn 0.25s ease-out both;
+}
+
+@keyframes fadeIn {
+	from { opacity: 0; transform: translateY(8px); }
+	to   { opacity: 1; transform: translateY(0); }
+}
+
+.entry-container.user {
+	margin-left: auto;
+	flex-direction: row-reverse;
+}
+
+.entry-container.assistant,
+.entry-container.choice { margin-right: auto; }
+
+.entry-container.choice { margin-top: 8px; }
+
+.avatar.assistant,
+.avatar.user {
+	width: 36px; height: 36px;
+	flex-shrink: 0;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.avatar.assistant {
+	background: linear-gradient(135deg, #1A3963, #2466A0);
+	color: #fff;
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.avatar.assistant::before { content: "M"; }
+
+.avatar.user {
+	background: var(--tblr-bg-surface-secondary, #ebeff3);
+	color: var(--tblr-secondary, #6c757d);
+}
+
+.avatar.user::before { content: "👤"; font-size: 16px; }
+
+.entry {
+	padding: 12px 16px;
+	border-radius: var(--chat-bubble-radius);
+	font-size: 15px;
+	line-height: 1.5;
+	word-wrap: break-word;
+	min-width: 0;
+}
+
+.entry.user {
+	background: var(--tblr-primary, #206bc4);
+	color: #fff;
+	border-bottom-right-radius: 4px;
+}
+
+.entry.assistant {
+	background: var(--tblr-bg-surface, #fff);
+	color: var(--tblr-body-color, #1d273b);
+	border: 1px solid var(--tblr-border-color, #e6e7e9);
+	border-bottom-left-radius: 4px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.entry.assistant.loading {
+	background: var(--tblr-bg-surface, #fff);
+	color: var(--tblr-secondary, #6c757d);
+	font-style: italic;
+}
+
+.entry.assistant.loading::after {
+	content: "";
+	display: inline-block;
+	width: 6px; height: 6px;
+	margin-left: 6px;
+	border-radius: 50%;
+	background: var(--tblr-secondary, #6c757d);
+	animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+	0%, 80%, 100% { opacity: 0.2; }
+	40%           { opacity: 1; }
+}
+
+/* ============================== CHOICE CARDS ============================== */
+.entry.choice {
+	background: transparent;
+	padding: 0;
+	border: 0;
+	width: 100%;
+	max-width: 480px;
+	cursor: pointer;
+}
+
+.entry.choice .card {
+	transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.entry.choice:hover .card {
+	transform: translateY(-2px);
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Customer name truncation — must not overflow the card */
+.entry.choice .text-truncate,
+#info-panel-right .text-truncate {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	display: block;
+}
+
+/* Inline price card */
+.chat-price-card {
+	background: linear-gradient(135deg, #1A3963 0%, #2466A0 100%) !important;
+	color: #fff !important;
+	border-radius: 10px !important;
+}
+
+.chat-price-card .card-body { padding: 12px 14px !important; }
+
+/* All labels (secondary muted text) at 14px, rgb(210,210,210) — user request */
+.chat-price-card .text-white-50 {
+	color: rgb(210, 210, 210) !important;
+	font-size: 14px !important;
+}
+
+/* Inline VALUES next to the labels (customer no, tenor, amount, revizyon) —
+   force 14px with !important in case Tabler's .small / inline rules win. */
+.chat-price-card .text-white,
+.chat-price-card .small,
+.chat-price-card .row {
+	font-size: 14px !important;
+	font-weight: 600;
+}
+
+/* The big headline rate (%) stays large — override the row rule above. */
+.chat-price-card .h2 {
+	font-size: 1.75rem !important;
+	line-height: 1.1;
+	font-weight: 700;
+}
+
+/* ============================== RIGHT PANEL ============================== */
+#info-panel-right {
+	flex: 0 0 var(--chat-rightpanel-width);
+	width: var(--chat-rightpanel-width);
+	padding: 20px 16px;
+	border-left: 1px solid var(--tblr-border-color, #e6e7e9);
+	background: var(--tblr-bg-surface, #fff);
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+#info-panel-right.hidden { display: none !important; }
+
+/* Pricing card header — SAME horizontal padding as card body so the title
+   lines up with the dl labels and the confirm button below. */
+.pricing-card-header {
+	padding: 14px 16px;
+	background: transparent;
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	border-bottom: 1px solid var(--tblr-border-color, #e6e7e9);
+}
+
+.pricing-card-header .card-title {
+	font-size: 1rem;
+	font-weight: 600;
+	margin: 0;
+	color: var(--tblr-body-color, #1d273b);
+}
+
+/* Pricing card body — same 16px horizontal padding; all inner blocks
+   (dl labels, rate, dl2, button) share the same left/right extents. */
+.pricing-card-body {
+	padding: 16px;
+}
+
+/* Override Tabler's default card-body padding in case its CSS loaded later */
+.pricing-card-body,
+#pricing-data.card .pricing-card-body {
+	padding-left: 16px !important;
+	padding-right: 16px !important;
+}
+
+/* Aligned dl — label column + value column, consistent gutters */
+.pricing-dl {
+	display: grid;
+	grid-template-columns: 110px 1fr;
+	gap: 8px 12px;
+	font-size: 13px;
+	margin: 0;
+}
+
+.pricing-dl dt {
+	color: var(--tblr-secondary, #6c757d);
+	font-weight: 400;
+	margin: 0;
+	align-self: start;
+}
+
+.pricing-dl dd {
+	margin: 0;
+	text-align: right;
+	font-weight: 600;
+	color: var(--tblr-body-color, #1d273b);
+	word-break: break-word;
+	min-width: 0;
+}
+
+.pricing-dl dd.cust-name-cell {
+	font-weight: 700;
+	line-height: 1.35;
+}
+
+.pricing-hr {
+	border: 0;
+	border-top: 1px solid var(--tblr-border-color, #e6e7e9);
+	margin: 14px 0;
+}
+
+/* Highlighted rate block between the two dl blocks */
+.rate-block {
+	text-align: center;
+	padding: 4px 0;
+}
+
+.rate-label {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--tblr-secondary, #6c757d);
+	margin-bottom: 4px;
+}
+
+.rate-value {
+	font-size: 2.5rem;
+	line-height: 1.1;
+	font-weight: 700;
+	color: var(--tblr-primary, #206bc4);
+}
+
+.rate-sub {
+	font-size: 12px;
+	color: var(--tblr-secondary, #6c757d);
+	margin-top: 2px;
+}
+
+/* Confirm button — full width, same horizontal extents as the dl rows */
+.pricing-confirm-btn {
+	display: block;
+	width: 100%;
+	margin-top: 16px;
+	padding: 10px 16px;
+	font-size: 14px;
+	font-weight: 500;
+}
+
+/* ============================== CHAT INPUT ============================== */
+/* Lives inside #center-col — spans only the center column's width, not the
+   side panels. Auto-height; content + padding determine it. */
+#chat-input-box {
+	flex: 0 0 auto;
+	border-top: 1px solid var(--tblr-border-color, #e6e7e9);
+	background: var(--tblr-bg-surface, #fff);
+	padding: 16px max(24px, 5%);
+	display: flex;
+	align-items: center;
+}
+
+#chat-input-box.hidden { display: none !important; }
+
+#chat-input {
+	width: 100%;
+	max-width: 1200px;
+	margin: 0 auto;
+}
+
+#user_input { font-size: 15px; height: 44px; }
+
+#chatSendBtn:disabled {
+	background: var(--tblr-secondary, #6c757d);
+	border-color: var(--tblr-secondary, #6c757d);
+	cursor: not-allowed;
+}
+
+/* ============================== UTILITY ============================== */
+.hidden { display: none !important; }
+
+/* ============================== RESPONSIVE ============================== */
+@media (max-width: 992px) {
+	:root {
+		--chat-sidebar-width: 220px;
+		--chat-rightpanel-width: 260px;
+	}
+}
+
+@media (max-width: 768px) {
+	#info-panel-left,
+	#info-panel-right { display: none; }
+	.entry-container  { max-width: 92%; }
+	#conversation     { padding: 16px; }
+	#chat-input-box   { padding: 12px; }
+}
+
+/* ============================== DARK MODE ============================== */
+[data-bs-theme="dark"] body,
+.theme-dark body { background: #0f172a; }
+
+[data-bs-theme="dark"] #info-panel-left,
+[data-bs-theme="dark"] #info-panel-right,
+[data-bs-theme="dark"] #chat-input-box,
+.theme-dark #info-panel-left,
+.theme-dark #info-panel-right,
+.theme-dark #chat-input-box {
+	background: #1e293b;
+	border-color: #334155;
+}
+
+[data-bs-theme="dark"] .entry.assistant,
+.theme-dark .entry.assistant {
+	background: #1e293b;
+	border-color: #334155;
+	color: #f8fafc;
+}
+
+[data-bs-theme="dark"] #intro-msg-1,
+.theme-dark #intro-msg-1 {
+	background: linear-gradient(90deg, #3b82f6, #93c5fd);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+}
+
+[data-bs-theme="dark"] #intro-msg-2,
+.theme-dark #intro-msg-2 { color: #f8fafc; }
