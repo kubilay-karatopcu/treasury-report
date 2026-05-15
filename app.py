@@ -761,9 +761,11 @@ def index():
 
 @app.route('/login', methods=["GET", "POST"])
 def login():
-    if app.config.get("LOGIN_DISABLED"):
+    # DEV preview: ?preview=1 ile login sayfasını DEV_MODE'da bile render et.
+    is_preview = request.args.get("preview") == "1"
+    if app.config.get("LOGIN_DISABLED") and not is_preview:
         return redirect(url_for('.home'))
-    if current_user.is_authenticated:
+    if current_user.is_authenticated and not is_preview:
         return redirect(url_for('.home', sicil=current_user.sicil))
     form = LoginForm()
     if form.validate_on_submit():

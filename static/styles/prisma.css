@@ -15,7 +15,8 @@ html, body {
   overflow: hidden;
 }
 
-.app { display: flex; height: 100vh; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+.app-body { display: flex; flex: 1; min-height: 0; }
 
 /* ===== Rail (en sol) ===== */
 .prisma-rail {
@@ -70,13 +71,13 @@ html, body {
 /* ===== Letter tabs ===== */
 .letter-tab {
   --c: #475569;
-  height: 64px;
+  height: 72px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 1.45rem;
+  font-size: 1.6rem;
   line-height: 1;
   color: rgba(255,255,255,0.45);
   cursor: pointer;
@@ -88,10 +89,10 @@ html, body {
   user-select: none;
 }
 .letter-tab .label {
-  font-size: 0.5rem;
+  font-size: 0.55rem;
   font-weight: 600;
   letter-spacing: 0.6px;
-  margin-top: 3px;
+  margin-top: 4px;
   opacity: 0;
   text-transform: uppercase;
   transition: opacity 0.2s;
@@ -106,7 +107,7 @@ html, body {
   color: #ffffff;
   border-radius: 0;
   margin: 0;
-  height: 72px;
+  height: 80px;
 }
 .letter-tab.active .label { opacity: 0.9; }
 
@@ -117,11 +118,21 @@ html, body {
   color: #ffffff;
   display: flex;
   flex-direction: column;
-  transition: background 0.45s ease;
+  transition: background 0.45s ease, width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s ease;
   box-shadow: 6px 0 24px rgba(15,23,42,0.10);
   position: relative;
   z-index: 1;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* Sidebar collapse — body class ile JS toggle eder */
+body.sidebar-collapsed .sidebar {
+  width: 0 !important;
+  opacity: 0;
+  box-shadow: none;
+  pointer-events: none;
 }
 .sidebar-header {
   padding: 24px 20px 20px;
@@ -219,11 +230,10 @@ html, body {
 /* ===== Peek mode overlay =====
    Kullanıcı HOME dışı bir harfe tıkladığında ana içerik (rail + sidebar
    hariç) karartılır. Overlay'a tıklayınca HOME grubuna geri döner.
-   Rail = 62, Sidebar = 270 → left = 332px. Fixed ki .main'in iç scroll'u
-   ile birlikte kaymasın. */
+   Rail = 62, Sidebar = 270, Topbar = 56 → left = 332, top = 56 px. */
 .peek-overlay {
   position: fixed;
-  top: 0;
+  top: 56px;
   bottom: 0;
   left: calc(62px + 270px);
   right: 0;
@@ -243,9 +253,6 @@ body.theme-dark .peek-overlay {
   background: rgba(0, 0, 0, 0.55);
 }
 .topbar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   height: 56px;
   background: #ffffff;
   border-bottom: 1px solid #e2e8f0;
@@ -255,18 +262,37 @@ body.theme-dark .peek-overlay {
   padding: 0 24px;
   flex-shrink: 0;
 }
+/* Global topbar — rail + sidebar + main ÜSTÜNDE, tam genişlik */
+.topbar-global {
+  z-index: 30;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+}
+.topbar-logo-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  line-height: 0;
+}
+.topbar-logo {
+  height: 36px;
+  width: auto;
+  display: block;
+}
 .breadcrumb {
   font-size: 0.85rem;
-  color: #64748b;
-}
-.breadcrumb b {
   color: var(--active-c);
+  font-weight: 600;
+  letter-spacing: 0.2px;
   transition: color 0.45s ease;
 }
 .topbar-right {
   display: flex;
   gap: 14px;
   align-items: center;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+.topbar-sicil {
   color: #94a3b8;
   font-size: 0.85rem;
 }

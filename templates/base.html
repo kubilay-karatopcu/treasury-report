@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tabler.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles/styles.css') }}?v=20">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles/prisma.css') }}?v=3">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles/prisma.css') }}?v=7">
 
   <style>
     :root {
@@ -21,9 +21,31 @@
   </style>
   {% block head %}{% endblock %}
 </head>
-<body>
-{% set active_grp = (prisma_groups | selectattr('key','equalto',active_group) | first) %}
+<body{% if not active_group %} class="sidebar-collapsed no-home-group"{% endif %}>
+{% set active_grp = (prisma_groups | selectattr('key','equalto',active_group) | first) or prisma_groups[0] %}
 <div class="app">
+
+  <!-- ===== Global topbar (rail + sidebar + main üstünde) ===== -->
+  <div class="topbar topbar-global">
+    <a href="/home" class="topbar-logo-link" title="Ana sayfaya dön">
+      <img src="{{ url_for('static', filename='prisma_logo.png') }}"
+           alt="PRISMA" class="topbar-logo">
+    </a>
+    <div class="topbar-right">
+      {% block breadcrumb %}
+      {% if active_item_label %}
+      <b id="bc-cat" class="breadcrumb">{{ active_item_label }}</b>
+      {% endif %}
+      {% block breadcrumb_extra %}{% endblock %}
+      {% endblock %}
+      {% if current_user.is_authenticated %}
+      <span class="topbar-sicil">{{ current_user.sicil }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ===== Body wrapper (rail + sidebar + main) ===== -->
+  <div class="app-body">
 
   <!-- ===== Letter rail ===== -->
   <div class="prisma-rail">
@@ -76,17 +98,6 @@
 
   <!-- ===== Main ===== -->
   <main class="main">
-    <div class="topbar">
-      {% block breadcrumb %}
-      <div class="breadcrumb">
-        <b id="bc-cat">{{ active_item_label or active_grp.name }}</b>
-        {% block breadcrumb_extra %}{% endblock %}
-      </div>
-      {% endblock %}
-      <div class="topbar-right">
-        <span>{% if current_user.is_authenticated %}{{ current_user.sicil }}{% endif %}</span>
-      </div>
-    </div>
     <div class="peek-overlay" id="peek-overlay" hidden></div>
 
     <div class="container-xl">
@@ -220,7 +231,8 @@
     {% block content %}{% endblock %}
   </main>
 
-</div>
+  </div>{# /.app-body #}
+</div>{# /.app #}
 
 <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0/dist/js/tabler.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
@@ -233,42 +245,86 @@
   };
 
   // HOME_GROUP = kullanıcının asıl bulunduğu sayfanın grubu (server-injected).
-  // Peek mode: HOME'dan farklı bir harfe tıklanınca devreye girer — sidebar
-  // değişir, ana içerik karartılır, breadcrumb sabit kalır. Overlay'a veya
-  // HOME harfine tıklayınca peek kapanır.
+  // Boş string ise kullanıcı home/login sayfasında demek — hiçbir menü "kendi
+  // menüsü" değil, sidebar kapalı, peek YOK.
+  //
+  // Davranış:
+  //   * Home (HOME_GROUP === ""):
+  //       - Sidebar başlangıçta kapalı.
+  //       - Bir harfe tıkla → sidebar o grupla açılır (peek yok).
+  //       - Aynı harfe tekrar tıkla → kapanır (toggle).
+  //   * Diğer sayfalar:
+  //       - HOME harfine tıkla → peek varsa peek'ten çık; yoksa sidebar toggle.
+  //       - Başka harfe tıkla → peek mode (içerik kararır, breadcrumb sabit).
   const HOME_GROUP = "{{ active_group }}";
+  const IS_HOME    = !HOME_GROUP;
 
-  function activateLetter(key) {
-    const tab = document.querySelector('.letter-tab[data-key="' + key + '"]');
-    if (!tab) return;
+  function _renderMenuFor(key) {
     document.querySelectorAll('.letter-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.menu-group').forEach(g => g.classList.remove('active'));
-    tab.classList.add('active');
-    const grp = document.querySelector('.menu-group[data-key="' + key + '"]');
-    if (grp) grp.classList.add('active');
-
+    document.querySelector('.letter-tab[data-key="' + key + '"]')?.classList.add('active');
+    document.querySelector('.menu-group[data-key="' + key + '"]')?.classList.add('active');
     const meta = PRISMA_GROUPS[key];
-
-    // Sidebar görseli ziyaret edilen grubun rengine geçer. Breadcrumb +
-    // gradient text ise HOME rengini korumalı; bu yüzden --active-c'yi
-    // ASLA değiştirmiyoruz, sadece sidebar background'unu inline veriyoruz.
+    if (!meta) return;
     const sidebar = document.querySelector('.sidebar');
     if (sidebar) sidebar.style.background = meta.c;
+    const bl = document.getElementById('big-letter'); if (bl) bl.textContent = key;
+    const ct = document.getElementById('cat-title');  if (ct) ct.textContent  = meta.name;
+    const cs = document.getElementById('cat-sub');    if (cs) cs.textContent  = meta.sub;
+    // Breadcrumb (#bc-cat) DEĞİŞMİYOR.
+  }
 
-    document.getElementById('big-letter').textContent = key;
-    document.getElementById('cat-title').textContent  = meta.name;
-    document.getElementById('cat-sub').textContent    = meta.sub;
-    // Breadcrumb (#bc-cat) DEĞİŞMİYOR — kullanıcı hâlâ HOME sayfasında.
-
-    const peeking = key !== HOME_GROUP;
-    document.body.classList.toggle('peek-mode', peeking);
+  function activateLetter(key) {
+    if (!PRISMA_GROUPS[key]) return;
+    const body    = document.body;
     const overlay = document.getElementById('peek-overlay');
-    if (overlay) overlay.hidden = !peeking;
+    const isCollapsed = body.classList.contains('sidebar-collapsed');
+    const isPeeking   = body.classList.contains('peek-mode');
+    const viewed = document.querySelector('.letter-tab.active')?.dataset.key || '';
+
+    if (IS_HOME) {
+      // Home sayfa: peek yok. Aynı harf + sidebar açık → kapat. Diğer → aç.
+      if (!isCollapsed && viewed === key) {
+        body.classList.add('sidebar-collapsed');
+        document.querySelectorAll('.letter-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.menu-group').forEach(g => g.classList.remove('active'));
+      } else {
+        body.classList.remove('sidebar-collapsed');
+        _renderMenuFor(key);
+      }
+      body.classList.remove('peek-mode');
+      if (overlay) overlay.hidden = true;
+      return;
+    }
+
+    if (key === HOME_GROUP) {
+      // Kendi sayfanın harfine tıklama: peek'ten çık VEYA sidebar toggle.
+      if (isPeeking) {
+        body.classList.remove('peek-mode');
+        if (overlay) overlay.hidden = true;
+        body.classList.remove('sidebar-collapsed');
+      } else {
+        body.classList.toggle('sidebar-collapsed');
+      }
+      _renderMenuFor(HOME_GROUP);
+      return;
+    }
+
+    // Başka harfe tıklama (HOME sayfa değil): peek mode.
+    body.classList.remove('sidebar-collapsed');
+    body.classList.add('peek-mode');
+    if (overlay) overlay.hidden = false;
+    _renderMenuFor(key);
   }
 
   function exitPeek() {
     if (document.body.classList.contains('peek-mode')) {
-      activateLetter(HOME_GROUP);
+      if (HOME_GROUP) activateLetter(HOME_GROUP);
+      else {
+        document.body.classList.remove('peek-mode');
+        const overlay = document.getElementById('peek-overlay');
+        if (overlay) overlay.hidden = true;
+      }
     }
   }
 

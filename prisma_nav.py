@@ -26,11 +26,20 @@ for _g in _GROUPS:
                 _URL_TO_ITEM[_url] = (_g["key"], _item.get("label", ""))
 
 
+_HOME_PATHS = {"/", "/home", "/login"}
+
+
 def _resolve_active(path: str) -> tuple[str, str]:
     """Return (group_key, item_label) for the current path.
 
-    Strategy: exact match → longest prefix match → fall back to ('P', '').
+    Strategy:
+      - Home/login → ('', '') so no group is active (sidebar collapsed).
+      - Exact match → URL's group + item.
+      - Longest prefix match.
+      - Fallback → ('', '') — unknown path, no group active.
     """
+    if path in _HOME_PATHS:
+        return "", ""
     if path in _URL_TO_ITEM:
         return _URL_TO_ITEM[path]
     candidates = [
@@ -40,7 +49,7 @@ def _resolve_active(path: str) -> tuple[str, str]:
     if candidates:
         candidates.sort(key=lambda x: len(x[0]), reverse=True)
         return candidates[0][1], candidates[0][2]
-    return "P", ""
+    return "", ""
 
 
 def inject() -> dict:

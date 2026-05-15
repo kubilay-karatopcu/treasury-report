@@ -1,46 +1,54 @@
 <!DOCTYPE html>
-<!-- saved from url=(0051)https://getbootstrap.com/docs/4.0/examples/sign-in/ -->
-<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <meta name="description" content="">
-    <meta name="author" content="">
-    <link rel="icon" href="{{ url_for('static',filename='logo.png') }}">
-	<link rel= "stylesheet" type= "text/css" href= "{{ url_for('static',filename='styles/login.css') }}">
-    <title>Tresuary Repory Platform</title>
-	<link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
-  </head>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Giriş — PRISMA Treasury</title>
 
-  <body class="text-center d-flex align-items-center justify-content-center min-vh-100">
-	
-			
-		<div class = "container mainContainer">	
-			<h1 class="h3 display-3 font-weight-normal eurobondTitle"></h1>
-		
-	 
-		
-		  	<img class="eurobondIcon" src="{{ url_for('static',filename='logo.png') }}">
-		
-		
-	  
-	  
-		
-		  	<form action = "" method = "post" class="form-signin" novalidate>
-				{{ form.hidden_tag() }}
-				{{ form.sicil(size=32, class_ = "form-control", placeholder = "Sicil")}} 
-				{{ form.password(size=32, class_ = "form-control", placeholder = "Şifre")}} 
-			  
-			  <div class="checkbox mb-3">
-				{{ form.remember_me() }} {{ form.remember_me.label }}
-			  </div>
-				{{ form.submit(class_ = "btn btn-lg btn-primary btn-block", style="background-color:#1170C4") }}
-			  
-			  
-			</form>
-		</div>
-		
-	
-  
+  <link rel="icon" href="{{ url_for('static', filename='prisma_icon.png') }}">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tabler.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles/login.css') }}?v=3">
 
-    </body>
+  <style>
+    :root {
+      --tblr-font-sans-serif: 'InterVar', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    body { font-feature-settings: "cv03", "cv04", "cv11"; }
+  </style>
+</head>
+<body class="login-page">
+  <main class="login-shell">
+    <div class="login-card">
+      <div class="login-logo-wrap">
+        <img src="{{ url_for('static', filename='prisma_logo_dikey.png') }}"
+             alt="PRISMA" class="login-logo">
+      </div>
+
+      <form action="" method="post" class="login-form" novalidate>
+        {{ form.hidden_tag() }}
+
+        <div class="mb-3">
+          <label class="form-label" for="sicil">Sicil</label>
+          {{ form.sicil(class_='form-control form-control-lg', placeholder='A12345', autocomplete='username', autofocus='autofocus') }}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="password">Şifre</label>
+          {{ form.password(class_='form-control form-control-lg', placeholder='••••••••', autocomplete='current-password') }}
+        </div>
+
+        <div class="form-check mb-4 login-remember">
+          {{ form.remember_me(class_='form-check-input') }}
+          {{ form.remember_me.label(class_='form-check-label') }}
+        </div>
+
+        {{ form.submit(class_='btn btn-primary w-100 btn-lg login-submit') }}
+      </form>
+    </div>
+
+    <p class="login-footer">PRISMA · Treasury</p>
+  </main>
+</body>
 </html>
