@@ -72,12 +72,11 @@
 	<!-- HEADER (static; not re-rendered by AJAX) -->
 	<header id="header" class="navbar navbar-expand-md navbar-light border-bottom bg-white">
 		<div class="container-fluid d-flex align-items-center">
-			<a href="{{ url_for('deposit.chat') }}" class="navbar-brand d-flex align-items-center p-0" style="text-decoration:none;">
-				<img src="{{ url_for('static', filename='deposit/deposit_logo.png') }}"
-				     alt="Mevduat Asistanım"
+			<a href="/home" class="navbar-brand d-flex align-items-center p-0" style="text-decoration:none;">
+				<img src="{{ url_for('static', filename='prisma_logo.png') }}"
+				     alt="PRISMA"
 				     id="deposit-logo"
-				     onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
-				<span style="display:none; font-weight:600; color:#1A3963;">Mevduat Asistanım</span>
+				     style="height:36px; width:auto;">
 			</a>
 			<div class="ms-auto d-flex align-items-center gap-3">
 				<span class="text-secondary d-none d-sm-inline">{{ username }}</span>
