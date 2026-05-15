@@ -3408,23 +3408,24 @@ body.theme-dark .props-sql-helper__table td code {
 }
 
 
-/* Header home link (replaces logo + breadcrumb prefix) */
+/* Header home link — PRISMA yatay logo */
 .header-home-link {
   display: inline-flex;
   align-items: center;
-  font-weight: 700;
-  font-size: 0.95rem;
-  letter-spacing: 1px;
-  color: var(--ts-ink);
   text-decoration: none;
-  padding: 4px 10px;
+  padding: 2px 4px;
   border-radius: 6px;
-  background: linear-gradient(135deg, rgba(32,107,196,0.10), rgba(32,107,196,0.04));
-  transition: background 0.15s;
+  transition: background 0.15s, opacity 0.15s;
+  line-height: 0;
 }
 .header-home-link:hover {
-  background: linear-gradient(135deg, rgba(32,107,196,0.18), rgba(32,107,196,0.08));
-  color: var(--ts-primary, #206bc4);
+  background: rgba(15, 23, 42, 0.04);
+  opacity: 0.9;
+}
+.header-home-logo {
+  height: 32px;
+  width: auto;
+  display: block;
 }
 
 

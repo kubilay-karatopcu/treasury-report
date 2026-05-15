@@ -45,7 +45,7 @@ export default function Header() {
       <header className="editor-header">
         <div className="editor-header-left">
           <a href="/home" className="header-home-link" title="Ana sayfaya dön">
-            PRISMA
+            <img src="/static/prisma_logo.png" alt="PRISMA" className="header-home-logo" />
           </a>
 
           {titleEditing ? (
