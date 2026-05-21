@@ -72,6 +72,7 @@ export default function BlockCard({ block }) {
   const setSelectedBlock = useStore((s) => s.setSelectedBlock);
   const toggleLock       = useStore((s) => s.toggleLock);
   const refreshBlock     = useStore((s) => s.refreshBlock);
+  const runBlockManualSql = useStore((s) => s.runBlockManualSql);
   const viewMode         = useStore((s) => s.viewMode);
   const flashingBlockIds = useStore((s) => s.flashingBlockIds);
   const mode             = useStore((s) => s.mode);
@@ -132,7 +133,22 @@ export default function BlockCard({ block }) {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      await refreshBlock(block.id);
+      // Phase 6.5: block has `query` + `variables` shape → use the
+      // variable-aware run-manual endpoint (resolves :binds, expands enum
+      // lists, calls DataClient with proper query_params). The legacy
+      // /block/<bid>/refresh path doesn't know how to bind variables and
+      // crashes with `Parser Error at ":"` on DuckDB.
+      const hasPhase65 = typeof block.query === 'string'
+        && block.query.trim().length > 0
+        && Array.isArray(block.variables);
+      if (hasPhase65) {
+        await runBlockManualSql(block.id, {
+          query: block.query,
+          variables: block.variables,
+        });
+      } else {
+        await refreshBlock(block.id);
+      }
     } catch (err) {
       setRefreshError(err.message);
     } finally {
