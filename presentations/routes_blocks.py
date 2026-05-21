@@ -108,30 +108,15 @@ def _normalise_block_payload(payload: dict[str, Any]) -> dict[str, Any]:
 @presentations_bp.route("/blocks/")
 @login_required
 def block_library():
-    """List blocks (Phase 6.5.a stub library listing)."""
-    store = _store()
-    blocks = store.list_blocks(
-        team=request.args.get("team") or None,
-        tag=request.args.get("tag") or None,
-        viz_type=request.args.get("viz_type") or None,
-        search=request.args.get("q") or None,
-    )
-    blocks_json = json.dumps(
-        [s.to_dict() for s in blocks],
-        ensure_ascii=False,
-        default=_json_default,
-    )
-    return render_template(
-        "presentations/block_library.html",
-        blocks=blocks,
-        blocks_json=blocks_json,
-        active_filters={
-            "team": request.args.get("team", ""),
-            "tag": request.args.get("tag", ""),
-            "viz_type": request.args.get("viz_type", ""),
-            "q": request.args.get("q", ""),
-        },
-    )
+    """Deprecated — the Bloklar tab inside /presentations/ now hosts the
+    listing. Query string filters carry over to the tab via URL params.
+    """
+    from flask import redirect, url_for
+    target = url_for("presentations.list_presentations") + "#blocks"
+    qs = request.query_string.decode("utf-8")
+    if qs:
+        target = url_for("presentations.list_presentations") + "?" + qs + "#blocks"
+    return redirect(target)
 
 
 @presentations_bp.route("/blocks/new")
@@ -237,6 +222,29 @@ def block_edit(team: str, block_id: str, version: int | None = None):
 @login_required
 def api_semantic_tags():
     return _json({"tags": all_tags()})
+
+
+@presentations_bp.route("/blocks/api/list")
+@login_required
+def api_list_blocks():
+    """JSON BlockStore listing — consumed by the 'Bloklar' tab on /presentations/.
+
+    Query string filters (all optional):
+        ?team=<team>
+        ?tag=<tag>
+        ?viz_type=<kpi|bar_chart|...>
+        ?q=<search>
+        ?include_deprecated=1
+    """
+    store = _store()
+    items = store.list_blocks(
+        team=request.args.get("team") or None,
+        tag=request.args.get("tag") or None,
+        viz_type=request.args.get("viz_type") or None,
+        search=request.args.get("q") or None,
+        include_deprecated=(request.args.get("include_deprecated") == "1"),
+    )
+    return _json([s.to_dict() for s in items])
 
 
 @presentations_bp.route("/blocks/api/<team>/<block_id>/versions")

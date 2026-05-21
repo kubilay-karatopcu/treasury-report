@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Sunumlarım — Treasury Studio{% endblock %}
+{% block title %}Rapor Şablonları — Treasury Studio{% endblock %}
 
 {% block filter_panel %}{% endblock %}
 
@@ -8,11 +8,51 @@
   .pres-list-page { padding: 32px 0; }
   .pres-list-header {
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+    margin-bottom: 8px; flex-wrap: wrap; gap: 12px;
   }
   .pres-list-title { font-size: 22px; font-weight: 600; color: #1d273b; margin: 0; }
   .pres-list-subtitle { font-size: 13px; color: #9aa0aa; margin-top: 2px; }
 
+  /* ── Tabs ─────────────────────────────────────────── */
+  .pres-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #e6e7e9;
+    margin: 16px 0 24px;
+  }
+  .pres-tab {
+    background: transparent;
+    border: none;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #64748b;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .pres-tab:hover { color: #0f172a; }
+  .pres-tab.is-active {
+    color: #1e3a8a;
+    border-bottom-color: #2563eb;
+  }
+  .pres-tab-count {
+    font-size: 11px;
+    color: #94a3b8;
+    background: #f1f5f9;
+    padding: 1px 7px;
+    border-radius: 10px;
+  }
+
+  .pres-tabpanel { display: none; }
+  .pres-tabpanel.is-active { display: block; }
+
+  /* ── Grid ─────────────────────────────────────────── */
   .pres-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -46,12 +86,49 @@
     overflow: hidden; text-overflow: ellipsis;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
+  .pres-card-desc {
+    font-size: 12px; color: #64748b; line-height: 1.4; margin: 0;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .pres-card-meta {
     display: flex; flex-wrap: wrap; gap: 8px;
     font-size: 11px; color: #9aa0aa;
     margin-top: auto;
   }
   .pres-card-meta-item { display: inline-flex; align-items: center; gap: 4px; }
+  .pres-card-tags {
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .pres-tag-chip {
+    background: #f1f5f9; color: #475569;
+    padding: 1px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 500;
+  }
+  .pres-tag-chip--deprecated {
+    background: #fef3c7; color: #92400e;
+  }
+
+  /* Phase 6.5 — Bloklar tab filter bar */
+  .pres-blocks-filters {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .pres-blocks-filters input,
+  .pres-blocks-filters select {
+    border: 1px solid #cbd5e1; border-radius: 6px;
+    padding: 6px 10px; font-size: 13px;
+    font-family: inherit; min-width: 140px;
+  }
+  .pres-blocks-filters input:focus,
+  .pres-blocks-filters select:focus {
+    outline: 2px solid #2563eb; outline-offset: -1px; border-color: #2563eb;
+  }
+  .pres-filter-btn {
+    height: 32px; padding: 0 18px;
+    background: #475569; color: white; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
+  }
+  .pres-filter-btn:hover { background: #334155; }
   .pres-card-actions {
     display: flex; gap: 6px; padding-top: 12px;
     border-top: 1px solid #f0f2f5;
@@ -67,6 +144,10 @@
     background: #206bc4; color: white; border: 1px solid #206bc4;
   }
   .pres-card-btn--primary:hover { background: #1a5ba8; border-color: #1a5ba8; color: white; }
+  .pres-card-btn--ghost {
+    background: white; color: #1e3a8a; border: 1px solid #cbd5e1;
+  }
+  .pres-card-btn--ghost:hover { background: #f1f5f9; border-color: #94a3b8; }
   .pres-card-btn--danger {
     background: white; color: #d63939; border: 1px solid #e6e7e9;
     flex: 0 0 auto; padding: 0 10px;
@@ -90,6 +171,47 @@
   }
   .pres-empty-title { font-size: 16px; font-weight: 600; color: #354052; margin-bottom: 6px; }
   .pres-empty-subtitle { font-size: 13px; color: #9aa0aa; margin-bottom: 18px; }
+
+  .pres-loading {
+    text-align: center; padding: 32px; color: #94a3b8; font-style: italic;
+  }
+
+  /* Block preview modal (iframe) */
+  .blk-preview-backdrop {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
+    z-index: 200; display: flex; align-items: center; justify-content: center;
+    padding: 32px; animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } }
+  .blk-preview-modal {
+    background: #ffffff; border-radius: 12px; width: 95%; max-width: 1100px;
+    height: 85vh; display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.25);
+  }
+  .blk-preview-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; border-bottom: 1px solid #e2e8f0; background: #f8fafc;
+  }
+  .blk-preview-title {
+    font-size: 14px; font-weight: 600; color: #0f172a;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .blk-preview-close {
+    background: transparent; border: none; cursor: pointer;
+    padding: 6px; border-radius: 6px; color: #64748b;
+    display: flex; align-items: center;
+  }
+  .blk-preview-close:hover { background: #e2e8f0; color: #0f172a; }
+  .blk-preview-iframe {
+    flex: 1; border: none; width: 100%; background: #ffffff;
+  }
+  .pres-card-eye {
+    background: white; border: 1px solid #e6e7e9; color: #475569;
+    width: 28px; height: 28px; border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: auto;
+  }
+  .pres-card-eye:hover { border-color: #206bc4; color: #206bc4; }
 </style>
 {% endblock %}
 
@@ -97,10 +219,8 @@
 <div class="container-xl pres-list-page">
   <div class="pres-list-header">
     <div>
-      <h1 class="pres-list-title">Sunumlarım</h1>
-      <div class="pres-list-subtitle">
-        {% if presentations %}{{ presentations|length }} sunum{% else %}Henüz sunum yok{% endif %}
-      </div>
+      <h1 class="pres-list-title">Rapor Şablonları</h1>
+      <div class="pres-list-subtitle">Sunumlar ve bloklar tek yerde</div>
     </div>
     <button id="new-presentation-btn" class="pres-create-btn">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
@@ -112,59 +232,257 @@
     </button>
   </div>
 
-  {% if presentations %}
-  <div class="pres-grid">
-    {% for p in presentations %}
-    <div class="pres-card" data-pid="{{ p.id }}">
-      <div class="pres-card-eyebrow {% if p.is_demo %}is-demo{% endif %}">
-        {% if p.is_demo %}
-          ⭐ Örnek Sunum
-        {% else %}
-          📊 Sunum
-        {% endif %}
-      </div>
-      <div class="pres-card-title">{{ p.title }}</div>
-      <div class="pres-card-meta">
-        {% if p.blocks_count is not none %}
-          <span class="pres-card-meta-item">📦 {{ p.blocks_count }} blok</span>
-        {% endif %}
-        {% if p.updated_at %}
-          <span class="pres-card-meta-item">🕒 {{ p.updated_at[:10] }}</span>
-        {% elif p.date %}
-          <span class="pres-card-meta-item">🕒 {{ p.date }}</span>
-        {% endif %}
-      </div>
-      <div class="pres-card-actions">
-        <a href="{{ url_for('presentations.editor', pid=p.id) }}" class="pres-card-btn pres-card-btn--primary">
-          {% if p.is_demo %}Aç{% else %}Düzenle{% endif %}
-        </a>
-        {% if not p.is_demo %}
-        <button class="pres-card-btn pres-card-btn--danger js-delete-pres" data-pid="{{ p.id }}" title="Sil">
-          🗑
-        </button>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="pres-empty">
-    <div class="pres-empty-title">Henüz sunum yok</div>
-    <div class="pres-empty-subtitle">İlk sunumunu oluşturmaya başla.</div>
-    <button id="new-presentation-btn-empty" class="pres-create-btn">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor" stroke-width="2.5"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 5v14M5 12h14"/>
-      </svg>
-      Yeni Sunum
+  <div class="pres-tabs" role="tablist">
+    <button type="button" class="pres-tab is-active" data-tab="presentations">
+      Sunumlar <span class="pres-tab-count">{{ presentations|length }}</span>
+    </button>
+    <button type="button" class="pres-tab" data-tab="blocks">
+      Bloklar <span class="pres-tab-count" id="blocks-count">…</span>
     </button>
   </div>
-  {% endif %}
+
+  <!-- ─────────── PRESENTATIONS TAB ─────────── -->
+  <div class="pres-tabpanel is-active" data-tabpanel="presentations">
+    {% if presentations %}
+    <div class="pres-grid">
+      {% for p in presentations %}
+      <div class="pres-card" data-pid="{{ p.id }}">
+        <div class="pres-card-eyebrow {% if p.is_demo %}is-demo{% endif %}">
+          {% if p.is_demo %}⭐ Örnek Sunum{% else %}📊 Sunum{% endif %}
+        </div>
+        <div class="pres-card-title">{{ p.title }}</div>
+        <div class="pres-card-meta">
+          {% if p.blocks_count is not none %}
+            <span class="pres-card-meta-item">📦 {{ p.blocks_count }} blok</span>
+          {% endif %}
+          {% if p.updated_at %}
+            <span class="pres-card-meta-item">🕒 {{ p.updated_at[:10] }}</span>
+          {% elif p.date %}
+            <span class="pres-card-meta-item">🕒 {{ p.date }}</span>
+          {% endif %}
+        </div>
+        <div class="pres-card-actions">
+          <a href="{{ url_for('presentations.editor', pid=p.id) }}" class="pres-card-btn pres-card-btn--primary">
+            {% if p.is_demo %}Aç{% else %}Düzenle{% endif %}
+          </a>
+          {% if not p.is_demo %}
+          <button class="pres-card-btn pres-card-btn--danger js-delete-pres" data-pid="{{ p.id }}" title="Sil">
+            🗑
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="pres-empty">
+      <div class="pres-empty-title">Henüz sunum yok</div>
+      <div class="pres-empty-subtitle">İlk sunumunu oluşturmaya başla.</div>
+      <button id="new-presentation-btn-empty" class="pres-create-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        Yeni Sunum
+      </button>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ─────────── BLOCKS TAB (Phase 6.5 BlockStore) ─────────── -->
+  <div class="pres-tabpanel" data-tabpanel="blocks">
+    <form class="pres-blocks-filters" id="blocks-filter-form">
+      <input type="text" name="q" id="blocks-filter-q" placeholder="Ara (başlık, açıklama, etiket)"/>
+      <input type="text" name="team" id="blocks-filter-team" placeholder="Ekip"/>
+      <input type="text" name="tag" id="blocks-filter-tag" placeholder="Etiket"/>
+      <select name="viz_type" id="blocks-filter-viz">
+        <option value="">— Tüm görseller —</option>
+        <option value="kpi">KPI</option>
+        <option value="kpi_grid">KPI Grid</option>
+        <option value="bar_chart">Çubuk grafik</option>
+        <option value="line_chart">Çizgi grafik</option>
+        <option value="table">Tablo</option>
+        <option value="pie">Pasta</option>
+      </select>
+      <button type="submit" class="pres-filter-btn">Filtrele</button>
+    </form>
+    <div id="blocks-loading" class="pres-loading">Bloklar yükleniyor…</div>
+    <div id="blocks-grid" class="pres-grid" style="display:none;"></div>
+    <div id="blocks-empty" class="pres-empty" style="display:none;">
+      <div class="pres-empty-title">Henüz blok yok</div>
+      <div class="pres-empty-subtitle">
+        Bir sunumda blok hazırla, Properties &rsaquo; Kütüphane &rsaquo;
+        <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Block preview modal ─── -->
+<div id="blk-preview-modal" class="blk-preview-backdrop" style="display:none;">
+  <div class="blk-preview-modal" onclick="event.stopPropagation();">
+    <div class="blk-preview-head">
+      <div class="blk-preview-title" id="blk-preview-title">Önizleme</div>
+      <button type="button" class="blk-preview-close" id="blk-preview-close" title="Kapat">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <iframe id="blk-preview-iframe" class="blk-preview-iframe" src="about:blank"></iframe>
+  </div>
 </div>
 
 <script>
 (function() {
+  // ── Tabs ──────────────────────────────────────────────
+  const tabs = document.querySelectorAll('.pres-tab');
+  const panels = document.querySelectorAll('.pres-tabpanel');
+  let blocksLoaded = false;
+
+  // Hash-aware tab activation: /presentations/#blocks opens the Bloklar tab directly.
+  function activateTab(target) {
+    tabs.forEach((x) => x.classList.toggle('is-active', x.dataset.tab === target));
+    panels.forEach((p) => p.classList.toggle('is-active', p.dataset.tabpanel === target));
+    if (target === 'blocks' && !blocksLoaded) loadBlocks();
+  }
+
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    activateTab(t.dataset.tab);
+    // Reflect tab in URL hash so deep-links + back/forward work.
+    history.replaceState(null, '', '#' + t.dataset.tab);
+  }));
+
+  // Initial activation: respect ?tab= or #blocks from the URL.
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialTab = urlParams.get('tab') || (window.location.hash || '').replace(/^#/, '');
+  if (initialTab === 'blocks') activateTab('blocks');
+
+  // ── Phase 6.5 BlockStore fetch + render ────────────────
+  // Card shape matches `BlockSummary.to_dict()` from blocks/store.py.
+  const TYPE_ICONS = {
+    kpi: '📈', kpi_grid: '📊', bar_chart: '📊', line_chart: '📉', area_chart: '📈',
+    pie_chart: '🥧', pie: '🥧', heatmap: '🟧', radial_bar: '⏱',
+    data_table: '📋', table: '📋', narrative: '📝',
+  };
+
+  function blocksApiUrl() {
+    // window.location.pathname survives SCRIPT_NAME proxy prefixes
+    // (e.g. /proxy/8080/presentations/).
+    const base = window.location.pathname.replace(/\/$/, '');
+    const params = new URLSearchParams();
+    const q     = document.getElementById('blocks-filter-q').value.trim();
+    const team  = document.getElementById('blocks-filter-team').value.trim();
+    const tag   = document.getElementById('blocks-filter-tag').value.trim();
+    const viz   = document.getElementById('blocks-filter-viz').value;
+    if (q)    params.set('q', q);
+    if (team) params.set('team', team);
+    if (tag)  params.set('tag', tag);
+    if (viz)  params.set('viz_type', viz);
+    const qs = params.toString();
+    return `${base}blocks/api/list${qs ? '?' + qs : ''}`;
+  }
+
+  function blockEditUrl(team, id) {
+    const base = window.location.pathname.replace(/\/$/, '');
+    return `${base}blocks/edit/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+  }
+
+  async function loadBlocks() {
+    blocksLoaded = true;
+    const loading = document.getElementById('blocks-loading');
+    const grid    = document.getElementById('blocks-grid');
+    const empty   = document.getElementById('blocks-empty');
+    const count   = document.getElementById('blocks-count');
+    loading.style.display = 'block';
+    grid.style.display    = 'none';
+    empty.style.display   = 'none';
+    try {
+      const resp = await fetch(blocksApiUrl());
+      const items = resp.ok ? await resp.json() : [];
+      count.textContent = items.length;
+      loading.style.display = 'none';
+      if (items.length === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+      grid.style.display = 'grid';
+      grid.innerHTML = items.map(renderCard).join('');
+    } catch (e) {
+      loading.textContent = 'Bloklar yüklenemedi: ' + e.message;
+    }
+  }
+
+  document.getElementById('blocks-filter-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    loadBlocks();
+  });
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, (c) => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function renderCard(m) {
+    // BlockSummary shape (presentations/blocks/store.py): team, id, version,
+    // title, description, tags, visualization_type, owner, created_at,
+    // updated_at, deprecated.
+    const icon = TYPE_ICONS[m.visualization_type] || '🧩';
+    const tags = (m.tags || []).map(t => `<span class="pres-tag-chip">${escapeHtml(t)}</span>`).join('');
+    const dep = m.deprecated ? `<span class="pres-tag-chip pres-tag-chip--deprecated">deprecated</span>` : '';
+    const desc = m.description ? `<p class="pres-card-desc">${escapeHtml(m.description)}</p>` : '';
+    const dateStr = (m.updated_at || m.created_at || '').slice(0, 10);
+    const editHref = blockEditUrl(m.team, m.id);
+    return `
+      <a class="pres-card" data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+         href="${editHref}" style="text-decoration:none; color:inherit;">
+        <div class="pres-card-eyebrow">${icon} ${escapeHtml(m.team)} · ${escapeHtml(m.visualization_type)}</div>
+        <div class="pres-card-title">${escapeHtml(m.title)}</div>
+        ${desc}
+        ${(tags || dep) ? `<div class="pres-card-tags">${tags}${dep}</div>` : ''}
+        <div class="pres-card-meta">
+          <span class="pres-card-meta-item" title="Sürüm">v${m.version}</span>
+          ${m.owner ? `<span class="pres-card-meta-item" title="Sahip">${escapeHtml(m.owner)}</span>` : ''}
+          ${dateStr ? `<span class="pres-card-meta-item">🕒 ${dateStr}</span>` : ''}
+        </div>
+      </a>
+    `;
+  }
+
+  // ── Block preview modal ────────────────────────────────
+  const previewModal  = document.getElementById('blk-preview-modal');
+  const previewFrame  = document.getElementById('blk-preview-iframe');
+  const previewTitle  = document.getElementById('blk-preview-title');
+  const previewClose  = document.getElementById('blk-preview-close');
+
+  function openPreview(bid, name) {
+    previewTitle.textContent = name || 'Önizleme';
+    previewFrame.src = `{{ url_for('presentations.list_library') }}/${encodeURIComponent(bid)}/preview`;
+    previewModal.style.display = 'flex';
+  }
+  function closePreview() {
+    previewModal.style.display = 'none';
+    previewFrame.src = 'about:blank';
+  }
+  previewClose.addEventListener('click', closePreview);
+  previewModal.addEventListener('click', closePreview);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && previewModal.style.display === 'flex') closePreview();
+  });
+
+  // Event delegation — kartlar dinamik render olduğu için
+  document.getElementById('blocks-grid')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.js-blk-preview');
+    if (!btn) return;
+    e.stopPropagation();
+    openPreview(btn.dataset.bid, btn.dataset.name);
+  });
+
+  // ── New presentation / delete ──────────────────────────
   async function createNewPresentation() {
     try {
       const resp = await fetch("{{ url_for('presentations.create_presentation') }}", {
@@ -189,7 +507,6 @@
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       card.remove();
-      // If no cards left, reload to show empty state
       if (!document.querySelector('.pres-card')) window.location.reload();
     } catch (e) {
       alert('Silinemedi: ' + e.message);
@@ -207,6 +524,9 @@
       deletePresentation(pid, card);
     });
   });
+
+  // Lazy load blocks count on first page load (optional — for the chip number)
+  // Şimdilik tab'a tıklayınca yükleniyor, count "…" kalıyor başlangıçta.
 })();
 </script>
 {% endblock %}
