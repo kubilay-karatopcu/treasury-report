@@ -324,6 +324,11 @@ def direct_patch(pid: str):
             status=400, mimetype="application/json",
         )
 
+    # Phase 6.5.c: dedupe filters[] by id before persisting. Catches the
+    # rare race where two /patch requests for the same filter id slip
+    # through the frontend's local check (fast clicks / StrictMode).
+    _dedupe_filters(new_manifest)
+
     new_manifest["version"] = manifest.get("version", 0) + 1
     new_manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
     session.set_manifest(new_manifest)
@@ -332,6 +337,33 @@ def direct_patch(pid: str):
         json.dumps({"ok": True, "version": new_manifest["version"]}, ensure_ascii=False),
         mimetype="application/json",
     )
+
+
+def _dedupe_filters(manifest: dict) -> int:
+    """Collapse manifest['filters'] to unique ids, keeping the first
+    occurrence. Returns the number of duplicates removed."""
+    filters = manifest.get("filters")
+    if not isinstance(filters, list):
+        return 0
+    seen: set = set()
+    deduped: list = []
+    dropped = 0
+    for f in filters:
+        if not isinstance(f, dict):
+            continue
+        fid = f.get("id")
+        if fid in seen:
+            dropped += 1
+            continue
+        seen.add(fid)
+        deduped.append(f)
+    if dropped:
+        manifest["filters"] = deduped
+        current_app.logger.info(
+            "patch: dedupe filters dropped %d duplicates (kept %d)",
+            dropped, len(deduped),
+        )
+    return dropped
 
 
 @presentations_bp.route("/<pid>/snapshot", methods=["POST"])
@@ -1405,6 +1437,10 @@ def apply_dashboard_filters(pid: str):
 
     # Persist filter state into the manifest (defaults + ad-hoc per session).
     manifest["filter_state"] = filter_state
+
+    # Defensive dedupe (see _dedupe_filters in this module): catches any
+    # duplicate filter ids that slipped through earlier patch races.
+    _dedupe_filters(manifest)
 
     conn = session.get_duck_conn()
     cache = BlockCache(conn)
