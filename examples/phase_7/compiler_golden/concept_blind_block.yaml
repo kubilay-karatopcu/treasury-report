@@ -1,0 +1,42 @@
+# Phase 7 compiler — concept-blind table scenario.
+#
+# Some_table has NO binding for `currency`. Filter compilation must
+# produce blind: true and an empty SQL predicate. The block render
+# pipeline uses this signal to surface the "filter not applied here"
+# badge in the UI.
+
+filter_state:
+  - concept: currency
+    operator: in
+    values: [USD]
+    filter_id: f0
+
+tables_in_play:
+  - schema: ODS_TREASURY
+    table: FX_SWAP_DEALS              # has currency binding
+  - schema: ODS_RISK
+    table: PD_MODEL_SCORES            # no currency binding (made-up)
+
+expected:
+  per_table_predicates:
+    - schema: ODS_TREASURY
+      table: FX_SWAP_DEALS
+      predicates:
+        - filter_id: f0
+          concept: currency
+          blind: false
+          sql: "CCY IN (:f0_currency_0)"
+          params:
+            f0_currency_0: USD
+
+    - schema: ODS_RISK
+      table: PD_MODEL_SCORES
+      predicates:
+        - filter_id: f0
+          concept: currency
+          blind: true
+          sql: ""
+          params: {}
+          # Block render pipeline reads blind_filters[] off the response
+          # and shows the badge. Chart still renders against un-filtered
+          # data; this is intentional per locked decision §10.7.

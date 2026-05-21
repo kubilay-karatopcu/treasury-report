@@ -98,8 +98,8 @@ Oracle is governed and slow. DuckDB is fast but ephemeral. S3 is durable but not
 | 4 | DuckDB session | ✅ | CLAUDE.md |
 | 5 | Persistence + share | ✅ | CLAUDE.md |
 | 6 | Polish + layout | ✅ | CLAUDE.md |
-| **6.5** | **Variable Binding MVP** | 🟢 | `docs/PHASE_6_5_SPEC.md` |
-| 7 | Concept Foundation | 🟡 | TBD |
+| **6.5** | **Variable Binding MVP** | ✅ | `docs/PHASE_6_5_SPEC.md` |
+| **7** | **Concept Foundation** | 🟢 | `docs/PHASE_7_SPEC.md` |
 | 8 | Stage 2 — Hazırlık (Prepare) | 🟡 | TBD |
 | 9 | Stage 1 — Keşif Tables (Discover) | 🟡 | TBD |
 | 10 | Block Marketplace MVP | 🟡 | TBD |
@@ -175,52 +175,47 @@ Block YAMLs and dashboard YAMLs from 6.5 remain valid throughout — no rewritin
 
 ---
 
-### Phase 7 — Concept Foundation 🟡
+### Phase 7 — Concept Foundation 🟢
+
+**Spec:** [`docs/PHASE_7_SPEC.md`](docs/PHASE_7_SPEC.md) (authoritative; this section is summary only).
 
 **Why it exists.** Phase 6.5 ships a manual variable system where each user names their own variables and picks their own values. This works at small scale but breaks the moment two different tables represent the same business concept with different column names, different value alphabets, or different physical types. Treasury data has many such cases: `MATURITY_DAYS = 45` in one table and `MATURITY_LABEL = "1M"` in another both refer to the same maturity bucket; `CCY = "USD"` and `CURRENCY_NAME = "US Dollar"` both mean the same currency. Without a unifying layer, cross-table filters are impossible.
 
-**What changes.**
+**What changes (summary — full detail in spec §3–§5).**
 
-- A **Concept Registry** is introduced: a versioned YAML hierarchy.
-  - `concepts/global.yaml` — bank-wide concepts: `currency`, `as_of_time`, `counterparty`.
-  - `concepts/<dept>.yaml` — departmental concepts: `maturity` (Treasury), `pd_band` (Risk), `mevduat_segment` (Bilanço).
-  - User-scoped concepts: stored per-presentation, never overriding global; extension only.
-- **Column Bindings** declare per-table how columns map to concepts and how their values transform:
-  - Direct (`identity`) — column already matches canonical.
-  - Map (`{"US Dollar": "USD", "Euro": "EUR"}`) — inline mapping.
-  - Lookup — join to a dimension table (`dim_bank` → SWIFT_BIC).
-  - Bucket-from-range (`MATURITY_DAYS` integer → maturity bucket via `day_ranges`).
-- **Filter Compiler.** A concept-level filter expression compiles deterministically to table-specific SQL. The LLM never writes SQL; it produces concept-level JSON, the compiler generates raw SQL with parameterized binds.
-- **Binding Inference.** Hybrid pipeline for onboarding new tables: regex on column names → dtype check → sample-value pattern detection → LLM fallback for ambiguous cases → human review UI before promotion.
-- **Three concept scopes.**
-  - Global (system-owned, immutable).
-  - Departmental (data team-owned, per-department).
-  - User (presentation-scoped; promotable via review).
-- **Date concept disambiguation.** Each table declares a `primary_time_concept`. A `FX_SWAP_DEALS` table might have both `TRADE_DATE` (bound to `as_of_time`) and `VALUE_DATE` (bound to `settle_time`). "Last 30 days" filters use the table's primary time concept.
+- A **Concept Registry** (YAML hierarchy: global / departmental / user-scope).
+- **Column Bindings** declare per-table how columns realize concepts. Five transform kinds: `identity`, `map`, `lookup`, `bucket_from_range`, `time_truncation`.
+- **Filter Compiler** — pure, deterministic engine converting concept-level filter expressions into per-table SQL predicates with parameterized binds.
+- **Binding Inference** — hybrid pipeline (regex → dtype → sample-value → LLM fallback → human review) for onboarding new tables.
+- **Concept-blind blocks** render with a badge instead of erroring.
 
-**Locked decisions (preliminary; finalize in spec).**
+**Migration from Phase 6.5.** `semantic_tag` becomes the concept reference key (direct lookup). `allowed_values` cross-checked against `canonical_values` — mismatches reported, not silently overwritten. Block queries are NOT rewritten; the compiler is additive (extra `AND` clauses).
 
-- System + departmental concepts in YAML (git-versioned). User concepts in DB (runtime-editable).
-- Promote = DB → YAML PR. Review required.
-- User concept extension only; cannot override or redefine global concepts.
-- Maturity bucket transformations are lossy by design (`45 days → 1M`); both original and canonical bucket columns are preserved in DuckDB views.
-- Concept blind chart (a chart whose underlying table doesn't bind to a filter's concept) renders fine but is flagged in the UI with a "filter not applied here" badge.
+**Dependencies.** Phase 6.5 in production (✅ done). Without `semantic_tag` + extended table doc schema, migration would be impractical.
 
-**Migration from Phase 6.5.**
+**Sub-phases (ship independently, in order — see spec §11).**
 
-- `semantic_tag` field on every variable becomes the concept reference key. Direct lookup.
-- `allowed_values` per variable is cross-checked against the concept's `canonical_values`. Mismatches are reported, not silently overwritten.
-- Block queries with raw SQL are NOT rewritten. The concept-aware filter compiler is additive: it adds extra `WHERE ... AND ...` clauses derived from concept-level filters, on top of the block's own query.
+- **7.a — Concept Registry + schema infrastructure.** ~5–7 days. Acceptance: spec §11.a.
+- **7.b — Column Bindings + filter compiler.** ~2–3 weeks. The heart of Phase 7. Acceptance: spec §11.b.
+- **7.c — Binding Inference pipeline + review UI.** ~2 weeks. Acceptance: spec §11.c.
+- **7.d — User-scoped concepts + promotion flow.** ~1 week. Ships independently after 7.b. Acceptance: spec §11.d.
 
-**Dependencies.** Phase 6.5 must be in production; without `semantic_tag` field on variables and the extended table doc schema, the migration is impractical.
+**Effort estimate.** ~6–8 weeks total. Largest chunk: 7.b filter compiler + per-table bindings rollout.
 
-**Effort estimate.** ~6–8 weeks. Largest chunk: binding inference + human review tooling.
+**Locked decisions (do NOT reopen — see spec §10 for the full list):**
 
-**Open questions.**
+1. Concept storage scope split — global/dept in YAML (git-versioned), user in DB.
+2. Transform kinds frozen — `identity`, `map`, `lookup`, `bucket_from_range`, `time_truncation`. New kinds require spec amendment.
+3. Compiler determinism — byte-identical output for identical inputs.
+4. Confidence gating — only `human_verified` bindings reach the compiler.
+5. User concepts are extension-only — cannot redefine or mask global/dept concepts.
+6. No SQL rewriting — compiler appends predicates, never parses block SQL.
+7. Concept-blind blocks render with a badge, not an error.
+8. LLM produces concept JSON, never SQL.
+9. Filter bind names carry filter id — prevents collision across multiple filters of the same concept.
+10. Primary time concept mandatory on tables that bind ≥ 2 time concepts.
 
-- Concept registry write path: YAML PR + redeploy, or hot-reload from S3? Probably YAML in code for system/dept, with DB for user-level.
-- LLM's role: writes concept-level JSON only (never SQL), constrained-decoded via grammar (llguidance / GBNF)? Decided yes in principle; implementation detail.
-- How "lossy" the bucket transformation is allowed to be — visible to user or transparent?
+**Forward compat to Phase 8+.** Spec §9 defines how the compiler integrates with Phase 8's scope contract (`pinned_filters` + `interactive_filters`), how Phase 9's Stage 1 catalog consumes the registry directly, how Phase 10 templates declare `requires.concepts`, and how Phase 13+ processes carry concept signatures for clustering.
 
 ---
 

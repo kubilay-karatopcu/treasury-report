@@ -484,4 +484,32 @@ Reference fixtures (representative blocks + dashboard + extended table doc + exp
 
 Phase 6.5 does NOT change Phase 1–6 artifacts. Existing pre-6.5 blocks (with hardcoded queries and no variables) remain functional and unmodified. Existing dashboards without a `filters` array render exactly as before. Migration of existing artifacts to the variable layer is opt-in, never forced.
 
+**Phase 7 — Concept Foundation** *(currently active — 6.5 is in production)*
+
+Full spec: **[`docs/PHASE_7_SPEC.md`](docs/PHASE_7_SPEC.md)** — authoritative for all 7.a–7.d work. Read before starting any Phase 7 task.
+
+Phase 7 introduces a concept-aware filter layer between the user and the underlying tables: a versioned YAML concept registry (global / departmental / user scopes), per-table column bindings with five transform kinds (`identity`, `map`, `lookup`, `bucket_from_range`, `time_truncation`), and a pure deterministic filter compiler that converts concept-level filter expressions into per-table SQL predicates with parameterized binds.
+
+Sub-phases (ship independently, in order):
+
+- **7.a** — Concept Registry + schema infrastructure. ~5–7 days. Acceptance: spec §11.a.
+- **7.b** — Column Bindings + filter compiler. ~2–3 weeks. The heart of Phase 7. Acceptance: spec §11.b.
+- **7.c** — Binding Inference pipeline + review UI. ~2 weeks. Acceptance: spec §11.c.
+- **7.d** — User-scoped concepts + promotion flow. ~1 week. Ships independently after 7.b. Acceptance: spec §11.d.
+
+Reference fixtures (concept YAMLs, extended table docs, compiler golden snapshots) live in `examples/phase_7/`. Use these as authoritative shape references when implementing.
+
+**Locked design decisions for Phase 7** (do NOT reopen — see spec §10 for full list):
+
+1. **Concept storage scope split:** global/dept in YAML (git-versioned), user-scope in DB (per-presentation JSON). No exceptions.
+2. **Transform kinds frozen:** `identity`, `map`, `lookup`, `bucket_from_range`, `time_truncation`. New kinds require spec amendment.
+3. **Compiler determinism:** byte-identical output for identical inputs. Critical for cache keys + testability.
+4. **Confidence gating:** only `human_verified` bindings reach the compiler. No override flags. `llm_proposed` / `inferred_*` live in YAML but are gated until operator approval.
+5. **User concepts are extension-only:** cannot redefine global/departmental. Cannot mask. Promotion is the only path to scope expansion.
+6. **No SQL rewriting:** the compiler appends `AND` predicates. It does not parse the block's user-authored SQL.
+7. **Concept-blind charts render normally** with a "filter not applied here" badge. They do not error, do not hide.
+8. **LLM produces concept JSON, never SQL.** The compiler owns SQL emission. No LLM-direct-to-SQL path is acceptable in this phase.
+
+Phase 7 does NOT change Phase 6.5 artifacts. Blocks and dashboards remain valid; the compiler is purely additive (extra predicates appended). Backward compat: blocks without `concept_ref` fall back to `semantic_tag`, tables without `concept_bindings` are concept-blind, both render correctly.
+
 Each phase should leave the app deployable. No half-merged states.
