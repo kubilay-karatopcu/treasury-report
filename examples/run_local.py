@@ -132,6 +132,12 @@ def create_app():
         base_dir=app.config["PRESENTATIONS_LOCAL_SNAPSHOT_DIR"],
     )
 
+    # BlockStore — Phase 6.5.a. Local filesystem in dev; S3 in prod.
+    from presentations.blocks.store import LocalBlockStore
+    app.config["BLOCK_STORE"] = LocalBlockStore(
+        base_dir=Path(__file__).parent / "v2_blocks",
+    )
+
     # Inject LLM client. Provider precedence:
     #   1. OPENAI_API_KEY in env     → OpenAI (paid, best JSON discipline)
     #   2. GROQ_API_KEY in env       → Groq (Llama 3.3 70B, free, fast)
