@@ -413,7 +413,7 @@
               title="Listeyi yenile">↻ Yenile</button>
     </form>
     <div class="pres-active-tags" id="blocks-active-tags" style="display:none;"></div>
-    <div id="blocks-loading" class="pres-loading">Bloklar yükleniyor…</div>
+    <div id="blocks-loading" class="pres-loading" style="display:none;">Bloklar yükleniyor…</div>
     <div id="blocks-grid" class="pres-grid" style="display:none;"></div>
     <div id="blocks-empty" class="pres-empty" style="display:none;">
       <div class="pres-empty-title">Henüz blok yok</div>
@@ -422,6 +422,9 @@
         <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle.
       </div>
     </div>
+    <!-- Server-prefetched listing. JS reads this on first paint; subsequent
+         interactions (search/filter/refresh) still hit /blocks/api/list. -->
+    <script id="blocks-initial-data" type="application/json">{{ blocks_initial_json | default('[]') | safe }}</script>
   </div>
 </div>
 
@@ -453,12 +456,17 @@
   function activateTab(target) {
     tabs.forEach((x) => x.classList.toggle('is-active', x.dataset.tab === target));
     panels.forEach((p) => p.classList.toggle('is-active', p.dataset.tabpanel === target));
-    // Always re-fetch when the Bloklar tab is activated. A previous cached
-    // load might miss a block the user just saved in another tab; the
-    // listing endpoint is cheap (a few hundred bytes per block) so re-fetch
-    // each time is fine. `blocksLoaded` still gates the empty-state initial
-    // loading message but no longer blocks the fetch.
-    if (target === 'blocks') loadBlocks();
+    if (target === 'blocks') {
+      // First activation: render the server-prefetched list synchronously
+      // (zero network round-trip). Subsequent activations re-fetch since
+      // the user may have just saved a new block from a presentation.
+      if (!blocksLoaded && _initialBlocks !== null) {
+        blocksLoaded = true;
+        renderBlocks(_initialBlocks);
+      } else {
+        loadBlocks();
+      }
+    }
     // Tab-aware create button label.
     const lbl = document.getElementById('new-create-label');
     if (lbl) lbl.textContent = target === 'blocks' ? 'Yeni Blok' : 'Yeni Sunum';
@@ -568,7 +576,10 @@
     if (tagDL) tagDL.innerHTML = Array.from(tagSet).sort()
       .map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
     if (teamDL) teamDL.innerHTML = Array.from(teamSet).sort()
-      .map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
+      // value: pretty form (user types this and backend's fuzzy match
+      // handles slug ↔ pretty). Browsers also surface the raw slug as
+      // a tooltip via the optional label attribute.
+      .map(t => `<option value="${escapeHtml(prettyTeam(t))}" label="${escapeHtml(t)}"></option>`).join('');
   }
 
   function applyClientSideTagFilter(items) {
@@ -581,57 +592,89 @@
     });
   }
 
+  // Render a pre-fetched items array — pure UI. Used by both the
+  // server-prefetched first paint AND the post-fetch render.
+  function renderBlocks(items) {
+    const loading = document.getElementById('blocks-loading');
+    const grid    = document.getElementById('blocks-grid');
+    const empty   = document.getElementById('blocks-empty');
+    const count   = document.getElementById('blocks-count');
+    const filtered = applyClientSideTagFilter(items);
+    count.textContent = filtered.length;
+    loading.style.display = 'none';
+    populateDatalists(items);
+    if (filtered.length === 0) {
+      const hasActiveFilter =
+        document.getElementById('blocks-filter-q').value.trim() ||
+        document.getElementById('blocks-filter-team').value.trim() ||
+        document.getElementById('blocks-filter-viz').value ||
+        filterState.tags.length > 0;
+      const emptyEl = document.getElementById('blocks-empty');
+      if (hasActiveFilter) {
+        emptyEl.innerHTML =
+          `<div class="pres-empty-title">Sonuç yok</div>` +
+          `<div class="pres-empty-subtitle">Filtrelere uyan blok bulunamadı. ` +
+          `<button type="button" class="pres-filter-btn pres-filter-btn--ghost" id="empty-clear">` +
+          `Filtreleri temizle</button></div>`;
+        document.getElementById('empty-clear')?.addEventListener('click', clearAllFilters);
+      } else {
+        emptyEl.innerHTML =
+          `<div class="pres-empty-title">Henüz blok yok</div>` +
+          `<div class="pres-empty-subtitle">Bir sunumda blok hazırla, Properties &rsaquo; ` +
+          `Kütüphane &rsaquo; <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle.</div>`;
+      }
+      empty.style.display = 'block';
+      grid.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    grid.style.display = 'grid';
+    grid.innerHTML = filtered.map(renderCard).join('');
+  }
+
+  // Pull blocks from the server. Phase 6.5.d: tab activation no longer
+  // calls this unconditionally — server-prefetched data renders first,
+  // then fetch only fires on filter/search/refresh.
   async function loadBlocks() {
     blocksLoaded = true;
     const loading = document.getElementById('blocks-loading');
     const grid    = document.getElementById('blocks-grid');
     const empty   = document.getElementById('blocks-empty');
-    const count   = document.getElementById('blocks-count');
-    loading.style.display = 'block';
-    grid.style.display    = 'none';
-    empty.style.display   = 'none';
+    // Don't show "yükleniyor" if we already have grid content — UX feels
+    // smoother if the existing list just refreshes in place. The first
+    // visit shows it because grid starts hidden.
+    if (grid.style.display === 'none' || grid.children.length === 0) {
+      loading.style.display = 'block';
+      grid.style.display    = 'none';
+      empty.style.display   = 'none';
+    }
     const url = blocksApiUrl();
     console.log('[Bloklar] fetching', url);
     try {
       const resp = await fetch(url, { cache: 'no-store' });
       const items = resp.ok ? await resp.json() : [];
-      const filtered = applyClientSideTagFilter(items);
-      console.log('[Bloklar] received', items.length, 'blocks (', filtered.length, 'after tag-AND)');
-      count.textContent = filtered.length;
-      loading.style.display = 'none';
-      // Populate autocomplete datalists from the response (first page).
-      populateDatalists(items);
-      if (filtered.length === 0) {
-        // Distinguish "no blocks" from "no match".
-        const hasActiveFilter =
-          document.getElementById('blocks-filter-q').value.trim() ||
-          document.getElementById('blocks-filter-team').value.trim() ||
-          document.getElementById('blocks-filter-viz').value ||
-          filterState.tags.length > 0;
-        const emptyEl = document.getElementById('blocks-empty');
-        if (hasActiveFilter) {
-          emptyEl.innerHTML =
-            `<div class="pres-empty-title">Sonuç yok</div>` +
-            `<div class="pres-empty-subtitle">Filtrelere uyan blok bulunamadı. ` +
-            `<button type="button" class="pres-filter-btn pres-filter-btn--ghost" id="empty-clear">` +
-            `Filtreleri temizle</button></div>`;
-          document.getElementById('empty-clear')?.addEventListener('click', clearAllFilters);
-        } else {
-          emptyEl.innerHTML =
-            `<div class="pres-empty-title">Henüz blok yok</div>` +
-            `<div class="pres-empty-subtitle">Bir sunumda blok hazırla, Properties &rsaquo; ` +
-            `Kütüphane &rsaquo; <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle.</div>`;
-        }
-        emptyEl.style.display = 'block';
-        return;
-      }
-      grid.style.display = 'grid';
-      grid.innerHTML = filtered.map(renderCard).join('');
+      renderBlocks(items);
     } catch (e) {
       console.error('[Bloklar] load failed', e);
       loading.textContent = 'Bloklar yüklenemedi: ' + e.message;
     }
   }
+
+  // Server prefetch — same shape as /blocks/api/list, embedded at render
+  // time. Renders synchronously before any fetch fires, eliminating the
+  // FOUC between tab switch and first paint.
+  function consumeInitialBlocks() {
+    try {
+      const el = document.getElementById('blocks-initial-data');
+      if (!el) return null;
+      const data = JSON.parse(el.textContent || '[]');
+      return Array.isArray(data) ? data : null;
+    } catch (e) {
+      console.warn('[Bloklar] initial-data parse failed', e);
+      return null;
+    }
+  }
+  const _initialBlocks = consumeInitialBlocks();
 
   // ── Debounced filter — fires on every input keystroke after 300ms idle.
   let _filterTimer = null;
@@ -728,6 +771,20 @@
     return TYPE_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
+  // Pretty team name: slug ("finansal_yapay_zeka_uygulamalari") →
+  // human ("Finansal Yapay Zeka Uygulamaları"). Title-case via locale-aware
+  // toLocaleUpperCase for Turkish dotted/dotless I handling.
+  function prettyTeam(slug) {
+    if (!slug) return '';
+    return String(slug)
+      .replace(/_+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter(Boolean)
+      .map(w => w.charAt(0).toLocaleUpperCase('tr-TR') + w.slice(1))
+      .join(' ');
+  }
+
   function renderCard(m) {
     // BlockSummary shape (presentations/blocks/store.py): team, id, version,
     // title, description, tags, visualization_type, owner, created_at,
@@ -739,9 +796,9 @@
     const desc = m.description ? `<p class="pres-card-desc">${escapeHtml(m.description)}</p>` : '';
     const dateStr = (m.updated_at || m.created_at || '').slice(0, 10);
     const editHref = blockEditUrl(m.team, m.id);
-    // Hover actions: Önizle + Sunuma ekle. The card itself is still a link
-    // to the edit page; the action buttons stopPropagation so their click
-    // doesn't navigate. data-team/id let the delegated handler dispatch.
+    // Hover action: Önizle. "Sunuma ekle" eskiden buradaydı; ileride
+    // veri katmanından (Stage 1 / Stage 2 discovery) yapılacağı için
+    // Bloklar listesinden kaldırıldı.
     return `
       <a class="pres-card" data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
          data-title="${escapeHtml(m.title)}"
@@ -751,10 +808,6 @@
                   data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
                   data-title="${escapeHtml(m.title)}"
                   title="Önizle">👁</button>
-          <button type="button" class="pres-card-action pres-card-action--primary js-blk-insert"
-                  data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
-                  data-title="${escapeHtml(m.title)}"
-                  title="Bir sunuma ekle">＋ Sunuma ekle</button>
         </div>
         <div class="pres-card-type-pill">${icon} ${escapeHtml(typeLabel)}</div>
         <div class="pres-card-title">${escapeHtml(m.title)}</div>
@@ -762,7 +815,7 @@
         ${(tags || dep) ? `<div class="pres-card-tags">${tags}${dep}</div>` : ''}
         <div class="pres-card-footer">
           <span class="pres-card-label" title="Sürüm">v${m.version}</span>
-          <span class="pres-card-label" title="Ekip">📁 ${escapeHtml(m.team)}</span>
+          <span class="pres-card-label" title="Ekip: ${escapeHtml(m.team)}">📁 ${escapeHtml(prettyTeam(m.team))}</span>
           ${m.owner ? `<span class="pres-card-label" title="Sahip">👤 ${escapeHtml(m.owner)}</span>` : ''}
           ${dateStr ? `<span class="pres-card-label">📅 ${dateStr}</span>` : ''}
         </div>
@@ -791,126 +844,14 @@
     if (e.key === 'Escape' && previewModal.style.display === 'flex') closePreview();
   });
 
-  async function insertBlockIntoPresentation(team, id, title) {
-    // Open a small modal asking which presentation to add this block into.
-    // For v0: simple flow — fetch the user's presentations, show a select,
-    // POST to /<pid>/blocks/insert-from-library.
-    try {
-      const baseUrl = window.location.pathname.replace(/\/+$/, '');
-      const presResp = await fetch(`${baseUrl}/api/list`, { cache: 'no-store' });
-      const presList = presResp.ok ? await presResp.json() : [];
-      if (presList.length === 0) {
-        if (!confirm('Hiç sunumun yok. Şimdi yeni bir sunum oluşturup bu bloğu ekleyelim mi?')) return;
-        // Create + insert in one flow.
-        await createPresentationAndInsertBlock(team, id, title);
-        return;
-      }
-      // Build options string
-      const opts = presList.map(p =>
-        `<option value="${p.id}">${escapeHtml(p.title || p.id)}</option>`
-      ).join('');
-      const html =
-        `<div style="padding:14px 0;">` +
-        `<div style="margin-bottom:10px; font-size:13px; color:#475569;">` +
-        `Bu bloğu hangi sunuma eklemek istiyorsun?</div>` +
-        `<select id="ins-pres-select" style="width:100%; padding:8px 10px; ` +
-        `border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">` +
-        `<option value="__new__">＋ Yeni sunum oluştur</option>` +
-        opts + `</select></div>`;
-      showInsertModal(title, html, async () => {
-        const sel = document.getElementById('ins-pres-select').value;
-        if (sel === '__new__') {
-          await createPresentationAndInsertBlock(team, id, title);
-        } else {
-          await postInsertBlock(sel, team, id);
-        }
-      });
-    } catch (e) {
-      alert('Sunum listesi alınamadı: ' + e.message);
-    }
-  }
-
-  async function createPresentationAndInsertBlock(team, id, title) {
-    try {
-      const baseUrl = window.location.pathname.replace(/\/+$/, '');
-      const presResp = await fetch(`${baseUrl}/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title || 'Yeni Sunum' }),
-      });
-      if (!presResp.ok) throw new Error('HTTP ' + presResp.status);
-      const presData = await presResp.json();
-      await postInsertBlock(presData.id, team, id, presData.url);
-    } catch (e) {
-      alert('Sunum oluşturulamadı: ' + e.message);
-    }
-  }
-
-  async function postInsertBlock(pid, team, id, redirectUrl) {
-    try {
-      const baseUrl = window.location.pathname.replace(/\/+$/, '');
-      const resp = await fetch(`${baseUrl}/${pid}/blocks/insert-from-library`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team, id }),
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.error || ('HTTP ' + resp.status));
-      }
-      const body = await resp.json();
-      const url = redirectUrl || `${baseUrl}/${pid}` + (body.block_id ? `?focus_block=${body.block_id}` : '');
-      window.location.href = url;
-    } catch (e) {
-      alert('Blok eklenemedi: ' + e.message);
-    }
-  }
-
-  function showInsertModal(title, contentHtml, onConfirm) {
-    // Lightweight in-page modal — same backdrop class as the preview modal,
-    // but renders custom content. Used only by the Sunuma ekle flow.
-    const wrap = document.createElement('div');
-    wrap.className = 'blk-preview-backdrop';
-    wrap.style.display = 'flex';
-    wrap.innerHTML =
-      `<div class="blk-preview-modal" style="width:480px; height:auto; max-height:80vh;" onclick="event.stopPropagation();">` +
-      `<div class="blk-preview-head">` +
-      `<div class="blk-preview-title">Sunuma ekle: ${escapeHtml(title)}</div>` +
-      `<button type="button" class="blk-preview-close" title="Kapat">` +
-      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" ` +
-      `fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
-      `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>` +
-      `</button></div>` +
-      `<div style="padding:0 18px 14px;">${contentHtml}` +
-      `<div style="display:flex; gap:8px; justify-content:flex-end; padding-top:8px;">` +
-      `<button type="button" class="pres-filter-btn pres-filter-btn--ghost js-cancel">İptal</button>` +
-      `<button type="button" class="pres-filter-btn js-confirm" style="background:#2563eb;">Ekle</button>` +
-      `</div></div></div>`;
-    document.body.appendChild(wrap);
-    function teardown() { wrap.remove(); }
-    wrap.addEventListener('click', teardown);
-    wrap.querySelector('.blk-preview-close').addEventListener('click', teardown);
-    wrap.querySelector('.js-cancel').addEventListener('click', teardown);
-    wrap.querySelector('.js-confirm').addEventListener('click', async () => {
-      teardown();
-      await onConfirm();
-    });
-  }
-
   // Event delegation — kartlar dinamik render olduğu için
+  // (Sunuma ekle aksiyonu kaldırıldı — Stage 1/2 data layer'da yapılacak.)
   document.getElementById('blocks-grid')?.addEventListener('click', (e) => {
     const preview = e.target.closest('.js-blk-preview');
-    const insert  = e.target.closest('.js-blk-insert');
     if (preview) {
       e.preventDefault();
       e.stopPropagation();
       openPreview(preview.dataset.team, preview.dataset.id, preview.dataset.title);
-      return;
-    }
-    if (insert) {
-      e.preventDefault();
-      e.stopPropagation();
-      insertBlockIntoPresentation(insert.dataset.team, insert.dataset.id, insert.dataset.title);
       return;
     }
   });
