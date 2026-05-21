@@ -69,13 +69,14 @@ function updateBlockInPlace(manifest, blockId, fn) {
 
 // ── Empty block templates (used when user manually adds blocks) ────────────
 
-function _emptyBlockTemplate(id, type, opts) {
-  // opts.manual_sql=true → seed Phase 6.5 manual-authoring fields so the
-  // ManualSqlEditor takes over the Properties panel for this block.
-  const manual = !!(opts && opts.manual_sql);
+function _emptyBlockTemplate(id, type) {
+  // Phase 6.5: every data-bound block carries `query` (raw SQL with :binds)
+  // and `variables` (per-bind metadata). Whether the SQL is authored by the
+  // user or by the LLM, the shape is identical — only one editor surface in
+  // Properties handles both.
   const base = { id, type, title: _defaultTitle(type), locked: false };
-  if (manual) {
-    base.manual_sql = true;
+  const dataBound = !['narrative', 'carousel'].includes(type);
+  if (dataBound) {
     base.query = '';
     base.variables = [];
   }
@@ -283,7 +284,7 @@ const useStore = create((set) => ({
     return cloned.id;
   },
 
-  addChildBlock: (sectionId, blockType, opts) => {
+  addChildBlock: (sectionId, blockType) => {
     const state = useStore.getState();
     if (!state.manifest || !sectionId || !blockType) return;
     const loc = findBlockPath(state.manifest, sectionId);
@@ -293,7 +294,7 @@ const useStore = create((set) => ({
 
     const prefix = blockType === 'narrative' ? 't_' : 'b_';
     const id = prefix + Math.random().toString(36).slice(2, 8);
-    const newBlock = _emptyBlockTemplate(id, blockType, opts);
+    const newBlock = _emptyBlockTemplate(id, blockType);
 
     const patch = {
       op: 'add',

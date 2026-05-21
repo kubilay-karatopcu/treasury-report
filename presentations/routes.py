@@ -1321,11 +1321,13 @@ def run_block_manual(pid: str, bid: str):
                           for k, v in bound.params.items()},
     }
 
-    # Persist manual_sql state on the block alongside the executed data.
-    block["manual_sql"] = True
+    # Persist Phase 6.5 fields alongside the executed data. The renderer
+    # then reads block.config (which apply_data_to_config fills below) so
+    # the canvas re-renders without any client-side data plumbing.
     block["query"] = query
     block["variables"] = [v.model_dump(mode="json", exclude_none=True) for v in var_models]
     block["data_source"] = new_ds
+    block.pop("manual_sql", None)  # legacy flag from earlier iterations; not used anywhere now
     block.pop("data_stale", None)  # successful run clears the stale flag
 
     apply_data_to_config(block, new_ds)

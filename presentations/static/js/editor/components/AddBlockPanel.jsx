@@ -69,8 +69,8 @@ export default function AddBlockPanel({ width, onResizeStart }) {
   if (!panel) return null;
   const sectionId = panel.sectionId;
 
-  function handleAddBase(type, opts) {
-    addChildBlock(sectionId, type, opts);
+  function handleAddBase(type) {
+    addChildBlock(sectionId, type);
     close();
   }
 
@@ -125,35 +125,22 @@ export default function AddBlockPanel({ width, onResizeStart }) {
         <div className="add-block-panel__body ts-scroll">
           {tab === 'base' && (
             <div className="lib-grid">
-              {BASE_BLOCKS.map((b) => {
-                // narrative / carousel are not data-bound; manual SQL doesn't apply.
-                const isDataBound = !['narrative', 'carousel'].includes(b.type);
-                return (
-                  <article key={b.type} className="lib-card">
-                    <div className="lib-card-head">
-                      <span className="lib-card-icon"><TypeIcon type={b.type} /></span>
-                      <span className="lib-card-title">{b.label}</span>
-                    </div>
-                    <p className="lib-card-desc">{b.desc}</p>
-                    <div className="lib-card-actions">
-                      <button
-                        type="button"
-                        className="lib-btn lib-btn--add"
-                        onClick={() => handleAddBase(b.type)}
-                        title="AI ile blok ekle (chat'ten query yazılacak)"
-                      >Ekle</button>
-                      {isDataBound && (
-                        <button
-                          type="button"
-                          className="lib-btn lib-btn--manual"
-                          onClick={() => handleAddBase(b.type, { manual_sql: true })}
-                          title="Boş blok ekle, SQL'i kendim yazacağım"
-                        >Manuel SQL</button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
+              {BASE_BLOCKS.map((b) => (
+                <article key={b.type} className="lib-card">
+                  <div className="lib-card-head">
+                    <span className="lib-card-icon"><TypeIcon type={b.type} /></span>
+                    <span className="lib-card-title">{b.label}</span>
+                  </div>
+                  <p className="lib-card-desc">{b.desc}</p>
+                  <div className="lib-card-actions">
+                    <button
+                      type="button"
+                      className="lib-btn lib-btn--add"
+                      onClick={() => handleAddBase(b.type)}
+                    >Ekle</button>
+                  </div>
+                </article>
+              ))}
             </div>
           )}
 

@@ -211,29 +211,30 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
         errors.append(f"Block {bid!r}: unknown type {btype!r}")
         return errors
 
-    # ── Phase 6.5 manual SQL + variables ───────────────────────────────────
-    # When a block opts into manual authoring it carries `query` (raw SQL with
-    # :binds) and `variables` (Phase 6.5 schema). The LLM patch generator
-    # leaves these blocks alone; the editor's ManualSqlEditor owns them.
-    if block.get("manual_sql") is True:
-        q = block.get("query")
-        if q is not None and not isinstance(q, str):
-            errors.append(f"Block {bid!r}: manual_sql block.query must be a string")
-        vs = block.get("variables")
-        if vs is not None:
-            if not isinstance(vs, list):
-                errors.append(f"Block {bid!r}: manual_sql block.variables must be a list")
-            else:
-                for i, v in enumerate(vs):
-                    if not isinstance(v, dict):
-                        errors.append(
-                            f"Block {bid!r}: variables[{i}] must be an object"
-                        )
-                        continue
-                    if not v.get("name"):
-                        errors.append(
-                            f"Block {bid!r}: variables[{i}] missing 'name'"
-                        )
+    # ── Phase 6.5 query + variables (shape-loose) ──────────────────────────
+    # All data-bound blocks may carry `query` (raw SQL with :binds) and
+    # `variables` (Phase 6.5 schema). Strict variable validation runs in
+    # presentations.blocks.schema.Variable when a block is saved as a
+    # template; here we only enforce the gross shape so the renderer
+    # doesn't crash on malformed leaves.
+    q = block.get("query")
+    if q is not None and not isinstance(q, str):
+        errors.append(f"Block {bid!r}: block.query must be a string")
+    vs = block.get("variables")
+    if vs is not None:
+        if not isinstance(vs, list):
+            errors.append(f"Block {bid!r}: block.variables must be a list")
+        else:
+            for i, v in enumerate(vs):
+                if not isinstance(v, dict):
+                    errors.append(
+                        f"Block {bid!r}: variables[{i}] must be an object"
+                    )
+                    continue
+                if not v.get("name"):
+                    errors.append(
+                        f"Block {bid!r}: variables[{i}] missing 'name'"
+                    )
 
     if btype == "section_header" and not allow_section:
         errors.append(

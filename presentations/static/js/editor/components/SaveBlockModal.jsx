@@ -54,13 +54,18 @@ export default function SaveBlockModal() {
     return null;
   }
 
+  // Phase 6.5 shape: block carries `query` (raw SQL with :binds) and
+  // `variables` (per-bind metadata). New blocks (and forward LLM output)
+  // always have these fields. Legacy LLM-generated blocks lack them.
+  const isPhase65Shape = typeof block?.query === 'string';
+
   async function handleSave() {
     if (busy) return;
     setBusy(true); setErr(null); setResult(null);
     try {
       const tags = tagsText.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
 
-      if (block.manual_sql) {
+      if (isPhase65Shape) {
         // Phase 6.5 path — save to BlockStore as a versioned template.
         const documentation = {};
         if (docPurpose.trim())  documentation.purpose          = docPurpose.trim();
@@ -109,8 +114,9 @@ export default function SaveBlockModal() {
     }
   }
 
-  const isManual = !!block.manual_sql;
-  const modalTitle = isManual ? 'Bloğu Şablon Olarak Kaydet (v6.5)' : 'Bloğu Kütüphaneye Kaydet';
+  // Reuse the same Phase 6.5 detector defined above for the form branches.
+  const isManual = isPhase65Shape;
+  const modalTitle = isManual ? 'Bloğu Şablon Olarak Kaydet' : 'Bloğu Kütüphaneye Kaydet';
 
   return (
     <div className="save-modal-backdrop" onClick={close}>
