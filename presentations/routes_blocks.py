@@ -607,3 +607,224 @@ def _seed_config_for(render_type: str) -> dict:
 # Import duck lazily — only the preview path needs _jsonable, and importing
 # at module top creates a circular import warning in some environments.
 from presentations import duck  # noqa: E402
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 6.5.d — Library MVP: list-side preview + insert flow
+# ════════════════════════════════════════════════════════════════════════
+
+@presentations_bp.route("/blocks/preview/<team>/<block_id>")
+@presentations_bp.route("/blocks/preview/<team>/<block_id>/<int:version>")
+@login_required
+def block_library_preview(team: str, block_id: str, version: int | None = None):
+    """Read-only HTML preview of a Phase 6.5 BlockStore block.
+
+    Renders the same React bundle the editor uses, but in ``block-preview``
+    mode (no toolbar, no chat, no properties panel). Synthesises a 1-section
+    manifest and runs the SQL once with the block's defaults so the result
+    is already in config when the page mounts. Loaded into an iframe from
+    the Bloklar tab's preview modal.
+    """
+    store = _store()
+    try:
+        if version is None:
+            block = store.load_latest(team, block_id)
+        else:
+            block = store.load(team, block_id, version)
+    except BlockNotFoundError:
+        return Response(f"Blok bulunamadı: {team}/{block_id}", status=404)
+
+    # Map Phase 6.5 viz types to Phase 6 chart types the renderer knows.
+    canvas_type = block.visualization.type
+    if canvas_type not in {
+        "kpi", "bar_chart", "line_chart", "area_chart",
+        "pie_chart", "heatmap", "radial_bar", "data_table",
+    }:
+        canvas_type = {
+            "bar":   "bar_chart",
+            "line":  "line_chart",
+            "table": "data_table",
+            "pie":   "pie_chart",
+            "kpi_grid": "kpi",
+        }.get(canvas_type, "bar_chart")
+
+    preview_block_dict = {
+        "id":      f"prv_{block.id}",
+        "type":    canvas_type,
+        "title":   block.title,
+        "locked":  False,
+        "query":   block.query,
+        "variables": [
+            v.model_dump(mode="json", exclude_none=True) for v in block.variables
+        ],
+        "config":  _seed_config_for(canvas_type),
+        "data_source": {"original_sql": block.query},
+    }
+
+    # Run SQL once so the preview lands rendered. Uses the same isolated
+    # DuckDB connection pattern as legacy /library/<bid>/preview.
+    try:
+        from presentations.routes import _execute_preview_sql
+        _execute_preview_sql(preview_block_dict)
+    except Exception as exc:
+        log.warning("block library preview: SQL exec failed for %s/%s: %s",
+                    team, block_id, exc)
+
+    manifest = {
+        "id":      f"preview_{team}_{block.id}",
+        "version": 1,
+        "meta": {
+            "title":   block.title,
+            "eyebrow": f"Şablon: {team}/{block.id}",
+            "date":    block.created_at.strftime("%Y-%m-%d"),
+            "author_label": block.owner,
+        },
+        "blocks": [{
+            "id":       f"sec_{block.id}",
+            "type":     "section_header",
+            "title":    "",
+            "locked":   False,
+            "config":   {},
+            "children": [preview_block_dict],
+        }],
+    }
+
+    return render_template(
+        "presentations/block_preview.html",
+        meta={"title": block.title},
+        manifest=manifest,
+        manifest_json=json.dumps(manifest, ensure_ascii=False, default=_json_default),
+    )
+
+
+@presentations_bp.route("/<pid>/blocks/insert-from-library", methods=["POST"])
+@login_required
+def insert_block_from_library(pid: str):
+    """Clone a BlockStore block into the given presentation.
+
+    Body: ``{"team": "<team>", "id": "<block_id>", "version": <int|None>}``
+
+    Adds the block under the last section of the manifest. If no section
+    exists, creates one first. Returns the new in-manifest block id so the
+    caller can redirect to ``/<pid>?focus_block=<bid>``.
+    """
+    from presentations.routes import _get_session
+    from presentations.patch import apply_patches
+    import secrets as _sec
+
+    body = request.get_json(silent=True) or {}
+    team = (body.get("team") or "").strip()
+    bid_template = (body.get("id") or "").strip()
+    version = body.get("version")
+    if not team or not bid_template:
+        return _json({"error": "team ve id zorunlu."}, status=400)
+
+    store = _store()
+    try:
+        block = store.load_latest(team, bid_template) if version is None \
+            else store.load(team, bid_template, int(version))
+    except BlockNotFoundError as exc:
+        return _json({"error": str(exc)}, status=404)
+
+    session = _get_session(pid)
+    manifest = session.get_manifest()
+    if not manifest:
+        return _json({"error": "Sunum bulunamadı."}, status=404)
+
+    # Map viz type as in block_edit (same normalization).
+    canvas_type = block.visualization.type
+    if canvas_type not in {
+        "kpi", "bar_chart", "line_chart", "area_chart",
+        "pie_chart", "heatmap", "radial_bar", "data_table",
+    }:
+        canvas_type = {
+            "bar":   "bar_chart",
+            "line":  "line_chart",
+            "table": "data_table",
+            "pie":   "pie_chart",
+            "kpi_grid": "kpi",
+        }.get(canvas_type, "bar_chart")
+
+    new_bid = "b_" + _sec.token_urlsafe(6)
+    new_block = {
+        "id":      new_bid,
+        "type":    canvas_type,
+        "title":   block.title,
+        "locked":  False,
+        "manual_sql": True,
+        "query":   block.query,
+        "variables": [
+            v.model_dump(mode="json", exclude_none=True) for v in block.variables
+        ],
+        "config":      _seed_config_for(canvas_type),
+        "data_source": {"original_sql": block.query},
+        # Track origin so future polish (e.g. "imported from library" badge)
+        # can be added without re-deriving from blocks.
+        "imported_from": {
+            "team":    block.team,
+            "id":      block.id,
+            "version": block.version,
+        },
+    }
+
+    # Append to the last existing section. If no section, create one.
+    blocks = manifest.get("blocks") or []
+    if blocks and isinstance(blocks[-1], dict) and blocks[-1].get("type") == "section_header":
+        target_idx = len(blocks) - 1
+        children = blocks[target_idx].get("children") or []
+        # Append at the end of the section's children list.
+        patches = [{
+            "op":    "add",
+            "path":  f"/blocks/{target_idx}/children/-",
+            "value": new_block,
+        }]
+    else:
+        # No section yet — create one with the block inside.
+        new_sid = "s_" + _sec.token_urlsafe(6)
+        patches = [{
+            "op":    "add",
+            "path":  "/blocks/-",
+            "value": {
+                "id":     new_sid,
+                "type":   "section_header",
+                "title":  "Yeni Bölüm",
+                "locked": False,
+                "children": [new_block],
+            },
+        }]
+
+    try:
+        new_manifest = apply_patches(manifest, patches)
+    except Exception as exc:
+        return _json({"error": f"apply error: {exc}"}, status=400)
+
+    new_manifest["version"] = manifest.get("version", 0) + 1
+    session.set_manifest(new_manifest)
+
+    return _json({
+        "ok":           True,
+        "version":      new_manifest["version"],
+        "block_id":     new_bid,
+        "imported_from": {
+            "team":    block.team,
+            "id":      block.id,
+            "version": block.version,
+        },
+    })
+
+
+@presentations_bp.route("/api/list")
+@login_required
+def api_user_presentations():
+    """Minimal listing of the current user's presentations.
+
+    Used by the "Sunuma ekle" modal on the Bloklar tab: needs just enough
+    info to populate a select dropdown.
+    """
+    registry = current_app.config.get("SESSION_REGISTRY")
+    if registry is None:
+        return _json([])
+    items = registry.list_user_presentations(current_user.sicil) or []
+    out = [{"id": it.get("id"), "title": it.get("title") or it.get("id")}
+           for it in items if it.get("id")]
+    return _json(out)
