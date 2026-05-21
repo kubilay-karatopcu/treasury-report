@@ -16,7 +16,7 @@
  * block.data_source via the run-manual endpoint.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Play, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { Play, Plus, Trash2, AlertTriangle, Search } from 'lucide-react';
 import useStore from '../lib/store.js';
 
 // Mirror of presentations.variables.semantic_tags.SEMANTIC_TAGS_V0.
@@ -387,7 +387,12 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
     return out;
   }
 
-  async function handleRun() {
+  async function handleRun(mode = 'execute') {
+    // mode = 'scan'     → POST scan_only=true; server discovers :params +
+    //                     allowed_values, returns enriched variables, no
+    //                     execute. Used by "Şemayı Tara" button.
+    // mode = 'execute'  → full resolve+bind+execute; used by "Çalıştır".
+    const isScan = mode === 'scan';
     setBusy(true);
     setErr(null);
     setWarnings([]);
@@ -429,22 +434,34 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
         };
       });
 
-      // Pre-flight: catch incomplete enum / required-no-default cases here
-      // so the user sees an actionable message ("doldur şu değişkeni")
-      // instead of the raw Pydantic chain from the server.
-      const pre = preflightErrors(submitVars);
-      if (pre.length > 0) {
-        setErr({
-          message: pre.join('\n'),
-          kind: 'incomplete',
-        });
-        setBusy(false);
-        return;
+      // Pre-flight only on execute. Scan mode hasn't asked the user to fill
+      // in defaults yet — that's literally the next step in the workflow.
+      if (!isScan) {
+        const pre = preflightErrors(submitVars);
+        if (pre.length > 0) {
+          setErr({
+            message: pre.join('\n'),
+            kind: 'incomplete',
+          });
+          setBusy(false);
+          return;
+        }
       }
 
       let result;
       if (previewMode) {
-        // Template-edit path — stateless /blocks/api/preview.
+        // Template-edit path — stateless /blocks/api/preview. Doesn't have a
+        // scan_only mode (the template editor doesn't iterate on variables
+        // the same way as the in-properties path), so in scan mode we just
+        // bail out with a hint. Auto-preview on mount already runs once.
+        if (isScan) {
+          setErr({
+            message: 'Şablon düzenleyicide şema taraması desteklenmiyor — düzenlemek için sunum içine ekleyin.',
+            kind: 'preview_scan',
+          });
+          setBusy(false);
+          return;
+        }
         // Pulls the render type from the in-canvas block so the response
         // already has config[categories/series/etc] populated.
         const baseUrl = window.location.pathname.replace(/\/blocks\/edit\/.*/, '/blocks/api');
@@ -486,6 +503,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
         result = await runBlockManualSql(block.id, {
           query: sql,
           variables: submitVars,
+          scanOnly: isScan,
         });
       }
       // Reflect discovered allowed_values (server-side SELECT DISTINCT) into
@@ -551,12 +569,12 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
             <button
               type="button"
               className="props-btn props-btn--primary"
-              onClick={handleRun}
+              onClick={() => handleRun('scan')}
               disabled={busy || !sql.trim()}
-              title="SQL'i çalıştır, :param'ları otomatik tanı"
+              title="SQL'deki :param'ları + olası değerleri otomatik keşfet (sorgu çalıştırılmaz)"
             >
-              <Play size={13} strokeWidth={2} className={busy ? 'spin' : ''} />
-              <span>{busy ? 'Çalışıyor…' : 'Çalıştır'}</span>
+              <Search size={13} strokeWidth={2} className={busy ? 'spin' : ''} />
+              <span>{busy ? 'Taranıyor…' : 'Şemayı Tara'}</span>
             </button>
             <div className="props-sql-bindcount">
               {bindNames.length === 0
@@ -567,7 +585,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
           {staleHint && !busy && (
             <div className="props-stale-hint">
               <AlertTriangle size={12} strokeWidth={2} />
-              <span>SQL değişti — yeni veri için Çalıştır.</span>
+              <span>SQL değişti — şemayı tekrar tara, sonra çalıştır.</span>
             </div>
           )}
           {err && (
@@ -586,7 +604,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
       <Section title={`Değişkenler ${bindNames.length ? `(${bindNames.length})` : ''}`}>
         {bindNames.length === 0 && vars.length === 0 && (
           <div className="props-form-hint">
-            SQL'inize <code>:isim</code> ekleyin; Çalıştır'da otomatik tanınır.
+            SQL'inize <code>:isim</code> ekleyin; <strong>Şemayı Tara</strong>'da otomatik tanınır.
           </div>
         )}
         {orphaned.length > 0 && (
@@ -609,6 +627,21 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
               orphaned={!!v.name && !bindNames.includes(v.name)}
             />
           ))}
+        </div>
+        {/* The actual "execute" button lives below the variable list, so the
+            user's eye flows top→bottom: write SQL → tara → fill in defaults →
+            çalıştır. Buton sticks out as the primary CTA in this section. */}
+        <div className="props-run-row">
+          <button
+            type="button"
+            className="props-btn props-btn--primary props-btn--run"
+            onClick={() => handleRun('execute')}
+            disabled={busy || !sql.trim()}
+            title="Sorguyu değişkenlerle birlikte çalıştır"
+          >
+            <Play size={14} strokeWidth={2.2} className={busy ? 'spin' : ''} />
+            <span>{busy ? 'Çalışıyor…' : 'Çalıştır'}</span>
+          </button>
         </div>
       </Section>
     </>
@@ -697,15 +730,12 @@ function VariableRow({ v, onChange, onRemove, orphaned }) {
           <label className="props-var-label">
             Olası değerler
             <span className="props-var-hint">
-              {' '}— Çalıştır'da otomatik keşfedilir, üzerine yazabilirsin
+              {' '}— Şemayı Tara'da otomatik keşfedilir
             </span>
           </label>
-          <input
-            type="text"
-            className="props-input"
-            value={v.allowed_values_str}
-            onChange={(e) => onChange({ allowed_values_str: e.target.value })}
-            placeholder="virgülle ayrılmış (boş bırakırsan SQL'den otomatik dolar)"
+          <AllowedValuesChips
+            valuesStr={v.allowed_values_str}
+            onChange={(s) => onChange({ allowed_values_str: s })}
           />
         </div>
       )}
@@ -770,5 +800,79 @@ function Section({ title, children }) {
       <h4 className="props-section__title">{title}</h4>
       <div className="props-section__body">{children}</div>
     </section>
+  );
+}
+
+
+/**
+ * Chip-style editor for enum allowed_values. Each value renders as a
+ * removable chip; an inline input accepts new ones (Enter or comma to
+ * commit). Storage stays as a comma-separated string so we don't have to
+ * rewrite the rest of the variable form, but the visual is much friendlier
+ * than a raw text field — especially after Şemayı Tara auto-fills 10+ items.
+ */
+function AllowedValuesChips({ valuesStr, onChange }) {
+  const [draft, setDraft] = useState('');
+  const values = (valuesStr || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+
+  function commit(items) {
+    onChange(items.join(', '));
+  }
+
+  function addValue(raw) {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return;
+    if (values.includes(trimmed)) {
+      setDraft('');
+      return;
+    }
+    commit([...values, trimmed]);
+    setDraft('');
+  }
+
+  function removeAt(i) {
+    const next = values.slice();
+    next.splice(i, 1);
+    commit(next);
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addValue(draft);
+    } else if (e.key === 'Backspace' && draft === '' && values.length > 0) {
+      e.preventDefault();
+      removeAt(values.length - 1);
+    }
+  }
+
+  return (
+    <div className="props-chips">
+      <div className="props-chips__list">
+        {values.map((v, i) => (
+          <span key={`${v}-${i}`} className="props-chip">
+            <span className="props-chip__text">{v}</span>
+            <button
+              type="button"
+              className="props-chip__remove"
+              onClick={() => removeAt(i)}
+              title="Bu değeri sil"
+            >×</button>
+          </span>
+        ))}
+        <input
+          type="text"
+          className="props-chips__input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          onBlur={() => addValue(draft)}
+          placeholder={values.length === 0 ? 'değer ekle (Enter veya virgül)' : '+ ekle'}
+        />
+      </div>
+    </div>
   );
 }

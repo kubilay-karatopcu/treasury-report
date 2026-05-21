@@ -830,9 +830,9 @@ const useStore = create((set) => ({
 
   // Phase 6.5 — run a manual-SQL block's query with declared variables.
   // Returns {block, version, warnings}; throws on resolution / SQL errors.
-  runBlockManualSql: async (blockId, { query, variables, variableOverrides } = {}) => {
+  runBlockManualSql: async (blockId, { query, variables, variableOverrides, scanOnly } = {}) => {
     if (!blockId) throw new Error('blockId zorunlu.');
-    const result = await runBlockManual(blockId, { query, variables, variableOverrides });
+    const result = await runBlockManual(blockId, { query, variables, variableOverrides, scanOnly });
     set((s) => {
       if (!s.manifest) return {};
       return {

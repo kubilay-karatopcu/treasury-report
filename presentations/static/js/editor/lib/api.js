@@ -263,15 +263,17 @@ export async function refreshBlockData(blockId, newSql) {
  * Returns {ok, version, block, warnings} on success.
  * On error, throws an Error with .kind ∈ {sql, resolution, bind, gate, oracle, ...}.
  */
-export async function runBlockManual(blockId, { query, variables, variableOverrides }) {
+export async function runBlockManual(blockId, { query, variables, variableOverrides, scanOnly }) {
+  const payload = {
+    query,
+    variables: variables || [],
+    variable_overrides: variableOverrides || {},
+  };
+  if (scanOnly) payload.scan_only = true;
   const resp = await fetch(`${API_BASE}/block/${encodeURIComponent(blockId)}/run-manual`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      query,
-      variables: variables || [],
-      variable_overrides: variableOverrides || {},
-    }),
+    body: JSON.stringify(payload),
   });
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) {
