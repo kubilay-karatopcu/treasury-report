@@ -5752,6 +5752,17 @@ body.theme-dark .props-sql-helper__table td code {
   border-right: 1px solid #e6e7e9;
   padding: 24px;
   overflow: auto;
+  /* Vertically center the BlockCard inside the left column. flex-start on
+     justify keeps it horizontally hugging the left edge if the card is
+     narrower than the column; center if it's full-width. The min-height
+     guarantees centering still works when the card is short. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+}
+.template-edit-root--side-by-side .template-edit-canvas > * {
+  flex: 0 0 auto;          /* don't stretch the BlockCard vertically */
 }
 .template-edit-root--side-by-side .template-edit-properties {
   grid-area: properties;
