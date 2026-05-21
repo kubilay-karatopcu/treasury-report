@@ -73,6 +73,53 @@ function updateBlockInPlace(manifest, blockId, fn) {
 // ── Empty block templates (used when user manually adds blocks) ────────────
 
 /**
+ * Walk every leaf block in `manifest` and return the set of semantic_tags
+ * that are referenced by at least one variable. Used by the orphan filter
+ * cleanup to decide which filters still have a "purpose".
+ */
+function _collectUsedSemanticTags(manifest) {
+  const tags = new Set();
+  for (const section of manifest?.blocks || []) {
+    for (const child of section?.children || []) {
+      for (const v of (child.variables || [])) {
+        if (v.semantic_tag) tags.add(v.semantic_tag);
+      }
+      if (child.type === 'carousel') {
+        for (const slide of (child.children || [])) {
+          for (const v of (slide.variables || [])) {
+            if (v.semantic_tag) tags.add(v.semantic_tag);
+          }
+        }
+      }
+    }
+  }
+  return tags;
+}
+
+
+/**
+ * After a block delete, any filter whose semantic_tag is no longer referenced
+ * by ANY remaining block variable is an orphan. Return JSON-Patch remove ops
+ * that drop them. Run on the post-delete manifest.
+ *
+ * Walking back-to-front so list indices stay valid as we remove.
+ */
+function _computeOrphanFilterPatches(manifestAfter) {
+  const filters = manifestAfter?.filters;
+  if (!Array.isArray(filters) || filters.length === 0) return [];
+  const usedTags = _collectUsedSemanticTags(manifestAfter);
+  const patches = [];
+  for (let i = filters.length - 1; i >= 0; i--) {
+    const f = filters[i];
+    if (!usedTags.has(f.semantic_tag)) {
+      patches.push({ op: 'remove', path: `/filters/${i}` });
+    }
+  }
+  return patches;
+}
+
+
+/**
  * Walk every leaf block in `manifest` and propose JSON-Patch operations
  * that auto-bind matching variables to a newly-added dashboard filter.
  *
@@ -618,24 +665,41 @@ const useStore = create((set) => ({
       console.warn('deleteBlock: block not found', blockId);
       return;
     }
-    const patch = { op: 'remove', path: loc.path };
+    const patches = [{ op: 'remove', path: loc.path }];
+
+    // Phase 6.5.c orphan filter cleanup: after removing the block, any
+    // dashboard filter whose semantic_tag is no longer represented by any
+    // remaining block's variables becomes "orphan" — keeping it would clutter
+    // the FilterBar AND make the "+ Filtre ekle" suggestions stale (the user
+    // can't re-add a tag that already has a filter). Drop them automatically.
+    // We compute against a hypothetical post-delete manifest.
+    try {
+      const after = _applyPatches(state.manifest, patches);
+      const orphanPatches = _computeOrphanFilterPatches(after);
+      patches.push(...orphanPatches);
+    } catch (e) {
+      console.warn('deleteBlock orphan scan failed:', e);
+    }
+
     try {
       set((s) => {
         if (!s.manifest) return {};
-        const newManifest = _applyPatches(s.manifest, [patch]);
+        const newManifest = _applyPatches(s.manifest, patches);
         newManifest.version = (newManifest.version || 0) + 1;
-        // Silinen blok seçiliyse selection'ı temizle.
-        // Slide silindiğinde carousel seçili olsa bile selection'ı koruyoruz
-        // (CarouselActions slide listesinde silinmiş slide olmadan re-render olur).
         const nextSelected = (s.selectedBlockId === blockId) ? null : s.selectedBlockId;
-        return { manifest: newManifest, selectedBlockId: nextSelected };
+        // Drop filter_state entries for filters we just removed.
+        const filterIds = new Set((newManifest.filters || []).map((f) => f.id));
+        const fs = {};
+        for (const [k, v] of Object.entries(s.filterState || {})) {
+          if (filterIds.has(k)) fs[k] = v;
+        }
+        return { manifest: newManifest, selectedBlockId: nextSelected, filterState: fs };
       });
     } catch (err) {
       console.error('deleteBlock local apply failed:', err);
-      // Manifest'i değiştirme — backend'e de gönderme
       return;
     }
-    submitPatches([patch]).catch((e) => console.error('deleteBlock persist failed:', e));
+    submitPatches(patches).catch((e) => console.error('deleteBlock persist failed:', e));
   },
 
   // ═══════════════════════════════════════════════════════════════════════

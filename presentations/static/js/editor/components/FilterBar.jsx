@@ -543,14 +543,17 @@ function SuggestionRow({ prop, onAdd }) {
   else if (prop.type === 'enum_single') detail = `${(prop.allowed_values || []).length} değer (tek)`;
   else if (prop.type === 'number_range') detail = `Sayı aralığı`;
 
+  const blockSummary = prop.block_count === 1
+    ? '1 blokta kullanılıyor'
+    : `${prop.block_count} blokta kullanılıyor`;
+
   return (
     <button type="button" className="filter-suggest-row" onClick={onAdd}>
       <div className="filter-suggest-row__main">
         <div className="filter-suggest-row__tag">{tagLabel}</div>
         <div className="filter-suggest-row__params">{params}</div>
         <div className="filter-suggest-row__detail">
-          {detail}
-          {prop.block_count > 1 && <span> · {prop.block_count} blokta</span>}
+          {detail} · {blockSummary}
         </div>
         {prop.allowed_values && prop.allowed_values.length > 0 && (
           <div className="filter-suggest-row__values">
