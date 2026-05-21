@@ -288,7 +288,27 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
   }
 
   function updateVar(idx, patch) {
-    setVars((prev) => prev.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
+    setVars((prev) => prev.map((v, i) => {
+      if (i !== idx) return v;
+      const merged = { ...v, ...patch };
+      // UX assist: when the user types allowed_values for an enum_multi /
+      // enum_single var and hasn't supplied a default yet, mirror the
+      // allowed list into the default (enum_multi → all values; enum_single
+      // → first value). They can override; this just prevents the
+      // "required, no default" trap which is the most common second-step
+      // stumble after auto-detect.
+      const allowedChanged = patch.allowed_values_str !== undefined;
+      const defaultEmpty = !(v.default_str || '').trim();
+      if (allowedChanged && defaultEmpty && (patch.allowed_values_str || '').trim()) {
+        if (merged.type === 'enum_multi') {
+          merged.default_str = patch.allowed_values_str;
+        } else if (merged.type === 'enum_single') {
+          const first = String(patch.allowed_values_str).split(',')[0].trim();
+          if (first) merged.default_str = first;
+        }
+      }
+      return merged;
+    }));
   }
 
   function removeVar(idx) {
@@ -339,12 +359,13 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
 
   /**
    * Client-side pre-flight: stop submissions that would inevitably fail
-   * server-side schema validation. Cleaner UX than a Pydantic error string.
+   * server-side schema validation. Cleaner UX than a Pydantic / resolver
+   * error string.
    *
    * Catches:
-   *   - enum_multi / enum_single with no allowed_values (most common
-   *     stumble after auto-detect — the user needs to fill the IN list).
-   *   - required-without-default vars (the resolver fails downstream too).
+   *   - enum_multi / enum_single with no allowed_values.
+   *   - Required var with no default value (resolver fails since there's
+   *     no dashboard override mechanism in this v0 path).
    */
   function preflightErrors(submitVars) {
     const out = [];
@@ -354,6 +375,13 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
         out.push(
           `"${v.name}" (${v.type}): "Olası değerler" boş. ` +
           `Aşağıdaki değişken kartından virgülle ayrılmış değerleri girin.`,
+        );
+        continue;  // missing allowed_values implies missing default — don't double-report
+      }
+      if (v.required && (v.default === undefined || v.default === null
+                        || (Array.isArray(v.default) && v.default.length === 0))) {
+        out.push(
+          `"${v.name}": Zorunlu değişken. "Varsayılan" alanını doldurun.`,
         );
       }
     }
