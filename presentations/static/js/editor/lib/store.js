@@ -673,23 +673,30 @@ const useStore = create((set) => ({
     const state = useStore.getState();
     if (!state.manifest) return;
     const existing = state.manifest.filters || [];
-    // Disallow duplicate ids.
-    if (existing.some((f) => f.id === filterDef.id)) {
-      throw new Error(`Filtre id ${filterDef.id} zaten var.`);
-    }
-    const idx = existing.length;
+    // Idempotent: if a filter with the same id already exists, REPLACE it
+    // instead of inserting (prevents accidental duplicates from fast clicks
+    // or stale closures). Caller can still pre-check existing for UX
+    // messaging, but the action itself is safe to retry.
+    const existingIdx = existing.findIndex((f) => f.id === filterDef.id);
     const patches = [];
     if (state.manifest.filters === undefined) {
       patches.push({ op: 'add', path: '/filters', value: [] });
     }
-    patches.push({ op: 'add', path: `/filters/${idx}`, value: filterDef });
+    if (existingIdx >= 0) {
+      patches.push({
+        op: 'replace',
+        path: `/filters/${existingIdx}`,
+        value: filterDef,
+      });
+    } else {
+      const idx = existing.length;
+      patches.push({ op: 'add', path: `/filters/${idx}`, value: filterDef });
+    }
 
     // ── Auto-bind matching block variables to this new filter ───────────
     // Walk every leaf block; for each variable whose semantic_tag matches
     // and which isn't already bound, write a variable_binding pointing at
-    // this filter. Mirrors propose_auto_bindings() in
-    // presentations/dashboards/binding.py — but proactive on filter-add
-    // rather than on block-insert.
+    // this filter.
     const bindPatches = _computeAutoBindPatches(state.manifest, filterDef);
     patches.push(...bindPatches);
 
@@ -697,7 +704,6 @@ const useStore = create((set) => ({
       if (!s.manifest) return {};
       const next = _applyPatches(s.manifest, patches);
       next.version = (next.version || 0) + 1;
-      // Seed local filter state with this new filter's default.
       const fs = { ...s.filterState };
       if (filterDef.default != null) fs[filterDef.id] = filterDef.default;
       return { manifest: next, filterState: fs };
