@@ -132,7 +132,11 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
   const runBlockManualSql = useStore((s) => s.runBlockManualSql);
   const setBlockField     = useStore((s) => s.setBlockField);
 
-  const initialQuery = block.query || '';
+  // Backward-compat: pre-Phase 6.5 blocks store their SQL on
+  // data_source.original_sql with no variables. Seed the textarea from there
+  // so legacy LLM-generated blocks open with their existing query visible
+  // (and the user can incrementally add :binds + variables to migrate).
+  const initialQuery = block.query || block.data_source?.original_sql || '';
   const initialVars = (block.variables || []).map((v) => ({
     name: v.name || '',
     type: v.type || 'date',
@@ -149,9 +153,11 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
   const [warnings, setWarnings] = useState([]);
   const [staleHint, setStaleHint] = useState(false);
 
-  // Reset local state when switching between blocks.
+  // Reset local state when switching between blocks. Falls back to
+  // data_source.original_sql for legacy LLM-generated blocks (see
+  // initialQuery computation above).
   useEffect(() => {
-    setSql(block.query || '');
+    setSql(block.query || block.data_source?.original_sql || '');
     setVars((block.variables || []).map((v) => ({
       name: v.name || '',
       type: v.type || 'date',
@@ -330,8 +336,9 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
 
   // Stale hint: when SQL changed but not yet run.
   useEffect(() => {
-    if (sql.trim() !== (block.query || '').trim()) setStaleHint(true);
-  }, [sql, block.query]);
+    const baseline = (block.query || block.data_source?.original_sql || '').trim();
+    if (sql.trim() !== baseline) setStaleHint(true);
+  }, [sql, block.query, block.data_source]);
 
   return (
     <>

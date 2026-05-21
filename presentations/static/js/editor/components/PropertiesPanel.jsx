@@ -122,11 +122,7 @@ export default function PropertiesPanel({ width, onResizeStart }) {
         {block.type === 'radial_bar' && <RadialBarControls block={block} />}
         {block.type === 'narrative'  && <NarrativeControls block={block} />}
 
-        {isDataBound && (
-          block.manual_sql
-            ? <ManualSqlEditor block={block} />
-            : <SqlEditor block={block} />
-        )}
+        {isDataBound && <ManualSqlEditor block={block} />}
 
         <CarouselActions block={block} />
 

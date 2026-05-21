@@ -90,7 +90,7 @@ def client(app):
 
 
 def _seed_manual_block(client) -> str:
-    """Create a presentation with one section + a manual_sql bar_chart block.
+    """Create a presentation with one section + an empty data-bound block.
     Returns the presentation id."""
     r = client.post("/presentations/", data="{}", content_type="application/json")
     pid = r.get_json()["id"]
@@ -100,7 +100,7 @@ def _seed_manual_block(client) -> str:
             "id": "sec_t", "type": "section_header", "title": "T",
             "children": [{
                 "id": "b_test", "type": "bar_chart", "title": "Manuel Test",
-                "locked": False, "manual_sql": True,
+                "locked": False,
                 "query": "", "variables": [],
                 "config": {"categories": [], "series": [{"name": "S1", "values": []}]},
                 "data_source": {"original_sql": ""},
@@ -150,10 +150,11 @@ class TestRunManual:
         # Data plumbed into block.config so the renderer picks it up unchanged.
         assert block["config"]["categories"] == ["RETAIL", "CORPORATE", "SME"]
         assert block["config"]["series"][0]["values"][0] == pytest.approx(438_632_544.06)
-        assert block["manual_sql"] is True
         assert block["query"] == body["query"]
         assert len(block["variables"]) == 3
         assert block["data_source"]["engine"] == "manual_sql"
+        # Legacy manual_sql flag, if it ever was on the block, is dropped post-run.
+        assert "manual_sql" not in block
         # data_stale is cleared on a successful run.
         assert block.get("data_stale") is None
 
