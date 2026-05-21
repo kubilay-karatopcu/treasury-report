@@ -4784,31 +4784,46 @@ body.theme-dark .props-sql-helper__table td code {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 9px 14px;
-  border-radius: 8px;
+  padding: 8px 16px;
+  border-radius: 6px;
   font-size: 0.85rem;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s, transform 0.06s;
   text-decoration: none;
+  letter-spacing: 0.01em;
 }
+.save-btn:active:not(:disabled) { transform: translateY(1px); }
 .save-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
 .save-btn--primary {
-  background: linear-gradient(180deg, #1e3a8a, #0f172a);
+  /* Same crisp blue as FilterBar Güncelle button — no gradient. */
+  background: #2563eb;
   color: #ffffff;
 }
 .save-btn--primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #1d4ed8, #0f172a);
+  background: #1d4ed8;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
 }
+.save-btn--primary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
 .save-btn--ghost {
   background: #ffffff;
-  color: #1e3a8a;
+  color: #1e293b;
   border-color: #cbd5e1;
 }
 .save-btn--ghost:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: #f8fafc;
   border-color: #94a3b8;
+}
+.save-btn--ghost:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.25);
 }
 
 .save-field {
