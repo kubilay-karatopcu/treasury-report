@@ -75,8 +75,17 @@ export function extractBindNames(sql) {
   return out;
 }
 
-function inferDefaults(name) {
-  // Lightweight heuristics: *_from / *_to → date; pluralised / *_list → enum_multi.
+/**
+ * SQL-context inference: scan the query for how :name is *used*, then pick
+ * a type that matches. Falls back to name-based heuristics, then to
+ * enum_multi as the safer default (a date bind misused as a list value
+ * crashes DuckDB; a list bind misused as a date is at least a clear error).
+ */
+function inferDefaults(name, sql) {
+  const ctx = inferTypeFromContext(name, sql || '');
+  if (ctx) return ctx;
+
+  // Name-based fallback heuristics.
   if (/_(from|since|start)$/i.test(name)) {
     return { type: 'date', semantic_tag: 'as_of_time', default: 'today - 30d' };
   }
@@ -86,10 +95,80 @@ function inferDefaults(name) {
   if (/^(date|as_of|trade_date|value_date)$/i.test(name)) {
     return { type: 'date', semantic_tag: 'as_of_time', default: 'today' };
   }
-  if (/_(list|s|codes|ids)$/i.test(name) || /currenc/i.test(name)) {
+  if (/_(list|codes|ids)$/i.test(name) || /currenc/i.test(name) || /s$/i.test(name)) {
     return { type: 'enum_multi', semantic_tag: 'other', default: '' };
   }
-  return { type: 'date', semantic_tag: 'other', default: 'today' };
+  // Final default — enum_multi, not date. A misclassified enum is recoverable
+  // (user just adds allowed_values); a misclassified date silently corrupts
+  // the WHERE clause and produces baffling cast errors.
+  return { type: 'enum_multi', semantic_tag: 'other', default: '' };
+}
+
+
+function inferTypeFromContext(name, sql) {
+  if (!sql) return null;
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // `IN (:name)` — clear enum_multi signal.
+  const inRe = new RegExp(`\\bIN\\s*\\(\\s*:${escapedName}\\s*\\)`, 'i');
+  if (inRe.test(sql)) {
+    // Heuristic semantic_tag from the *column* on the LHS of IN.
+    const colTagRe = new RegExp(`\\b([A-Za-z_][A-Za-z0-9_]*)\\s+IN\\s*\\(\\s*:${escapedName}`, 'i');
+    const colMatch = sql.match(colTagRe);
+    const colName = colMatch ? colMatch[1].toLowerCase() : '';
+    const tag = colName.includes('curr') || colName === 'ccy'        ? 'currency'
+              : colName.includes('matur')                             ? 'maturity'
+              : colName.includes('branch')                            ? 'branch'
+              : colName.includes('product')                           ? 'product_group'
+              : colName.includes('segment')                           ? 'segment'
+              : colName.includes('region')                            ? 'region'
+              : colName.includes('counter')                           ? 'counterparty'
+              : 'other';
+    return { type: 'enum_multi', semantic_tag: tag, default: '' };
+  }
+
+  // `BETWEEN :a AND :b` — both ends are dates.
+  const betweenRe = new RegExp(
+    `\\b([A-Za-z_][A-Za-z0-9_]*)\\s+BETWEEN\\s+:${escapedName}\\s+AND\\s+:[A-Za-z_][A-Za-z0-9_]*`,
+    'i',
+  );
+  const betweenRe2 = new RegExp(
+    `\\b([A-Za-z_][A-Za-z0-9_]*)\\s+BETWEEN\\s+:[A-Za-z_][A-Za-z0-9_]*\\s+AND\\s+:${escapedName}\\b`,
+    'i',
+  );
+  const between1 = sql.match(betweenRe);
+  const between2 = sql.match(betweenRe2);
+  if (between1 || between2) {
+    const col = (between1 || between2)[1].toLowerCase();
+    const tag = col.includes('trade')                                          ? 'trade_time'
+              : col.includes('settle')                                          ? 'settle_time'
+              : col.includes('value_date') || col.includes('valuation')         ? 'value_time'
+              : 'as_of_time';
+    // Lower bound (from) defaults to 30d ago; upper bound to today.
+    const isLowerBound = !!between1;
+    return {
+      type: 'date',
+      semantic_tag: tag,
+      default: isLowerBound ? 'today - 30d' : 'today',
+    };
+  }
+
+  // `>= :name` or `> :name` — date lower bound (heuristic).
+  if (new RegExp(`>=?\\s*:${escapedName}\\b`).test(sql)) {
+    return { type: 'date', semantic_tag: 'as_of_time', default: 'today - 30d' };
+  }
+  if (new RegExp(`<=?\\s*:${escapedName}\\b`).test(sql)) {
+    return { type: 'date', semantic_tag: 'as_of_time', default: 'today' };
+  }
+
+  // `= :name` — likely a single-value scalar. Without table docs we can't
+  // tell enum vs free-form scalar; default to enum_single so the user has
+  // to fill allowed_values (safer than free-form text in v0).
+  if (new RegExp(`=\\s*:${escapedName}\\b`).test(sql)) {
+    return { type: 'enum_single', semantic_tag: 'other', default: '' };
+  }
+
+  return null;
 }
 
 function defaultsToString(def, type) {
@@ -192,7 +271,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
           next.push(byName.get(name));
           byName.delete(name);
         } else {
-          const inf = inferDefaults(name);
+          const inf = inferDefaults(name, sql);
           next.push({
             name,
             type: inf.type,
@@ -265,7 +344,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
           }
           return out;
         }
-        const inf = inferDefaults(name);
+        const inf = inferDefaults(name, sql);
         return {
           name,
           semantic_tag: inf.semantic_tag,
