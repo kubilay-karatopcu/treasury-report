@@ -165,26 +165,10 @@
       <div class="be-var-list" id="be-var-list"></div>
     </div>
 
-    <div class="be-card">
-      <h4>Görselleştirme</h4>
-      <div class="be-row">
-        <div class="be-field">
-          <label for="be-viz-type">Tip</label>
-          <select id="be-viz-type">
-            <option value="bar_chart">Çubuk grafik (bar_chart)</option>
-            <option value="line_chart">Çizgi grafik (line_chart)</option>
-            <option value="kpi">KPI</option>
-            <option value="kpi_grid">KPI Grid</option>
-            <option value="table">Tablo</option>
-            <option value="pie">Pasta</option>
-          </select>
-        </div>
-        <div class="be-field">
-          <label for="be-viz-config">Konfigürasyon (JSON)</label>
-          <textarea id="be-viz-config" rows="3" placeholder='{"x": "BRANCH_NAME", "y": "TOTAL_POS"}'></textarea>
-        </div>
-      </div>
-    </div>
+    <!-- Phase 6.5.a: visualization tipi blok eklenirken seçilir, burada gizli.
+         Tip değişimi sunum içindeki Properties panelinden yapılır. -->
+    <input type="hidden" id="be-viz-type" value="bar_chart">
+    <input type="hidden" id="be-viz-config" value="{}">
   </section>
 
   <!-- RIGHT: actions + preview -->

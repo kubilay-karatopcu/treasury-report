@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { X, RefreshCw, Lock, Unlock, Trash2, Layers, Plus } from 'lucide-react';
+import { X, RefreshCw, Lock, Unlock, Trash2, Layers, Plus, Save } from 'lucide-react';
 import useStore from '../lib/store.js';
+import ManualSqlEditor from './ManualSqlEditor.jsx';
 
 const TYPE_LABELS = {
   section_header: 'Bölüm Başlığı',
@@ -106,6 +107,7 @@ export default function PropertiesPanel({ width, onResizeStart }) {
       <div className="props-side-panel__body ts-scroll">
         <Section title="Genel">
           <TitleField block={block} />
+          {isDataBound && <TypeField block={block} />}
           {!isSection && <WidthField block={block} />}
           {!isSection && <LockField block={block} />}
         </Section>
@@ -120,16 +122,21 @@ export default function PropertiesPanel({ width, onResizeStart }) {
         {block.type === 'radial_bar' && <RadialBarControls block={block} />}
         {block.type === 'narrative'  && <NarrativeControls block={block} />}
 
-        {isDataBound && <SqlEditor block={block} />}
+        {isDataBound && (
+          block.manual_sql
+            ? <ManualSqlEditor block={block} />
+            : <SqlEditor block={block} />
+        )}
 
         <CarouselActions block={block} />
+
+        {!isSection && <SaveToLibrarySection block={block} />}
 
         <DangerZone block={block} />
       </div>
     </aside>
   );
 }
-
 
 function CarouselActions({ block }) {
   const manifest                = useStore((s) => s.manifest);
@@ -258,6 +265,26 @@ function CarouselActions({ block }) {
 }
 
 
+function SaveToLibrarySection({ block }) {
+  const openModal = useStore((s) => s.openSaveBlockModal);
+  // Filter_bar / carousel kütüphane MVP scope dışında — şimdilik leaf bloklar.
+  if (block.type === 'carousel' || block.type === 'filter_bar') return null;
+  return (
+    <Section title="Kütüphane">
+      <button
+        type="button"
+        className="props-btn props-btn--ghost"
+        onClick={() => openModal(block.id)}
+        title="Bu bloğu yeniden kullanılabilir bir şablon olarak kaydet"
+      >
+        <Save size={12} strokeWidth={2} />
+        <span>Kütüphaneye kaydet</span>
+      </button>
+    </Section>
+  );
+}
+
+
 function DangerZone({ block }) {
   const deleteBlock = useStore((s) => s.deleteBlock);
   const isSection = block.type === 'section_header';
@@ -342,6 +369,45 @@ function TitleField({ block }) {
     </Row>
   );
 }
+
+// Type-change dropdown. Switching type marks block.data_stale so the renderer
+// can show "Bu blok yeni veri bekliyor" badge until the user re-runs the SQL.
+// We keep block.config as-is to preserve style settings; the next successful
+// /run-manual will overwrite the data-bound fields anyway.
+const TYPE_CHANGE_OPTIONS = [
+  { value: 'kpi',        label: 'KPI' },
+  { value: 'bar_chart',  label: 'Çubuk Grafik' },
+  { value: 'line_chart', label: 'Çizgi Grafik' },
+  { value: 'area_chart', label: 'Alan Grafiği' },
+  { value: 'pie_chart',  label: 'Pasta Grafik' },
+  { value: 'heatmap',    label: 'Isı Haritası' },
+  { value: 'radial_bar', label: 'Radyal Gösterge' },
+  { value: 'data_table', label: 'Tablo' },
+];
+
+function TypeField({ block }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  return (
+    <Row label="Tip" hint="Tip değişirse mevcut veri uyumsuz olabilir — yeniden Çalıştır.">
+      <select
+        className="props-select"
+        value={block.type}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next === block.type) return;
+          setBlockField(block.id, 'type', next);
+          // Mark stale so the canvas can show "Çalıştır gerekli" overlay.
+          setBlockField(block.id, 'data_stale', true);
+        }}
+      >
+        {TYPE_CHANGE_OPTIONS.map((t) => (
+          <option key={t.value} value={t.value}>{t.label}</option>
+        ))}
+      </select>
+    </Row>
+  );
+}
+
 
 function WidthField({ block }) {
   const setBlockWidth = useStore((s) => s.setBlockWidth);

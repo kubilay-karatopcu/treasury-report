@@ -137,44 +137,26 @@ def block_library():
 @presentations_bp.route("/blocks/new")
 @login_required
 def block_new():
-    """Editor page for a brand-new block (no existing version)."""
-    seed_block = {
-        "block": {
-            "id": "",
-            "version": 1,
-            "title": "",
-            "description": "",
-            "team": "",
-            "owner": getattr(current_user, "sicil", "") or "",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "tags": [],
-            "documentation": {
-                "purpose": "",
-                "business_context": "",
-                "decision_support": "",
-                "known_limitations": "",
-            },
-            "query": "SELECT 1 AS sample\nFROM dual\nWHERE :sample_var IS NOT NULL\n",
-            "variables": [],
-            "visualization": {
-                "type": "bar_chart",
-                "config": {},
-            },
-        }
-    }
-    return render_template(
-        "presentations/block_editor.html",
-        mode="new",
-        block_json=json.dumps(seed_block, ensure_ascii=False, default=_json_default),
-        semantic_tags_json=json.dumps(all_tags(), ensure_ascii=False),
-    )
+    """Deprecated. Phase 6.5's new authoring loop happens inside the
+    presentation editor: add a block, fill Properties, then "Şablon olarak
+    kaydet" promotes it to the BlockStore. We redirect to the library so
+    legacy bookmarks still land somewhere useful.
+    """
+    from flask import redirect, url_for
+    return redirect(url_for("presentations.block_library"))
 
 
 @presentations_bp.route("/blocks/edit/<team>/<block_id>")
 @presentations_bp.route("/blocks/edit/<team>/<block_id>/<int:version>")
 @login_required
 def block_edit(team: str, block_id: str, version: int | None = None):
-    """Editor page for an existing block."""
+    """Phase 6.5 template editor.
+
+    Renders the same React bundle used by the presentation editor, but in
+    ``template-edit`` mode: synthetic single-block manifest with the
+    template's query/variables, and a top-of-page mini-canvas that re-renders
+    after every Çalıştır via /blocks/api/preview.
+    """
     store = _store()
     try:
         if version is None:
@@ -183,13 +165,69 @@ def block_edit(team: str, block_id: str, version: int | None = None):
             block = store.load(team, block_id, version)
     except BlockNotFoundError:
         return _json({"error": f"block {team}/{block_id} not found"}, status=404)
+
+    # Synthesize a 1-section, 1-block manifest with manual_sql=true so the
+    # editor's ManualSqlEditor takes over the Properties form. Empty config
+    # seed gets filled by the first preview call.
+    canvas_block_type = block.visualization.type
+    if canvas_block_type not in {
+        "kpi", "bar_chart", "line_chart", "area_chart",
+        "pie_chart", "heatmap", "radial_bar", "data_table",
+    }:
+        # Phase 6.5 sample types ("bar" vs "bar_chart" etc.) — normalise to the
+        # closest Phase 6 chart type the renderer knows.
+        canvas_block_type = {
+            "bar":   "bar_chart",
+            "line":  "line_chart",
+            "table": "data_table",
+            "pie":   "pie_chart",
+            "kpi_grid": "kpi",
+        }.get(canvas_block_type, "bar_chart")
+
+    synthetic_manifest = {
+        "id": f"tmpl_{team}_{block.id}_v{block.version}",
+        "version": 1,
+        "owner_id": getattr(current_user, "sicil", "") or "",
+        "meta": {
+            "title": block.title,
+            "eyebrow": f"Şablon: {team}/{block.id}",
+            "date":  block.created_at.strftime("%Y-%m-%d"),
+            "author_label": block.owner,
+        },
+        "template_ref": {
+            "team": block.team,
+            "id":   block.id,
+            "version": block.version,
+            "owner": block.owner,
+            "description": block.description,
+            "tags": list(block.tags),
+            "documentation": block.documentation.model_dump() if block.documentation else None,
+        },
+        "blocks": [{
+            "id": f"sec_{block.id}",
+            "type": "section_header",
+            "title": "",
+            "children": [{
+                "id": f"b_{block.id}",
+                "type": canvas_block_type,
+                "title": block.title,
+                "locked": False,
+                "manual_sql": True,
+                "query": block.query,
+                "variables": [
+                    v.model_dump(mode="json", exclude_none=True) for v in block.variables
+                ],
+                "config": _seed_config_for(canvas_block_type),
+                "data_source": {"original_sql": block.query},
+            }],
+        }],
+    }
+
     return render_template(
-        "presentations/block_editor.html",
-        mode="edit",
-        block_json=json.dumps(
-            block_to_dict(block), ensure_ascii=False, default=_json_default,
+        "presentations/block_template_edit.html",
+        manifest_json=json.dumps(
+            synthetic_manifest, ensure_ascii=False, default=_json_default,
         ),
-        semantic_tags_json=json.dumps(all_tags(), ensure_ascii=False),
     )
 
 
@@ -442,11 +480,23 @@ def run_block(team: str, block_id: str, version: int):
 @presentations_bp.route("/blocks/api/preview", methods=["POST"])
 @login_required
 def api_preview():
-    """Run a (possibly unsaved) block payload from the editor preview pane.
+    """Run a (possibly unsaved) block payload and return a render-ready block.
 
-    Body: ``{"block": {...}, "variable_overrides": {...}}``. Performs the same
-    validation + execution as :func:`run_block` without persisting anything.
+    Body: ``{"block": {...}, "variable_overrides": {...}, "render_type": "<viz>"}``.
+        - ``block`` is a Phase 6.5 block payload (schema § blocks/schema.py).
+        - ``render_type`` is the Phase 6 chart type the canvas will render
+          with (bar_chart / line_chart / kpi / ...). When present, the
+          response includes a synthetic manifest-style block dict with
+          ``data_source`` + ``config`` populated so the mini-canvas in the
+          template editor can re-render without re-resolving.
+
+    Returns:
+        {ok, rows, columns, meta, block?}   on success
+        {ok: false, errors: [...]}          on validation / execution failure
     """
+    from .nodes.execute_block_sqls import apply_data_to_config
+    import datetime as _dt
+
     payload = request.get_json(silent=True) or {}
     block_payload = payload.get("block") if isinstance(payload, dict) else None
     if not isinstance(block_payload, dict):
@@ -455,6 +505,8 @@ def api_preview():
     overrides = payload.get("variable_overrides") or {}
     if not isinstance(overrides, dict):
         return _json({"error": "variable_overrides must be an object"}, status=400)
+
+    render_type = payload.get("render_type")
 
     block, result = _validate_block_payload({"block": block_payload})
     if block is None or not result["ok"]:
@@ -474,12 +526,51 @@ def api_preview():
         )
 
     body_json = df.to_json(orient="records", date_format="iso") or "[]"
+    rows_list = [
+        [duck._jsonable(v) for v in row]
+        for row in df.itertuples(index=False, name=None)
+    ]
+
+    # Build a Phase-6-shaped block dict for the mini-canvas renderer.
+    # The synthetic block ID keeps the Phase 6.5 slug — the canvas uses it
+    # for keying, but no manifest is persisted from preview.
+    canvas_block = None
+    if render_type:
+        canvas_block = {
+            "id":          f"preview_{block.id}",
+            "type":        render_type,
+            "title":       block.title,
+            "locked":      False,
+            "manual_sql":  True,
+            "query":       block.query,
+            "variables":   [v.model_dump(mode="json", exclude_none=True) for v in block.variables],
+            "config":      _seed_config_for(render_type),
+            "data_source": {
+                "sql":           meta["rewritten_sql"],
+                "original_sql":  block.query,
+                "rewritten":     False,
+                "truncated":     False,
+                "cap":           meta["row_count"],
+                "reason":        "preview",
+                "executed_at":   _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                "row_count":     meta["row_count"],
+                "columns":       list(df.columns),
+                "preview_rows":  rows_list[:5],
+                "rows":          rows_list,
+                "view_name":     f"v_preview_{block.id}",
+                "engine":        "preview",
+            },
+        }
+        # Pivot rows → config (categories/series/etc) using the canvas mapper.
+        apply_data_to_config(canvas_block, canvas_block["data_source"])
+
     body = json.dumps(
         {
             "ok": True,
             "rows": json.loads(body_json),
             "columns": list(df.columns),
             "meta": {**meta, "warnings": [*meta.get("warnings", []), *result["warnings"]]},
+            "block": canvas_block,
         },
         ensure_ascii=False,
         default=_json_default,
@@ -488,3 +579,23 @@ def api_preview():
     resp.headers["X-Row-Count"] = str(meta["row_count"])
     resp.headers["X-Query-Duration-Ms"] = str(meta["duration_ms"])
     return resp
+
+
+def _seed_config_for(render_type: str) -> dict:
+    """Empty-shell config so apply_data_to_config has the right keys to fill."""
+    seeds = {
+        "kpi":        {"value": 0, "unit": "", "delta": 0, "delta_label": "", "period": ""},
+        "bar_chart":  {"categories": [], "series": [{"name": "Seri 1", "values": []}]},
+        "line_chart": {"x_axis": [], "series": [{"name": "Seri 1", "values": []}]},
+        "area_chart": {"x_axis": [], "series": [{"name": "Seri 1", "values": []}]},
+        "pie_chart":  {"labels": [], "values": []},
+        "heatmap":    {"x_axis": [], "series": []},
+        "radial_bar": {"value": 0, "max": 100},
+        "data_table": {"columns": [], "rows": []},
+    }
+    return seeds.get(render_type, {})
+
+
+# Import duck lazily — only the preview path needs _jsonable, and importing
+# at module top creates a circular import warning in some environments.
+from presentations import duck  # noqa: E402

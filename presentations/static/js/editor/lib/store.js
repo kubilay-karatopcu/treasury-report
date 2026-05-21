@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { applyPatches as _applyPatches } from './patch.js';
-import { submitPatches, refreshBlockData } from './api.js';
+import { submitPatches, refreshBlockData, runBlockManual } from './api.js';
 
 // ── Helpers for nested manifest navigation ─────────────────────────────────
 
@@ -69,8 +69,16 @@ function updateBlockInPlace(manifest, blockId, fn) {
 
 // ── Empty block templates (used when user manually adds blocks) ────────────
 
-function _emptyBlockTemplate(id, type) {
+function _emptyBlockTemplate(id, type, opts) {
+  // opts.manual_sql=true → seed Phase 6.5 manual-authoring fields so the
+  // ManualSqlEditor takes over the Properties panel for this block.
+  const manual = !!(opts && opts.manual_sql);
   const base = { id, type, title: _defaultTitle(type), locked: false };
+  if (manual) {
+    base.manual_sql = true;
+    base.query = '';
+    base.variables = [];
+  }
   switch (type) {
     case 'kpi':
       return { ...base, data_source: { original_sql: '' },
@@ -132,6 +140,10 @@ const useStore = create((set) => ({
   loading:         false,
   flashIds:        new Set(),
   shareModal:      null,
+  saveModalOpen:   false,        // "Kaydet" tablı modal
+  saveBlockModal:  null,         // { blockId } — "Blok kütüphanesine kaydet" modal
+  userInfo:        null,         // { sicil, name, department, dashboard_maker }
+  addBlockPanel:   null,         // { sectionId } — sağ taraf "Blok Ekle" panel'i
   docsTable:       null,         // { table, domain } — side panel for catalog table docs
 
   setMode:          (mode)     => set({ mode }),
@@ -145,6 +157,13 @@ const useStore = create((set) => ({
   setLoading:       (loading)  => set({ loading }),
   openShareModal:   (info)     => set({ shareModal: info }),
   closeShareModal:  ()         => set({ shareModal: null }),
+  openSaveModal:    ()         => set({ saveModalOpen: true }),
+  closeSaveModal:   ()         => set({ saveModalOpen: false }),
+  openSaveBlockModal:  (blockId) => set({ saveBlockModal: { blockId } }),
+  closeSaveBlockModal: ()        => set({ saveBlockModal: null }),
+  setUserInfo:      (info)     => set({ userInfo: info }),
+  openAddBlockPanel:  (sectionId) => set({ addBlockPanel: { sectionId } }),
+  closeAddBlockPanel: ()         => set({ addBlockPanel: null }),
   toggleLayoutEdit: ()         => set((s) => ({ layoutEditMode: !s.layoutEditMode })),
   setDocsTable:     (info)     => set({ docsTable: info }),
   closeDocsTable:   ()         => set({ docsTable: null }),
@@ -233,7 +252,38 @@ const useStore = create((set) => ({
     return id;
   },
 
-  addChildBlock: (sectionId, blockType) => {
+  // Library bloğunu klonlayıp section.children sonuna ekle. ID yeniden üretilir,
+  // runtime alanları (rows/view_name) zaten library kaydında temizlenmişti.
+  addLibraryBlockToSection: (sectionId, libraryBlock) => {
+    const state = useStore.getState();
+    if (!state.manifest || !sectionId || !libraryBlock) return;
+    const loc = findBlockPath(state.manifest, sectionId);
+    if (!loc || loc.child) return;
+    const section = loc.section;
+    const childIdx = (section.children || []).length;
+
+    // Deep clone + new ID
+    const cloned = JSON.parse(JSON.stringify(libraryBlock));
+    const prefix = cloned.type === 'narrative' ? 't_' : 'b_';
+    cloned.id = prefix + Math.random().toString(36).slice(2, 8);
+    if (cloned.locked) cloned.locked = false;
+
+    const patch = {
+      op: 'add',
+      path: `${loc.path}/children/${childIdx}`,
+      value: cloned,
+    };
+    set((s) => {
+      if (!s.manifest) return {};
+      const newManifest = _applyPatches(s.manifest, [patch]);
+      newManifest.version = (newManifest.version || 0) + 1;
+      return { manifest: newManifest, selectedBlockId: cloned.id };
+    });
+    submitPatches([patch]).catch((e) => console.error('addLibraryBlock persist failed:', e));
+    return cloned.id;
+  },
+
+  addChildBlock: (sectionId, blockType, opts) => {
     const state = useStore.getState();
     if (!state.manifest || !sectionId || !blockType) return;
     const loc = findBlockPath(state.manifest, sectionId);
@@ -243,7 +293,7 @@ const useStore = create((set) => ({
 
     const prefix = blockType === 'narrative' ? 't_' : 'b_';
     const id = prefix + Math.random().toString(36).slice(2, 8);
-    const newBlock = _emptyBlockTemplate(id, blockType);
+    const newBlock = _emptyBlockTemplate(id, blockType, opts);
 
     const patch = {
       op: 'add',
@@ -437,6 +487,23 @@ const useStore = create((set) => ({
       return;
     }
     submitPatches([patch]).catch((e) => console.error('deleteBlock persist failed:', e));
+  },
+
+  // Phase 6.5 — run a manual-SQL block's query with declared variables.
+  // Returns {block, version, warnings}; throws on resolution / SQL errors.
+  runBlockManualSql: async (blockId, { query, variables, variableOverrides } = {}) => {
+    if (!blockId) throw new Error('blockId zorunlu.');
+    const result = await runBlockManual(blockId, { query, variables, variableOverrides });
+    set((s) => {
+      if (!s.manifest) return {};
+      return {
+        manifest: {
+          ...updateBlockInPlace(s.manifest, blockId, () => result.block),
+          version: result.version ?? s.manifest.version,
+        },
+      };
+    });
+    return result;
   },
 
   refreshBlock: async (blockId, newSql) => {

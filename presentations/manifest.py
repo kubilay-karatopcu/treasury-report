@@ -211,6 +211,30 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
         errors.append(f"Block {bid!r}: unknown type {btype!r}")
         return errors
 
+    # ── Phase 6.5 manual SQL + variables ───────────────────────────────────
+    # When a block opts into manual authoring it carries `query` (raw SQL with
+    # :binds) and `variables` (Phase 6.5 schema). The LLM patch generator
+    # leaves these blocks alone; the editor's ManualSqlEditor owns them.
+    if block.get("manual_sql") is True:
+        q = block.get("query")
+        if q is not None and not isinstance(q, str):
+            errors.append(f"Block {bid!r}: manual_sql block.query must be a string")
+        vs = block.get("variables")
+        if vs is not None:
+            if not isinstance(vs, list):
+                errors.append(f"Block {bid!r}: manual_sql block.variables must be a list")
+            else:
+                for i, v in enumerate(vs):
+                    if not isinstance(v, dict):
+                        errors.append(
+                            f"Block {bid!r}: variables[{i}] must be an object"
+                        )
+                        continue
+                    if not v.get("name"):
+                        errors.append(
+                            f"Block {bid!r}: variables[{i}] missing 'name'"
+                        )
+
     if btype == "section_header" and not allow_section:
         errors.append(
             f"Block {bid!r}: section_header sadece üst seviyede olabilir"
@@ -405,7 +429,7 @@ def _validate_data_source(block: dict) -> list[str]:
         errors.append(f"Block {bid!r}: data_source.columns must be a list")
     if "preview_rows" in ds and not isinstance(ds["preview_rows"], list):
         errors.append(f"Block {bid!r}: data_source.preview_rows must be a list")
- 
+
     return errors
 
     
