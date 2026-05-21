@@ -54,6 +54,19 @@ export default function App({ initialManifest, mode = 'editor' }) {
         .then((info) => useStore.getState().setUserInfo(info))
         .catch((e) => console.warn('fetchUserInfo failed:', e));
     }
+    // ?focus_block=<bid> from Bloklar > Yeni Blok handler — auto-select the
+    // freshly-created empty block so Properties opens to it immediately.
+    const focusBid = new URLSearchParams(window.location.search).get('focus_block');
+    if (focusBid) {
+      // Also flip into layout-edit so Properties + ManualSqlEditor are visible.
+      const s = useStore.getState();
+      s.setSelectedBlock(focusBid);
+      if (typeof s.toggleLayoutEditMode === 'function' && !s.layoutEditMode) {
+        s.toggleLayoutEditMode();
+      } else if (typeof s.setLayoutEditMode === 'function') {
+        s.setLayoutEditMode(true);
+      }
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!manifest) return <div className="editor-loading">Yükleniyor…</div>;
@@ -313,8 +326,44 @@ function Hint({ hasSelection }) {
    Toolbar: "Şablonu güncelle (yeni sürüm)" → POST /blocks/api/save_new_version.
    ──────────────────────────────────────────────────────────────────────── */
 function TemplateEditView({ block, templateRef }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+
+  // Auto-preview on mount: trigger the same /blocks/api/preview the user
+  // would get by clicking Çalıştır. Saves them one click per page open.
+  // Only runs once per block.id; no-op if the block has no query yet.
+  useEffect(() => {
+    if (!block?.query) return;
+    const baseUrl = window.location.pathname.replace(/\/blocks\/edit\/.*/, '/blocks/api');
+    fetch(`${baseUrl}/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        block: {
+          id: (block.id || '').replace(/^preview_/, '') || 'preview_block',
+          version: 1,
+          title: block.title || 'preview',
+          team: 'preview',
+          owner: 'preview',
+          created_at: new Date().toISOString(),
+          query: block.query,
+          variables: block.variables || [],
+          visualization: { type: block.type, config: {} },
+        },
+        render_type: block.type,
+      }),
+    })
+      .then((r) => r.json())
+      .then((body) => {
+        if (body?.ok && body.block) {
+          setBlockField(block.id, 'config', body.block.config);
+          setBlockField(block.id, 'data_source', body.block.data_source);
+        }
+      })
+      .catch((e) => console.warn('auto-preview failed:', e));
+  }, [block.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <div className="template-edit-root">
+    <div className="template-edit-root template-edit-root--side-by-side">
       <TemplateEditToolbar templateRef={templateRef} />
       <div className="template-edit-canvas">
         <BlockCard block={block} />

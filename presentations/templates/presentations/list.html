@@ -105,6 +105,29 @@
     padding: 1px 8px; border-radius: 10px;
     font-size: 10px; font-weight: 500;
   }
+  /* New: type pill at top of block card (replaces the underscore-spew eyebrow) */
+  .pres-card-type-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    align-self: flex-start;
+    background: #eff6ff; color: #1e3a8a;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  /* Footer labels — team / owner / version / date as compact gray chips. */
+  .pres-card-footer {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    padding-top: 10px;
+    margin-top: auto;
+    border-top: 1px solid #f0f2f5;
+  }
+  .pres-card-label {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: #f8fafc; color: #64748b;
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 500;
+    border: 1px solid #e2e8f0;
+  }
   .pres-tag-chip--deprecated {
     background: #fef3c7; color: #92400e;
   }
@@ -456,11 +479,29 @@
     }[c]));
   }
 
+  // Türkçe / okunabilir blok tipi etiketleri. Pre-Phase-6.5 raw kodlar:
+  // bar_chart, line_chart, area_chart, pie_chart, radial_bar, data_table,
+  // kpi, kpi_grid, heatmap. Phase 6.5 visualization.type bunlardan birini
+  // kullanır; fallback raw type'i title-case'leyip yazar.
+  const TYPE_LABELS = {
+    kpi: 'KPI', kpi_grid: 'KPI Grid',
+    bar_chart: 'Çubuk Grafik', line_chart: 'Çizgi Grafik',
+    area_chart: 'Alan Grafiği', pie_chart: 'Pasta Grafik',
+    radial_bar: 'Radyal Gösterge', data_table: 'Tablo',
+    heatmap: 'Isı Haritası', table: 'Tablo', pie: 'Pasta', bar: 'Çubuk', line: 'Çizgi',
+  };
+
+  function prettyType(t) {
+    if (!t) return 'Blok';
+    return TYPE_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
   function renderCard(m) {
     // BlockSummary shape (presentations/blocks/store.py): team, id, version,
     // title, description, tags, visualization_type, owner, created_at,
     // updated_at, deprecated.
     const icon = TYPE_ICONS[m.visualization_type] || '🧩';
+    const typeLabel = prettyType(m.visualization_type);
     const tags = (m.tags || []).map(t => `<span class="pres-tag-chip">${escapeHtml(t)}</span>`).join('');
     const dep = m.deprecated ? `<span class="pres-tag-chip pres-tag-chip--deprecated">deprecated</span>` : '';
     const desc = m.description ? `<p class="pres-card-desc">${escapeHtml(m.description)}</p>` : '';
@@ -469,14 +510,15 @@
     return `
       <a class="pres-card" data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
          href="${editHref}" style="text-decoration:none; color:inherit;">
-        <div class="pres-card-eyebrow">${icon} ${escapeHtml(m.team)} · ${escapeHtml(m.visualization_type)}</div>
+        <div class="pres-card-type-pill">${icon} ${escapeHtml(typeLabel)}</div>
         <div class="pres-card-title">${escapeHtml(m.title)}</div>
         ${desc}
         ${(tags || dep) ? `<div class="pres-card-tags">${tags}${dep}</div>` : ''}
-        <div class="pres-card-meta">
-          <span class="pres-card-meta-item" title="Sürüm">v${m.version}</span>
-          ${m.owner ? `<span class="pres-card-meta-item" title="Sahip">${escapeHtml(m.owner)}</span>` : ''}
-          ${dateStr ? `<span class="pres-card-meta-item">🕒 ${dateStr}</span>` : ''}
+        <div class="pres-card-footer">
+          <span class="pres-card-label" title="Sürüm">v${m.version}</span>
+          <span class="pres-card-label" title="Ekip">📁 ${escapeHtml(m.team)}</span>
+          ${m.owner ? `<span class="pres-card-label" title="Sahip">👤 ${escapeHtml(m.owner)}</span>` : ''}
+          ${dateStr ? `<span class="pres-card-label">📅 ${dateStr}</span>` : ''}
         </div>
       </a>
     `;
@@ -527,14 +569,49 @@
     }
   }
 
-  function createNewBlock() {
-    // Yeni şablon akışı: yeni boş sunum aç, editör layout-edit modunda
-    // başlasın. Kullanıcı block ekleyip Properties'te SQL yazıp
-    // "Şablon olarak kaydet" ile şablon kütüphanesine ekler.
-    createNewPresentation({
-      title: 'Yeni Şablon Sunumu',
-      mode: 'block_authoring',  // editor.html bunu görürse direkt + Blok Ekle açabilir (ileride)
-    });
+  async function createNewBlock() {
+    // Yeni şablon akışı: yeni sunum aç + içine boş bar_chart blok ekle
+    // + editor'a focus_block=<bid> ile yönlendir. Kullanıcı doğrudan
+    // SQL yazmaya başlayabilir, Properties otomatik o bloğa açılır.
+    try {
+      // 1. Yeni sunum
+      const presResp = await fetch("{{ url_for('presentations.create_presentation') }}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Yeni Şablon' }),
+      });
+      if (!presResp.ok) throw new Error('HTTP ' + presResp.status);
+      const presData = await presResp.json();
+      const pid = presData.id;
+
+      // 2. Section + boş bar_chart blok ekle
+      const sid = 's_' + Math.random().toString(36).slice(2, 8);
+      const bid = 'b_' + Math.random().toString(36).slice(2, 8);
+      const patches = [{
+        op: 'add', path: '/blocks/-',
+        value: {
+          id: sid, type: 'section_header', title: 'Yeni Bölüm', locked: false,
+          children: [{
+            id: bid, type: 'bar_chart', title: 'Yeni Çubuk Grafik', locked: false,
+            query: '', variables: [],
+            config: { categories: [], series: [{ name: 'Seri 1', values: [] }] },
+            data_source: { original_sql: '' },
+          }],
+        },
+      }];
+      // Build patch URL from the presentation create URL pattern.
+      const patchUrl = "{{ url_for('presentations.create_presentation') }}" + pid + '/patch';
+      await fetch(patchUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patches }),
+      });
+
+      // 3. Editor'a focus parametresiyle yönlendir
+      window.location.href = presData.url + '?focus_block=' + encodeURIComponent(bid);
+    } catch (e) {
+      alert('Yeni blok oluşturulamadı: ' + e.message);
+    }
   }
 
   function activeTabKey() {

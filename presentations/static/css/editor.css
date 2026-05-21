@@ -5636,6 +5636,95 @@ body.theme-dark .props-sql-helper__table td code {
   display: block;
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+   AllowedValuesChips — chip-style editor for enum allowed_values.
+   Values render as removable pills with an inline input at the end for
+   adding new ones (Enter or comma to commit, Backspace pops last).
+   ──────────────────────────────────────────────────────────────────────── */
+.props-chips {
+  background: #ffffff;
+  border: 1px solid var(--ts-hairline);
+  border-radius: 6px;
+  padding: 5px 6px;
+  min-height: 32px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.props-chips:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+.props-chips__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.props-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 2px 4px 2px 9px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  max-width: 100%;
+}
+.props-chip__text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.props-chip__remove {
+  background: transparent;
+  border: none;
+  color: #1e3a8a;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 50%;
+  opacity: 0.6;
+  transition: opacity 100ms ease, background 100ms ease;
+}
+.props-chip__remove:hover {
+  opacity: 1;
+  background: rgba(30, 58, 138, 0.12);
+}
+.props-chips__input {
+  flex: 1;
+  min-width: 110px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.78rem;
+  color: var(--ts-ink);
+  padding: 3px 4px;
+}
+.props-chips__input::placeholder { color: var(--ts-muted, #94a3b8); }
+
+/* Primary execute button below the variable list — the second half of the
+   "Şemayı Tara → Çalıştır" workflow. Larger than the scan button up top
+   because this is the section's CTA. */
+.props-run-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--ts-hairline);
+}
+.props-btn--run {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 6px;
+  gap: 7px;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    Phase 6.5 — Template Edit (/blocks/edit/<team>/<id>) mini-canvas layout
    ════════════════════════════════════════════════════════════════════════ */
@@ -5646,6 +5735,26 @@ body.theme-dark .props-sql-helper__table td code {
   height: 100vh;
   background: #f8fafc;
   overflow: hidden;
+}
+/* Side-by-side variant — chart left, properties (docs + SQL) right. */
+.template-edit-root.template-edit-root--side-by-side {
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "toolbar toolbar"
+    "canvas  properties";
+}
+.template-edit-root--side-by-side .template-edit-toolbar { grid-area: toolbar; }
+.template-edit-root--side-by-side .template-edit-canvas {
+  grid-area: canvas;
+  max-height: none;       /* full column height */
+  border-bottom: none;
+  border-right: 1px solid #e6e7e9;
+  padding: 24px;
+  overflow: auto;
+}
+.template-edit-root--side-by-side .template-edit-properties {
+  grid-area: properties;
 }
 
 .template-edit-toolbar {

@@ -1224,6 +1224,11 @@ def run_block_manual(pid: str, bid: str):
     body = request.get_json(silent=True) or {}
     query = (body.get("query") or "").strip()
     variables_raw = body.get("variables") or []
+    # When scan_only=true, server runs SQL validation + variable
+    # auto-discovery (SELECT DISTINCT) ONLY — no resolve, no bind, no
+    # execute. UI's "Şemayı Tara" button uses this to populate variable
+    # rows + allowed_values without committing to a full Oracle round-trip.
+    scan_only = bool(body.get("scan_only"))
     overrides = body.get("variable_overrides") or {}
     if not query:
         return Response(
@@ -1289,6 +1294,28 @@ def run_block_manual(pid: str, bid: str):
                 "warnings": sql_check.warnings,
             }, ensure_ascii=False),
             status=400, mimetype="application/json",
+        )
+
+    # ── scan_only short-circuit ─────────────────────────────────────────
+    # UI's "Şemayı Tara" button only wants discovery + validation results;
+    # the user hasn't filled in defaults yet so resolve/bind would error.
+    # Return the (possibly enriched) variables so the React side can replace
+    # block.variables and surface the discovered allowed_values as chips.
+    if scan_only:
+        block["query"] = query
+        block["variables"] = [v.model_dump(mode="json", exclude_none=True) for v in var_models]
+        manifest["version"] = manifest.get("version", 0) + 1
+        session.set_manifest(manifest)
+        return Response(
+            json.dumps({
+                "ok": True,
+                "version": manifest["version"],
+                "block": block,
+                "warnings": sql_check.warnings,
+                "discovered": discovered_info,
+                "scan_only": True,
+            }, ensure_ascii=False, default=str),
+            mimetype="application/json",
         )
 
     # Synthesize a stand-in Block for the resolver / binder. We don't write it
