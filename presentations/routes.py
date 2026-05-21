@@ -65,7 +65,17 @@ def list_presentations():
             "is_demo": True,
         })
 
-    return render_template("presentations/list.html", presentations=items)
+    resp = Response(
+        render_template("presentations/list.html", presentations=items),
+        mimetype="text/html",
+    )
+    # Prevent aggressive caching — when a user saves a new block and comes
+    # back to /presentations/ they need the latest JS that re-fetches the
+    # listing on every tab activation. Without this, browsers can serve a
+    # stale HTML doc whose embedded JS still has the old `blocksLoaded`
+    # gating logic. Re-validate on each navigation.
+    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
 
 
 @presentations_bp.route("/", methods=["POST"])
