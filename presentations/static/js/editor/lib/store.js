@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { applyPatches as _applyPatches } from './patch.js';
-import { submitPatches, refreshBlockData, runBlockManual } from './api.js';
+import {
+  submitPatches, refreshBlockData, runBlockManual,
+  applyDashboardFilters,
+} from './api.js';
 
 // ── Helpers for nested manifest navigation ─────────────────────────────────
 
@@ -148,11 +151,23 @@ const useStore = create((set) => ({
   docsTable:       null,         // { table, domain } — side panel for catalog table docs
 
   setMode:          (mode)     => set({ mode }),
-  setManifest:      (manifest) => set({
-    manifest,
-    // Hydrate chat history from manifest on initial load / page refresh.
-    chatHistory: Array.isArray(manifest?.chat_history) ? manifest.chat_history : [],
-  }),
+  setManifest:      (manifest) => {
+    // Hydrate filter state from manifest (Phase 6.5.c).
+    let fs = {};
+    if (manifest?.filter_state && Object.keys(manifest.filter_state).length > 0) {
+      fs = { ...manifest.filter_state };
+    } else {
+      for (const f of (manifest?.filters || [])) {
+        if (f.default != null) fs[f.id] = f.default;
+      }
+    }
+    set({
+      manifest,
+      // Hydrate chat history from manifest on initial load / page refresh.
+      chatHistory: Array.isArray(manifest?.chat_history) ? manifest.chat_history : [],
+      filterState: fs,
+    });
+  },
   setViewMode:      (mode)     => set({ viewMode: mode }),
   setSelectedBlock: (id)       => set({ selectedBlockId: id }),
   setLoading:       (loading)  => set({ loading }),
@@ -282,6 +297,74 @@ const useStore = create((set) => ({
     });
     submitPatches([patch]).catch((e) => console.error('addLibraryBlock persist failed:', e));
     return cloned.id;
+  },
+
+  // Phase 6.5.c — insert a saved BlockStore template into a section,
+  // auto-binding its variables against the dashboard's filters by
+  // matching semantic_tag (spec §3.5).
+  addBlockTemplateToSection: (sectionId, templatePayload, ref) => {
+    const state = useStore.getState();
+    if (!state.manifest || !sectionId || !templatePayload) return;
+    const loc = findBlockPath(state.manifest, sectionId);
+    if (!loc || loc.child) return;
+    const section = loc.section;
+    const childIdx = (section.children || []).length;
+
+    // Inline auto-binding by semantic_tag: mirrors propose_auto_bindings()
+    // in presentations/dashboards/binding.py. Single-match → bind; multiple
+    // or zero → leave unbound (UI banner takes over later).
+    const filters = state.manifest.filters || [];
+    const byTag = {};
+    for (const f of filters) {
+      (byTag[f.semantic_tag] = byTag[f.semantic_tag] || []).push(f);
+    }
+    const variable_bindings = {};
+    for (const v of (templatePayload.variables || [])) {
+      const candidates = byTag[v.semantic_tag] || [];
+      if (candidates.length !== 1) continue;
+      const f = candidates[0];
+      if (v.type === 'date' && f.type === 'date_range') {
+        const lower = v.name.toLowerCase();
+        let accessor = null;
+        if (/_(from|since|start)$/.test(lower)) accessor = 'from';
+        else if (/_(to|until|end)$/.test(lower)) accessor = 'to';
+        if (accessor) variable_bindings[v.name] = { from_filter: f.id, accessor };
+      } else if (v.type === f.type) {
+        variable_bindings[v.name] = { from_filter: f.id };
+      }
+    }
+
+    // Build the in-presentation block from the template.
+    const id = 'b_' + Math.random().toString(36).slice(2, 8);
+    const vizType = templatePayload.visualization?.type || 'kpi';
+    const newBlock = {
+      ..._emptyBlockTemplate(id, vizType === 'bar' ? 'bar_chart'
+                            : vizType === 'line' ? 'line_chart'
+                            : vizType === 'table' ? 'data_table'
+                            : vizType === 'pie' ? 'pie_chart'
+                            : vizType),
+      title: templatePayload.title || 'Yeni Şablon',
+      query: templatePayload.query || '',
+      variables: templatePayload.variables || [],
+      template_ref: ref,                     // {team, id, version}
+      variable_bindings,                     // auto-bound where unambiguous
+    };
+
+    const patch = {
+      op: 'add',
+      path: `${loc.path}/children/${childIdx}`,
+      value: newBlock,
+    };
+    set((s) => {
+      if (!s.manifest) return {};
+      const newManifest = _applyPatches(s.manifest, [patch]);
+      newManifest.version = (newManifest.version || 0) + 1;
+      return { manifest: newManifest, selectedBlockId: id };
+    });
+    submitPatches([patch]).catch((e) =>
+      console.error('addBlockTemplateToSection persist failed:', e),
+    );
+    return id;
   },
 
   addChildBlock: (sectionId, blockType) => {
@@ -488,6 +571,116 @@ const useStore = create((set) => ({
       return;
     }
     submitPatches([patch]).catch((e) => console.error('deleteBlock persist failed:', e));
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Phase 6.5.c — dashboard filters
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // Local mutable filter state (form values); persisted to manifest on Save,
+  // applied to all blocks on Güncelle.
+  filterState: {},
+  filterStatus: {},   // {blockId: 'cache_hit'|'subset'|'refetching'|'refetched'|'error', ...}
+  filterBusy: false,
+
+  setFilterValue: (filterId, value) => {
+    set((s) => ({ filterState: { ...s.filterState, [filterId]: value } }));
+  },
+
+  initFilterStateFromManifest: () => {
+    const state = useStore.getState();
+    const m = state.manifest;
+    if (!m) return;
+    // Prefer the manifest's persisted filter_state (last user save).
+    // Otherwise compute from filter defaults.
+    if (m.filter_state && Object.keys(m.filter_state).length > 0) {
+      set({ filterState: { ...m.filter_state } });
+      return;
+    }
+    const initial = {};
+    for (const f of (m.filters || [])) {
+      if (f.default != null) initial[f.id] = f.default;
+    }
+    set({ filterState: initial });
+  },
+
+  addDashboardFilter: (filterDef) => {
+    const state = useStore.getState();
+    if (!state.manifest) return;
+    const existing = state.manifest.filters || [];
+    // Disallow duplicate ids.
+    if (existing.some((f) => f.id === filterDef.id)) {
+      throw new Error(`Filtre id ${filterDef.id} zaten var.`);
+    }
+    const idx = existing.length;
+    const patch = { op: 'add', path: `/filters/${idx}`, value: filterDef };
+    // If /filters doesn't exist yet, prepend an "ensure array" patch.
+    const ensure = (state.manifest.filters === undefined)
+      ? [{ op: 'add', path: '/filters', value: [] }]
+      : [];
+    set((s) => {
+      if (!s.manifest) return {};
+      const next = _applyPatches(s.manifest, [...ensure, patch]);
+      next.version = (next.version || 0) + 1;
+      // Seed local filter state with this new filter's default.
+      const fs = { ...s.filterState };
+      if (filterDef.default != null) fs[filterDef.id] = filterDef.default;
+      return { manifest: next, filterState: fs };
+    });
+    submitPatches([...ensure, patch]).catch((e) =>
+      console.error('addDashboardFilter persist failed:', e),
+    );
+  },
+
+  removeDashboardFilter: (filterId) => {
+    const state = useStore.getState();
+    if (!state.manifest) return;
+    const filters = state.manifest.filters || [];
+    const idx = filters.findIndex((f) => f.id === filterId);
+    if (idx < 0) return;
+    const patch = { op: 'remove', path: `/filters/${idx}` };
+    set((s) => {
+      if (!s.manifest) return {};
+      const next = _applyPatches(s.manifest, [patch]);
+      next.version = (next.version || 0) + 1;
+      const fs = { ...s.filterState };
+      delete fs[filterId];
+      return { manifest: next, filterState: fs };
+    });
+    submitPatches([patch]).catch((e) =>
+      console.error('removeDashboardFilter persist failed:', e),
+    );
+  },
+
+  applyFilters: async () => {
+    const state = useStore.getState();
+    if (!state.manifest) return;
+    set({ filterBusy: true, filterStatus: {} });
+    try {
+      const result = await applyDashboardFilters(state.filterState);
+      // Refresh manifest from server (server wrote block.data_source +
+      // block.config + bumped version).
+      // We don't have a single-shot fetch helper in the store; the simplest
+      // path is to mark statuses, then trust the server's per-block data
+      // mutations by re-fetching manifest. For now we rely on the version
+      // bump and the existing manifest refresh on next mount, OR we walk
+      // the response and merge each block in-place by id.
+      const statusMap = {};
+      for (const blk of result.blocks || []) {
+        statusMap[blk.id] = blk.status;
+      }
+      set({ filterStatus: statusMap });
+      // Re-fetch manifest to pick up the per-block data_source/config that
+      // the server already wrote. The lightweight path: GET /manifest.
+      const refreshed = await fetch(`${window.location.pathname.replace(/\/$/, '')}/manifest`);
+      if (refreshed.ok) {
+        const m = await refreshed.json();
+        set({ manifest: m });
+      }
+      return result;
+    } finally {
+      set({ filterBusy: false });
+    }
   },
 
   // Phase 6.5 — run a manual-SQL block's query with declared variables.

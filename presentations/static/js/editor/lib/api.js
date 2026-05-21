@@ -285,6 +285,58 @@ export async function runBlockManual(blockId, { query, variables, variableOverri
 
 
 /**
+ * Phase 6.5.c — apply dashboard filter state across every block.
+ *
+ * Body: `{ filter_state: { <filter_id>: <value> } }`.
+ * Server walks each block, resolves variables via bindings + filter state,
+ * checks cache (exact / subset / miss), executes if needed, and returns
+ * per-block status.
+ */
+export async function applyDashboardFilters(filterState) {
+  const resp = await fetch(`${API_BASE}/apply-filters`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filter_state: filterState }),
+  });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok || !body.ok) {
+    const err = new Error(body.error || `Apply başarısız (${resp.status})`);
+    throw err;
+  }
+  return body;  // {ok, version, blocks: [{id, status, ...}, ...]}
+}
+
+
+/**
+ * List Phase 6.5 block templates from the BlockStore. Used by AddBlockPanel's
+ * "Şablonlar" tab.
+ */
+export async function fetchBlockTemplates({ q, team, tag, vizType } = {}) {
+  const blockApiBase = API_BASE.replace(/\/[^/]+$/, '') + '/blocks/api';
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (team) params.set('team', team);
+  if (tag) params.set('tag', tag);
+  if (vizType) params.set('viz_type', vizType);
+  const qs = params.toString();
+  const resp = await fetch(`${blockApiBase}/list${qs ? '?' + qs : ''}`);
+  if (!resp.ok) throw new Error(`Şablon listesi alınamadı (${resp.status})`);
+  return resp.json();
+}
+
+
+/**
+ * Load a single Phase 6.5 block template by (team, id, version).
+ */
+export async function fetchBlockTemplate(team, id, version) {
+  const blockApiBase = API_BASE.replace(/\/[^/]+$/, '') + '/blocks/api';
+  const resp = await fetch(`${blockApiBase}/${encodeURIComponent(team)}/${encodeURIComponent(id)}/${version}`);
+  if (!resp.ok) throw new Error(`Şablon yüklenemedi (${resp.status})`);
+  return resp.json();
+}
+
+
+/**
  * Save an in-presentation block as a reusable Phase 6.5 block template.
  * Posts to the block store at /presentations/blocks/api/save with the
  * variable-aware shape (semantic_tag required for every variable).

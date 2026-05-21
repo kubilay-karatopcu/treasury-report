@@ -65,7 +65,7 @@ BLOCK_TYPES = LEAF_BLOCK_TYPES | CONTAINER_BLOCK_TYPES
 
 IMMUTABLE_BLOCK_FIELDS = frozenset({"id", "type", "locked"})
 
-ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/")
+ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/", "/filters", "/filter_state")
 
 # Block width — Phase 6.
 WIDTH_VALUES = frozenset({"full", "1/2", "1/3", "2/3"})
@@ -357,6 +357,27 @@ def validate_manifest(manifest: dict) -> list[str]:
             )
             continue
         errors.extend(validate_block(block, allow_section=True))
+
+    # ── Phase 6.5.c: top-level filters[] (optional) ───────────────────────
+    filters = manifest.get("filters")
+    if filters is not None:
+        if not isinstance(filters, list):
+            errors.append("manifest.filters must be a list")
+        else:
+            from presentations.dashboards.schema import DashboardFilter
+            seen_ids: set[str] = set()
+            for i, f in enumerate(filters):
+                if not isinstance(f, dict):
+                    errors.append(f"filters[{i}] must be an object")
+                    continue
+                try:
+                    df = DashboardFilter.model_validate(f)
+                except Exception as exc:
+                    errors.append(f"filters[{i}]: {exc}")
+                    continue
+                if df.id in seen_ids:
+                    errors.append(f"filters[{i}]: duplicate id {df.id!r}")
+                seen_ids.add(df.id)
 
     return errors
 
