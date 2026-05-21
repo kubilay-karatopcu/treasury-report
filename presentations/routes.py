@@ -1418,6 +1418,7 @@ def apply_dashboard_filters(pid: str):
     from .dashboards.binding import build_binding_resolver
     from .variables.resolver import resolve_variables, ResolutionError
     from .cache.block_cache import BlockCache, cache_key as _cache_key
+    from .sql.binder import EmptySelectionError
 
     session = _get_session(pid)
     manifest = session.get_manifest()
@@ -1503,6 +1504,26 @@ def apply_dashboard_filters(pid: str):
             results.append({"id": block["id"], "status": "error",
                              "kind": "resolution",
                              "error": "; ".join(exc.errors)})
+            continue
+
+        # ── Empty selection short-circuit ────────────────────────────────
+        # If any enum_multi variable resolved to an empty list (user
+        # deselected everything), the SQL would crash on `IN ()`. Return
+        # an empty result and skip the query entirely.
+        empty_var = None
+        for v in stand_in.variables:
+            if v.type == "enum_multi" and resolved.get(v.name) == []:
+                empty_var = v.name
+                break
+        if empty_var is not None:
+            import pandas as _pd
+            _apply_df_to_block(block, _pd.DataFrame(), engine="empty", query=query)
+            results.append({
+                "id": block["id"], "status": "empty",
+                "row_count": 0,
+                "reason": f"variable :{empty_var} has no selected values",
+            })
+            touched += 1
             continue
 
         # ── Cache lookup ─────────────────────────────────────────────────
