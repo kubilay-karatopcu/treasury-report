@@ -315,10 +315,35 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
       });
   }
 
+  /**
+   * Push the current local SQL + variables into the manifest block. This
+   * runs on textarea blur, on each Çalıştır click, and on each variable
+   * form change — so even if the user never clicks Çalıştır, "Şablon olarak
+   * kaydet" finds the current draft on block.query / block.variables.
+   *
+   * Without this sync the save modal sees stale (empty) fields and Pydantic
+   * rejects with "block.query: String should have at least 1 character".
+   */
+  function pushDraftToManifest() {
+    if (previewMode) return;  // template-edit handles its own state plumbing
+    if (sql !== (block.query || '')) {
+      setBlockField(block.id, 'query', sql);
+    }
+    // Compare a serialised projection to avoid no-op patches.
+    const submit = variablesForSubmit();
+    const current = block.variables || [];
+    if (JSON.stringify(submit) !== JSON.stringify(current)) {
+      setBlockField(block.id, 'variables', submit);
+    }
+  }
+
   async function handleRun() {
     setBusy(true);
     setErr(null);
     setWarnings([]);
+    // Persist the user's current draft to the manifest BEFORE the request,
+    // so a subsequent "Şablon olarak kaydet" doesn't lose it if Çalıştır fails.
+    pushDraftToManifest();
     try {
       // Sync new binds into the variables list before the request so the
       // server sees them. Existing entries keep their user-set values.
@@ -419,6 +444,21 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
     if (sql.trim() !== baseline) setStaleHint(true);
   }, [sql, block.query, block.data_source]);
 
+  // Debounced sync of local vars state → manifest. Persists user edits even
+  // if they never click Çalıştır before opening the save modal.
+  useEffect(() => {
+    if (previewMode) return;  // template-edit handles its own state plumbing
+    const handle = setTimeout(() => {
+      const submit = variablesForSubmit();
+      const current = block.variables || [];
+      if (JSON.stringify(submit) !== JSON.stringify(current)) {
+        setBlockField(block.id, 'variables', submit);
+      }
+    }, 600);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vars]);
+
   return (
     <>
       <Section title="SQL Sorgusu (manuel)">
@@ -430,6 +470,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
             placeholder="SELECT … FROM … WHERE x = :param"
             value={sql}
             onChange={(e) => setSql(e.target.value)}
+            onBlur={pushDraftToManifest}
           />
           <div className="props-sql-footer">
             <button

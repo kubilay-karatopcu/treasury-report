@@ -63,6 +63,17 @@ export default function SaveBlockModal() {
     if (busy) return;
     setBusy(true); setErr(null); setResult(null);
     try {
+      // Phase 6.5 templates require a non-empty SQL. The textarea state lives
+      // in ManualSqlEditor which debounces into the manifest, so block.query
+      // is the authoritative latest draft — but if the user opened this modal
+      // before any draft sync, surface a clear error instead of letting the
+      // server reject with a less helpful Pydantic message.
+      if (isPhase65Shape && !(block.query || '').trim()) {
+        throw new Error(
+          'SQL boş. Properties panelinde SQL yazıp Çalıştır\'a bastıktan sonra kaydedin.',
+        );
+      }
+
       const tags = tagsText.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
 
       if (isPhase65Shape) {
