@@ -217,11 +217,10 @@ def _resolve_enum_multi(var: Variable, raw: Any) -> list[Any]:
             f"variable {var.name!r}: values {bad!r} not in allowed_values "
             f"{var.allowed_values!r}"
         ])
-    if not raw:
-        # Empty list is invalid: an empty IN (...) would be a syntax error.
-        raise ResolutionError([
-            f"variable {var.name!r}: enum_multi value must be non-empty"
-        ])
+    # Empty list is allowed at resolution time: it means "user selected
+    # nothing" — the binder propagates this as EmptySelectionError so the
+    # application layer can short-circuit the query and render an empty chart
+    # instead of crashing on `IN ()`.
     return list(raw)
 
 

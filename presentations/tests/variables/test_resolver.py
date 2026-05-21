@@ -116,10 +116,13 @@ class TestResolveVariables:
             resolve_variables(block, overrides={"currency_list": ["TRY", "XXX"]})
         assert any("XXX" in e for e in exc.value.errors)
 
-    def test_enum_multi_empty_rejected(self, sample_block_dict):
+    def test_enum_multi_empty_allowed_at_resolve(self, sample_block_dict):
+        """Phase 6.5.c: resolver allows empty enum_multi (user deselected all).
+        The binder later raises EmptySelectionError so the caller can
+        short-circuit to an empty result instead of crashing on `IN ()`."""
         block = load_block_from_dict(sample_block_dict)
-        with pytest.raises(ResolutionError):
-            resolve_variables(block, overrides={"currency_list": []})
+        r = resolve_variables(block, overrides={"currency_list": []})
+        assert r["currency_list"] == []
 
     def test_required_no_default_no_value_raises(self):
         block = Block(

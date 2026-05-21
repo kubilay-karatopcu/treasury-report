@@ -124,7 +124,12 @@ def test_expand_binds_date_must_be_date_object():
         expand_binds(block, {"d_var": "2026-01-01"})
 
 
-def test_expand_binds_empty_enum_multi_rejected():
+def test_expand_binds_empty_enum_multi_raises_empty_selection():
+    """Phase 6.5.c: an empty enum_multi raises EmptySelectionError so the
+    caller can short-circuit to an empty result instead of building an
+    invalid `IN ()` clause."""
+    from presentations.sql.binder import EmptySelectionError
+
     block = Block(
         id="block_a", version=1, title="x", team="treasury", owner="x",
         created_at="2026-05-21T10:00:00Z",
@@ -135,8 +140,12 @@ def test_expand_binds_empty_enum_multi_rejected():
             "required": False, "allowed_values": ["A", "B"],
         }],
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(EmptySelectionError) as exc:
         expand_binds(block, {"c_var": []})
+    assert exc.value.variable_name == "c_var"
+    # EmptySelectionError IS-A ValueError for backwards compat with broad
+    # exception handlers.
+    assert isinstance(exc.value, ValueError)
 
 
 def test_date_range_via_accessors():

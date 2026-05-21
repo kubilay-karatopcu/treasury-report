@@ -42,6 +42,25 @@ class BoundQuery:
     params: dict[str, Any]
 
 
+class EmptySelectionError(ValueError):
+    """An ``enum_multi`` variable resolved to an empty list.
+
+    Raised by :func:`expand_binds` so the application layer can short-circuit
+    the query and render an empty chart instead of crashing on a SQL syntax
+    error (Oracle and DuckDB both reject ``IN ()``).
+
+    Attribute ``variable_name`` carries which variable was empty so the caller
+    can attribute the empty state in the UI.
+    """
+
+    def __init__(self, variable_name: str):
+        super().__init__(
+            f"variable :{variable_name} (enum_multi) resolved to an empty "
+            "selection. Caller should treat the result as zero rows."
+        )
+        self.variable_name = variable_name
+
+
 # ── Internals ─────────────────────────────────────────────────────────────
 
 # Match :ident exactly — must not be preceded by another ':' (Postgres cast).
@@ -139,10 +158,13 @@ def expand_binds(
         if var.type == "enum_multi":
             if name in expansion_cache:
                 return expansion_cache[name]
-            if not isinstance(value, list) or not value:
+            if not isinstance(value, list):
                 raise ValueError(
                     f"variable :{name} (enum_multi) has invalid resolved value: {value!r}"
                 )
+            if not value:
+                # Empty selection — caller short-circuits to empty result.
+                raise EmptySelectionError(name)
             placeholder_names = []
             for i, item in enumerate(value):
                 pname = f"{name}_{i}"
