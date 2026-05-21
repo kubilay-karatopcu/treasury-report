@@ -27,6 +27,7 @@ from deposit_panel import deposit_panel_bp, init_app as deposit_panel_init
 from presentations import presentations_bp
 from presentations.session import SessionRegistry
 from presentations.store import S3SnapshotStore
+from presentations.blocks.store import S3BlockStore, LocalBlockStore
 from presentations.llm import QwenClient
 import prisma_nav
 from pathlib import Path
@@ -460,6 +461,7 @@ if DEV_MODE:
         app.config["LLM_CLIENT"] = FakeLLM()
 
     app.config["SNAPSHOT_STORE"] = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
+    app.config["BLOCK_STORE"]    = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
     # DEV catalog → fake_db ile aynı tablolar (examples/sample_catalog.json).
     app.config["CATALOG_PATH"] = str(Path(__file__).parent / "examples" / "sample_catalog.json")
 else:
@@ -471,6 +473,7 @@ else:
         force_json=False,
     )
     app.config["SNAPSHOT_STORE"] = S3SnapshotStore(dc=dc)
+    app.config["BLOCK_STORE"]    = S3BlockStore(dc=dc)
 
  
 app.config["S3_GET"]    = _s3_get
