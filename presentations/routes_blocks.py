@@ -109,13 +109,13 @@ def _normalise_block_payload(payload: dict[str, Any]) -> dict[str, Any]:
 @login_required
 def block_library():
     """Deprecated — the Bloklar tab inside /presentations/ now hosts the
-    listing. Query string filters carry over to the tab via URL params.
+    listing. We redirect with ``?tab=blocks`` (query string survives every
+    proxy / redirect; the fragment ``#blocks`` does not in some setups).
     """
     from flask import redirect, url_for
-    target = url_for("presentations.list_presentations") + "#blocks"
     qs = request.query_string.decode("utf-8")
-    if qs:
-        target = url_for("presentations.list_presentations") + "?" + qs + "#blocks"
+    target = url_for("presentations.list_presentations")
+    target += ("?" + qs + "&tab=blocks") if qs else "?tab=blocks"
     return redirect(target)
 
 

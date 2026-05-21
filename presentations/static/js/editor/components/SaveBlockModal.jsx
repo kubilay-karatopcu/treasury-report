@@ -11,10 +11,13 @@ import AudiencePicker from './AudiencePicker.jsx';
  * deriving the base from window.location.pathname instead of url_for.
  */
 function blocksLibraryUrl() {
+  // Go directly to the Bloklar tab via ?tab=blocks. Avoids the
+  // /presentations/blocks/ → /presentations/?tab=blocks server redirect
+  // (one less round-trip + survives proxies that strip URL fragments).
   const path = window.location.pathname;
   const i = path.indexOf('/presentations/');
   const base = i >= 0 ? path.slice(0, i) : '';
-  return `${base}/presentations/blocks/`;
+  return `${base}/presentations/?tab=blocks`;
 }
 
 
