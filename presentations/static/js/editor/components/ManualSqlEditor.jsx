@@ -337,6 +337,29 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
     }
   }
 
+  /**
+   * Client-side pre-flight: stop submissions that would inevitably fail
+   * server-side schema validation. Cleaner UX than a Pydantic error string.
+   *
+   * Catches:
+   *   - enum_multi / enum_single with no allowed_values (most common
+   *     stumble after auto-detect — the user needs to fill the IN list).
+   *   - required-without-default vars (the resolver fails downstream too).
+   */
+  function preflightErrors(submitVars) {
+    const out = [];
+    for (const v of submitVars) {
+      if ((v.type === 'enum_multi' || v.type === 'enum_single')
+          && (!v.allowed_values || v.allowed_values.length === 0)) {
+        out.push(
+          `"${v.name}" (${v.type}): "Olası değerler" boş. ` +
+          `Aşağıdaki değişken kartından virgülle ayrılmış değerleri girin.`,
+        );
+      }
+    }
+    return out;
+  }
+
   async function handleRun() {
     setBusy(true);
     setErr(null);
@@ -378,6 +401,19 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
           default: parseDefault(inf.default, inf.type),
         };
       });
+
+      // Pre-flight: catch incomplete enum / required-no-default cases here
+      // so the user sees an actionable message ("doldur şu değişkeni")
+      // instead of the raw Pydantic chain from the server.
+      const pre = preflightErrors(submitVars);
+      if (pre.length > 0) {
+        setErr({
+          message: pre.join('\n'),
+          kind: 'incomplete',
+        });
+        setBusy(false);
+        return;
+      }
 
       let result;
       if (previewMode) {
