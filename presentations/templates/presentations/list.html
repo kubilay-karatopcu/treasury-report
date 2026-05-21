@@ -392,9 +392,11 @@
   };
 
   function blocksApiUrl() {
-    // window.location.pathname survives SCRIPT_NAME proxy prefixes
-    // (e.g. /proxy/8080/presentations/).
-    const base = window.location.pathname.replace(/\/$/, '');
+    // Build a slash-safe base. window.location.pathname might be:
+    //   '/presentations/'              → strip trailing → '/presentations'
+    //   '/proxy/8080/presentations/'   → same idea, leading proxy prefix preserved
+    // Result + '/blocks/api/list' = correct concat regardless of trailing slash.
+    const base = window.location.pathname.replace(/\/+$/, '');
     const params = new URLSearchParams();
     const q     = document.getElementById('blocks-filter-q').value.trim();
     const team  = document.getElementById('blocks-filter-team').value.trim();
@@ -405,12 +407,12 @@
     if (tag)  params.set('tag', tag);
     if (viz)  params.set('viz_type', viz);
     const qs = params.toString();
-    return `${base}blocks/api/list${qs ? '?' + qs : ''}`;
+    return `${base}/blocks/api/list${qs ? '?' + qs : ''}`;
   }
 
   function blockEditUrl(team, id) {
-    const base = window.location.pathname.replace(/\/$/, '');
-    return `${base}blocks/edit/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+    const base = window.location.pathname.replace(/\/+$/, '');
+    return `${base}/blocks/edit/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
   }
 
   async function loadBlocks() {
