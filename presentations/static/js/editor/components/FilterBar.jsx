@@ -172,26 +172,69 @@ function DateRangeWidget({ value, onChange }) {
 
 
 function EnumMultiWidget({ filter, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useState(null);
   const selected = useMemo(() => new Set(Array.isArray(value) ? value : []), [value]);
+  const allowed = filter.allowed_values || [];
+
+  // Close on outside click.
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) {
+      const root = document.getElementById(`fmw-${filter.id}`);
+      if (root && !root.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open, filter.id]);
+
   function toggle(v) {
     const next = new Set(selected);
     if (next.has(v)) next.delete(v); else next.add(v);
-    // Preserve original order from allowed_values to keep cache key stable.
-    const result = (filter.allowed_values || []).filter((x) => next.has(x));
+    const result = allowed.filter((x) => next.has(x));
     onChange(result);
   }
+  function selectAll() { onChange(allowed.slice()); }
+  function clearAll()  { onChange([]); }
+
+  const summary = (
+    selected.size === 0 ? 'hiçbiri'
+    : selected.size === allowed.length ? `Tümü (${allowed.length})`
+    : selected.size <= 2 ? [...selected].join(', ')
+    : `${selected.size} seçili`
+  );
+
   return (
-    <div className="filter-widget__chips">
-      {(filter.allowed_values || []).map((v) => (
-        <button
-          key={String(v)}
-          type="button"
-          className={`filter-chip${selected.has(v) ? ' is-active' : ''}`}
-          onClick={() => toggle(v)}
-        >
-          {String(v)}
-        </button>
-      ))}
+    <div id={`fmw-${filter.id}`} className="filter-enum-multi">
+      <button
+        type="button"
+        className={`filter-enum-multi__trigger${open ? ' is-open' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        title={[...selected].join(', ')}
+      >
+        <span className="filter-enum-multi__summary">{summary}</span>
+        <span className="filter-enum-multi__caret">▾</span>
+      </button>
+      {open && (
+        <div className="filter-enum-multi__panel">
+          <div className="filter-enum-multi__actions">
+            <button type="button" onClick={selectAll}>Tümünü seç</button>
+            <button type="button" onClick={clearAll}>Temizle</button>
+          </div>
+          <div className="filter-enum-multi__list">
+            {allowed.map((v) => (
+              <label key={String(v)} className="filter-enum-multi__row">
+                <input
+                  type="checkbox"
+                  checked={selected.has(v)}
+                  onChange={() => toggle(v)}
+                />
+                <span>{String(v)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
