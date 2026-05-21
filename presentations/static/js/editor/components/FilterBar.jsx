@@ -243,47 +243,182 @@ const SEMANTIC_TAGS = [
   'other',
 ];
 
+const SEMANTIC_TAG_LABELS = {
+  as_of_time:     'Snapshot zamanı',
+  trade_time:     'İşlem zamanı',
+  value_time:     'Valör zamanı',
+  settle_time:    'Takas zamanı',
+  currency:       'Para birimi',
+  maturity:       'Vade',
+  tenor_bucket:   'Vade dilimi',
+  counterparty:   'Karşı taraf',
+  branch:         'Şube',
+  region:         'Bölge',
+  product_group:  'Ürün grubu',
+  segment:        'Segment',
+  rating_bucket:  'Rating dilimi',
+  user_id:        'Kullanıcı kimliği',
+  deal_id:        'İşlem kimliği',
+  instrument_type:'Enstrüman tipi',
+  other:          'Diğer',
+};
+
+
+/**
+ * Walk every leaf block in the manifest, collect variables that don't yet
+ * have a matching dashboard filter (by semantic_tag), and propose them as
+ * one-click filter suggestions.
+ *
+ * Returns an array of candidates, each shape:
+ *   {
+ *     semantic_tag,
+ *     suggested_id,             // e.g. "f_segment"
+ *     label,
+ *     type,                     // "date_range" | "enum_multi" | "enum_single" | "number_range"
+ *     allowed_values,           // for enum types
+ *     default,                  // sensible default (mirror block defaults / allowed_values)
+ *     variable_names,           // string[] — the :params this filter will drive
+ *     block_count,              // how many blocks use this tag
+ *   }
+ */
+function proposeFiltersFromManifest(manifest) {
+  if (!manifest) return [];
+  const existingTags = new Set((manifest.filters || []).map((f) => f.semantic_tag));
+
+  // Walk all leaf blocks (inside sections, inside carousels too).
+  const variables = [];
+  for (const section of manifest.blocks || []) {
+    for (const child of section.children || []) {
+      if (Array.isArray(child.variables)) {
+        for (const v of child.variables) {
+          variables.push({ ...v, _block_id: child.id });
+        }
+      }
+      if (child.type === 'carousel' && Array.isArray(child.children)) {
+        for (const slide of child.children) {
+          if (Array.isArray(slide.variables)) {
+            for (const v of slide.variables) {
+              variables.push({ ...v, _block_id: slide.id });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Group by semantic_tag.
+  const byTag = new Map();
+  for (const v of variables) {
+    if (!v.semantic_tag || existingTags.has(v.semantic_tag)) continue;
+    if (!byTag.has(v.semantic_tag)) byTag.set(v.semantic_tag, []);
+    byTag.get(v.semantic_tag).push(v);
+  }
+
+  const proposals = [];
+  for (const [tag, vars] of byTag) {
+    // ── Date pairing: as_of_from + as_of_to → date_range ────────────────
+    const dateVars = vars.filter((v) => v.type === 'date');
+    const fromVar = dateVars.find((v) => /_(from|since|start)$/i.test(v.name));
+    const toVar   = dateVars.find((v) => /_(to|until|end)$/i.test(v.name));
+    if (fromVar && toVar) {
+      proposals.push({
+        semantic_tag: tag,
+        suggested_id: 'f_' + tag,
+        label: SEMANTIC_TAG_LABELS[tag] || tag,
+        type: 'date_range',
+        default: {
+          from: typeof fromVar.default === 'string' ? fromVar.default : 'today - 30d',
+          to:   typeof toVar.default === 'string'   ? toVar.default   : 'today',
+        },
+        variable_names: [fromVar.name, toVar.name],
+        block_count: new Set(vars.map((v) => v._block_id)).size,
+      });
+      // Continue — there might also be a non-paired enum variable for the
+      // same tag (rare; fall through to other groupings).
+      continue;
+    }
+
+    // ── Single date → date_range with same value both ends ───────────────
+    if (dateVars.length === 1) {
+      const v = dateVars[0];
+      proposals.push({
+        semantic_tag: tag,
+        suggested_id: 'f_' + tag,
+        label: SEMANTIC_TAG_LABELS[tag] || tag,
+        type: 'date_range',
+        default: {
+          from: typeof v.default === 'string' ? v.default : 'today - 30d',
+          to:   'today',
+        },
+        variable_names: [v.name],
+        block_count: 1,
+      });
+      continue;
+    }
+
+    // ── enum_multi / enum_single ─────────────────────────────────────────
+    const enumVars = vars.filter((v) => v.type === 'enum_multi' || v.type === 'enum_single');
+    if (enumVars.length) {
+      // Union of allowed_values across variables sharing the tag.
+      const allowedUnion = new Set();
+      for (const v of enumVars) {
+        for (const av of (v.allowed_values || [])) allowedUnion.add(av);
+      }
+      const allowed = [...allowedUnion];
+      // Pick type by majority — if any var is enum_multi, propose multi.
+      const isMulti = enumVars.some((v) => v.type === 'enum_multi');
+      proposals.push({
+        semantic_tag: tag,
+        suggested_id: 'f_' + tag,
+        label: SEMANTIC_TAG_LABELS[tag] || tag,
+        type: isMulti ? 'enum_multi' : 'enum_single',
+        allowed_values: allowed,
+        default: isMulti ? allowed : (enumVars[0].default || allowed[0]),
+        variable_names: enumVars.map((v) => v.name),
+        block_count: new Set(enumVars.map((v) => v._block_id)).size,
+      });
+      continue;
+    }
+
+    // ── number_range ─────────────────────────────────────────────────────
+    const numVars = vars.filter((v) => v.type === 'number_range');
+    if (numVars.length) {
+      const v = numVars[0];
+      proposals.push({
+        semantic_tag: tag,
+        suggested_id: 'f_' + tag,
+        label: SEMANTIC_TAG_LABELS[tag] || tag,
+        type: 'number_range',
+        default: v.default || { min: 0, max: 100 },
+        variable_names: numVars.map((x) => x.name),
+        block_count: numVars.length,
+      });
+    }
+  }
+
+  return proposals;
+}
+
 
 function AddFilterModal({ onClose }) {
+  const manifest  = useStore((s) => s.manifest);
   const addFilter = useStore((s) => s.addDashboardFilter);
-  const [id, setId]                       = useState('f_');
-  const [semanticTag, setSemanticTag]     = useState('as_of_time');
-  const [type, setType]                   = useState('date_range');
-  const [label, setLabel]                 = useState('');
-  const [allowedValues, setAllowedValues] = useState('');
-  const [defaultFromExpr, setDefaultFrom] = useState('today - 30d');
-  const [defaultToExpr, setDefaultTo]     = useState('today');
-  const [defaultSingleVal, setDefaultSingleVal] = useState('');
-  const [err, setErr]                     = useState(null);
 
-  function handleSave() {
+  const [view, setView] = useState('suggest');   // 'suggest' | 'manual'
+  const [err, setErr]   = useState(null);
+
+  const proposals = useMemo(() => proposeFiltersFromManifest(manifest), [manifest]);
+
+  function addProposal(prop) {
     setErr(null);
-    if (!id.trim() || !label.trim()) {
-      setErr('id ve etiket zorunlu');
-      return;
-    }
-    const cleanId = id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
     const def = {
-      id: cleanId,
-      semantic_tag: semanticTag,
-      type,
-      label: label.trim(),
+      id: prop.suggested_id,
+      semantic_tag: prop.semantic_tag,
+      type: prop.type,
+      label: prop.label,
     };
-    if (type === 'date_range') {
-      def.default = { from: defaultFromExpr.trim(), to: defaultToExpr.trim() };
-    } else if (type === 'enum_multi' || type === 'enum_single') {
-      const parsed = allowedValues.split(',').map((s) => s.trim()).filter(Boolean);
-      if (!parsed.length) { setErr('allowed_values gerekli'); return; }
-      def.allowed_values = parsed;
-      if (type === 'enum_multi') {
-        def.default = parsed;
-      } else if (defaultSingleVal.trim()) {
-        def.default = defaultSingleVal.trim();
-      }
-    } else if (type === 'number_range') {
-      def.default = { min: 0, max: 100 };
-    }
-
+    if (prop.allowed_values) def.allowed_values = prop.allowed_values;
+    if (prop.default !== undefined) def.default = prop.default;
     try {
       addFilter(def);
       onClose();
@@ -296,68 +431,188 @@ function AddFilterModal({ onClose }) {
     <div className="filter-modal-backdrop" onClick={onClose}>
       <div className="filter-modal" onClick={(e) => e.stopPropagation()}>
         <header className="filter-modal__head">
-          <h3>Yeni Filtre</h3>
+          <h3>{view === 'suggest' ? 'Filtre Ekle' : 'Özel Filtre'}</h3>
           <button type="button" onClick={onClose}><X size={16} /></button>
         </header>
-        <div className="filter-modal__body">
-          <label>
-            <span>ID</span>
-            <input type="text" value={id} onChange={(e) => setId(e.target.value)} placeholder="f_period"/>
-          </label>
-          <label>
-            <span>Etiket</span>
-            <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Tarih Aralığı"/>
-          </label>
-          <label>
-            <span>Anlam (semantic_tag)</span>
-            <select value={semanticTag} onChange={(e) => setSemanticTag(e.target.value)}>
-              {SEMANTIC_TAGS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
-          <label>
-            <span>Tip</span>
-            <select value={type} onChange={(e) => setType(e.target.value)}>
-              <option value="date_range">Tarih aralığı</option>
-              <option value="enum_multi">Enum (çoklu)</option>
-              <option value="enum_single">Enum (tek)</option>
-              <option value="number_range">Sayı aralığı</option>
-            </select>
-          </label>
-          {type === 'date_range' && (
-            <>
-              <label>
-                <span>Varsayılan: from</span>
-                <input type="text" value={defaultFromExpr}
-                       onChange={(e) => setDefaultFrom(e.target.value)} placeholder="today - 30d"/>
-              </label>
-              <label>
-                <span>Varsayılan: to</span>
-                <input type="text" value={defaultToExpr}
-                       onChange={(e) => setDefaultTo(e.target.value)} placeholder="today"/>
-              </label>
-            </>
-          )}
-          {(type === 'enum_multi' || type === 'enum_single') && (
-            <label>
-              <span>Olası değerler (virgülle)</span>
-              <input type="text" value={allowedValues}
-                     onChange={(e) => setAllowedValues(e.target.value)} placeholder="TRY, USD, EUR"/>
-            </label>
-          )}
-          {type === 'enum_single' && (
-            <label>
-              <span>Varsayılan tek değer</span>
-              <input type="text" value={defaultSingleVal}
-                     onChange={(e) => setDefaultSingleVal(e.target.value)} placeholder="TRY"/>
-            </label>
-          )}
-          {err && <div className="filter-modal__err">{err}</div>}
-        </div>
-        <footer className="filter-modal__foot">
-          <button type="button" className="filter-modal__cancel" onClick={onClose}>İptal</button>
-          <button type="button" className="filter-modal__save" onClick={handleSave}>Kaydet</button>
-        </footer>
+
+        {view === 'suggest' ? (
+          <SuggestionList
+            proposals={proposals}
+            onAdd={addProposal}
+            onSwitchManual={() => setView('manual')}
+            err={err}
+          />
+        ) : (
+          <ManualFilterForm
+            onSave={(def) => { try { addFilter(def); onClose(); } catch (e) { setErr(e.message); }}}
+            onBack={() => setView('suggest')}
+            err={err}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+
+function SuggestionList({ proposals, onAdd, onSwitchManual, err }) {
+  return (
+    <>
+      <div className="filter-modal__body">
+        {proposals.length === 0 ? (
+          <div className="filter-suggest-empty">
+            Filtreye bağlanabilecek değişken yok — ya bütün block variable'ları
+            zaten filtre olarak ekli, ya da hiç değişkenli block yok.
+            <br/><br/>
+            Yine de özel filtre eklemek istiyorsan aşağıdan.
+          </div>
+        ) : (
+          <>
+            <p className="filter-suggest-intro">
+              Block'larındaki <code>:param</code>'lara göre önerilen filtreler.
+              Tıkla, otomatik eklensin.
+            </p>
+            <div className="filter-suggest-list">
+              {proposals.map((p) => (
+                <SuggestionRow key={p.semantic_tag} prop={p} onAdd={() => onAdd(p)} />
+              ))}
+            </div>
+          </>
+        )}
+        {err && <div className="filter-modal__err">{err}</div>}
+      </div>
+      <footer className="filter-modal__foot">
+        <button type="button" className="filter-modal__cancel" onClick={onSwitchManual}>
+          Özel filtre ekle…
+        </button>
+      </footer>
+    </>
+  );
+}
+
+
+function SuggestionRow({ prop, onAdd }) {
+  const tagLabel = SEMANTIC_TAG_LABELS[prop.semantic_tag] || prop.semantic_tag;
+  const params = prop.variable_names.map((n) => `:${n}`).join(', ');
+  let detail = '';
+  if (prop.type === 'date_range') detail = `Tarih aralığı`;
+  else if (prop.type === 'enum_multi')  detail = `${(prop.allowed_values || []).length} değer (çoklu)`;
+  else if (prop.type === 'enum_single') detail = `${(prop.allowed_values || []).length} değer (tek)`;
+  else if (prop.type === 'number_range') detail = `Sayı aralığı`;
+
+  return (
+    <button type="button" className="filter-suggest-row" onClick={onAdd}>
+      <div className="filter-suggest-row__main">
+        <div className="filter-suggest-row__tag">{tagLabel}</div>
+        <div className="filter-suggest-row__params">{params}</div>
+        <div className="filter-suggest-row__detail">
+          {detail}
+          {prop.block_count > 1 && <span> · {prop.block_count} blokta</span>}
+        </div>
+        {prop.allowed_values && prop.allowed_values.length > 0 && (
+          <div className="filter-suggest-row__values">
+            {prop.allowed_values.slice(0, 8).map((v) => (
+              <span key={String(v)} className="filter-suggest-row__chip">{String(v)}</span>
+            ))}
+            {prop.allowed_values.length > 8 && (
+              <span className="filter-suggest-row__chip">+{prop.allowed_values.length - 8}</span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="filter-suggest-row__cta">+ Ekle</div>
+    </button>
+  );
+}
+
+
+function ManualFilterForm({ onSave, onBack, err }) {
+  const [id, setId]                       = useState('f_');
+  const [semanticTag, setSemanticTag]     = useState('as_of_time');
+  const [type, setType]                   = useState('date_range');
+  const [label, setLabel]                 = useState('');
+  const [allowedValues, setAllowedValues] = useState('');
+  const [defaultFromExpr, setDefaultFrom] = useState('today - 30d');
+  const [defaultToExpr, setDefaultTo]     = useState('today');
+  const [defaultSingleVal, setDefaultSingleVal] = useState('');
+  const [localErr, setLocalErr]           = useState(null);
+
+  function handleSave() {
+    setLocalErr(null);
+    if (!id.trim() || !label.trim()) {
+      setLocalErr('id ve etiket zorunlu');
+      return;
+    }
+    const cleanId = id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const def = {
+      id: cleanId, semantic_tag: semanticTag, type, label: label.trim(),
+    };
+    if (type === 'date_range') {
+      def.default = { from: defaultFromExpr.trim(), to: defaultToExpr.trim() };
+    } else if (type === 'enum_multi' || type === 'enum_single') {
+      const parsed = allowedValues.split(',').map((s) => s.trim()).filter(Boolean);
+      if (!parsed.length) { setLocalErr('allowed_values gerekli'); return; }
+      def.allowed_values = parsed;
+      if (type === 'enum_multi') def.default = parsed;
+      else if (defaultSingleVal.trim()) def.default = defaultSingleVal.trim();
+    } else if (type === 'number_range') {
+      def.default = { min: 0, max: 100 };
+    }
+    onSave(def);
+  }
+
+  const shownErr = localErr || err;
+
+  return (
+    <>
+      <div className="filter-modal__body">
+        <label><span>ID</span>
+          <input type="text" value={id} onChange={(e) => setId(e.target.value)} placeholder="f_period"/>
+        </label>
+        <label><span>Etiket</span>
+          <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Tarih Aralığı"/>
+        </label>
+        <label><span>Anlam</span>
+          <select value={semanticTag} onChange={(e) => setSemanticTag(e.target.value)}>
+            {SEMANTIC_TAGS.map((t) => (
+              <option key={t} value={t}>{t} — {SEMANTIC_TAG_LABELS[t] || t}</option>
+            ))}
+          </select>
+        </label>
+        <label><span>Tip</span>
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="date_range">Tarih aralığı</option>
+            <option value="enum_multi">Enum (çoklu)</option>
+            <option value="enum_single">Enum (tek)</option>
+            <option value="number_range">Sayı aralığı</option>
+          </select>
+        </label>
+        {type === 'date_range' && (
+          <>
+            <label><span>Varsayılan: from</span>
+              <input type="text" value={defaultFromExpr} onChange={(e) => setDefaultFrom(e.target.value)} placeholder="today - 30d"/>
+            </label>
+            <label><span>Varsayılan: to</span>
+              <input type="text" value={defaultToExpr} onChange={(e) => setDefaultTo(e.target.value)} placeholder="today"/>
+            </label>
+          </>
+        )}
+        {(type === 'enum_multi' || type === 'enum_single') && (
+          <label><span>Olası değerler (virgülle)</span>
+            <input type="text" value={allowedValues} onChange={(e) => setAllowedValues(e.target.value)} placeholder="TRY, USD, EUR"/>
+          </label>
+        )}
+        {type === 'enum_single' && (
+          <label><span>Varsayılan tek değer</span>
+            <input type="text" value={defaultSingleVal} onChange={(e) => setDefaultSingleVal(e.target.value)} placeholder="TRY"/>
+          </label>
+        )}
+        {shownErr && <div className="filter-modal__err">{shownErr}</div>}
+      </div>
+      <footer className="filter-modal__foot">
+        <button type="button" className="filter-modal__cancel" onClick={onBack}>← Önerilere dön</button>
+        <button type="button" className="filter-modal__save" onClick={handleSave}>Kaydet</button>
+      </footer>
+    </>
   );
 }
