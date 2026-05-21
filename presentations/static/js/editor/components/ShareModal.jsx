@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
+import { X, Copy, ExternalLink, Check } from 'lucide-react';
 import useStore from '../lib/store.js';
+import { copyToClipboard } from '../lib/clipboard.js';
 
 export default function ShareModal() {
   const info = useStore((s) => s.shareModal);
@@ -18,53 +20,68 @@ export default function ShareModal() {
 
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(info.url);
+      await copyToClipboard(info.url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for browsers without clipboard API permission
-      inputRef.current?.select();
-      document.execCommand('copy');
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error('clipboard copy failed:', e);
     }
   }
 
   return (
-    <div className="share-modal-backdrop" onClick={close}>
-      <div className="share-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="share-modal-header">
+    <div className="save-modal-backdrop" onClick={close}>
+      <div className="save-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="save-modal-header">
           <h3>Snapshot Hazır</h3>
-          <button className="share-modal-close" onClick={close} aria-label="Kapat">✕</button>
+          <button className="save-modal-close" onClick={close} aria-label="Kapat">
+            <X size={16} strokeWidth={2} />
+          </button>
         </div>
-        <div className="share-modal-body">
-          <p className="share-modal-desc">
-            Sunum'un v{info.manifest_version} haline ait dondurulmuş bir kopya oluşturuldu.
-            Bu bağlantıyı paylaşabilirsiniz — açan kişi mevcut görünümü değiştiremez.
+
+        <div className="save-modal-body">
+          <p className="save-tab-desc">
+            Sunum'un v{info.manifest_version} haline ait dondurulmuş bir kopya
+            oluşturuldu. Aşağıdaki bağlantıyı paylaşabilirsin — açan kişi
+            mevcut görünümü değiştiremez.
           </p>
-          <div className="share-modal-row">
+
+          <div className="share-url-row">
             <input
               ref={inputRef}
-              className="share-modal-url"
+              className="share-url-input"
               type="text"
               readOnly
               value={info.url}
             />
-            <button className="share-modal-copy-btn" onClick={copyLink}>
-              {copied ? '✓ Kopyalandı' : 'Kopyala'}
+            <button
+              type="button"
+              className="save-btn save-btn--ghost share-copy-btn"
+              onClick={copyLink}
+            >
+              {copied
+                ? <><Check size={13} strokeWidth={2} /><span>Kopyalandı</span></>
+                : <><Copy  size={13} strokeWidth={2} /><span>Kopyala</span></>}
             </button>
           </div>
-          <div className="share-modal-meta">
+
+          <div className="share-meta">
             ID: <code>{info.snapshot_id}</code>
           </div>
-        </div>
-        <div className="share-modal-footer">
-          <a href={info.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-primary">
-            Yeni sekmede aç
-          </a>
-          <button className="btn btn-sm btn-outline-secondary" onClick={close}>
-            Tamam
-          </button>
+
+          <div className="save-action-row" style={{ marginTop: 16 }}>
+            <a
+              href={info.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="save-btn save-btn--ghost"
+            >
+              <ExternalLink size={13} strokeWidth={2} />
+              <span>Yeni sekmede aç</span>
+            </a>
+            <button type="button" className="save-btn save-btn--ghost" onClick={close}>
+              Tamam
+            </button>
+          </div>
         </div>
       </div>
     </div>
