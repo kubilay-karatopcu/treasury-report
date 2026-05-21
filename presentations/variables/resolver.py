@@ -328,6 +328,16 @@ def _select_raw(
     if var.default is not None:
         return var.default, True  # defaults always run through the parser for dates.
 
+    # Phase 6.5.c UX: enum types without an explicit default fall back to
+    # ``allowed_values`` (multi → all, single → first). Most blocks want
+    # "select everything by default" — making the user repeat that list as a
+    # default value is busywork. Power users can still override by setting
+    # default explicitly.
+    if var.type == "enum_multi" and var.allowed_values:
+        return list(var.allowed_values), False
+    if var.type == "enum_single" and var.allowed_values:
+        return var.allowed_values[0], False
+
     return None, False
 
 

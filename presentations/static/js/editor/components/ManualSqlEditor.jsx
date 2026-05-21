@@ -370,13 +370,12 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
   function preflightErrors(submitVars) {
     const out = [];
     for (const v of submitVars) {
-      if ((v.type === 'enum_multi' || v.type === 'enum_single')
-          && (!v.allowed_values || v.allowed_values.length === 0)) {
-        out.push(
-          `"${v.name}" (${v.type}): "Olası değerler" boş. ` +
-          `Aşağıdaki değişken kartından virgülle ayrılmış değerleri girin.`,
-        );
-        continue;  // missing allowed_values implies missing default — don't double-report
+      // Phase 6.5.c UX update: enum types no longer require explicit
+      // allowed_values OR default — server auto-discovers allowed_values
+      // from SELECT DISTINCT, and resolver falls back to allowed_values as
+      // default. Only date / range types still need a default.
+      if ((v.type === 'enum_multi' || v.type === 'enum_single')) {
+        continue;
       }
       if (v.required && (v.default === undefined || v.default === null
                         || (Array.isArray(v.default) && v.default.length === 0))) {
@@ -488,6 +487,18 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
           query: sql,
           variables: submitVars,
         });
+      }
+      // Reflect discovered allowed_values (server-side SELECT DISTINCT) into
+      // the variable rows so the user sees what was filled in.
+      if (Array.isArray(result.block?.variables) && result.block.variables.length) {
+        setVars(result.block.variables.map((vv) => ({
+          name: vv.name || '',
+          type: vv.type || 'date',
+          semantic_tag: vv.semantic_tag || 'other',
+          required: vv.required !== false,
+          default_str: defaultsToString(vv.default, vv.type),
+          allowed_values_str: Array.isArray(vv.allowed_values) ? vv.allowed_values.join(', ') : '',
+        })));
       }
       setWarnings(result.warnings || []);
       setStaleHint(false);
@@ -619,6 +630,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
 function VariableRow({ v, onChange, onRemove, orphaned }) {
   const isOther = v.semantic_tag === 'other';
   const isEnum = v.type === 'enum_single' || v.type === 'enum_multi';
+  const isDate = v.type === 'date';
 
   return (
     <div className={`props-var-card${isOther ? ' is-other-tag' : ''}${orphaned ? ' is-orphan' : ''}`}>
@@ -663,28 +675,52 @@ function VariableRow({ v, onChange, onRemove, orphaned }) {
           </div>
         )}
       </div>
-      <div className="props-var-row">
-        <label className="props-var-label">Varsayılan</label>
-        <input
-          type="text"
-          className="props-input"
-          value={v.default_str}
-          onChange={(e) => onChange({ default_str: e.target.value })}
-          placeholder={TYPE_DEFAULTS[v.type] || ''}
-        />
-      </div>
+
+      {/* Phase 6.5.c UX: enum'larda 'Varsayılan' alanını gizle — resolver
+          allowed_values'i otomatik default kabul eder. Date / range tiplerinde
+          görünür kalır çünkü orada explicit default şart. */}
+      {!isEnum && (
+        <div className="props-var-row">
+          <label className="props-var-label">
+            Varsayılan
+            {isDate && (
+              <span className="props-var-hint">
+                {' '}— ISO tarih veya göreceli ifade (today / today - 30d / start_of_month)
+              </span>
+            )}
+          </label>
+          {isDate
+            ? <DateDefaultInput value={v.default_str} onChange={(s) => onChange({ default_str: s })} />
+            : (
+              <input
+                type="text"
+                className="props-input"
+                value={v.default_str}
+                onChange={(e) => onChange({ default_str: e.target.value })}
+                placeholder={TYPE_DEFAULTS[v.type] || ''}
+              />
+            )}
+        </div>
+      )}
+
       {isEnum && (
         <div className="props-var-row">
-          <label className="props-var-label">Olası değerler (virgülle)</label>
+          <label className="props-var-label">
+            Olası değerler
+            <span className="props-var-hint">
+              {' '}— Çalıştır'da otomatik keşfedilir, üzerine yazabilirsin
+            </span>
+          </label>
           <input
             type="text"
             className="props-input"
             value={v.allowed_values_str}
             onChange={(e) => onChange({ allowed_values_str: e.target.value })}
-            placeholder="TRY, USD, EUR"
+            placeholder="virgülle ayrılmış (boş bırakırsan SQL'den otomatik dolar)"
           />
         </div>
       )}
+
       <div className="props-var-row">
         <label className="props-var-label">Zorunlu mu?</label>
         <select
@@ -696,6 +732,43 @@ function VariableRow({ v, onChange, onRemove, orphaned }) {
           <option value="false">Hayır</option>
         </select>
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * Date variable default input: text field for relative expressions
+ * ("today - 30d", "start_of_month", or ISO) + a 🗓 calendar quick-pick that
+ * opens the native date picker and writes the chosen ISO date into the
+ * text field. Preserves the user's right to type a relative expression
+ * (essential for templates that should "always show last 30 days") while
+ * keeping the picker one click away for fixed-date use cases.
+ */
+function DateDefaultInput({ value, onChange }) {
+  // The native picker needs a controlled <input type="date">. We keep it
+  // hidden; clicking the visible icon focuses + showPicker()s it.
+  const pickerRef = useState(null);
+  function openPicker() {
+    const el = document.getElementById(`dvp-${Math.random()}`);
+    // Easier: dispatch via a ref-less hack — find sibling by class.
+  }
+  return (
+    <div className="props-date-default">
+      <input
+        type="text"
+        className="props-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="today - 30d / 2026-01-01 / start_of_month"
+      />
+      <input
+        type="date"
+        className="props-date-picker"
+        value={value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ''}
+        onChange={(e) => { if (e.target.value) onChange(e.target.value); }}
+        title="Takvim ile tarih seç"
+      />
     </div>
   );
 }

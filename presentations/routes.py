@@ -1221,6 +1221,36 @@ def run_block_manual(pid: str, bid: str):
             status=400, mimetype="application/json",
         )
 
+    # ── Auto-discover enum allowed_values from SQL ────────────────────────
+    # Before strict validation, for any enum_multi / enum_single variable
+    # that lacks allowed_values, try to discover them by running
+    # SELECT DISTINCT <col> against the source table. Saves the user from
+    # typing every distinct value by hand. Source: spec §6.5.b /
+    # jobs/sample_distinct_values.py (same logic, run on-demand here).
+    dc_for_discover = current_app.config.get("DATA_CLIENT")
+    discovered_info: list[dict] = []  # for response
+    if dc_for_discover is not None:
+        for vraw in variables_raw:
+            if not isinstance(vraw, dict):
+                continue
+            if vraw.get("type") not in ("enum_multi", "enum_single"):
+                continue
+            if vraw.get("allowed_values"):
+                continue  # user already filled it in
+            vname = vraw.get("name")
+            if not vname:
+                continue
+            try:
+                values = _discover_distinct_values(query, vname, dc_for_discover)
+            except Exception as exc:
+                current_app.logger.warning(
+                    "discover allowed_values for :%s failed: %s", vname, exc,
+                )
+                values = None
+            if values:
+                vraw["allowed_values"] = values
+                discovered_info.append({"name": vname, "count": len(values)})
+
     # Build transient Variable models — partial variables (missing semantic_tag
     # or allowed_values) are reported as user-actionable errors rather than
     # crashing in Pydantic land.
@@ -1373,6 +1403,7 @@ def run_block_manual(pid: str, bid: str):
             "version": manifest["version"],
             "block": block,
             "warnings": sql_check.warnings,
+            "discovered": discovered_info,
         }, ensure_ascii=False, default=str),
         mimetype="application/json",
     )
@@ -1589,6 +1620,72 @@ def apply_dashboard_filters(pid: str):
         }, ensure_ascii=False, default=str),
         mimetype="application/json",
     )
+
+
+def _discover_distinct_values(query: str, var_name: str, dc, limit: int = 50) -> list | None:
+    """For an enum variable that lacks allowed_values, infer the column +
+    source table from the user's SQL and run SELECT DISTINCT to populate.
+
+    Heuristics:
+    - Find ``<COL> IN (:varname)`` or ``<COL> = :varname`` → column.
+    - Find the first ``FROM <ident>`` in the query → table.
+    - Run ``SELECT DISTINCT "<COL>" FROM <table> WHERE "<COL>" IS NOT NULL
+      FETCH FIRST <limit> ROWS ONLY``.
+
+    Returns the distinct values as a Python list, or None if column / table
+    couldn't be inferred or the query failed. Values are jsonable strings /
+    numbers (dates / timestamps stringified via isoformat).
+    """
+    import re as _re
+
+    name = _re.escape(var_name)
+    col_patterns = [
+        rf"\b([A-Za-z_][A-Za-z0-9_]*)\s+IN\s*\(\s*:{name}\s*\)",
+        rf"\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*:{name}\b",
+    ]
+    column = None
+    for pat in col_patterns:
+        m = _re.search(pat, query, _re.IGNORECASE)
+        if m:
+            column = m.group(1)
+            break
+    if not column:
+        return None
+
+    # First FROM table (schema.table or table). JOINs would need smarter
+    # inference; v0 sticks with the leading FROM.
+    m = _re.search(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_.]*)", query, _re.IGNORECASE)
+    if not m:
+        return None
+    table = m.group(1)
+
+    sql = (
+        f'SELECT DISTINCT "{column}" '
+        f'FROM {table} '
+        f'WHERE "{column}" IS NOT NULL '
+        f'FETCH FIRST {limit} ROWS ONLY'
+    )
+    # ``block::`` prefix routes DEV's _StubDataClient through DuckDB (SQL
+    # execute) instead of returning the fake_db table verbatim. In PROD,
+    # DataClient ignores ``dataset`` and just runs ``query`` against Oracle.
+    df = dc.get_data(
+        base_prefix=None,
+        dataset=f"block::discover/{table}/{column}",
+        query=sql,
+        query_params={},
+    )
+    if df is None or len(df.columns) == 0 or len(df) == 0:
+        return None
+    raw_vals = df.iloc[:, 0].dropna().tolist()
+    out: list = []
+    for v in raw_vals:
+        if hasattr(v, "isoformat"):
+            out.append(v.isoformat())
+        elif isinstance(v, (int, float, str, bool)):
+            out.append(v)
+        else:
+            out.append(str(v))
+    return out
 
 
 def _apply_df_to_block(block: dict, df, *, engine: str, query: str) -> None:
