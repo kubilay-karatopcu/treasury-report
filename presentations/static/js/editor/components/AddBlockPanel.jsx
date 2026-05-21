@@ -5,7 +5,10 @@ import {
   Grid3x3, Table as TableIcon, FileText,
 } from 'lucide-react';
 import useStore from '../lib/store.js';
-import { fetchLibraryBlocks, fetchLibraryBlock } from '../lib/api.js';
+import {
+  fetchLibraryBlocks, fetchLibraryBlock,
+  fetchBlockTemplates, fetchBlockTemplate,
+} from '../lib/api.js';
 
 const BASE_BLOCKS = [
   { type: 'kpi',        label: 'KPI',         desc: 'Tek satır tek sayı — büyük göstergeler için' },
@@ -42,6 +45,7 @@ export default function AddBlockPanel({ width, onResizeStart }) {
   const close             = useStore((s) => s.closeAddBlockPanel);
   const addChildBlock     = useStore((s) => s.addChildBlock);
   const addLibraryToSec   = useStore((s) => s.addLibraryBlockToSection);
+  const addTemplateToSec  = useStore((s) => s.addBlockTemplateToSection);
 
   const [tab, setTab] = useState('base');
   const [items, setItems]   = useState([]);
@@ -52,11 +56,20 @@ export default function AddBlockPanel({ width, onResizeStart }) {
 
   // Library blokları yükle (tab açılınca + filter değişince)
   useEffect(() => {
-    if (tab !== 'library') return;
+    if (tab !== 'library' && tab !== 'templates') {
+      setItems([]);
+      return;
+    }
     setLoading(true);
-    fetchLibraryBlocks({ q: query, tag: tagFilter })
-      .then(setItems)
-      .finally(() => setLoading(false));
+    if (tab === 'library') {
+      fetchLibraryBlocks({ q: query, tag: tagFilter })
+        .then(setItems)
+        .finally(() => setLoading(false));
+    } else {
+      fetchBlockTemplates({ q: query, tag: tagFilter })
+        .then(setItems)
+        .finally(() => setLoading(false));
+    }
   }, [tab, query, tagFilter]);
 
   // Tüm tag'leri unique olarak topla (tag dropdown için)
@@ -78,6 +91,16 @@ export default function AddBlockPanel({ width, onResizeStart }) {
     try {
       const { block } = await fetchLibraryBlock(libraryId);
       addLibraryToSec(sectionId, block);
+      close();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  async function handleAddTemplate(team, id, version) {
+    try {
+      const { block } = await fetchBlockTemplate(team, id, version);
+      addTemplateToSec(sectionId, block, { team, id: block.id || id, version });
       close();
     } catch (e) {
       alert(e.message || String(e));
@@ -117,9 +140,14 @@ export default function AddBlockPanel({ width, onResizeStart }) {
           >Base ({BASE_BLOCKS.length})</button>
           <button
             type="button"
+            className={`add-block-tab${tab === 'templates' ? ' is-active' : ''}`}
+            onClick={() => setTab('templates')}
+          >Şablonlar{tab === 'templates' && items.length > 0 ? ` (${items.length})` : ''}</button>
+          <button
+            type="button"
             className={`add-block-tab${tab === 'library' ? ' is-active' : ''}`}
             onClick={() => setTab('library')}
-          >Library{items.length > 0 ? ` (${items.length})` : ''}</button>
+          >Library{tab === 'library' && items.length > 0 ? ` (${items.length})` : ''}</button>
         </div>
 
         <div className="add-block-panel__body ts-scroll">
@@ -142,6 +170,62 @@ export default function AddBlockPanel({ width, onResizeStart }) {
                 </article>
               ))}
             </div>
+          )}
+
+          {tab === 'templates' && (
+            <>
+              <div className="lib-filters">
+                <div className="lib-search">
+                  <Search size={12} strokeWidth={1.8} className="lib-search-icon" />
+                  <input
+                    type="text"
+                    className="lib-search-input"
+                    placeholder="Şablon ara (başlık, açıklama, tag)…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+              {loading && <div className="lib-loading">Yükleniyor…</div>}
+              {!loading && items.length === 0 && (
+                <div className="lib-empty">
+                  Henüz Phase 6.5 şablonu yok. Sunum içinde blok oluşturup
+                  Properties &rsaquo; Kütüphane &rsaquo; <strong>Şablon olarak
+                  kaydet</strong> ile şablon kütüphanesine ekle.
+                </div>
+              )}
+              <div className="lib-grid">
+                {items.map((m) => (
+                  <article key={`${m.team}-${m.id}`} className="lib-card">
+                    <div className="lib-card-head">
+                      <span className="lib-card-icon"><TypeIcon type={m.visualization_type} /></span>
+                      <span className="lib-card-title" title={m.title}>{m.title}</span>
+                    </div>
+                    <div className="lib-card-meta" style={{fontSize:'10px',color:'#94a3b8'}}>
+                      {m.team} · v{m.version} · {m.visualization_type}
+                    </div>
+                    {m.description && (
+                      <p className="lib-card-desc" title={m.description}>{m.description}</p>
+                    )}
+                    {(m.tags || []).length > 0 && (
+                      <div className="lib-card-tags">
+                        {m.tags.map((t) => (
+                          <span key={t} className="lib-tag-chip">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="lib-card-actions">
+                      <button
+                        type="button"
+                        className="lib-btn lib-btn--add"
+                        onClick={() => handleAddTemplate(m.team, m.id, m.version)}
+                        title="Bu şablonu sunuma ekle (auto-binding ile)"
+                      >Ekle</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
           )}
 
           {tab === 'library' && (

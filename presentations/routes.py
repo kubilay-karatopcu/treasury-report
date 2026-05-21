@@ -1346,6 +1346,300 @@ def run_block_manual(pid: str, bid: str):
     )
 
 
+# ════════════════════════════════════════════════════════════════════════
+# Phase 6.5.c — dashboard-level filter apply
+# ════════════════════════════════════════════════════════════════════════
+
+@presentations_bp.route("/<pid>/apply-filters", methods=["POST"])
+@login_required
+def apply_dashboard_filters(pid: str):
+    """Re-resolve every block with new dashboard filter state.
+
+    Body:
+        {
+            "filter_state": {"<filter_id>": <value or {from,to}/{min,max}>, ...}
+        }
+
+    Returns:
+        {
+            "ok": true,
+            "version": <new manifest version>,
+            "blocks": [
+                {"id": "...", "status": "cache_hit"|"subset"|"refetched"|"error", ...},
+                ...
+            ]
+        }
+
+    Behaviour per block (spec §5.5):
+      1. Compose binding resolver from variable_bindings + filter_state.
+      2. Resolve variables → if any required var unresolved, status=error.
+      3. Compute cache key. If exact hit, status=cache_hit, no execution.
+      4. Else if subset parent exists, derive via DuckDB filter,
+         status=subset.
+      5. Else execute against Oracle via DataClient, write cache, status=refetched.
+
+    The "Güncelle" UI button in the React filter bar is the sole caller.
+    """
+    from .manifest import find_block_by_id, iter_all_blocks
+    from .blocks.schema import Block, Variable
+    from .dashboards.schema import VariableBinding, DashboardFilter
+    from .dashboards.binding import build_binding_resolver
+    from .variables.resolver import resolve_variables, ResolutionError
+    from .cache.block_cache import BlockCache, cache_key as _cache_key
+
+    session = _get_session(pid)
+    manifest = session.get_manifest()
+    if not manifest:
+        return Response(
+            json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    body = request.get_json(silent=True) or {}
+    filter_state = body.get("filter_state") or {}
+    if not isinstance(filter_state, dict):
+        return Response(
+            json.dumps({"error": "filter_state must be an object"}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    # Persist filter state into the manifest (defaults + ad-hoc per session).
+    manifest["filter_state"] = filter_state
+
+    conn = session.get_duck_conn()
+    cache = BlockCache(conn)
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return Response(
+            json.dumps({"error": "DATA_CLIENT yapılandırılmamış.", "kind": "config"},
+                       ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    results: list[dict] = []
+    touched = 0
+
+    for block in iter_all_blocks(manifest):
+        if block.get("type") == "section_header":
+            continue
+        # Only data-bound blocks with variables participate.
+        query = block.get("query") or ""
+        variables_raw = block.get("variables") or []
+        if not query or not variables_raw:
+            continue
+
+        # Hydrate Pydantic Block stand-in for resolver / binder / cache.
+        try:
+            var_models = [Variable.model_validate(v) for v in variables_raw]
+            stand_in = Block.model_validate({
+                "id": block["id"] if len(block["id"]) >= 3 else f"blk_{block['id']}",
+                "version": int(block.get("version", 1)),
+                "title": block.get("title") or "block",
+                "team": "in_presentation",
+                "owner": current_user.sicil,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "query": query,
+                "variables": [v.model_dump() for v in var_models],
+                "visualization": {"type": block.get("type", "kpi"), "config": {}},
+            })
+        except Exception as exc:
+            results.append({"id": block["id"], "status": "error",
+                             "kind": "block_schema", "error": str(exc)})
+            continue
+
+        # Parse variable_bindings if any.
+        raw_bindings = block.get("variable_bindings") or {}
+        try:
+            bindings = {
+                name: VariableBinding.model_validate(b)
+                for name, b in raw_bindings.items()
+            }
+        except Exception as exc:
+            results.append({"id": block["id"], "status": "error",
+                             "kind": "binding_schema", "error": str(exc)})
+            continue
+
+        # Resolve.
+        try:
+            resolver_cb = build_binding_resolver(bindings, filter_state)
+            resolved = resolve_variables(stand_in, binding_resolver=resolver_cb)
+        except ResolutionError as exc:
+            results.append({"id": block["id"], "status": "error",
+                             "kind": "resolution",
+                             "error": "; ".join(exc.errors)})
+            continue
+
+        # ── Cache lookup ─────────────────────────────────────────────────
+        ck = _cache_key(stand_in.id, stand_in.version, resolved)
+        hit = cache.find_exact(ck)
+        if hit is not None:
+            # Pull cached rows back into block.data_source for renderer.
+            df = conn.execute(f'SELECT * FROM "{hit.view_name}"').fetchdf()
+            _apply_df_to_block(block, df, engine="cache_hit", query=query)
+            results.append({
+                "id": block["id"], "status": "cache_hit",
+                "row_count": hit.row_count, "cache_key": ck.short,
+            })
+            touched += 1
+            continue
+
+        parent = cache.find_subset_parent(stand_in, resolved)
+        if parent is not None:
+            df = _derive_from_parent(conn, parent, stand_in, resolved)
+            cache.write(stand_in, resolved, df)
+            _apply_df_to_block(block, df, engine="subset", query=query)
+            results.append({
+                "id": block["id"], "status": "subset",
+                "row_count": int(len(df)), "parent_key": parent.key.short,
+            })
+            touched += 1
+            continue
+
+        # Cache miss — fetch from Oracle.
+        try:
+            from .sql.binder import expand_binds
+            bound = expand_binds(stand_in, resolved)
+            df = dc.get_data(
+                base_prefix=None,
+                dataset=f"block::{block['id']}",
+                query=bound.sql,
+                query_params=bound.params,
+            )
+            if df is None:
+                import pandas as _pd
+                df = _pd.DataFrame()
+            cache.write(stand_in, resolved, df)
+            _apply_df_to_block(block, df, engine="refetched", query=query)
+            results.append({
+                "id": block["id"], "status": "refetched",
+                "row_count": int(len(df)),
+            })
+            touched += 1
+        except Exception as exc:
+            msg = str(exc).strip().splitlines()[0][:240]
+            results.append({"id": block["id"], "status": "error",
+                             "kind": "oracle", "error": msg})
+
+    if touched:
+        manifest["version"] = manifest.get("version", 0) + 1
+        session.set_manifest(manifest)
+
+    return Response(
+        json.dumps({
+            "ok": True,
+            "version": manifest.get("version"),
+            "blocks": results,
+        }, ensure_ascii=False, default=str),
+        mimetype="application/json",
+    )
+
+
+def _apply_df_to_block(block: dict, df, *, engine: str, query: str) -> None:
+    """Push a result DataFrame back into the manifest block (data_source +
+    config), so the renderer picks it up unchanged."""
+    from .nodes.execute_block_sqls import apply_data_to_config
+    import datetime as _dt
+
+    df = df.reset_index(drop=True) if hasattr(df, "reset_index") else df
+    columns = [str(c) for c in df.columns]
+    total = int(len(df))
+    rows = [
+        [duck._jsonable(v) for v in row]
+        for row in df.itertuples(index=False, name=None)
+    ]
+    block["data_source"] = {
+        "sql":          query,
+        "original_sql": query,
+        "rewritten":    False,
+        "truncated":    False,
+        "cap":          total,
+        "reason":       engine,
+        "executed_at":  _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "row_count":    total,
+        "columns":      columns,
+        "preview_rows": rows[:5],
+        "rows":         rows,
+        "view_name":    f"v_{block['id']}",
+        "engine":       engine,
+    }
+    block.pop("data_stale", None)
+    apply_data_to_config(block, block["data_source"])
+
+
+def _derive_from_parent(conn, parent, block, resolved):
+    """Filter the parent's cached view down to the narrower resolved set.
+
+    Spec §4.3: when ``is_subset(resolved, parent.resolved) is True``, we
+    don't need to hit Oracle. Run a DuckDB WHERE on the cached view.
+
+    The mapping from variable name → column name is *not* explicit in the
+    Phase 6.5 schema (the user writes raw SQL with :binds). We use a
+    heuristic: scan the block's query for ``WHERE / AND <COL> = :<var>``
+    or ``IN (:<var>)`` to infer the column. Misses fall back to no filter
+    for that variable, which still yields a correct (possibly wider)
+    subset since the parent already contained the data.
+    """
+    import re
+    import pandas as pd
+
+    # Build per-variable column inference from the SQL.
+    col_for: dict[str, str] = {}
+    for var in block.variables:
+        # Match `<COL> = :name` or `<COL> IN (:name)` or `<COL> BETWEEN :n AND ...`
+        patterns = [
+            rf"\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*:{re.escape(var.name)}\b",
+            rf"\b([A-Za-z_][A-Za-z0-9_]*)\s+IN\s*\(\s*:{re.escape(var.name)}\s*\)",
+            rf"\b([A-Za-z_][A-Za-z0-9_]*)\s+BETWEEN\s+:{re.escape(var.name)}\b",
+        ]
+        for pat in patterns:
+            m = re.search(pat, block.query, re.IGNORECASE)
+            if m:
+                col_for[var.name] = m.group(1).upper()
+                break
+
+    # Build WHERE filter from resolved values (only for vars we mapped).
+    clauses: list[str] = []
+    params: dict[str, object] = {}
+    for var in block.variables:
+        col = col_for.get(var.name)
+        if col is None:
+            continue
+        val = resolved.get(var.name)
+        if val is None:
+            continue
+        if var.type == "date":
+            clauses.append(f'"{col}" = ${var.name}_subset')
+            params[f"{var.name}_subset"] = val
+        elif var.type == "date_range":
+            clauses.append(
+                f'"{col}" BETWEEN ${var.name}_from_subset AND ${var.name}_to_subset'
+            )
+            params[f"{var.name}_from_subset"] = val["from"]
+            params[f"{var.name}_to_subset"] = val["to"]
+        elif var.type == "enum_multi":
+            placeholders = [f"${var.name}_subset_{i}" for i in range(len(val))]
+            for i, v in enumerate(val):
+                params[f"{var.name}_subset_{i}"] = v
+            clauses.append(f'"{col}" IN ({", ".join(placeholders)})')
+        elif var.type == "enum_single":
+            clauses.append(f'"{col}" = ${var.name}_subset')
+            params[f"{var.name}_subset"] = val
+        elif var.type == "number_range":
+            clauses.append(
+                f'"{col}" BETWEEN ${var.name}_min_subset AND ${var.name}_max_subset'
+            )
+            params[f"{var.name}_min_subset"] = val["min"]
+            params[f"{var.name}_max_subset"] = val["max"]
+
+    sql = f'SELECT * FROM "{parent.view_name}"'
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+
+    if params:
+        return conn.execute(sql, params).fetchdf()
+    return conn.execute(sql).fetchdf()
+
+
 @presentations_bp.route("/help.json")
 @login_required
 def help_doc():

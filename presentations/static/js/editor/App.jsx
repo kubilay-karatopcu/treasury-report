@@ -16,6 +16,7 @@ import { Sparkles, Plus, HelpCircle } from 'lucide-react';
 import useResizable from './lib/useResizable.js';
 import HelpModal from './components/HelpModal.jsx';
 import ManualSqlEditor from './components/ManualSqlEditor.jsx';
+import FilterBar from './components/FilterBar.jsx';
 
 const WIDTH_SPAN = {
   'full': 12,
@@ -113,6 +114,7 @@ export default function App({ initialManifest, mode = 'editor' }) {
         >
           <div className={`canvas-content${sections.length === 0 && !isSnapshot ? ' canvas-content--empty' : ''}`}>
             {sections.length > 0 && <ReportTitle meta={manifest.meta || {}} />}
+            {!isSnapshot && <FilterBar />}
             {isEdit && sections.length > 0 && <Hint hasSelection={!!selectedBlockId} />}
             <div className="sections-list">
               {sections.map((section) => (
