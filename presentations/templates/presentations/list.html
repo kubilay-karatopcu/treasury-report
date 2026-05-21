@@ -129,6 +129,10 @@
     font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
   }
   .pres-filter-btn:hover { background: #334155; }
+  .pres-filter-btn--ghost {
+    background: white; color: #475569; border: 1px solid #cbd5e1;
+  }
+  .pres-filter-btn--ghost:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
   .pres-card-actions {
     display: flex; gap: 6px; padding-top: 12px;
     border-top: 1px solid #f0f2f5;
@@ -228,7 +232,7 @@
            stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 5v14M5 12h14"/>
       </svg>
-      Yeni Sunum
+      <span id="new-create-label">Yeni Sunum</span>
     </button>
   </div>
 
@@ -306,6 +310,8 @@
         <option value="pie">Pasta</option>
       </select>
       <button type="submit" class="pres-filter-btn">Filtrele</button>
+      <button type="button" class="pres-filter-btn pres-filter-btn--ghost" id="blocks-refresh-btn"
+              title="Listeyi yenile">↻ Yenile</button>
     </form>
     <div id="blocks-loading" class="pres-loading">Bloklar yükleniyor…</div>
     <div id="blocks-grid" class="pres-grid" style="display:none;"></div>
@@ -347,8 +353,24 @@
   function activateTab(target) {
     tabs.forEach((x) => x.classList.toggle('is-active', x.dataset.tab === target));
     panels.forEach((p) => p.classList.toggle('is-active', p.dataset.tabpanel === target));
-    if (target === 'blocks' && !blocksLoaded) loadBlocks();
+    // Always re-fetch when the Bloklar tab is activated. A previous cached
+    // load might miss a block the user just saved in another tab; the
+    // listing endpoint is cheap (a few hundred bytes per block) so re-fetch
+    // each time is fine. `blocksLoaded` still gates the empty-state initial
+    // loading message but no longer blocks the fetch.
+    if (target === 'blocks') loadBlocks();
+    // Tab-aware create button label.
+    const lbl = document.getElementById('new-create-label');
+    if (lbl) lbl.textContent = target === 'blocks' ? 'Yeni Blok' : 'Yeni Sunum';
   }
+
+  // Re-fetch when the page regains focus (user switches back from another
+  // browser tab where they may have saved a new block).
+  window.addEventListener('focus', () => {
+    if (document.querySelector('.pres-tab.is-active')?.dataset.tab === 'blocks') {
+      loadBlocks();
+    }
+  });
 
   tabs.forEach((t) => t.addEventListener('click', () => {
     activateTab(t.dataset.tab);
@@ -420,6 +442,7 @@
     e.preventDefault();
     loadBlocks();
   });
+  document.getElementById('blocks-refresh-btn')?.addEventListener('click', loadBlocks);
 
   function escapeHtml(s) {
     return String(s || '').replace(/[&<>"']/g, (c) => ({
@@ -482,13 +505,13 @@
     openPreview(btn.dataset.bid, btn.dataset.name);
   });
 
-  // ── New presentation / delete ──────────────────────────
-  async function createNewPresentation() {
+  // ── New presentation / new block / delete ─────────────
+  async function createNewPresentation(opts) {
     try {
       const resp = await fetch("{{ url_for('presentations.create_presentation') }}", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(opts || {}),
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
@@ -496,6 +519,20 @@
     } catch (e) {
       alert('Yeni sunum oluşturulamadı: ' + e.message);
     }
+  }
+
+  function createNewBlock() {
+    // Yeni şablon akışı: yeni boş sunum aç, editör layout-edit modunda
+    // başlasın. Kullanıcı block ekleyip Properties'te SQL yazıp
+    // "Şablon olarak kaydet" ile şablon kütüphanesine ekler.
+    createNewPresentation({
+      title: 'Yeni Şablon Sunumu',
+      mode: 'block_authoring',  // editor.html bunu görürse direkt + Blok Ekle açabilir (ileride)
+    });
+  }
+
+  function activeTabKey() {
+    return document.querySelector('.pres-tab.is-active')?.dataset.tab || 'presentations';
   }
 
   async function deletePresentation(pid, card) {
@@ -513,7 +550,11 @@
     }
   }
 
-  document.getElementById('new-presentation-btn')?.addEventListener('click', createNewPresentation);
+  function handleCreateClick() {
+    if (activeTabKey() === 'blocks') createNewBlock();
+    else createNewPresentation();
+  }
+  document.getElementById('new-presentation-btn')?.addEventListener('click', handleCreateClick);
   document.getElementById('new-presentation-btn-empty')?.addEventListener('click', createNewPresentation);
 
   document.querySelectorAll('.js-delete-pres').forEach((btn) => {
