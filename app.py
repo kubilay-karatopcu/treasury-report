@@ -28,6 +28,9 @@ from presentations import presentations_bp
 from presentations.session import SessionRegistry
 from presentations.store import S3SnapshotStore
 from presentations.blocks.store import S3BlockStore, LocalBlockStore
+from presentations.table_docs.store import (
+    S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
+)
 from presentations.llm import QwenClient
 import prisma_nav
 from pathlib import Path
@@ -472,6 +475,9 @@ if DEV_MODE:
 
     app.config["SNAPSHOT_STORE"] = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
     app.config["BLOCK_STORE"]    = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
+    app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
+        LocalTableDocStore(base_dir=Path(__file__).parent / "examples" / "table_docs")
+    )
     # DEV catalog → fake_db ile aynı tablolar (examples/sample_catalog.json).
     app.config["CATALOG_PATH"] = str(Path(__file__).parent / "examples" / "sample_catalog.json")
 else:
@@ -484,6 +490,7 @@ else:
     )
     app.config["SNAPSHOT_STORE"] = S3SnapshotStore(dc=dc)
     app.config["BLOCK_STORE"]    = S3BlockStore(dc=dc)
+    app.config["TABLE_DOC_STORE"] = CachedTableDocStore(S3TableDocStore(dc=dc))
 
  
 app.config["S3_GET"]    = _s3_get

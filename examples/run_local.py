@@ -138,6 +138,12 @@ def create_app():
         base_dir=Path(__file__).parent / "v2_blocks",
     )
 
+    # TableDocStore — Phase 6.5.b. Reads from examples/table_docs/<SCHEMA>/<TABLE>.yaml.
+    from presentations.table_docs.store import LocalTableDocStore, CachedTableDocStore
+    app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
+        LocalTableDocStore(base_dir=Path(__file__).parent / "table_docs"),
+    )
+
     # Inject LLM client. Provider precedence:
     #   1. OPENAI_API_KEY in env     → OpenAI (paid, best JSON discipline)
     #   2. GROQ_API_KEY in env       → Groq (Llama 3.3 70B, free, fast)
