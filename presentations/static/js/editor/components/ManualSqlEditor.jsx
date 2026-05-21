@@ -610,17 +610,6 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
             />
           ))}
         </div>
-        {bindNames.length > 0 && (
-          <button
-            type="button"
-            className="props-btn props-btn--ghost"
-            onClick={syncVarsFromSql}
-            title="SQL'deki :isimleri buraya çek"
-          >
-            <Plus size={12} strokeWidth={2} />
-            <span>SQL'den yeniden tara</span>
-          </button>
-        )}
       </Section>
     </>
   );

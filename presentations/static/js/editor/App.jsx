@@ -405,11 +405,42 @@ function TemplateEditToolbar({ templateRef }) {
 
 
 function TemplateEditProperties({ block }) {
-  // Reuse PropertiesPanel's TitleField / TypeField indirectly via store hooks.
-  // We mount ManualSqlEditor directly + minimal title input above it.
   const setBlockField = useStore((s) => s.setBlockField);
-  const [title, setTitle] = useState(block.title || '');
-  useEffect(() => { setTitle(block.title || ''); }, [block.id, block.title]);
+  const [title, setTitle]             = useState(block.title || '');
+  const [description, setDescription] = useState(block.description || '');
+  const [tagsText, setTagsText]       = useState((block.tags || []).join(', '));
+  const [docPurpose, setDocPurpose]   = useState(block.documentation?.purpose || '');
+  const [docContext, setDocContext]   = useState(block.documentation?.business_context || '');
+  const [docDecision, setDocDecision] = useState(block.documentation?.decision_support || '');
+  const [docLimits, setDocLimits]     = useState(block.documentation?.known_limitations || '');
+
+  useEffect(() => {
+    setTitle(block.title || '');
+    setDescription(block.description || '');
+    setTagsText((block.tags || []).join(', '));
+    setDocPurpose(block.documentation?.purpose || '');
+    setDocContext(block.documentation?.business_context || '');
+    setDocDecision(block.documentation?.decision_support || '');
+    setDocLimits(block.documentation?.known_limitations || '');
+  }, [block.id]);
+
+  // Commit any edited field on blur. Each field maps to a path on the
+  // synthetic manifest block; the "Yeni sürüm olarak kaydet" toolbar
+  // captures the current block dict on click, so commits on blur are
+  // sufficient (no debounce needed).
+  function commit(fieldPath, newValue) {
+    setBlockField(block.id, fieldPath, newValue);
+  }
+  function commitTags() {
+    const tags = tagsText.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+    setBlockField(block.id, 'tags', tags);
+  }
+  function commitDocField(key, value) {
+    const doc = { ...(block.documentation || {}) };
+    if (value.trim()) doc[key] = value.trim();
+    else delete doc[key];
+    setBlockField(block.id, 'documentation', doc);
+  }
 
   return (
     <div className="template-edit-form">
@@ -423,13 +454,85 @@ function TemplateEditProperties({ block }) {
               className="props-input"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              onBlur={() => {
-                if (title !== (block.title || '')) setBlockField(block.id, 'title', title);
-              }}
+              onBlur={() => { if (title !== (block.title || '')) commit('title', title); }}
+            />
+          </div>
+          <div className="props-form-row">
+            <label className="props-form-label">Açıklama</label>
+            <textarea
+              className="props-textarea"
+              rows={2}
+              value={description}
+              placeholder="Bu blok hangi soruyu yanıtlar?"
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={() => { if (description !== (block.description || '')) commit('description', description); }}
+            />
+          </div>
+          <div className="props-form-row">
+            <label className="props-form-label">Etiketler</label>
+            <input
+              type="text"
+              className="props-input"
+              value={tagsText}
+              placeholder="mevduat, şube, top10"
+              onChange={(e) => setTagsText(e.target.value)}
+              onBlur={commitTags}
+            />
+            <div className="props-form-hint">Virgülle ayır</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="props-section">
+        <h4 className="props-section__title">Dokümantasyon</h4>
+        <div className="props-section__body">
+          <div className="props-form-row">
+            <label className="props-form-label">Amaç</label>
+            <textarea
+              className="props-textarea"
+              rows={2}
+              value={docPurpose}
+              placeholder="Bu blok hangi soruyu yanıtlar?"
+              onChange={(e) => setDocPurpose(e.target.value)}
+              onBlur={() => commitDocField('purpose', docPurpose)}
+            />
+          </div>
+          <div className="props-form-row">
+            <label className="props-form-label">İş bağlamı</label>
+            <textarea
+              className="props-textarea"
+              rows={2}
+              value={docContext}
+              placeholder="Hangi sürece / toplantıya hizmet eder?"
+              onChange={(e) => setDocContext(e.target.value)}
+              onBlur={() => commitDocField('business_context', docContext)}
+            />
+          </div>
+          <div className="props-form-row">
+            <label className="props-form-label">Karar desteği</label>
+            <textarea
+              className="props-textarea"
+              rows={2}
+              value={docDecision}
+              placeholder="Hangi kararı/aksiyonu tetikler?"
+              onChange={(e) => setDocDecision(e.target.value)}
+              onBlur={() => commitDocField('decision_support', docDecision)}
+            />
+          </div>
+          <div className="props-form-row">
+            <label className="props-form-label">Bilinen kısıtlar</label>
+            <textarea
+              className="props-textarea"
+              rows={2}
+              value={docLimits}
+              placeholder="Hangi durumlarda anlamlı değil?"
+              onChange={(e) => setDocLimits(e.target.value)}
+              onBlur={() => commitDocField('known_limitations', docLimits)}
             />
           </div>
         </div>
       </section>
+
       <TemplateManualEditor block={block} />
     </div>
   );

@@ -266,15 +266,15 @@ function SaveToLibrarySection({ block }) {
   // Filter_bar / carousel kütüphane MVP scope dışında — şimdilik leaf bloklar.
   if (block.type === 'carousel' || block.type === 'filter_bar') return null;
   return (
-    <Section title="Kütüphane">
+    <Section title="Şablon">
       <button
         type="button"
         className="props-btn props-btn--ghost"
         onClick={() => openModal(block.id)}
-        title="Bu bloğu yeniden kullanılabilir bir şablon olarak kaydet"
+        title="Bu bloğu Bloklar listesine şablon olarak kaydet. Detayları (açıklama, dokümantasyon) Bloklar > Düzenle ekranında girersin."
       >
         <Save size={12} strokeWidth={2} />
-        <span>Kütüphaneye kaydet</span>
+        <span>Şablon Olarak Kaydet</span>
       </button>
     </Section>
   );
