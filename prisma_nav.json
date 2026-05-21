@@ -27,7 +27,8 @@
         "title": "Raporlar",
         "items": [
           { "label": "Tarihsel Veriler", "url": "/historic", "icon": "calendar" },
-          { "label": "Rapor Şablonları", "url": "/presentations/", "icon": "doc" }
+          { "label": "Rapor Şablonları", "url": "/presentations/", "icon": "doc" },
+          { "label": "Bloklar", "url": "/presentations/blocks/", "icon": "stack" }
         ]
       }
     ]

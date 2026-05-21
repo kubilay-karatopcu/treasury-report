@@ -4,6 +4,19 @@ import useStore, { findBlockPath } from '../lib/store.js';
 import { saveBlockToLibrary, saveBlockAsTemplate } from '../lib/api.js';
 import AudiencePicker from './AudiencePicker.jsx';
 
+
+/**
+ * Build the absolute URL to the BlockStore library page that lists the saved
+ * template. Survives the SCRIPT_NAME proxy prefix (/proxy/8080/...) by
+ * deriving the base from window.location.pathname instead of url_for.
+ */
+function blocksLibraryUrl(_result) {
+  const path = window.location.pathname;
+  const i = path.indexOf('/presentations/');
+  const base = i >= 0 ? path.slice(0, i) : '';
+  return `${base}/presentations/blocks/`;
+}
+
 export default function SaveBlockModal() {
   const modal     = useStore((s) => s.saveBlockModal);
   const close     = useStore((s) => s.closeSaveBlockModal);
@@ -147,7 +160,7 @@ export default function SaveBlockModal() {
                 {result.phase_65 ? (
                   <>
                     <strong>{result.team}/{result.id}</strong> v{result.version} olarak
-                    şablon kütüphanesine yazıldı. <em>Bloklar</em> sayfasından düzenleyebilirsiniz.
+                    şablon kütüphanesine yazıldı.
                   </>
                 ) : (
                   <>
@@ -156,11 +169,21 @@ export default function SaveBlockModal() {
                   </>
                 )}
               </p>
-              <button
-                type="button"
-                className="save-btn save-btn--ghost"
-                onClick={close}
-              >Tamam</button>
+              <div className="save-action-row">
+                {result.phase_65 && (
+                  <a
+                    className="save-btn save-btn--primary"
+                    href={blocksLibraryUrl(result)}
+                  >
+                    Bloklar sayfasına git →
+                  </a>
+                )}
+                <button
+                  type="button"
+                  className="save-btn save-btn--ghost"
+                  onClick={close}
+                >Tamam</button>
+              </div>
             </div>
           ) : (
             <>
