@@ -182,6 +182,30 @@ def _parse_block_bytes(data: bytes | str) -> Block:
     return load_block_from_dict(parsed)
 
 
+def _normalize_team_token(s: str) -> str:
+    """Slug-like normalization for fuzzy team matching.
+
+    Folds case, strips Turkish diacritics, and collapses any non-alnum
+    run to a single underscore. So users typing "Finansal Yapay Zeka
+    Uygulamaları" match the team slug "finansal_yapay_zeka_uygulamalari".
+    """
+    s = (s or "").lower()
+    # Turkish-specific folding (str.lower handles İ/I edge cases on PY3.11+).
+    s = (s.replace("ı", "i").replace("ö", "o").replace("ü", "u")
+           .replace("ş", "s").replace("ğ", "g").replace("ç", "c"))
+    out: list[str] = []
+    last_was_sep = True
+    for ch in s:
+        if ch.isalnum():
+            out.append(ch)
+            last_was_sep = False
+        else:
+            if not last_was_sep:
+                out.append("_")
+                last_was_sep = True
+    return "".join(out).strip("_")
+
+
 def _block_matches_filters(
     block: Block,
     *,
@@ -190,8 +214,12 @@ def _block_matches_filters(
     viz_type: str | None,
     search: str | None,
 ) -> bool:
-    if team and block.team != team:
-        return False
+    if team:
+        # Fuzzy team match: substring on normalized form. Lets the user
+        # type "Finansal Yapay Zeka" and match "finansal_yapay_zeka_uygulamalari".
+        needle_team = _normalize_team_token(team)
+        if needle_team and needle_team not in _normalize_team_token(block.team):
+            return False
     if tag and tag not in block.tags:
         return False
     if viz_type and block.visualization.type != viz_type:

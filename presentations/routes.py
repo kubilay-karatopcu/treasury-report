@@ -65,8 +65,27 @@ def list_presentations():
             "is_demo": True,
         })
 
+    # ── Phase 6.5.d: prefetch BlockStore listing server-side so the Bloklar
+    # tab is hydrated on first paint. Without this, JS fires /blocks/api/list
+    # after page parse + IIFE init, with a visible "Bloklar yükleniyor…"
+    # message during the cold-call to S3/local block dir. Embedding the
+    # initial listing in the HTML eliminates that ~500ms FOUC.
+    blocks_initial: list[dict] = []
+    try:
+        block_store = current_app.config.get("BLOCK_STORE")
+        if block_store is not None:
+            blocks_initial = [s.to_dict() for s in block_store.list_blocks()]
+    except Exception:
+        current_app.logger.exception("prefetch BlockStore listing failed")
+        blocks_initial = []
+
     resp = Response(
-        render_template("presentations/list.html", presentations=items),
+        render_template(
+            "presentations/list.html",
+            presentations=items,
+            blocks_initial=blocks_initial,
+            blocks_initial_json=json.dumps(blocks_initial, ensure_ascii=False, default=str),
+        ),
         mimetype="text/html",
     )
     # Prevent aggressive caching — when a user saves a new block and comes

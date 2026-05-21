@@ -661,11 +661,34 @@ def block_library_preview(team: str, block_id: str, version: int | None = None):
         "data_source": {"original_sql": block.query},
     }
 
-    # Run SQL once so the preview lands rendered. Uses the same isolated
-    # DuckDB connection pattern as legacy /library/<bid>/preview.
+    # Run SQL using the Phase 6.5 _run_block path — resolves variables with
+    # their declared defaults, expands binds, executes through DataClient.
+    # Legacy /library/<bid>/preview's _execute_preview_sql doesn't know
+    # about :param resolution and would crash on any block with binds.
     try:
-        from presentations.routes import _execute_preview_sql
-        _execute_preview_sql(preview_block_dict)
+        from presentations.nodes.execute_block_sqls import apply_data_to_config
+        df, meta = _run_block(block, overrides={})
+        rows = [
+            [duck._jsonable(v) for v in row]
+            for row in df.itertuples(index=False, name=None)
+        ]
+        new_ds = {
+            "sql":           meta["rewritten_sql"],
+            "original_sql":  block.query,
+            "rewritten":     False,
+            "truncated":     False,
+            "cap":           meta["row_count"],
+            "reason":        "library_preview",
+            "executed_at":   datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+            "row_count":     meta["row_count"],
+            "columns":       list(df.columns),
+            "preview_rows":  rows[:5],
+            "rows":          rows,
+            "view_name":     f"v_preview_{block.id}",
+            "engine":        "library_preview",
+        }
+        preview_block_dict["data_source"] = new_ds
+        apply_data_to_config(preview_block_dict, new_ds)
     except Exception as exc:
         log.warning("block library preview: SQL exec failed for %s/%s: %s",
                     team, block_id, exc)
