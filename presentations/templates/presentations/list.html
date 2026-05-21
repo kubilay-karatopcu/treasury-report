@@ -131,23 +131,58 @@
   .pres-tag-chip--deprecated {
     background: #fef3c7; color: #92400e;
   }
+  /* Bloklar tab — card hover-action overlay (Önizle + Sunuma ekle) */
+  .pres-card-hover-actions {
+    position: absolute; top: 10px; right: 10px;
+    display: flex; gap: 4px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+  .pres-card:hover .pres-card-hover-actions {
+    opacity: 1; pointer-events: auto;
+  }
+  .pres-card-action {
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #ffffff; border: 1px solid #cbd5e1;
+    border-radius: 6px; cursor: pointer;
+    font-size: 13px; color: #475569;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .pres-card-action:hover {
+    background: #eff6ff; color: #1e3a8a; border-color: #2563eb;
+  }
+  .pres-card-action--primary {
+    background: #2563eb; color: #ffffff; border-color: #2563eb;
+    width: auto; padding: 0 10px;
+    font-size: 12px; font-weight: 500; gap: 4px;
+  }
+  .pres-card-action--primary:hover {
+    background: #1d4ed8; color: #ffffff; border-color: #1d4ed8;
+  }
 
   /* Phase 6.5 — Bloklar tab filter bar */
   .pres-blocks-filters {
-    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+    align-items: center;
   }
   .pres-blocks-filters input,
   .pres-blocks-filters select {
     border: 1px solid #cbd5e1; border-radius: 6px;
     padding: 6px 10px; font-size: 13px;
     font-family: inherit; min-width: 140px;
+    background: #ffffff;
+  }
+  .pres-blocks-filters__search {
+    flex: 1 1 280px;
+    min-width: 220px !important;
   }
   .pres-blocks-filters input:focus,
   .pres-blocks-filters select:focus {
     outline: 2px solid #2563eb; outline-offset: -1px; border-color: #2563eb;
   }
   .pres-filter-btn {
-    height: 32px; padding: 0 18px;
+    height: 32px; padding: 0 14px;
     background: #475569; color: white; border: none; border-radius: 6px;
     font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
   }
@@ -156,6 +191,33 @@
     background: white; color: #475569; border: 1px solid #cbd5e1;
   }
   .pres-filter-btn--ghost:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
+
+  /* Active filter chips row (selected tags) */
+  .pres-active-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 0 0 14px;
+    padding: 8px 10px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+  }
+  .pres-active-tags__label {
+    font-size: 11px; color: #1e3a8a; font-weight: 600;
+    align-self: center; margin-right: 4px;
+  }
+  .pres-active-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #ffffff; color: #1e3a8a;
+    border: 1px solid #bfdbfe; border-radius: 12px;
+    padding: 2px 4px 2px 10px;
+    font-size: 12px; font-weight: 500;
+  }
+  .pres-active-tag__x {
+    background: transparent; border: none; color: #1e3a8a;
+    cursor: pointer; font-size: 14px; line-height: 1;
+    padding: 0 5px; border-radius: 50%; opacity: 0.65;
+  }
+  .pres-active-tag__x:hover { opacity: 1; background: rgba(30,58,138,0.12); }
   .pres-card-actions {
     display: flex; gap: 6px; padding-top: 12px;
     border-top: 1px solid #f0f2f5;
@@ -319,23 +381,38 @@
 
   <!-- ─────────── BLOCKS TAB (Phase 6.5 BlockStore) ─────────── -->
   <div class="pres-tabpanel" data-tabpanel="blocks">
-    <form class="pres-blocks-filters" id="blocks-filter-form">
-      <input type="text" name="q" id="blocks-filter-q" placeholder="Ara (başlık, açıklama, etiket)"/>
-      <input type="text" name="team" id="blocks-filter-team" placeholder="Ekip"/>
-      <input type="text" name="tag" id="blocks-filter-tag" placeholder="Etiket"/>
+    <form class="pres-blocks-filters" id="blocks-filter-form" onsubmit="return false;">
+      <input type="search" name="q" id="blocks-filter-q"
+             placeholder="🔍 Ara (başlık, açıklama, etiket, dokümantasyon)"
+             class="pres-blocks-filters__search"/>
+      <input type="text" name="team" id="blocks-filter-team" placeholder="Ekip"
+             list="blocks-team-options"/>
+      <datalist id="blocks-team-options"></datalist>
+      <div class="pres-blocks-tags" id="blocks-filter-tag-wrap">
+        <input type="text" name="tag" id="blocks-filter-tag"
+               placeholder="Etiket (chip ile ekle)"
+               list="blocks-tag-options"/>
+        <datalist id="blocks-tag-options"></datalist>
+      </div>
       <select name="viz_type" id="blocks-filter-viz">
         <option value="">— Tüm görseller —</option>
         <option value="kpi">KPI</option>
         <option value="kpi_grid">KPI Grid</option>
         <option value="bar_chart">Çubuk grafik</option>
         <option value="line_chart">Çizgi grafik</option>
-        <option value="table">Tablo</option>
-        <option value="pie">Pasta</option>
+        <option value="area_chart">Alan grafiği</option>
+        <option value="pie_chart">Pasta grafik</option>
+        <option value="radial_bar">Radyal gösterge</option>
+        <option value="heatmap">Isı haritası</option>
+        <option value="data_table">Tablo</option>
       </select>
-      <button type="submit" class="pres-filter-btn">Filtrele</button>
+      <button type="button" class="pres-filter-btn pres-filter-btn--ghost"
+              id="blocks-clear-btn" title="Filtreleri temizle"
+              style="display:none;">✕ Temizle</button>
       <button type="button" class="pres-filter-btn pres-filter-btn--ghost" id="blocks-refresh-btn"
               title="Listeyi yenile">↻ Yenile</button>
     </form>
+    <div class="pres-active-tags" id="blocks-active-tags" style="display:none;"></div>
     <div id="blocks-loading" class="pres-loading">Bloklar yükleniyor…</div>
     <div id="blocks-grid" class="pres-grid" style="display:none;"></div>
     <div id="blocks-empty" class="pres-empty" style="display:none;">
@@ -414,6 +491,12 @@
     data_table: '📋', table: '📋', narrative: '📝',
   };
 
+  // ── Filter state ───────────────────────────────────────
+  // Selected tag chips. Multi-select: each chip filters AND (block must have
+  // all selected tags). Backend `?tag=` is single-value, so when >1 chip is
+  // active we filter the first via query string and the rest client-side.
+  const filterState = { tags: [], allBlocks: [], allTags: new Set(), allTeams: new Set() };
+
   function blocksApiUrl() {
     // Build a slash-safe base. window.location.pathname might be:
     //   '/presentations/'              → strip trailing → '/presentations'
@@ -423,11 +506,12 @@
     const params = new URLSearchParams();
     const q     = document.getElementById('blocks-filter-q').value.trim();
     const team  = document.getElementById('blocks-filter-team').value.trim();
-    const tag   = document.getElementById('blocks-filter-tag').value.trim();
     const viz   = document.getElementById('blocks-filter-viz').value;
     if (q)    params.set('q', q);
     if (team) params.set('team', team);
-    if (tag)  params.set('tag', tag);
+    // Only the first selected tag goes server-side; remaining chips filter
+    // the response client-side (server-side endpoint is single-tag in v0).
+    if (filterState.tags.length > 0) params.set('tag', filterState.tags[0]);
     if (viz)  params.set('viz_type', viz);
     const qs = params.toString();
     return `${base}/blocks/api/list${qs ? '?' + qs : ''}`;
@@ -436,6 +520,65 @@
   function blockEditUrl(team, id) {
     const base = window.location.pathname.replace(/\/+$/, '');
     return `${base}/blocks/edit/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+  }
+
+  function blockPreviewUrl(team, id) {
+    const base = window.location.pathname.replace(/\/+$/, '');
+    return `${base}/blocks/preview/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+  }
+
+  function refreshActiveTagsRow() {
+    const row = document.getElementById('blocks-active-tags');
+    if (filterState.tags.length === 0) {
+      row.style.display = 'none';
+      row.innerHTML = '';
+      return;
+    }
+    row.style.display = 'flex';
+    row.innerHTML = '<span class="pres-active-tags__label">Etiket:</span>' +
+      filterState.tags.map((t, i) =>
+        `<span class="pres-active-tag">${escapeHtml(t)}` +
+        `<button type="button" class="pres-active-tag__x" data-tag-idx="${i}" title="Kaldır">×</button></span>`
+      ).join('');
+  }
+
+  function refreshClearBtn() {
+    const btn = document.getElementById('blocks-clear-btn');
+    const hasFilter =
+      document.getElementById('blocks-filter-q').value.trim() ||
+      document.getElementById('blocks-filter-team').value.trim() ||
+      document.getElementById('blocks-filter-viz').value ||
+      filterState.tags.length > 0;
+    btn.style.display = hasFilter ? 'inline-flex' : 'none';
+  }
+
+  function populateDatalists(items) {
+    // Aggregate every tag + team across the response so the user gets
+    // autocomplete on the next keystroke.
+    const tagSet = new Set();
+    const teamSet = new Set();
+    for (const m of items) {
+      teamSet.add(m.team);
+      for (const t of (m.tags || [])) tagSet.add(t);
+    }
+    filterState.allTags = tagSet;
+    filterState.allTeams = teamSet;
+    const tagDL = document.getElementById('blocks-tag-options');
+    const teamDL = document.getElementById('blocks-team-options');
+    if (tagDL) tagDL.innerHTML = Array.from(tagSet).sort()
+      .map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
+    if (teamDL) teamDL.innerHTML = Array.from(teamSet).sort()
+      .map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
+  }
+
+  function applyClientSideTagFilter(items) {
+    if (filterState.tags.length <= 1) return items;
+    // First tag was server-filtered; intersect remaining client-side.
+    const extra = filterState.tags.slice(1);
+    return items.filter(m => {
+      const blockTags = new Set(m.tags || []);
+      return extra.every(t => blockTags.has(t));
+    });
   }
 
   async function loadBlocks() {
@@ -452,25 +595,114 @@
     try {
       const resp = await fetch(url, { cache: 'no-store' });
       const items = resp.ok ? await resp.json() : [];
-      console.log('[Bloklar] received', items.length, 'blocks');
-      count.textContent = items.length;
+      const filtered = applyClientSideTagFilter(items);
+      console.log('[Bloklar] received', items.length, 'blocks (', filtered.length, 'after tag-AND)');
+      count.textContent = filtered.length;
       loading.style.display = 'none';
-      if (items.length === 0) {
-        empty.style.display = 'block';
+      // Populate autocomplete datalists from the response (first page).
+      populateDatalists(items);
+      if (filtered.length === 0) {
+        // Distinguish "no blocks" from "no match".
+        const hasActiveFilter =
+          document.getElementById('blocks-filter-q').value.trim() ||
+          document.getElementById('blocks-filter-team').value.trim() ||
+          document.getElementById('blocks-filter-viz').value ||
+          filterState.tags.length > 0;
+        const emptyEl = document.getElementById('blocks-empty');
+        if (hasActiveFilter) {
+          emptyEl.innerHTML =
+            `<div class="pres-empty-title">Sonuç yok</div>` +
+            `<div class="pres-empty-subtitle">Filtrelere uyan blok bulunamadı. ` +
+            `<button type="button" class="pres-filter-btn pres-filter-btn--ghost" id="empty-clear">` +
+            `Filtreleri temizle</button></div>`;
+          document.getElementById('empty-clear')?.addEventListener('click', clearAllFilters);
+        } else {
+          emptyEl.innerHTML =
+            `<div class="pres-empty-title">Henüz blok yok</div>` +
+            `<div class="pres-empty-subtitle">Bir sunumda blok hazırla, Properties &rsaquo; ` +
+            `Kütüphane &rsaquo; <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle.</div>`;
+        }
+        emptyEl.style.display = 'block';
         return;
       }
       grid.style.display = 'grid';
-      grid.innerHTML = items.map(renderCard).join('');
+      grid.innerHTML = filtered.map(renderCard).join('');
     } catch (e) {
       console.error('[Bloklar] load failed', e);
       loading.textContent = 'Bloklar yüklenemedi: ' + e.message;
     }
   }
 
-  document.getElementById('blocks-filter-form').addEventListener('submit', (e) => {
-    e.preventDefault();
+  // ── Debounced filter — fires on every input keystroke after 300ms idle.
+  let _filterTimer = null;
+  function debouncedReload() {
+    clearTimeout(_filterTimer);
+    _filterTimer = setTimeout(() => {
+      refreshClearBtn();
+      loadBlocks();
+    }, 300);
+  }
+
+  function clearAllFilters() {
+    document.getElementById('blocks-filter-q').value = '';
+    document.getElementById('blocks-filter-team').value = '';
+    document.getElementById('blocks-filter-tag').value = '';
+    document.getElementById('blocks-filter-viz').value = '';
+    filterState.tags = [];
+    refreshActiveTagsRow();
+    refreshClearBtn();
+    loadBlocks();
+  }
+
+  // Tag chip add: Enter or comma commits the value as a chip.
+  document.getElementById('blocks-filter-tag').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const val = e.target.value.trim();
+      if (val && !filterState.tags.includes(val)) {
+        filterState.tags.push(val);
+        refreshActiveTagsRow();
+        refreshClearBtn();
+        loadBlocks();
+      }
+      e.target.value = '';
+    } else if (e.key === 'Backspace' && e.target.value === '' && filterState.tags.length > 0) {
+      // Pop the last chip on backspace when input is empty.
+      filterState.tags.pop();
+      refreshActiveTagsRow();
+      refreshClearBtn();
+      loadBlocks();
+    }
+  });
+  document.getElementById('blocks-filter-tag').addEventListener('change', (e) => {
+    // Datalist selection completes via change — auto-commit as chip.
+    const val = e.target.value.trim();
+    if (val && !filterState.tags.includes(val)) {
+      filterState.tags.push(val);
+      refreshActiveTagsRow();
+      refreshClearBtn();
+      loadBlocks();
+    }
+    e.target.value = '';
+  });
+  document.getElementById('blocks-active-tags').addEventListener('click', (e) => {
+    const btn = e.target.closest('.pres-active-tag__x');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.tagIdx, 10);
+    filterState.tags.splice(idx, 1);
+    refreshActiveTagsRow();
+    refreshClearBtn();
     loadBlocks();
   });
+
+  // Live debounce on text inputs; instant fire on select.
+  document.getElementById('blocks-filter-q').addEventListener('input', debouncedReload);
+  document.getElementById('blocks-filter-team').addEventListener('input', debouncedReload);
+  document.getElementById('blocks-filter-viz').addEventListener('change', () => {
+    refreshClearBtn();
+    loadBlocks();
+  });
+  document.getElementById('blocks-clear-btn')?.addEventListener('click', clearAllFilters);
   document.getElementById('blocks-refresh-btn')?.addEventListener('click', loadBlocks);
 
   function escapeHtml(s) {
@@ -507,9 +739,23 @@
     const desc = m.description ? `<p class="pres-card-desc">${escapeHtml(m.description)}</p>` : '';
     const dateStr = (m.updated_at || m.created_at || '').slice(0, 10);
     const editHref = blockEditUrl(m.team, m.id);
+    // Hover actions: Önizle + Sunuma ekle. The card itself is still a link
+    // to the edit page; the action buttons stopPropagation so their click
+    // doesn't navigate. data-team/id let the delegated handler dispatch.
     return `
       <a class="pres-card" data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+         data-title="${escapeHtml(m.title)}"
          href="${editHref}" style="text-decoration:none; color:inherit;">
+        <div class="pres-card-hover-actions">
+          <button type="button" class="pres-card-action js-blk-preview"
+                  data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+                  data-title="${escapeHtml(m.title)}"
+                  title="Önizle">👁</button>
+          <button type="button" class="pres-card-action pres-card-action--primary js-blk-insert"
+                  data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+                  data-title="${escapeHtml(m.title)}"
+                  title="Bir sunuma ekle">＋ Sunuma ekle</button>
+        </div>
         <div class="pres-card-type-pill">${icon} ${escapeHtml(typeLabel)}</div>
         <div class="pres-card-title">${escapeHtml(m.title)}</div>
         ${desc}
@@ -530,9 +776,9 @@
   const previewTitle  = document.getElementById('blk-preview-title');
   const previewClose  = document.getElementById('blk-preview-close');
 
-  function openPreview(bid, name) {
+  function openPreview(team, id, name) {
     previewTitle.textContent = name || 'Önizleme';
-    previewFrame.src = `{{ url_for('presentations.list_library') }}/${encodeURIComponent(bid)}/preview`;
+    previewFrame.src = blockPreviewUrl(team, id);
     previewModal.style.display = 'flex';
   }
   function closePreview() {
@@ -545,12 +791,128 @@
     if (e.key === 'Escape' && previewModal.style.display === 'flex') closePreview();
   });
 
+  async function insertBlockIntoPresentation(team, id, title) {
+    // Open a small modal asking which presentation to add this block into.
+    // For v0: simple flow — fetch the user's presentations, show a select,
+    // POST to /<pid>/blocks/insert-from-library.
+    try {
+      const baseUrl = window.location.pathname.replace(/\/+$/, '');
+      const presResp = await fetch(`${baseUrl}/api/list`, { cache: 'no-store' });
+      const presList = presResp.ok ? await presResp.json() : [];
+      if (presList.length === 0) {
+        if (!confirm('Hiç sunumun yok. Şimdi yeni bir sunum oluşturup bu bloğu ekleyelim mi?')) return;
+        // Create + insert in one flow.
+        await createPresentationAndInsertBlock(team, id, title);
+        return;
+      }
+      // Build options string
+      const opts = presList.map(p =>
+        `<option value="${p.id}">${escapeHtml(p.title || p.id)}</option>`
+      ).join('');
+      const html =
+        `<div style="padding:14px 0;">` +
+        `<div style="margin-bottom:10px; font-size:13px; color:#475569;">` +
+        `Bu bloğu hangi sunuma eklemek istiyorsun?</div>` +
+        `<select id="ins-pres-select" style="width:100%; padding:8px 10px; ` +
+        `border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">` +
+        `<option value="__new__">＋ Yeni sunum oluştur</option>` +
+        opts + `</select></div>`;
+      showInsertModal(title, html, async () => {
+        const sel = document.getElementById('ins-pres-select').value;
+        if (sel === '__new__') {
+          await createPresentationAndInsertBlock(team, id, title);
+        } else {
+          await postInsertBlock(sel, team, id);
+        }
+      });
+    } catch (e) {
+      alert('Sunum listesi alınamadı: ' + e.message);
+    }
+  }
+
+  async function createPresentationAndInsertBlock(team, id, title) {
+    try {
+      const baseUrl = window.location.pathname.replace(/\/+$/, '');
+      const presResp = await fetch(`${baseUrl}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title || 'Yeni Sunum' }),
+      });
+      if (!presResp.ok) throw new Error('HTTP ' + presResp.status);
+      const presData = await presResp.json();
+      await postInsertBlock(presData.id, team, id, presData.url);
+    } catch (e) {
+      alert('Sunum oluşturulamadı: ' + e.message);
+    }
+  }
+
+  async function postInsertBlock(pid, team, id, redirectUrl) {
+    try {
+      const baseUrl = window.location.pathname.replace(/\/+$/, '');
+      const resp = await fetch(`${baseUrl}/${pid}/blocks/insert-from-library`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team, id }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || ('HTTP ' + resp.status));
+      }
+      const body = await resp.json();
+      const url = redirectUrl || `${baseUrl}/${pid}` + (body.block_id ? `?focus_block=${body.block_id}` : '');
+      window.location.href = url;
+    } catch (e) {
+      alert('Blok eklenemedi: ' + e.message);
+    }
+  }
+
+  function showInsertModal(title, contentHtml, onConfirm) {
+    // Lightweight in-page modal — same backdrop class as the preview modal,
+    // but renders custom content. Used only by the Sunuma ekle flow.
+    const wrap = document.createElement('div');
+    wrap.className = 'blk-preview-backdrop';
+    wrap.style.display = 'flex';
+    wrap.innerHTML =
+      `<div class="blk-preview-modal" style="width:480px; height:auto; max-height:80vh;" onclick="event.stopPropagation();">` +
+      `<div class="blk-preview-head">` +
+      `<div class="blk-preview-title">Sunuma ekle: ${escapeHtml(title)}</div>` +
+      `<button type="button" class="blk-preview-close" title="Kapat">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" ` +
+      `fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+      `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>` +
+      `</button></div>` +
+      `<div style="padding:0 18px 14px;">${contentHtml}` +
+      `<div style="display:flex; gap:8px; justify-content:flex-end; padding-top:8px;">` +
+      `<button type="button" class="pres-filter-btn pres-filter-btn--ghost js-cancel">İptal</button>` +
+      `<button type="button" class="pres-filter-btn js-confirm" style="background:#2563eb;">Ekle</button>` +
+      `</div></div></div>`;
+    document.body.appendChild(wrap);
+    function teardown() { wrap.remove(); }
+    wrap.addEventListener('click', teardown);
+    wrap.querySelector('.blk-preview-close').addEventListener('click', teardown);
+    wrap.querySelector('.js-cancel').addEventListener('click', teardown);
+    wrap.querySelector('.js-confirm').addEventListener('click', async () => {
+      teardown();
+      await onConfirm();
+    });
+  }
+
   // Event delegation — kartlar dinamik render olduğu için
   document.getElementById('blocks-grid')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.js-blk-preview');
-    if (!btn) return;
-    e.stopPropagation();
-    openPreview(btn.dataset.bid, btn.dataset.name);
+    const preview = e.target.closest('.js-blk-preview');
+    const insert  = e.target.closest('.js-blk-insert');
+    if (preview) {
+      e.preventDefault();
+      e.stopPropagation();
+      openPreview(preview.dataset.team, preview.dataset.id, preview.dataset.title);
+      return;
+    }
+    if (insert) {
+      e.preventDefault();
+      e.stopPropagation();
+      insertBlockIntoPresentation(insert.dataset.team, insert.dataset.id, insert.dataset.title);
+      return;
+    }
   });
 
   // ── New presentation / new block / delete ─────────────
