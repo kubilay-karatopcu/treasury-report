@@ -146,6 +146,7 @@ export default function BlockCard({ block }) {
     block.locked ? 'is-locked'     : '',
     isFlashing   ? 'is-flashing'   : '',
     isSnapshot   ? 'is-snapshot'   : '',
+    block.data_stale ? 'is-stale'  : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -162,6 +163,15 @@ export default function BlockCard({ block }) {
             {TYPE_LABELS[block.type] || block.type}
           </span>
           {block.locked && <span className="block-locked-pill">Locked</span>}
+          {block.data_stale && (
+            <span
+              className="block-stale-pill"
+              title="Tip değişti veya değişkenler güncellendi — Properties paneli'nden Çalıştır."
+            >
+              <AlertTriangle size={10} strokeWidth={2.2} />
+              veri eski
+            </span>
+          )}
           {isTruncated && (
             <span
               className="block-trunc-pill"

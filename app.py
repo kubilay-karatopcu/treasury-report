@@ -178,7 +178,17 @@ if DEV_MODE:
             # Path 2: LLM block SQL — execute via DuckDB
             if query:
                 rewritten = _rewrite_oracle_for_duckdb(query)
+                # Phase 6.5: Oracle :name binds → DuckDB $name binds.
+                # Block engine emits :ident style; DuckDB's parser uses $ident.
+                if query_params:
+                    rewritten = _re.sub(
+                        r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)\b",
+                        r"$\1",
+                        rewritten,
+                    )
                 try:
+                    if query_params:
+                        return self._get_duck().execute(rewritten, query_params).fetchdf()
                     return self._get_duck().execute(rewritten).fetchdf()
                 except Exception as exc:
                     # Surface the actual DuckDB error so the LLM retry loop can

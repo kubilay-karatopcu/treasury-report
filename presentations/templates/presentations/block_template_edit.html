@@ -1,0 +1,34 @@
+{% extends "presentations/_base_fullscreen.html" %}
+{% block title %}Şablon Düzenle — Treasury Studio{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=35">
+  <style>
+    .dev-banner { display: none !important; }
+    html, body { margin: 0 !important; overflow: hidden !important; }
+    .presentations-editor-mount {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 10 !important;
+      overflow: auto !important;
+      background: #f8fafc;
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div
+  id="presentation-root"
+  class="presentations-editor-mount"
+  data-mode="template-edit"
+></div>
+<script id="initial-manifest" type="application/json">{{ manifest_json | safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}"></script>
+{% endblock %}

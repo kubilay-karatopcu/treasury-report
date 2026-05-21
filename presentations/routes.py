@@ -1,5 +1,8 @@
 import json
+import logging
 import secrets
+
+log = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -389,6 +392,373 @@ def view_snapshot(sid: str):
     )
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Dashboard publishing — R > Ekip Raporları
+# ════════════════════════════════════════════════════════════════════════════
+
+@presentations_bp.route("/user")
+@login_required
+def whoami():
+    """Frontend için: sicil, isim, departman, dashboard_maker yetkisi."""
+    return Response(
+        json.dumps({
+            "sicil":           current_user.sicil,
+            "name":            getattr(current_user, "name", ""),
+            "department":      getattr(current_user, "department", ""),
+            "dashboard_maker": bool(getattr(current_user, "dashboard_maker", False)),
+        }, ensure_ascii=False),
+        mimetype="application/json",
+    )
+
+
+@presentations_bp.route("/users/search")
+@login_required
+def users_search():
+    """Sicil/isim arama — audience picker autocomplete."""
+    from presentations.directory import search_users
+    q = request.args.get("q", "")
+    return Response(
+        json.dumps(search_users(q), ensure_ascii=False),
+        mimetype="application/json",
+    )
+
+
+@presentations_bp.route("/dept/<path:dept>/members")
+@login_required
+def dept_members(dept: str):
+    """Departman üyeleri — group expand için."""
+    from presentations.directory import list_dept_members
+    return Response(
+        json.dumps(list_dept_members(dept), ensure_ascii=False),
+        mimetype="application/json",
+    )
+
+
+@presentations_bp.route("/<pid>/publish", methods=["POST"])
+@login_required
+def publish_dashboard(pid: str):
+    """Sunum'u Ekip Raporları altına yayınla (dashboard_maker zorunlu)."""
+    if not getattr(current_user, "dashboard_maker", False):
+        return Response(
+            json.dumps({"error": "Bu işlem için yetkiniz yok."}, ensure_ascii=False),
+            status=403, mimetype="application/json",
+        )
+
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    audience = body.get("audience_sicils") or []
+    if not isinstance(audience, list):
+        audience = []
+    audience = [str(s).strip() for s in audience if str(s).strip()]
+
+    session = _get_session(pid)
+    manifest = session.get_manifest(fallback=_seed_manifest(pid))
+    if manifest is None:
+        return Response(
+            json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    store = current_app.config["DASHBOARD_STORE"]
+    meta = store.save(
+        manifest,
+        name=name,
+        owner_id=current_user.sicil,
+        owner_department=getattr(current_user, "department", "") or "",
+        audience=audience,
+    )
+
+    from flask import url_for
+    view_url = url_for("presentations.view_dashboard", did=meta["dashboard_id"])
+    return Response(
+        json.dumps({**meta, "url": view_url}, ensure_ascii=False),
+        mimetype="application/json",
+    )
+
+
+@presentations_bp.route("/dashboards")
+@login_required
+def list_dashboards():
+    """Kullanıcının görebileceği dashboard'ları döner (owner + audience)."""
+    store = current_app.config["DASHBOARD_STORE"]
+    items = store.list_visible(
+        user_sicil=current_user.sicil,
+        user_department=getattr(current_user, "department", "") or "",
+    )
+    return Response(json.dumps(items, ensure_ascii=False), mimetype="application/json")
+
+
+@presentations_bp.route("/dashboard/<did>")
+@login_required
+def view_dashboard(did: str):
+    """Yayınlanmış dashboard'u read-only göster (snapshot.html ile aynı template)."""
+    store = current_app.config["DASHBOARD_STORE"]
+    payload = store.load(did)
+    if payload is None:
+        return Response("Rapor bulunamadı.", status=404)
+
+    meta = payload.get("meta") or {}
+    if not _can_see_dashboard(meta,
+                              current_user.sicil,
+                              getattr(current_user, "department", "") or ""):
+        return Response("Bu rapora erişiminiz yok.", status=403)
+
+    manifest = payload["manifest"]
+    return render_template(
+        "presentations/snapshot.html",
+        snapshot_id=did,
+        meta=meta,
+        manifest=manifest,
+        manifest_json=json.dumps(manifest, ensure_ascii=False),
+    )
+
+
+def _can_see_dashboard(meta, user_sicil, user_department):
+    if not meta:
+        return False
+    if meta.get("owner_id") == user_sicil:
+        return True
+    if user_sicil and user_sicil in (meta.get("audience_sicils") or []):
+        return True
+    if user_department and user_department in (meta.get("audience_departments") or []):
+        return True
+    return False
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Library — yeniden kullanılabilir blok şablonları
+# ════════════════════════════════════════════════════════════════════════════
+
+@presentations_bp.route("/<pid>/blocks/save", methods=["POST"])
+@login_required
+def save_block_to_library(pid: str):
+    """Sunum içindeki bir bloğu library'e kaydet.
+
+    Request body: {
+      block_id: "b_xxx",
+      name: "...",
+      description: "...",
+      tags: ["...", ...],
+      audience_sicils: [...]
+    }
+    """
+    from presentations.manifest import find_block_by_id
+    body = request.get_json(silent=True) or {}
+    block_id = (body.get("block_id") or "").strip()
+    name = (body.get("name") or "").strip()
+    description = (body.get("description") or "").strip()
+    tags = body.get("tags") or []
+    audience = body.get("audience_sicils") or []
+    if not isinstance(tags, list):
+        tags = []
+    if not isinstance(audience, list):
+        audience = []
+    tags = [str(t).strip() for t in tags if str(t).strip()]
+    audience = [str(s).strip() for s in audience if str(s).strip()]
+
+    if not block_id:
+        return Response(
+            json.dumps({"error": "block_id zorunlu."}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    session = _get_session(pid)
+    manifest = session.get_manifest(fallback=_seed_manifest(pid))
+    if manifest is None:
+        return Response(
+            json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    block, _path = find_block_by_id(manifest, block_id)
+    if block is None:
+        return Response(
+            json.dumps({"error": f"Blok '{block_id}' bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    # Section_header / filter_bar / carousel kütüphaneye uygun değil
+    if block.get("type") in ("section_header",):
+        return Response(
+            json.dumps({"error": "Bölüm başlıkları kütüphaneye kaydedilemez."}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    store = current_app.config["LIBRARY_STORE"]
+    meta = store.save(
+        block,
+        name=name,
+        description=description,
+        tags=tags,
+        owner_id=current_user.sicil,
+        owner_department=getattr(current_user, "department", "") or "",
+        audience=audience,
+    )
+    return Response(json.dumps(meta, ensure_ascii=False), mimetype="application/json")
+
+
+@presentations_bp.route("/library")
+@login_required
+def list_library():
+    """Kullanıcının görebildiği library bloklarının özet listesi (UI grid + arama).
+
+    Query params: ?type=bar_chart (filter), ?tag=mevduat (filter), ?q=foo (search)
+    """
+    store = current_app.config["LIBRARY_STORE"]
+    items = store.list_visible(
+        user_sicil=current_user.sicil,
+        user_department=getattr(current_user, "department", "") or "",
+    )
+    # Filter / search query params
+    btype = (request.args.get("type") or "").strip()
+    tag   = (request.args.get("tag") or "").strip().lower()
+    q     = (request.args.get("q") or "").strip().lower()
+    if btype:
+        items = [m for m in items if (m.get("block_type") or "").lower() == btype.lower()]
+    if tag:
+        items = [m for m in items if tag in [t.lower() for t in (m.get("tags") or [])]]
+    if q:
+        items = [m for m in items
+                 if q in (m.get("name") or "").lower()
+                 or q in (m.get("description") or "").lower()]
+    return Response(json.dumps(items, ensure_ascii=False), mimetype="application/json")
+
+
+@presentations_bp.route("/library/<bid>/preview")
+@login_required
+def preview_library_block(bid: str):
+    """Bir library bloğunu read-only preview olarak render et.
+    Bloğu sentetik bir manifest içine sarar (tek section + bu blok), SQL'ini
+    çalıştırır, snapshot.html ile render eder."""
+    store = current_app.config["LIBRARY_STORE"]
+    payload = store.load(bid)
+    if payload is None:
+        return Response("Blok bulunamadı.", status=404)
+    meta = payload.get("meta") or {}
+    if not _can_see_dashboard(meta,
+                              current_user.sicil,
+                              getattr(current_user, "department", "") or ""):
+        return Response("Bu bloka erişiminiz yok.", status=403)
+
+    block = payload.get("block") or {}
+    # Yeni id ver (clone gibi) — preview'da çakışma olmasın
+    import secrets as _sec
+    preview_block = json.loads(json.dumps(block))
+    preview_block["id"] = "prv_" + _sec.token_urlsafe(6)
+
+    # Sentetik manifest
+    manifest = {
+        "id": f"preview_{bid}",
+        "version": 1,
+        "meta": {"title": meta.get("name", "Blok Önizleme"), "date": ""},
+        "blocks": [
+            {
+                "id": "h_preview",
+                "type": "section_header",
+                "title": meta.get("name", "Önizleme"),
+                "locked": False,
+                "config": {},
+                "children": [preview_block],
+            }
+        ],
+    }
+
+    # SQL'i hemen çalıştır — DuckDB cache'e kaydolacak ve config dolacak
+    if preview_block.get("type") in (
+        "kpi", "bar_chart", "line_chart", "area_chart",
+        "pie_chart", "heatmap", "radial_bar", "data_table",
+    ):
+        try:
+            _execute_preview_sql(preview_block)
+        except Exception as exc:
+            log.warning("library preview: SQL execution failed for %s: %s", bid, exc)
+
+    return render_template(
+        "presentations/block_preview.html",
+        meta={"title": meta.get("name", "Önizleme")},
+        manifest=manifest,
+        manifest_json=json.dumps(manifest, ensure_ascii=False),
+    )
+
+
+def _execute_preview_sql(block: dict) -> None:
+    """Library preview için SQL'i çalıştırıp block.config'i doldur.
+    Bağımsız bir DuckDB connection kullanır — session kontaminasyonu yok."""
+    from presentations.duck import execute_block_sql
+    from presentations.nodes.execute_block_sqls import apply_data_to_config
+    import duckdb
+
+    ds = block.get("data_source") or {}
+    sql = (ds.get("original_sql") or ds.get("sql") or "").strip()
+    if not sql:
+        return
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return
+
+    conn = duckdb.connect(":memory:")
+    try:
+        new_ds = execute_block_sql(dc, conn, block.get("id", "preview"), sql)
+        block["data_source"] = {**ds, **new_ds}
+        apply_data_to_config(block, block["data_source"])
+    finally:
+        conn.close()
+
+
+@presentations_bp.route("/library/<bid>")
+@login_required
+def get_library_block(bid: str):
+    """Bir library bloğunun tam içeriği (block + meta) — detay modal + clone."""
+    store = current_app.config["LIBRARY_STORE"]
+    payload = store.load(bid)
+    if payload is None:
+        return Response(
+            json.dumps({"error": "Blok bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+    meta = payload.get("meta") or {}
+    if not _can_see_dashboard(meta,
+                              current_user.sicil,
+                              getattr(current_user, "department", "") or ""):
+        return Response(
+            json.dumps({"error": "Bu bloka erişiminiz yok."}, ensure_ascii=False),
+            status=403, mimetype="application/json",
+        )
+    return Response(json.dumps(payload, ensure_ascii=False), mimetype="application/json")
+
+
+@presentations_bp.route("/<pid>/export.html")
+@login_required
+def export_html(pid: str):
+    """Mevcut sunum'u tek HTML dosyası olarak indir.
+    Snapshot.html template'i ile aynı, sadece Content-Disposition: attachment.
+    İçerideki bundle.js + CSS referansları absolute URL'lerle korunur — kullanıcı
+    aynı ağdan açtığında tam render olur."""
+    session = _get_session(pid)
+    manifest = session.get_manifest(fallback=_seed_manifest(pid))
+    if manifest is None:
+        return Response("Sunum bulunamadı.", status=404)
+
+    html = render_template(
+        "presentations/snapshot.html",
+        snapshot_id=pid,
+        meta={"title": manifest.get("meta", {}).get("title", pid)},
+        manifest=manifest,
+        manifest_json=json.dumps(manifest, ensure_ascii=False),
+    )
+
+    safe_title = (manifest.get("meta", {}).get("title") or pid)
+    safe_title = "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in safe_title).strip()
+    filename = f"{safe_title or pid}.html"
+
+    return Response(
+        html,
+        mimetype="text/html",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @presentations_bp.route("/<pid>/duckdb/preview/<view_name>")
 @login_required
 def duckdb_preview(pid: str, view_name: str):
@@ -766,6 +1136,214 @@ def refresh_block_data(pid: str, bid: str):
         mimetype="application/json",
     )
  
+@presentations_bp.route("/<pid>/block/<bid>/run-manual", methods=["POST"])
+@login_required
+def run_block_manual(pid: str, bid: str):
+    """Phase 6.5 manual-SQL block execution path.
+
+    Body:
+        {
+          "query": "<SQL with :binds>",
+          "variables": [{name, semantic_tag, type, required, default, allowed_values}, ...],
+          "variable_overrides": {<name>: <value>, ...}     (optional)
+        }
+
+    Flow:
+        1. Validate the SQL via the Phase 6.5 whitelist validator (catches DDL/DML/multi-statement).
+        2. Build a transient Block model, resolve variables, expand binds.
+        3. Execute through the existing duck.execute_block_sql plumbing so the
+           result lands in the same `data_source` shape the renderer expects.
+        4. Persist query/variables on the manifest leaf and bump manifest version.
+
+    Returns the same shape as /block/<bid>/refresh: {ok, version, block}.
+    """
+    from .manifest import find_block_by_id
+    from .blocks.schema import Block, Variable
+    from .sql.validator import validate_sql
+    from .sql.binder import expand_binds
+    from .variables.resolver import resolve_variables, ResolutionError
+    from .nodes.execute_block_sqls import apply_data_to_config
+
+    session = _get_session(pid)
+    manifest = session.get_manifest()
+    if not manifest:
+        return Response(
+            json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    block, _path = find_block_by_id(manifest, bid)
+    if block is None:
+        return Response(
+            json.dumps({"error": f"Blok '{bid}' bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    body = request.get_json(silent=True) or {}
+    query = (body.get("query") or "").strip()
+    variables_raw = body.get("variables") or []
+    overrides = body.get("variable_overrides") or {}
+    if not query:
+        return Response(
+            json.dumps({"error": "SQL boş.", "kind": "no_sql"}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    # Build transient Variable models — partial variables (missing semantic_tag
+    # or allowed_values) are reported as user-actionable errors rather than
+    # crashing in Pydantic land.
+    try:
+        var_models = [Variable.model_validate(v) for v in variables_raw]
+    except Exception as exc:
+        return Response(
+            json.dumps({
+                "error": "Değişken tanımı geçersiz: " + str(exc),
+                "kind": "variable_schema",
+            }, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    range_var_names = [v.name for v in var_models if v.type in ("date_range", "number_range")]
+    sql_check = validate_sql(
+        query,
+        declared_variables=[v.name for v in var_models],
+        range_variables=range_var_names,
+    )
+    if not sql_check.ok:
+        return Response(
+            json.dumps({
+                "error": "; ".join(sql_check.errors),
+                "kind": "sql",
+                "warnings": sql_check.warnings,
+            }, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    # Synthesize a stand-in Block for the resolver / binder. We don't write it
+    # back — it's purely for type-driven coercion.
+    try:
+        stand_in = Block.model_validate({
+            "id": bid if len(bid) >= 3 else f"blk_{bid}",
+            "version": 1,
+            "title": block.get("title") or "block",
+            "team": "in_presentation",
+            "owner": current_user.sicil,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "query": query,
+            "variables": [v.model_dump() for v in var_models],
+            "visualization": {"type": block.get("type", "kpi"), "config": {}},
+        })
+    except Exception as exc:
+        return Response(
+            json.dumps({"error": str(exc), "kind": "block_schema"}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    try:
+        resolved = resolve_variables(stand_in, overrides)
+    except ResolutionError as exc:
+        return Response(
+            json.dumps({
+                "error": "; ".join(exc.errors),
+                "kind": "resolution",
+            }, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    try:
+        bound = expand_binds(stand_in, resolved)
+    except ValueError as exc:
+        return Response(
+            json.dumps({"error": str(exc), "kind": "bind"}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    conn = session.get_duck_conn()
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return Response(
+            json.dumps({"error": "DATA_CLIENT yapılandırılmamış.", "kind": "config"},
+                       ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    # Bind params are routed through DataClient.get_data (DEV stub passes them
+    # to DuckDB; prod oracledb honours :name binds natively). We mirror the
+    # query_params signature the rest of the code uses.
+    try:
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"block::{bid}",
+            query=bound.sql,
+            query_params=bound.params,
+        )
+    except GateError as exc:
+        return Response(
+            json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+    except Exception as exc:
+        current_app.logger.exception("run_block_manual failed")
+        msg = str(exc).strip().splitlines()[0][:240]
+        return Response(
+            json.dumps({"error": msg, "kind": "oracle"}, ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    if df is None:
+        import pandas as _pd
+        df = _pd.DataFrame()
+
+    df = df.reset_index(drop=True) if hasattr(df, "reset_index") else df
+    columns = [str(c) for c in df.columns]
+    total_rows = int(len(df))
+
+    all_rows = []
+    if total_rows > 0:
+        for row in df.itertuples(index=False, name=None):
+            all_rows.append([duck._jsonable(v) for v in row])
+
+    new_ds = {
+        "sql":           bound.sql,
+        "original_sql":  query,
+        "rewritten":     False,
+        "truncated":     False,
+        "cap":           total_rows,
+        "reason":        "manual_sql",
+        "executed_at":   datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "row_count":     total_rows,
+        "columns":       columns,
+        "preview_rows":  all_rows[:5],
+        "rows":          all_rows,
+        "view_name":     f"v_{bid}",
+        "engine":        "manual_sql",
+        "bind_params":   {k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                          for k, v in bound.params.items()},
+    }
+
+    # Persist manual_sql state on the block alongside the executed data.
+    block["manual_sql"] = True
+    block["query"] = query
+    block["variables"] = [v.model_dump(mode="json", exclude_none=True) for v in var_models]
+    block["data_source"] = new_ds
+    block.pop("data_stale", None)  # successful run clears the stale flag
+
+    apply_data_to_config(block, new_ds)
+
+    manifest["version"] = manifest.get("version", 0) + 1
+    session.set_manifest(manifest)
+
+    return Response(
+        json.dumps({
+            "ok": True,
+            "version": manifest["version"],
+            "block": block,
+            "warnings": sql_check.warnings,
+        }, ensure_ascii=False, default=str),
+        mimetype="application/json",
+    )
+
+
 @presentations_bp.route("/help.json")
 @login_required
 def help_doc():
