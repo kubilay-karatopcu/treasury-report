@@ -76,13 +76,18 @@ class QwenClient:
         selected_block_id=None,
         data_summary=None,
         catalog=None,
+        library=None,
+        table_docs=None,
     ):
         # Embed manifest snapshot + layout summary + DuckDB data summary +
-        # catalog into the user message. The system prompt stays static.
+        # catalog + library summary + Phase 6.5.b table docs into the user
+        # message.
         composed_user = compose_user_message(
             manifest, selected_block_id, user_message,
             data_summary=data_summary,
             catalog=catalog,
+            library=library,
+            table_docs=table_docs,
         )
 
         # Sanity check: catch runaway prompts before the server does.
@@ -314,6 +319,8 @@ def compose_user_message(
     user_message: str,
     data_summary: dict | None = None,
     catalog: dict | None = None,
+    library: list[dict] | None = None,  # F.5: kullanıcının görebildiği blok özetleri
+    table_docs: list | None = None,     # Phase 6.5.b — rich per-table metadata
 ) -> str:
     blocks = manifest.get("blocks", [])
     layout = _block_layout_summary(blocks)
@@ -341,14 +348,18 @@ def compose_user_message(
     full_json = json.dumps(_manifest_for_prompt(manifest), ensure_ascii=False, indent=2)
     data_section = _data_summary_section(data_summary)
     catalog_section = _catalog_section(catalog)
+    library_section = _library_summary(library)
+    table_docs_section = _table_docs_section(table_docs)
 
     return (
         "# Bağlam\n\n"
         f"{catalog_section}"
+        f"{table_docs_section}"
         "## Blok dizilimi (index sırasıyla)\n"
         f"{layout}\n\n"
         "## Section ekleme index'leri (yeni blok ALTINA ekleme için)\n"
         f"{sec_indices}\n\n"
+        f"{library_section}"
         f"## Seçili blok\n  {sel_info}{sel_shape_hint}\n"
         f"{data_section}\n"
         "## Tam manifest (JSON, referans için)\n"
@@ -356,6 +367,101 @@ def compose_user_message(
         "# Talep\n"
         f"{user_message}\n"
     )
+
+
+def _table_docs_section(table_docs) -> str:
+    """Render Phase 6.5.b extended table docs as an LLM-friendly section.
+
+    Surfaces ``suggested_variable``, ``suggested_semantic_tag``, and
+    ``distinct_values_sample`` per filterable column so the LLM, when it
+    starts emitting Phase 6.5 blocks with :binds + variables, can pick
+    consistent names + tags + value sets without making them up.
+
+    Only included for tables that have been migrated to the extended
+    schema. Pre-migration tables continue to appear in ``_catalog_section``
+    with their legacy column shape (no semantic_tag hints).
+    """
+    if not table_docs:
+        return ""
+
+    lines = [
+        "## Tablo dokümantasyonu (zengin metadata — :param üretirken kullan)",
+        "",
+        "Aşağıdaki tablolar Phase 6.5 değişken sistemine migrate edildi. SQL",
+        "üretirken :param isimleri için **suggested_variable**'ı, blok.variables",
+        "tanımında semantic_tag için **suggested_semantic_tag**'i, allowed_values",
+        "için **distinct_values_sample**'i kullan.",
+        "",
+    ]
+    for doc in table_docs:
+        # Avoid pulling Pydantic in here — duck-type via attribute lookup so
+        # callers can pass plain dicts too if they ever want to.
+        schema = getattr(doc, "schema_name", None) or getattr(doc, "schema", "")
+        table = getattr(doc, "table", "?")
+        desc = getattr(doc, "description", "") or ""
+        partition = getattr(doc, "partition_column", None)
+
+        header_bits = [f"**{schema}.{table}**"]
+        if desc:
+            header_bits.append(desc.split("\n")[0])
+        if partition:
+            header_bits.append(f"partitioned: {partition}")
+        lines.append(" · ".join(header_bits))
+
+        columns = getattr(doc, "columns", {}) or {}
+        # If `columns` is a Pydantic dict-of-models, .items() walks them.
+        items = columns.items() if hasattr(columns, "items") else []
+        for col_name, col in items:
+            visible = getattr(col, "visible_in_ui", True)
+            if not visible:
+                continue
+            ctype = getattr(col, "type", "")
+            filterable = getattr(col, "filterable", False)
+            filter_role = getattr(col, "filter_role", None)
+            suggested_var = getattr(col, "suggested_variable", None)
+            suggested_tag = getattr(col, "suggested_semantic_tag", None)
+            samples = getattr(col, "distinct_values_sample", None)
+
+            if filterable:
+                bits = [f"`{col_name}` ({ctype})"]
+                if filter_role:
+                    bits.append(filter_role)
+                if suggested_var and suggested_tag:
+                    bits.append(f"→ :{suggested_var} (semantic_tag={suggested_tag})")
+                if samples:
+                    head = ", ".join(repr(v) for v in samples[:8])
+                    bits.append(
+                        f"allowed: [{head}{'…' if len(samples) > 8 else ''}]"
+                    )
+                lines.append("  - " + " · ".join(bits))
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _library_summary(library: list[dict] | None) -> str:
+    """Library blokların 1 satırlık özetlerini prompt'a ekle. LLM yeni blok
+    talebinde bu listede uygun bir blok varsa SUGGESTION dönmeli."""
+    if not library:
+        return ""
+    lines = ["## Blok Kütüphanesi (önerilebilir)"]
+    lines.append(
+        "Aşağıdaki bloklar daha önce ekibinde inşa edildi. Kullanıcı yeni blok "
+        "isterse ve uygun bir tane varsa sıfırdan üretmek yerine **suggestion** sun."
+    )
+    for m in library[:50]:  # max 50, token sınırı
+        bid = m.get("library_id", "?")
+        btype = m.get("block_type", "?")
+        name = m.get("name", "(adsız)")
+        desc = (m.get("description") or "").strip()
+        tags = ",".join(m.get("tags") or [])
+        tables = ",".join(m.get("used_tables") or [])
+        bits = [f"[{btype}] {name!r}"]
+        if tables: bits.append(f"tables:{tables}")
+        if tags: bits.append(f"tags:{tags}")
+        if desc: bits.append(f"— {desc[:120]}")
+        lines.append(f"- `{bid}` " + " · ".join(bits))
+    lines.append("")
+    return "\n".join(lines) + "\n"
 
 
 def _parse_llm_output(content: str) -> tuple[list[dict], str]:
@@ -376,13 +482,17 @@ def _parse_llm_output(content: str) -> tuple[list[dict], str]:
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1 or end <= start:
-            return [], f"LLM çıktısı JSON olarak parse edilemedi: {text[:200]}"
+            return [], f"LLM çıktısı JSON olarak parse edilemedi: {text[:200]}", []
         try:
             data = json.loads(text[start : end + 1])
         except json.JSONDecodeError as exc:
-            return [], f"LLM çıktısı JSON olarak parse edilemedi: {exc}"
+            return [], f"LLM çıktısı JSON olarak parse edilemedi: {exc}", []
 
-    return data.get("patches", []), data.get("explanation", "")
+    return (
+        data.get("patches", []),
+        data.get("explanation", ""),
+        data.get("suggestions", []),  # F.5 — library suggestions (opsiyonel)
+    )
 
 
 # ── Local dev stub ────────────────────────────────────────────────────────────
@@ -407,9 +517,10 @@ class FakeLLM:
         selected_block_id=None,
         data_summary=None,
         catalog=None,
+        library=None,
     ):
-        # FakeLLM ignores data_summary — it's pure pattern matching against the
-        # user's text. The signature matches QwenClient for drop-in replacement.
+        # FakeLLM ignores data_summary/library — it's pure pattern matching.
+        # Signature matches QwenClient for drop-in replacement.
         msg = user_message.strip()
         idx, block = _find_block(manifest, selected_block_id)
 
@@ -420,6 +531,7 @@ class FakeLLM:
             return (
                 [{"op": "replace", "path": f"/blocks/{idx}/title", "value": new_title}],
                 f"(yerel stub) Başlık '{block.get('title', '')}' → '{new_title}'.",
+                [],
             )
 
         # Narrative text change
@@ -429,15 +541,17 @@ class FakeLLM:
             return (
                 [{"op": "replace", "path": f"/blocks/{idx}/config/text", "value": new_text}],
                 f"(yerel stub) Narrative metni güncellendi.",
+                [],
             )
 
         # Remove block
         if re.search(r"\b(kaldır|sil|remove|delete)\b", msg, re.IGNORECASE) and block is not None:
             if block.get("type") == "section_header":
-                return [], "(yerel stub) Section header bloğu silinemez."
+                return [], "(yerel stub) Section header bloğu silinemez.", []
             return (
                 [{"op": "remove", "path": f"/blocks/{idx}"}],
                 f"(yerel stub) '{block.get('title', '')}' bloğu kaldırıldı.",
+                [],
             )
 
         # KPI value change — find first number in message
@@ -449,6 +563,7 @@ class FakeLLM:
                 return (
                     [{"op": "replace", "path": f"/blocks/{idx}/config/value", "value": new_value}],
                     f"(yerel stub) KPI değeri {old_value} → {new_value}.",
+                    [],
                 )
 
         # Meta title change (no block selected)
@@ -458,6 +573,7 @@ class FakeLLM:
                 return (
                     [{"op": "replace", "path": "/meta/title", "value": m.group(1).strip()}],
                     f"(yerel stub) Sunum başlığı güncellendi.",
+                    [],
                 )
 
         return (
@@ -465,6 +581,7 @@ class FakeLLM:
             "(yerel stub) Bu talebi anlayamadım. Şunları deneyebilirsin: "
             "bir KPI seçip sayı yaz, 'başlık: X', 'metni: X', 'kaldır'. "
             "Gerçek model ofis ortamında devreye girer.",
+            [],
         )
 
 

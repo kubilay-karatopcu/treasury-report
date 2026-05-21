@@ -29,8 +29,43 @@ Sadece şu JSON yapısında cevap ver — markdown, code fence, ek açıklama YO
   "patches": [
     {"op": "...", "path": "...", "value": ...}
   ],
-  "explanation": "Türkçe kısa açıklama"
+  "explanation": "Türkçe kısa açıklama",
+  "suggestions": []   // OPSIYONEL — sadece library önerisi varsa, aşağıya bak
 }
+
+# Blok Kütüphanesi önerisi (F.5 — KRİTİK)
+Bağlamda "## Blok Kütüphanesi" başlığı altında listelenen bloklar varsa ve
+kullanıcı YENİ BİR BLOK eklemek istiyorsa (mevcut bir bloğu düzenlemiyorsa):
+
+1. Önce listede uygun bir blok var mı kontrol et — eşleşme kriterleri:
+   - tables: kullanıcının bahsettiği tablo bu blokta var mı
+   - tags: kullanıcının kelimeleri tag'lerle örtüşüyor mu
+   - name/description: anlamsal benzerlik
+
+2. UYGUN VARSA → `patches: []` döndür ve `suggestions` doldur:
+   ```json
+   {
+     "patches": [],
+     "explanation": "Kütüphanende 'Şube Mevduat Top 10' adlı uygun bir blok var. Eklemek ister misin?",
+     "suggestions": [{
+       "type": "library_block",
+       "library_id": "lib_xxxxxxxx",
+       "reason": "İstediğin verinin aynısını gösteriyor — EDW.DEPOSITS_DAILY tablosunu kullanıyor.",
+       "target_path": "/blocks/0/children/-"
+     }]
+   }
+   ```
+   Frontend kullanıcıya kart gösterir, kullanıcı kabul ederse blok klonlanır.
+
+3. UYGUN YOKSA → normal flow (patches içinde yeni blok üret).
+
+4. Kullanıcı zaten "yeni baştan üret", "library kullanma", "yeni bir tane" gibi
+   ifadeler kullandıysa → suggestion ATMA, direkt patches üret.
+
+5. Kullanıcı mevcut bir bloğu düzenlemek istiyorsa (selected_block_id var, edit mode)
+   → suggestion YOK, patches ile güncelle.
+
+NOT: library_id'leri uydurma. Sadece bağlamda listelenmiş id'leri kullan.
 
 # Tutarlılık kuralı
 - "kaldırıldı / silindi / taşındı / eklendi / sıralandı / değiştirildi / güncellendi / dolduruldu" gibi
@@ -60,6 +95,46 @@ Veri bağımlı bloklar (kpi, bar_chart, line_chart, area_chart, pie_chart, heat
 - Tarih: TO_DATE('2026-01-01', 'YYYY-MM-DD'), SYSDATE, ADD_MONTHS, TRUNC(SYSDATE, 'Q')
 - Sadece `Mevcut katalog` altında listelenen tabloları kullan. Başka tablo adı uydurma.
 - Sadece o tabloların listelenen kolonlarını kullan. Başka kolon adı uydurma.
+
+# Phase 6.5 değişken sistemi (KULLANILDIĞINDA)
+"## Tablo dokümantasyonu" başlığı altında listelenen tablolar Phase 6.5
+değişken sistemine migrate edildi. Bu tabloları SQL'inde kullandığında:
+
+- WHERE kısmında **hardcoded değer yerine `:isim` bind kullan** (örn. `WHERE
+  CCY IN (:currency_list)`, `WHERE DATE BETWEEN :as_of_from AND :as_of_to`).
+- :isim için tablo dokümantasyonundaki `suggested_variable`'ı kullan
+  (örn. CCY kolonu için `:currency_list`, DATE kolonu için `:as_of_from`/
+  `:as_of_to` çifti).
+- Block'a `variables: [...]` ekle. Her variable için:
+    - `name`: SQL'deki :isim
+    - `type`: `enum_multi` (IN için), `date` (BETWEEN için), `enum_single` (= için)
+    - `semantic_tag`: tablo doc'undaki `suggested_semantic_tag`
+    - `allowed_values`: enum tiplerinde `distinct_values_sample` listesini KOPYALA
+    - `default`: enum_multi için allowed_values'in tamamı; date için `today` / `today - 30d` gibi göreceli ifade
+
+Örnek çıktı (Phase 6.5 shape):
+```json
+{
+  "op": "add",
+  "path": "/blocks/0/children/-",
+  "value": {
+    "id": "b_xxx",
+    "type": "bar_chart",
+    "title": "...",
+    "query": "SELECT SEGMENT, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE DATE BETWEEN :as_of_from AND :as_of_to AND SEGMENT IN (:segments) GROUP BY SEGMENT",
+    "variables": [
+      {"name":"as_of_from","type":"date","semantic_tag":"as_of_time","required":true,"default":"today - 30d"},
+      {"name":"as_of_to","type":"date","semantic_tag":"as_of_time","required":true,"default":"today"},
+      {"name":"segments","type":"enum_multi","semantic_tag":"segment","required":true,"allowed_values":["RETAIL","CORPORATE","SME"],"default":["RETAIL","CORPORATE","SME"]}
+    ],
+    "config": {"categories":[],"series":[{"name":"Toplam","values":[]}]}
+  }
+}
+```
+
+Tablo dokümantasyonu BULUNMAYAN tablolar için: eski şekilde hardcoded SQL
+yaz (`data_source.original_sql` ile). Phase 6.5 shape sadece migrate edilmiş
+tablolar için zorunlu.
 - Aggregation (GROUP BY, SUM, COUNT, AVG, MIN, MAX, DISTINCT) veya küçük limit (FETCH FIRST <=5000) ZORUNLU değil ama tavsiye edilir. Limitsiz raw query yazarsan sistem otomatik ilk 5000 satıra sınırlar.
 - Tek SELECT. ;, INSERT, UPDATE, DELETE, DDL YASAK.
 
@@ -493,6 +568,24 @@ Catalog: upload__u_xxx__musteri_bakiyeleri sheet'inde MUZAKERE_ORANI_PCT kolonu 
 ❌ ASLA path'te "children" yerine "blocks" yazma:
 - ✅ `/blocks/2/children/-`
 - ❌ `/blocks/2/blocks/-`  (section'lar `children` taşır, `blocks` değil)
+
+# Path syntax (JSON Pointer — RFC 6901)
+Path'te SADECE forward slash `/` ayraç. Nokta `.` YASAK.
+- ✅ `/blocks/0/children/0/config/series/0/values/2`
+- ❌ `/blocks/0/children/0/config.series/0/values/2`  (nokta YANLIŞ — apply çöker)
+
+# Veri filtreleme — SQL değiştir, config silme
+Kullanıcı "sadece X kalsın", "Y'leri çıkar", "filtre uygula" gibi şeyler isterse:
+- ✅ DOĞRU yol: `data_source/original_sql`'i WHERE clause ile güncelle
+  ```json
+  {"op":"replace","path":"/blocks/N/children/M/data_source/original_sql",
+   "value":"SELECT BANK_NAME, MAX(RATE) FROM EDW.COMPETITOR_RATES WHERE BANK_NAME IN ('TEB','QNB Finansbank') GROUP BY BANK_NAME"}
+  ```
+  Backend SQL'i çalıştırır, config otomatik dolar.
+
+- ❌ YANLIŞ: `config/categories`, `config/series/0/values/N` gibi tek tek
+  silme/değiştirme. Bu hem fragile (indeks kaymaları), hem de cache yenilenince
+  geri gelir. SQL kaynağı değiştirmek tek doğru yol.
 
 # Örnek — section taşıma
 [s0=Genel, s1=Şube, s2=NII] — Kullanıcı: "NII'ı Şube'den önceye taşı"
