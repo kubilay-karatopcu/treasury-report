@@ -1543,6 +1543,12 @@
   background: #1e293b;
   margin-top: 6px;
 }
+.src-sql--runnable {
+  background: #052e26;        /* dark green — visually distinct: "ready to run" */
+  color: #d1fae5;
+  margin-top: 6px;
+  border-left: 3px solid #10b981;
+}
 
 .src-rewritten {
   margin-top: 8px;
