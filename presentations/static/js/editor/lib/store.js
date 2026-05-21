@@ -72,6 +72,71 @@ function updateBlockInPlace(manifest, blockId, fn) {
 
 // ── Empty block templates (used when user manually adds blocks) ────────────
 
+/**
+ * Walk every leaf block in `manifest` and propose JSON-Patch operations
+ * that auto-bind matching variables to a newly-added dashboard filter.
+ *
+ * Match rules (mirror presentations/dashboards/binding.py:propose_auto_bindings):
+ * - variable.semantic_tag === filter.semantic_tag
+ * - variable.name has no existing binding
+ * - For date variables targeting a date_range filter, the variable's name
+ *   suffix (_from / _since / _start vs _to / _until / _end) picks the
+ *   accessor. Ambiguous date vars (no suffix) are left unbound — the
+ *   "Filter eklemek ister misiniz?" banner in 6.5.c.2.b will surface them.
+ * - For other types, types must match exactly (enum_multi ↔ enum_multi, etc.).
+ */
+function _computeAutoBindPatches(manifest, filterDef) {
+  if (!manifest) return [];
+  const out = [];
+
+  function visit(block, basePath) {
+    if (!block || block.type === 'section_header') return;
+    if (!Array.isArray(block.variables)) return;
+    const existing = block.variable_bindings || {};
+    const newBindings = { ...existing };
+    let changed = false;
+
+    for (const v of block.variables) {
+      if (v.semantic_tag !== filterDef.semantic_tag) continue;
+      if (newBindings[v.name]) continue;   // already bound, don't clobber
+      // Pairing rules:
+      if (v.type === 'date' && filterDef.type === 'date_range') {
+        const lower = v.name.toLowerCase();
+        let accessor = null;
+        if (/_(from|since|start)$/.test(lower)) accessor = 'from';
+        else if (/_(to|until|end)$/.test(lower)) accessor = 'to';
+        if (!accessor) continue;
+        newBindings[v.name] = { from_filter: filterDef.id, accessor };
+        changed = true;
+      } else if (v.type === filterDef.type) {
+        newBindings[v.name] = { from_filter: filterDef.id };
+        changed = true;
+      }
+    }
+    if (changed) {
+      const op = block.variable_bindings ? 'replace' : 'add';
+      out.push({ op, path: `${basePath}/variable_bindings`, value: newBindings });
+    }
+  }
+
+  const sections = manifest.blocks || [];
+  for (let si = 0; si < sections.length; si++) {
+    const sec = sections[si];
+    const children = sec.children || [];
+    for (let ci = 0; ci < children.length; ci++) {
+      const child = children[ci];
+      visit(child, `/blocks/${si}/children/${ci}`);
+      if (child.type === 'carousel' && Array.isArray(child.children)) {
+        for (let sli = 0; sli < child.children.length; sli++) {
+          visit(child.children[sli], `/blocks/${si}/children/${ci}/children/${sli}`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+
 function _emptyBlockTemplate(id, type) {
   // Phase 6.5: every data-bound block carries `query` (raw SQL with :binds)
   // and `variables` (per-bind metadata). Whether the SQL is authored by the
@@ -613,21 +678,31 @@ const useStore = create((set) => ({
       throw new Error(`Filtre id ${filterDef.id} zaten var.`);
     }
     const idx = existing.length;
-    const patch = { op: 'add', path: `/filters/${idx}`, value: filterDef };
-    // If /filters doesn't exist yet, prepend an "ensure array" patch.
-    const ensure = (state.manifest.filters === undefined)
-      ? [{ op: 'add', path: '/filters', value: [] }]
-      : [];
+    const patches = [];
+    if (state.manifest.filters === undefined) {
+      patches.push({ op: 'add', path: '/filters', value: [] });
+    }
+    patches.push({ op: 'add', path: `/filters/${idx}`, value: filterDef });
+
+    // ── Auto-bind matching block variables to this new filter ───────────
+    // Walk every leaf block; for each variable whose semantic_tag matches
+    // and which isn't already bound, write a variable_binding pointing at
+    // this filter. Mirrors propose_auto_bindings() in
+    // presentations/dashboards/binding.py — but proactive on filter-add
+    // rather than on block-insert.
+    const bindPatches = _computeAutoBindPatches(state.manifest, filterDef);
+    patches.push(...bindPatches);
+
     set((s) => {
       if (!s.manifest) return {};
-      const next = _applyPatches(s.manifest, [...ensure, patch]);
+      const next = _applyPatches(s.manifest, patches);
       next.version = (next.version || 0) + 1;
       // Seed local filter state with this new filter's default.
       const fs = { ...s.filterState };
       if (filterDef.default != null) fs[filterDef.id] = filterDef.default;
       return { manifest: next, filterState: fs };
     });
-    submitPatches([...ensure, patch]).catch((e) =>
+    submitPatches(patches).catch((e) =>
       console.error('addDashboardFilter persist failed:', e),
     );
   },
