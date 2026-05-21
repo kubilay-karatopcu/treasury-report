@@ -2870,11 +2870,26 @@
 .props-num-suffix { color: var(--ts-muted); font-size: 0.75rem; }
 
 .props-select {
+  width: 100%;
+  padding: 6px 28px 6px 10px;     /* right padding leaves room for caret */
+  border: 1px solid var(--ts-hairline);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: #ffffff;
+  color: var(--ts-ink);
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  padding-right: 28px;
+  cursor: pointer;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+.props-select:hover { border-color: #94a3b8; }
+.props-select:focus {
+  outline: none;
+  border-color: var(--ts-primary, #206bc4);
+  box-shadow: 0 0 0 2px rgba(32, 107, 196, 0.15);
 }
 
 .props-textarea {
@@ -5514,6 +5529,40 @@ body.theme-dark .props-sql-helper__table td code {
   font-size: 0.65rem;
   color: #b45309;
   font-style: italic;
+}
+
+.props-var-hint {
+  font-size: 0.7rem;
+  color: var(--ts-muted, #94a3b8);
+  font-weight: 400;
+}
+
+/* Date variable default — text input + native picker side by side */
+.props-date-default {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.props-date-default .props-input { flex: 1; }
+.props-date-default .props-date-picker {
+  width: 36px;
+  padding: 0;
+  border: 1px solid var(--ts-hairline);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--ts-ink);
+  font-family: inherit;
+  cursor: pointer;
+  /* Hide the date text — keep only the calendar icon clickable. */
+  color-scheme: light;
+}
+.props-date-default .props-date-picker:hover { border-color: #94a3b8; }
+.props-date-default .props-date-picker::-webkit-calendar-picker-indicator {
+  margin: 0 auto;
+  cursor: pointer;
+}
+.props-date-default .props-date-picker::-webkit-datetime-edit {
+  display: none;     /* native renders the chosen date — we own that via the text input */
 }
 
 .props-btn--manual {
