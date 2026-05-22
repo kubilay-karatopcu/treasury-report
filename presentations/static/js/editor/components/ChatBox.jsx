@@ -17,6 +17,8 @@ export default function ChatBox({ compact = false }) {
   const applyPatches     = useStore((s) => s.applyPatches);
   const selectedBlockId  = useStore((s) => s.selectedBlockId);
   const setSelectedBlock = useStore((s) => s.setSelectedBlock);
+  const hydrateFilterDefaults = useStore((s) => s.hydrateFilterDefaults);
+  const applyFilters     = useStore((s) => s.applyFilters);
 
   const selectedBlock = findBlock(manifest?.blocks, selectedBlockId);
   const isLocked = !!selectedBlock?.locked;
@@ -35,6 +37,11 @@ export default function ChatBox({ compact = false }) {
     addChatMessage({ role: 'user', text: msg });
     setLoading(true);
 
+    // Phase 7: if this turn seeds a dashboard filter (e.g. a concept-mapped
+    // value from the prompt), auto-apply it after the turn so the block
+    // renders filtered without a manual Güncelle.
+    let seededFilter = false;
+
     try {
       const { token } = await postChatMessage(msg, selectedBlockId);
       openChatStream(token, {
@@ -46,6 +53,9 @@ export default function ChatBox({ compact = false }) {
         onPatch: (data) => {
           if (Array.isArray(data.patches) && data.patches.length > 0) {
             applyPatches(data.patches);
+            if (data.patches.some((p) => typeof p.path === 'string' && p.path.startsWith('/filters'))) {
+              seededFilter = true;
+            }
           }
           if (data.explanation) {
             addChatMessage({ role: 'assistant', text: data.explanation });
@@ -59,7 +69,15 @@ export default function ChatBox({ compact = false }) {
           });
           setLoading(false);
         },
-        onDone: () => setLoading(false),
+        onDone: () => {
+          setLoading(false);
+          // Seed the new filter's default into filterState + apply once, so
+          // the freshly-authored block shows filtered data immediately.
+          if (seededFilter) {
+            hydrateFilterDefaults();
+            applyFilters().catch((e) => console.warn('auto-apply after chat failed:', e));
+          }
+        },
       });
     } catch (err) {
       addChatMessage({ role: 'assistant', text: err.message, status: 'error' });
