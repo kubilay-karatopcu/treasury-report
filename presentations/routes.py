@@ -150,11 +150,15 @@ def create_presentation():
 def editor(pid: str):
     session = _get_session(pid)
     manifest = session.get_manifest(fallback=_seed_manifest(pid))
+    # Phase 8.b: read-only scope banner when the dashboard has a scope_ref.
+    from presentations.routes_scope import load_scope_for_manifest, scope_banner
+    banner = scope_banner(load_scope_for_manifest(manifest))
     return render_template(
         "presentations/editor.html",
         presentation_id=pid,
         manifest=manifest,
         manifest_json=json.dumps(manifest, ensure_ascii=False),
+        scope_banner=banner,
     )
 
 
@@ -961,12 +965,14 @@ def chat_stream(pid: str, token: str):
     session = _get_session(pid)
     manifest = session.get_manifest(fallback=_seed_manifest(pid)) or _empty_manifest(pid)
 
+    from presentations.routes_scope import load_scope_for_manifest
     state = GraphState(
         presentation_id=pid,
         manifest=manifest,
         user_message=job["user_message"],
         selected_block_id=job["selected_block_id"],
         session=session,
+        scope_contract=load_scope_for_manifest(manifest),
     )
 
     app = current_app._get_current_object()
