@@ -87,11 +87,11 @@ def test_registry_resolve_value():
 
 # ── from_dir + live data ───────────────────────────────────────────────────
 
-def test_from_dir_loads_registry_data():
-    """The shipped registry_data dir loads and is a superset of nothing weird."""
-    import presentations.concepts as pkg
+def test_from_dir_loads_catalog_concepts():
+    """The shipped catalog/concepts dir loads and resolves real values."""
+    import presentations
     from pathlib import Path
-    data_dir = Path(pkg.__file__).parent / "registry_data"
+    data_dir = Path(presentations.__file__).parent / "catalog" / "concepts"
     reg = ConceptRegistry.from_dir(data_dir)
     assert reg.has("currency")
     assert reg.has("maturity")

@@ -483,40 +483,57 @@ The script is **idempotent**: running it twice produces the same output. It is *
 
 ## 7. New module layout
 
+**Code** lives in the `concepts/` package; **hand-authored data** (concept
+registry + table docs) lives together under `catalog/`. This split keeps the
+data team's editable YAMLs in one classified directory, separate from Python.
+
 ```
 presentations/
-├── concepts/                         (Phase 7 NEW)
+├── concepts/                         (CODE — Phase 7 NEW)
 │   ├── __init__.py
-│   ├── registry.py                   # load + cache concept YAMLs
-│   ├── schema.py                     # Pydantic: Concept, CanonicalValue, ColumnBinding, Transform
-│   ├── compiler.py                   # filter compiler — pure, deterministic
-│   ├── inference/
-│   │   ├── pipeline.py               # orchestrator
+│   ├── registry.py                   # load + cache concept YAMLs (7.a ✅)
+│   ├── schema.py                     # Pydantic: Concept, CanonicalValue (7.a ✅)
+│   │                                 #   + ColumnBinding, Transform (7.b)
+│   ├── bindings.py                   # load + cache per-table concept_bindings (7.b)
+│   ├── compiler.py                   # filter compiler — pure, deterministic (7.b)
+│   ├── inference/                    # (7.c)
+│   │   ├── pipeline.py
 │   │   ├── regex_matcher.py
 │   │   ├── dtype_filter.py
 │   │   ├── sample_matcher.py
 │   │   └── llm_proposer.py
 │   ├── prompts/
-│   │   └── binding_proposal.txt
+│   │   └── binding_proposal.txt      # (7.c)
 │   ├── migrations/
-│   │   └── 0001_v0_to_v1.py
+│   │   └── 0001_v0_to_v1.py          # (7.a ✅)
 │   └── tests/
-│       ├── test_registry.py
-│       ├── test_compiler.py
-│       ├── test_inference.py
-│       └── test_migration.py
-├── catalog/                          (Phase 7 NEW)
-│   ├── __init__.py
-│   ├── bindings.py                   # load + cache per-table column_bindings YAML
-│   └── tests/
-│       └── test_bindings.py
-└── routes_concepts.py                (Phase 7 NEW)
-    # /concepts/api/list
-    # /concepts/api/<id>
-    # /concepts/review              (HTML page)
-    # /concepts/review/api/queue
-    # /concepts/review/api/approve  (POST)
+│       ├── test_schema.py            # (7.a ✅)
+│       ├── test_registry.py          # (7.a ✅)
+│       ├── test_migration.py         # (7.a ✅)
+│       ├── test_api.py               # (7.a ✅)
+│       ├── test_bindings.py          # (7.b)
+│       ├── test_compiler.py          # (7.b)
+│       └── test_inference.py         # (7.c)
+├── catalog/                          (DATA — Phase 7 NEW; hand-authored YAML)
+│   ├── README.md
+│   ├── concepts/                     # the concept registry (7.a ✅)
+│   │   ├── global.yaml
+│   │   └── <dept>.yaml               # treasury.yaml, risk.yaml, ...
+│   └── tables/                       # table docs + concept_bindings (7.b)
+│       └── <SCHEMA>/<TABLE>.yaml
+└── routes_concepts.py                (CODE — Phase 7 NEW)
+    # /concepts/api/list              (7.a ✅)
+    # /concepts/api/<id>              (7.a ✅)
+    # /concepts/review              (HTML page)        (7.c)
+    # /concepts/review/api/queue                       (7.c)
+    # /concepts/review/api/approve  (POST)             (7.c)
 ```
+
+> **Layout decision (locked):** the binding-loader code lives in
+> `concepts/bindings.py` (not a separate `catalog/` *code* package — that name
+> is reserved for the **data** directory above). All hand-authored docs
+> (concepts + table docs) sit together under `presentations/catalog/`, loaded
+> in both DEV and prod from the same git-tracked path.
 
 `semantic_tags.py` shrinks to a thin shim:
 
