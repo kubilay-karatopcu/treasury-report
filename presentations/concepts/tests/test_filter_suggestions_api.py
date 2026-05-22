@@ -125,3 +125,17 @@ def test_no_source_tables_empty():
     client = _make_app(manifest).test_client()
     body = client.get("/presentations/p1/concepts/filter-suggestions").get_json()
     assert body["suggestions"] == []
+
+
+def test_from_clause_fallback_when_no_source_tables():
+    # Block omitted source_tables but its SQL has FROM ODS_TREASURY.FX_SWAP_DEALS
+    # → derived from the FROM clause, suggestions still appear.
+    manifest = {"id": "p1", "version": 1, "filters": [],
+                "blocks": [{"id": "s", "type": "section_header", "children": [{
+                    "id": "b1", "type": "bar_chart",
+                    "query": "SELECT CCY, SUM(NOTIONAL_TRY) FROM ODS_TREASURY.FX_SWAP_DEALS WHERE {{concept_filters}} GROUP BY CCY",
+                }]}]}
+    client = _make_app(manifest).test_client()
+    body = client.get("/presentations/p1/concepts/filter-suggestions").get_json()
+    tags = {s["semantic_tag"] for s in body["suggestions"]}
+    assert "currency" in tags          # derived FX_SWAP_DEALS → currency binding
