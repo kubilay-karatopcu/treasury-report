@@ -24,10 +24,29 @@
       overflow: hidden !important;
       background: #ffffff;
     }
+    {% if scope_banner %}
+    /* Phase 8.b — read-only scope banner pushes the editor mount down 34px. */
+    .presentations-editor-mount { top: 34px !important; height: calc(100vh - 34px) !important; }
+    .scope-banner {
+      position: fixed; top: 0; left: 0; right: 0; height: 34px; z-index: 60;
+      display: flex; align-items: center; gap: 10px; padding: 0 14px;
+      background: #fff7ed; border-bottom: 1px solid #fed7aa; color: #7c2d12;
+      font: 13px/1.2 'InterVar', -apple-system, system-ui, sans-serif;
+      box-sizing: border-box;
+    }
+    .scope-banner .sb-edit { margin-left: auto; color: #206bc4; text-decoration: none; font-weight: 600; }
+    .scope-banner .sb-edit:hover { text-decoration: underline; }
+    {% endif %}
   </style>
 {% endblock %}
 
 {% block content %}
+{% if scope_banner %}
+<div class="scope-banner">
+  <span>🔒 Scope v{{ scope_banner.scope_version }}{% if scope_banner.pinned %} · {{ scope_banner.pinned | join(' · ') }}{% endif %}</span>
+  <a class="sb-edit" href="{{ scope_banner.edit_url }}">Scope'u düzenle</a>
+</div>
+{% endif %}
 <div
   id="presentation-root"
   class="presentations-editor-mount"
