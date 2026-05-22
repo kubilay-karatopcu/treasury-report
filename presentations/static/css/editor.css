@@ -2652,7 +2652,7 @@
 }
 
 
-/* ── Bug 2: TableDocsModal preview area ───────────────────── */
+/* ── TableDocsPanel preview area ──────────────────────────── */
 
 .docs-preview-load {
   display: inline-flex;
@@ -2776,61 +2776,6 @@
   align-items: center;
   gap: 6px;
   padding: 2px 0;
-}
-
-
-/* ── Bug 2: TableDocsModal preview area ───────────────────── */
-
-.docs-preview-load {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.docs-preview-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 16px;
-  font-size: 12px;
-  color: var(--ts-muted);
-  justify-content: center;
-}
-
-.docs-preview-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--ts-red-soft);
-  border: 1px solid var(--ts-red);
-  border-radius: 4px;
-  color: var(--ts-red);
-  font-size: 12px;
-}
-.docs-preview-error > svg { flex-shrink: 0; margin-top: 1px; }
-
-.docs-preview-grid-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.docs-preview-grid-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--ts-muted);
-  padding: 2px 4px;
-}
-
-.docs-preview-grid {
-  border: 1px solid var(--ts-hairline);
-  border-radius: 4px;
-  width: 100%;
-  height: 400px;
 }
 
 
