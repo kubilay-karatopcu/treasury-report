@@ -127,6 +127,28 @@ def test_fetch_materialises_cached_views_and_skips_lazy():
     assert "FROM ODS_TREASURY.TRD_BRANCH_POSITION" in dc.calls[0]["query"]
 
 
+def test_compose_with_raw_filters():
+    scope = load_scope_from_dict({
+        "presentation_id": "p_x", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [{
+            "table_ref": {"schema": "ODS_TREASURY", "name": "TRD_BRANCH_POSITION"},
+            "alias": "positions",
+            "projection": {"columns": ["CCY", "NET_POSITION"], "include_all": False},
+            "routing": {"decision": "cached", "estimated_bytes": 0},
+        }],
+        "filters": {"raw": [
+            {"id": "rf_ccy", "alias": "positions", "column": "CCY", "op": "in", "values": ["TRY", "USD"]},
+            {"id": "rf_net", "alias": "positions", "column": "NET_POSITION", "op": "eq", "value": 0},
+        ]},
+    })
+    sql, binds = compose_cached_sql(scope, scope.basket[0])
+    assert "CCY IN (:positions_rf0_0, :positions_rf0_1)" in sql
+    assert "NET_POSITION = :positions_rf1" in sql
+    assert binds["positions_rf0_0"] == "TRY" and binds["positions_rf0_1"] == "USD"
+    assert binds["positions_rf1"] == 0
+
+
 def test_fetch_empty_result_does_not_crash():
     dc = StubDC(pd.DataFrame())
     conn = duckdb.connect(":memory:")

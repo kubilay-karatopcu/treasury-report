@@ -110,6 +110,22 @@ def test_hazirlik_page_renders(client):
     body = page.get_data(as_text=True)
     assert "hazirlik-data" in body
     assert "hazirlik.bundle.js" in body
+    # §6R payload fields embedded for the ER editor.
+    assert "columns_by_alias" in body
+    assert "suggested_edges" in body
+
+
+def test_preview_returns_sample_rows(client):
+    r = client.get("/presentations/p_x/scope/preview"
+                   "?schema=ODS_TREASURY&table=TRD_BRANCH_POSITION&limit=5")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "rows" in body and "columns" in body and "data_columns" in body
+    assert body["row_count"] >= 1
+
+
+def test_preview_requires_table(client):
+    assert client.get("/presentations/p_x/scope/preview").status_code == 400
 
 
 # ── Build flow ───────────────────────────────────────────────────────────────
