@@ -1505,7 +1505,11 @@ def apply_dashboard_filters(pid: str):
     from .dashboards.binding import build_binding_resolver
     from .variables.resolver import resolve_variables, ResolutionError
     from .cache.block_cache import BlockCache, cache_key as _cache_key
-    from .sql.binder import EmptySelectionError
+    from .sql.binder import EmptySelectionError, expand_binds
+    from .concepts.integration import (
+        dashboard_filters_to_resolved,
+        apply_concepts_to_block,
+    )
 
     session = _get_session(pid)
     manifest = session.get_manifest()
@@ -1539,6 +1543,32 @@ def apply_dashboard_filters(pid: str):
                        ensure_ascii=False),
             status=500, mimetype="application/json",
         )
+
+    # ── Phase 7.b — concept filter compilation (additive) ────────────────
+    # Bridge the dashboard's filters into concept-level ResolvedFilters once,
+    # up front. Per-block injection happens inside the loop. When the registry
+    # / catalog aren't configured, or no filter maps to a concept, this stays
+    # empty and the route behaves exactly as in Phase 6.5.c (zero regression).
+    _registry = current_app.config.get("CONCEPT_REGISTRY")
+    _catalog = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    resolved_concept_filters = []
+    if _registry is not None and _catalog is not None:
+        try:
+            reg_snapshot = _registry.snapshot if hasattr(_registry, "snapshot") else _registry
+            cat_snapshot = _catalog.snapshot if hasattr(_catalog, "snapshot") else _catalog
+            resolved_concept_filters = dashboard_filters_to_resolved(
+                manifest.get("filters") or [], filter_state, reg_snapshot,
+            )
+        except Exception:
+            current_app.logger.exception("concept filter bridge failed; skipping")
+            resolved_concept_filters = []
+            reg_snapshot = cat_snapshot = None
+    else:
+        reg_snapshot = cat_snapshot = None
+
+    # Informational concept metadata for blocks that did NOT inject (no
+    # sentinel) — merged into their result after the loop.
+    concept_info: dict[str, dict] = {}
 
     results: list[dict] = []
     touched = 0
@@ -1613,6 +1643,70 @@ def apply_dashboard_filters(pid: str):
             touched += 1
             continue
 
+        # ── Phase 7.b — concept predicate injection ──────────────────────
+        # Only blocks that declare source_tables AND embed the
+        # {{concept_filters}} sentinel opt in. When predicates are injected
+        # the SQL no longer matches the variable-keyed cache, so we bypass
+        # the cache and fetch fresh (subset/incremental for concept-injected
+        # blocks is backlog). Blocks that don't opt in fall through to the
+        # unchanged Phase 6.5.c cache path below.
+        if resolved_concept_filters and reg_snapshot is not None \
+                and block.get("source_tables"):
+            try:
+                _bound = expand_binds(stand_in, resolved)
+                inj = apply_concepts_to_block(
+                    block, _bound.sql, _bound.params,
+                    resolved_concept_filters, reg_snapshot, cat_snapshot,
+                )
+            except Exception:
+                current_app.logger.exception(
+                    "concept injection failed for %s; falling back", block["id"])
+                inj = None
+
+            if inj is not None and inj.injected:
+                try:
+                    if inj.empty:
+                        import pandas as _pd
+                        df = _pd.DataFrame()
+                        engine = "empty"
+                    else:
+                        df = dc.get_data(
+                            base_prefix=None,
+                            dataset=f"block::{block['id']}",
+                            query=inj.sql,
+                            query_params=inj.params,
+                        )
+                        if df is None:
+                            import pandas as _pd
+                            df = _pd.DataFrame()
+                        engine = "refetched"
+                    _apply_df_to_block(block, df, engine=engine, query=query)
+                    results.append({
+                        "id": block["id"],
+                        "status": "empty" if inj.empty else "refetched",
+                        "row_count": int(len(df)),
+                        "blind_filters": inj.blind,
+                        "applied_predicates": inj.applied,
+                        "concept_injected": True,
+                    })
+                    touched += 1
+                    continue
+                except Exception as exc:
+                    msg = str(exc).strip().splitlines()[0][:240]
+                    results.append({"id": block["id"], "status": "error",
+                                     "kind": "oracle", "error": msg,
+                                     "blind_filters": inj.blind})
+                    continue
+            elif inj is not None and (inj.blind or inj.applied):
+                # Concept filters apply but the block didn't embed the
+                # sentinel — surface what would apply (informational) and let
+                # the normal cache path run unchanged.
+                concept_info[block["id"]] = {
+                    "blind_filters": inj.blind,
+                    "applied_predicates": inj.applied,
+                    "concept_injected": False,
+                }
+
         # ── Cache lookup ─────────────────────────────────────────────────
         ck = _cache_key(stand_in.id, stand_in.version, resolved)
         hit = cache.find_exact(ck)
@@ -1663,6 +1757,16 @@ def apply_dashboard_filters(pid: str):
             msg = str(exc).strip().splitlines()[0][:240]
             results.append({"id": block["id"], "status": "error",
                              "kind": "oracle", "error": msg})
+
+    # Attach informational concept metadata (blind/applied) to the results of
+    # blocks that matched concept filters but didn't inject (no sentinel).
+    if concept_info:
+        for r in results:
+            ci = concept_info.get(r.get("id"))
+            if ci:
+                r.setdefault("blind_filters", ci["blind_filters"])
+                r.setdefault("applied_predicates", ci["applied_predicates"])
+                r.setdefault("concept_injected", ci["concept_injected"])
 
     if touched:
         manifest["version"] = manifest.get("version", 0) + 1

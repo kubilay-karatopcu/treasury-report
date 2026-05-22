@@ -32,6 +32,7 @@ from presentations.table_docs.store import (
     S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
 )
 from presentations.concepts.registry import CachedConceptRegistry
+from presentations.concepts.bindings import CachedBindingCatalog
 from presentations.variables.semantic_tags import set_active_registry
 from presentations.llm import QwenClient
 import prisma_nav
@@ -514,6 +515,13 @@ app.config["CONCEPT_REGISTRY"] = concept_registry
 set_active_registry(concept_registry)
 logging.info("CONCEPT_REGISTRY loaded: %d concepts from %s",
              len(concept_registry), _CONCEPT_DIR)
+
+# Phase 7.b — per-table concept bindings (read by the filter compiler in the
+# dashboard apply-filters path). catalog/tables/<SCHEMA>/<TABLE>.yaml.
+_BINDING_DIR = Path(__file__).parent / "presentations" / "catalog" / "tables"
+app.config["CONCEPT_BINDING_CATALOG"] = CachedBindingCatalog(_BINDING_DIR)
+logging.info("CONCEPT_BINDING_CATALOG loaded: %d tables from %s",
+             len(app.config["CONCEPT_BINDING_CATALOG"]), _BINDING_DIR)
 
 
 data_ops = DataOperations(dc)
