@@ -44,7 +44,7 @@ circular dependency.
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import (
     BaseModel,
@@ -300,3 +300,107 @@ class ConceptFile(BaseModel):
 def load_concept_file_from_dict(raw: dict[str, Any]) -> ConceptFile:
     """Parse one concept YAML dict into a validated :class:`ConceptFile`."""
     return ConceptFile.model_validate(raw)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Column bindings (Phase 7.b) — how a table column realizes a concept.
+# Lives in table docs under catalog/tables/<SCHEMA>/<TABLE>.yaml.
+# ════════════════════════════════════════════════════════════════════════
+
+_COLUMN_RE = re.compile(r"^[A-Z_][A-Z0-9_$#]*$")
+
+# Provenance of a binding. Only ``human_verified`` reaches the compiler
+# (locked decision §10.4). Inferred / llm_proposed bindings live in the YAML
+# but are gated until an operator approves them in the 7.c review UI.
+ConfidenceLevel = Literal[
+    "human_verified",
+    "llm_proposed",
+    "inferred_sample",
+    "inferred_regex",
+    "inferred_dtype",
+]
+
+
+class IdentityTransform(BaseModel):
+    """Column value is already canonical. ``col IN (...)``."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["identity"] = "identity"
+
+
+class MapTransform(BaseModel):
+    """Canonical → table value via an inline dict, then ``col IN (mapped...)``.
+
+    ``pairs`` maps **table value → canonical code** (the direction observed in
+    the data); the compiler inverts it to translate a canonical filter value
+    back to the table's stored values.
+    """
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["map"]
+    pairs: dict[str, str] = Field(min_length=1)
+
+
+class LookupTransform(BaseModel):
+    """Value via a dimension-table join.
+
+    ``col IN (SELECT dim_key FROM dim_table WHERE dim_canonical IN (...))``.
+    """
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["lookup"]
+    dim_table: str = Field(min_length=1)
+    dim_key: str = Field(min_length=1)
+    dim_canonical: str = Field(min_length=1)
+
+
+class BucketFromRangeTransform(BaseModel):
+    """Numeric column → canonical bucket via the concept's ``day_range``s.
+
+    ``ranges_concept`` names the bucket concept whose canonical values carry
+    ``day_range`` arrays; the compiler expands each selected bucket into a
+    ``(col >= lo AND col < hi)`` clause.
+    """
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["bucket_from_range"]
+    ranges_concept: str = Field(min_length=1)
+
+
+class TimeTruncationTransform(BaseModel):
+    """TIMESTAMP column compared as a date: ``TRUNC(col) BETWEEN :from AND :to``."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["time_truncation"]
+
+
+Transform = Annotated[
+    Union[
+        IdentityTransform,
+        MapTransform,
+        LookupTransform,
+        BucketFromRangeTransform,
+        TimeTruncationTransform,
+    ],
+    Field(discriminator="kind"),
+]
+
+
+class ColumnBinding(BaseModel):
+    """Declares that ``column`` in some table realizes ``concept`` via ``transform``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    concept: ConceptId
+    column: str = Field(min_length=1, max_length=128)
+    transform: Transform
+    confidence: ConfidenceLevel = "llm_proposed"
+    verified_at: Any | None = None     # datetime on disk; kept loose for round-trips
+    verified_by: str | None = None
+
+    @field_validator("column")
+    @classmethod
+    def _check_column(cls, v: str) -> str:
+        if not _COLUMN_RE.match(v):
+            raise ValueError(f"column {v!r} must be an ALL_CAPS Oracle identifier")
+        return v
+
+    @property
+    def is_usable(self) -> bool:
+        """Only human-verified bindings reach the compiler (§10.4)."""
+        return self.confidence == "human_verified"
