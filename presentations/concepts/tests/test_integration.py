@@ -1,6 +1,7 @@
 """Phase 7.b.3 — concept→dashboard integration (bridge + injection)."""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -41,11 +42,33 @@ def test_bridge_enum_multi(registry):
 
 
 def test_bridge_date_range_to_between(registry):
+    # ISO bounds resolve to date objects (never raw strings → Oracle would
+    # choke on a literal "today" bind otherwise).
     filters = [{"id": "fd", "semantic_tag": "trade_time", "type": "date_range"}]
     state = {"fd": {"from": "2026-01-01", "to": "2026-01-31"}}
     out = dashboard_filters_to_resolved(filters, state, registry)
     assert out[0].operator == "between"
-    assert out[0].values == ["2026-01-01", "2026-01-31"]
+    assert out[0].values == [date(2026, 1, 1), date(2026, 1, 31)]
+
+
+def test_bridge_date_range_resolves_relative_exprs(registry):
+    # Regression: relative exprs ("today", "today - 30d") must be resolved to
+    # concrete dates at the bridge, not passed raw to the compiler/Oracle.
+    filters = [{"id": "fd", "semantic_tag": "trade_time", "type": "date_range"}]
+    state = {"fd": {"from": "today - 30d", "to": "today"}}
+    out = dashboard_filters_to_resolved(filters, state, registry)
+    assert out[0].operator == "between"
+    frm, to = out[0].values
+    assert isinstance(frm, date) and isinstance(to, date)
+    assert to == date.today()
+    assert frm == date.today() - timedelta(days=30)
+
+
+def test_bridge_date_range_skips_unparseable_bound(registry):
+    filters = [{"id": "fd", "semantic_tag": "trade_time", "type": "date_range"}]
+    state = {"fd": {"from": "garbage", "to": "today"}}
+    out = dashboard_filters_to_resolved(filters, state, registry)
+    assert out == []   # bad bound → filter skipped, apply doesn't crash
 
 
 def test_bridge_concept_ref_wins_over_semantic_tag(registry):
