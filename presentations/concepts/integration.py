@@ -36,6 +36,21 @@ from presentations.concepts.compiler import (
 SENTINEL = "{{concept_filters}}"
 
 
+def strip_concept_sentinel(sql: str) -> str:
+    """Neutralize an un-injected ``{{concept_filters}}`` to a no-op ``1 = 1``.
+
+    A block may carry the sentinel but be executed in a path where no concept
+    predicate applies (manual run, preview, or apply-filters with no active
+    concept filter). The literal token would be invalid SQL, so any execution
+    path that doesn't go through the concept compiler MUST call this on the
+    final SQL before running it. Idempotent; a no-op when the sentinel is
+    absent (the overwhelmingly common case for pre-Phase-7 blocks).
+    """
+    if SENTINEL in sql:
+        return sql.replace(SENTINEL, "1 = 1")
+    return sql
+
+
 @dataclass(frozen=True)
 class ConceptInjection:
     sql: str

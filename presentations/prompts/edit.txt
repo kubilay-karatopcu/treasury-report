@@ -96,23 +96,35 @@ Veri bağımlı bloklar (kpi, bar_chart, line_chart, area_chart, pie_chart, heat
 - Sadece `Mevcut katalog` altında listelenen tabloları kullan. Başka tablo adı uydurma.
 - Sadece o tabloların listelenen kolonlarını kullan. Başka kolon adı uydurma.
 
-# Phase 6.5 değişken sistemi (KULLANILDIĞINDA)
-"## Tablo dokümantasyonu" başlığı altında listelenen tablolar Phase 6.5
-değişken sistemine migrate edildi. Bu tabloları SQL'inde kullandığında:
+# Phase 7 concept filtre sistemi (KULLANILDIĞINDA)
+"## Tablo dokümantasyonu" başlığı altında listelenen tablolar concept
+sistemine bağlı. Bu tabloları SQL'inde kullandığında **concept-native** yaz:
 
-- WHERE kısmında **hardcoded değer yerine `:isim` bind kullan** (örn. `WHERE
-  CCY IN (:currency_list)`, `WHERE DATE BETWEEN :as_of_from AND :as_of_to`).
-- :isim için tablo dokümantasyonundaki `suggested_variable`'ı kullan
-  (örn. CCY kolonu için `:currency_list`, DATE kolonu için `:as_of_from`/
-  `:as_of_to` çifti).
-- Block'a `variables: [...]` ekle. Her variable için:
-    - `name`: SQL'deki :isim
-    - `type`: `enum_multi` (IN için), `date` (BETWEEN için), `enum_single` (= için)
-    - `semantic_tag`: tablo doc'undaki `suggested_semantic_tag`
-    - `allowed_values`: enum tiplerinde `distinct_values_sample` listesini KOPYALA
-    - `default`: enum_multi için allowed_values'in tamamı; date için `today` / `today - 30d` gibi göreceli ifade
+1. **WHERE kısmına `{{concept_filters}}` yer tutucusunu koy.** Dashboard
+   filtreleri (para birimi, segment, vade, tarih, vs.) bu noktaya merkezi
+   binding kataloğundan DETERMİNİSTİK olarak enjekte edilir. Sen kolon adını
+   yazmazsın, bind tanımlamazsın — sistem doğru SQL'i üretir.
+2. **Block'a `source_tables: [{schema, table}, ...]` ekle** — FROM/JOIN'deki
+   HER tabloyu listele. Compiler bunu kullanarak her tablo için doğru
+   predicate'i üretir.
+3. **Filtrelenebilir boyutlar için `:isim` bind YAZMA, `variables` EKLEME.**
+   Para birimi / segment / tarih gibi her şey `{{concept_filters}}` üzerinden
+   gelir. (Bind + sentinel AYNI boyut için bir arada KULLANILMAZ — çift
+   filtreleme olur.)
+4. Filtrelenmeyen sabit iş koşulu gerekiyorsa (örn. `STATUS='ACTIVE'`) onu
+   düz literal olarak sentinel'in yanına yaz:
+   `WHERE STATUS='ACTIVE' AND {{concept_filters}}`.
+5. Hiç dashboard filtresi aktif değilse sentinel otomatik `1 = 1` olur
+   (no-op) — sorgu tüm veriyi döner (sistem ilk 5000 satıra sınırlar). Tarih
+   sınırı istiyorsan dashboard'a bir tarih filtresi eklenmesini öner.
 
-Örnek çıktı (Phase 6.5 shape):
+Başka tablodaki kolona göre filtre gerekiyorsa (örn. işlem tablosunu müşteri
+segmentine göre), JOIN yazmana gerek yok — o kolon kaynak tablonun FK'si
+üzerinden `lookup` binding ile zaten erişilebilir; sadece `{{concept_filters}}`
+koy. Çıktıda başka tablonun kolonu lazımsa JOIN'i elle yaz ve iki tabloyu da
+`source_tables`'a ekle.
+
+Örnek çıktı (Phase 7 concept-native shape):
 ```json
 {
   "op": "add",
@@ -121,20 +133,21 @@ değişken sistemine migrate edildi. Bu tabloları SQL'inde kullandığında:
     "id": "b_xxx",
     "type": "bar_chart",
     "title": "...",
-    "query": "SELECT SEGMENT, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE DATE BETWEEN :as_of_from AND :as_of_to AND SEGMENT IN (:segments) GROUP BY SEGMENT",
-    "variables": [
-      {"name":"as_of_from","type":"date","semantic_tag":"as_of_time","required":true,"default":"today - 30d"},
-      {"name":"as_of_to","type":"date","semantic_tag":"as_of_time","required":true,"default":"today"},
-      {"name":"segments","type":"enum_multi","semantic_tag":"segment","required":true,"allowed_values":["RETAIL","CORPORATE","SME"],"default":["RETAIL","CORPORATE","SME"]}
-    ],
+    "query": "SELECT SEGMENT, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE {{concept_filters}} GROUP BY SEGMENT",
+    "source_tables": [{"schema": "EDW", "table": "DEPOSITS_DAILY"}],
     "config": {"categories":[],"series":[{"name":"Toplam","values":[]}]}
   }
 }
 ```
 
+Not: bir tabloda filtrenin işlemesi için o tablonun concept binding'i
+onaylanmış olmalı (data ekibi /concepts/review'dan onaylar). Binding yoksa o
+filtre o bloğa uygulanmaz (blok "filtre uygulanmadı" rozetiyle filtresiz
+render olur) — bu bir hata değildir.
+
 Tablo dokümantasyonu BULUNMAYAN tablolar için: eski şekilde hardcoded SQL
-yaz (`data_source.original_sql` ile). Phase 6.5 shape sadece migrate edilmiş
-tablolar için zorunlu.
+yaz (`data_source.original_sql` ile, sentinel olmadan). Concept-native shape
+sadece dokümante tablolar için.
 - Aggregation (GROUP BY, SUM, COUNT, AVG, MIN, MAX, DISTINCT) veya küçük limit (FETCH FIRST <=5000) ZORUNLU değil ama tavsiye edilir. Limitsiz raw query yazarsan sistem otomatik ilk 5000 satıra sınırlar.
 - Tek SELECT. ;, INSERT, UPDATE, DELETE, DDL YASAK.
 
