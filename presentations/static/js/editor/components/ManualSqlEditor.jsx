@@ -15,9 +15,12 @@
  * component is type-agnostic — it just runs SQL and writes the result into
  * block.data_source via the run-manual endpoint.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Play, Plus, Trash2, AlertTriangle, Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Play, Plus, Trash2, AlertTriangle, Search, Database } from 'lucide-react';
 import useStore from '../lib/store.js';
+
+// Phase 7 — sentinel the filter compiler injects concept predicates at.
+const CONCEPT_SENTINEL = '{{concept_filters}}';
 
 // Mirror of presentations.variables.semantic_tags.SEMANTIC_TAGS_V0.
 // Ordered with 'other' last (escape hatch).
@@ -231,6 +234,10 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
   const [err, setErr] = useState(null);
   const [warnings, setWarnings] = useState([]);
   const [staleHint, setStaleHint] = useState(false);
+  // Phase 7 — source tables this block reads (for concept filter compilation).
+  const [sourceTables, setSourceTables] = useState(
+    Array.isArray(block.source_tables) ? block.source_tables : []);
+  const sqlRef = useRef(null);
 
   // Reset local state when switching between blocks. Falls back to
   // data_source.original_sql for legacy LLM-generated blocks (see
@@ -245,10 +252,32 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
       default_str: defaultsToString(v.default, v.type),
       allowed_values_str: Array.isArray(v.allowed_values) ? v.allowed_values.join(', ') : '',
     })));
+    setSourceTables(Array.isArray(block.source_tables) ? block.source_tables : []);
     setErr(null);
     setWarnings([]);
     setStaleHint(false);
   }, [block.id]);
+
+  // Persist source_tables to the manifest (concept compilation reads it).
+  function commitSourceTables(next) {
+    setSourceTables(next);
+    if (previewMode) return;
+    setBlockField(block.id, 'source_tables', next.length ? next : null);
+  }
+
+  function insertSentinel() {
+    if (sql.includes(CONCEPT_SENTINEL)) return;
+    const el = sqlRef.current;
+    let next;
+    if (el && typeof el.selectionStart === 'number') {
+      const at = el.selectionStart;
+      next = sql.slice(0, at) + CONCEPT_SENTINEL + sql.slice(at);
+    } else {
+      next = sql.trimEnd() + (sql.trim() ? ' AND ' : ' ') + CONCEPT_SENTINEL;
+    }
+    setSql(next);
+    if (!previewMode) setBlockField(block.id, 'query', next);
+  }
 
   const bindNames = useMemo(() => extractBindNames(sql), [sql]);
   const declaredNames = useMemo(() => new Set(vars.map((v) => v.name).filter(Boolean)), [vars]);
@@ -557,6 +586,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
       <Section title="SQL Sorgusu (manuel)">
         <div className="props-sql-wrap">
           <textarea
+            ref={sqlRef}
             className="props-textarea props-textarea--sql"
             rows={10}
             spellCheck={false}
@@ -575,6 +605,16 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
             >
               <Search size={13} strokeWidth={2} className={busy ? 'spin' : ''} />
               <span>{busy ? 'Taranıyor…' : 'Şemayı Tara'}</span>
+            </button>
+            <button
+              type="button"
+              className="props-btn props-btn--ghost"
+              onClick={insertSentinel}
+              disabled={sql.includes(CONCEPT_SENTINEL)}
+              title="WHERE'e {{concept_filters}} yer tutucusu ekle — dashboard concept filtreleri buraya enjekte edilir"
+            >
+              <Database size={12} strokeWidth={2} />
+              <span>{sql.includes(CONCEPT_SENTINEL) ? 'concept yer tutucu ✓' : '+ concept filtre yeri'}</span>
             </button>
             <div className="props-sql-bindcount">
               {bindNames.length === 0
@@ -644,7 +684,82 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
           </button>
         </div>
       </Section>
+
+      {!previewMode && (
+        <SourceTablesSection
+          tables={sourceTables}
+          onChange={commitSourceTables}
+          hasSentinel={sql.includes(CONCEPT_SENTINEL)}
+        />
+      )}
     </>
+  );
+}
+
+
+/**
+ * Phase 7 — declare which Oracle tables this block reads, so dashboard
+ * concept filters can compile per-table predicates and inject them at the
+ * {{concept_filters}} sentinel. Optional: blocks without source_tables are
+ * simply concept-blind (filters won't reach them), exactly as before.
+ */
+function SourceTablesSection({ tables, onChange, hasSentinel }) {
+  const [schema, setSchema] = useState('');
+  const [table, setTable] = useState('');
+
+  function add() {
+    const s = schema.trim().toUpperCase();
+    const t = table.trim().toUpperCase();
+    if (!s || !t) return;
+    if (tables.some((x) => x.schema === s && x.table === t)) {
+      setSchema(''); setTable(''); return;
+    }
+    onChange([...tables, { schema: s, table: t }]);
+    setSchema(''); setTable('');
+  }
+  function removeAt(i) {
+    onChange(tables.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <Section title="Kaynak Tablolar (concept filtreleri)">
+      <div className="props-form-hint">
+        Bu bloğun okuduğu tabloları belirt; dashboard <strong>concept filtreleri</strong>
+        {' '}her tablo için doğru SQL'i üretip{' '}
+        <code>{'{{concept_filters}}'}</code> yer tutucusuna enjekte eder.
+        {!hasSentinel && tables.length > 0 && (
+          <span className="props-src-warn">
+            {' '}⚠ SQL'de yer tutucu yok — yukarıdan <strong>“+ concept filtre yeri”</strong> ekle.
+          </span>
+        )}
+      </div>
+
+      {tables.length > 0 && (
+        <div className="props-src-list">
+          {tables.map((t, i) => (
+            <span key={`${t.schema}.${t.table}`} className="props-src-chip">
+              <span className="props-src-chip__text">{t.schema}.{t.table}</span>
+              <button type="button" className="props-src-chip__rm"
+                      onClick={() => removeAt(i)} title="Kaldır">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="props-src-add">
+        <input type="text" className="props-input" placeholder="ŞEMA (ODS_TREASURY)"
+               value={schema} onChange={(e) => setSchema(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+        <span className="props-src-dot">.</span>
+        <input type="text" className="props-input" placeholder="TABLO (FX_SWAP_DEALS)"
+               value={table} onChange={(e) => setTable(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+        <button type="button" className="props-btn props-btn--ghost" onClick={add}
+                disabled={!schema.trim() || !table.trim()}>
+          <Plus size={12} strokeWidth={2} /> Ekle
+        </button>
+      </div>
+    </Section>
   );
 }
 

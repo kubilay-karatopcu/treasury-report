@@ -78,6 +78,8 @@ export default function BlockCard({ block }) {
   const mode             = useStore((s) => s.mode);
   const layoutEditMode   = useStore((s) => s.layoutEditMode);
   const moveBlock        = useStore((s) => s.moveBlock);
+  // Phase 7 — concept compilation outcome for this block (after Güncelle).
+  const conceptInfo      = useStore((s) => s.conceptStatus?.[block.id]);
   // Move bounds — manifest değiştikçe yeniden hesaplanır
   const moveBounds = useStore((s) => {
     if (!s.manifest) return { canUp: false, canDown: false };
@@ -195,6 +197,27 @@ export default function BlockCard({ block }) {
             >
               <AlertTriangle size={10} strokeWidth={2.2} />
               kesildi
+            </span>
+          )}
+          {conceptInfo && conceptInfo.injected && conceptInfo.applied.length > 0 && (
+            <span
+              className="block-concept-pill"
+              title={'Uygulanan concept filtreleri: '
+                + conceptInfo.applied.map((a) => a.concept).join(', ')}
+            >
+              <Database size={10} strokeWidth={2.2} />
+              {conceptInfo.applied.length} concept filtresi
+            </span>
+          )}
+          {conceptInfo && conceptInfo.blind.length > 0 && (
+            <span
+              className="block-blind-pill"
+              title={'Bu blok şu kavram(lar)ı bilmiyor — filtre uygulanmadı: '
+                + conceptInfo.blind.join(', ')
+                + '. Kaynak tabloya binding ekleyin (/concepts/review).'}
+            >
+              <AlertTriangle size={10} strokeWidth={2.2} />
+              filtre uygulanmadı: {conceptInfo.blind.join(', ')}
             </span>
           )}
           <span className="block-strip-spacer" />
