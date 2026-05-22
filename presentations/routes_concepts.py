@@ -91,6 +91,57 @@ def api_get_concept(concept_id: str):
     return _json({"concept": _concept_to_dict(concept)})
 
 
+@presentations_bp.route("/concepts/api/table-columns")
+@login_required
+def api_table_columns():
+    """Per-column concept status for a table — drives the table-docs view.
+
+    ``?schema=&table=``. Returns, per column:
+      - ``filterable`` / ``filter_role`` (from the Phase 6.5.b table doc)
+      - ``suggested_concept`` (table doc's suggested_semantic_tag — a hint)
+      - ``bound_concept`` (human_verified binding → usable by the compiler)
+      - ``transform`` (binding transform kind)
+
+    So the user (and, via the prompt, the LLM) can see which columns are
+    concept-filterable before authoring.
+    """
+    schema = (request.args.get("schema") or "").strip().upper()
+    table = (request.args.get("table") or "").strip().upper()
+    if not schema or not table:
+        return _json({"error": "schema ve table zorunlu"}, status=400)
+
+    bound: dict[str, dict] = {}
+    catalog = _catalog()
+    if catalog is not None:
+        cat = catalog.snapshot if hasattr(catalog, "snapshot") else catalog
+        for b in cat.get_bindings(schema, table):     # human_verified only
+            bound[b.column.upper()] = {"concept": b.concept, "transform": b.transform.kind}
+
+    suggested: dict[str, dict] = {}
+    store = current_app.config.get("TABLE_DOC_STORE")
+    if store is not None:
+        try:
+            doc = store.load(schema, table)
+            for name, col in (getattr(doc, "columns", {}) or {}).items():
+                suggested[name.upper()] = {
+                    "filterable": bool(getattr(col, "filterable", False)),
+                    "filter_role": getattr(col, "filter_role", None),
+                    "suggested_concept": getattr(col, "suggested_semantic_tag", None),
+                }
+        except Exception:
+            log.debug("table doc load failed for %s.%s", schema, table)
+
+    columns: dict[str, dict] = {}
+    for col in set(bound) | set(suggested):
+        info = dict(suggested.get(col, {}))
+        b = bound.get(col)
+        info["bound_concept"] = b["concept"] if b else None
+        info["transform"] = b["transform"] if b else None
+        columns[col] = info
+
+    return _json({"schema": schema, "table": table, "columns": columns})
+
+
 # ════════════════════════════════════════════════════════════════════════
 # Phase 7.c — binding inference review (queue / approve / reject)
 # ════════════════════════════════════════════════════════════════════════

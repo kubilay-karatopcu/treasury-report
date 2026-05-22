@@ -156,6 +156,50 @@ TOHUMLA, iki patch):
 Karşı örnek — "STATUS aktif olanlar" (STATUS dokümante değil → LİTERAL):
 `"query":"... WHERE STATUS = 'ACTIVE' AND {{concept_filters}} ..."` (filtre tohumlanmaz).
 
+## Kullanıcı bir boyutu FİLTRELERE eklemek isterse (interaktif filtre — KRİTİK)
+"X'i filtrelere ekle", "X için filtre koy", "üstte X filtresi olsun",
+"filtre olarak ekle", "X'e göre filtrelenebilsin" gibi ifadeler = dashboard'ın
+EN ÜSTÜNDEKİ filtre çubuğuna INTERAKTİF bir filtre eklemek demektir. Değer
+verilse de verilmese de tek bir `/filters/-` patch'i üret:
+
+- semantic_tag: O kolonun "## Tablo dokümantasyonu"da `semantic_tag=...` ile
+  görünen değeri. (Kolon orada semantic_tag ile listelenmemişse → aşağıdaki
+  "bağlı DEĞİLSE" kuralı.)
+- type: kategorik boyut → "enum_multi"; tarih (time_axis) → "date_range";
+  sayısal aralık → "number_range".
+- label: kısa Türkçe etiket ("Segment", "Ürün", "Şube", "Para Birimi").
+- allowed_values: dokümantasyondaki `allowed: [...]` listesi (enum tipleri için).
+- default: kullanıcı bir DEĞER de söylediyse onu koy (örn. "ürünü filtrele,
+  vadesizleri seç" → ["DD"]); sadece "filtre ekle" dediyse `default`'u BOŞ
+  bırak ([]). Boş default = filtre çubuğunda seçimsiz görünür, kullanıcı seçer.
+- id: "f_<kısa>" (örn. "f_product", "f_segment").
+
+Blok query'leri zaten `{{concept_filters}}` taşıdığından filtre eklenince
+ilgili bloklara OTOMATİK uygulanır — query'yi değiştirmene GEREK YOK. Yeni blok
++ filtre aynı istekte gelirse iki patch at (blok add + /filters/- add).
+
+Örnek — "Ürün koduna göre bakiye dağılımını pasta grafik yap ve ürünü filtrelere ekle"
+(PRODUCT_CODE dokümantasyonda semantic_tag=product_group, allowed=[TR,FX,VD,DD]):
+```json
+[
+ {"op":"add","path":"/blocks/0/children/-","value":{
+   "type":"pie_chart","title":"Ürün Bazında Bakiye Dağılımı",
+   "query":"SELECT PRODUCT_CODE, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE {{concept_filters}} GROUP BY PRODUCT_CODE",
+   "source_tables":[{"schema":"EDW","table":"DEPOSITS_DAILY"}],
+   "config":{"labels":[],"values":[]}}},
+ {"op":"add","path":"/filters/-","value":{
+   "id":"f_product","semantic_tag":"product_group","type":"enum_multi","label":"Ürün",
+   "allowed_values":["TR","FX","VD","DD"],"default":[]}}
+]
+```
+
+Kolon CONCEPT'E BAĞLI DEĞİLSE (dokümantasyonda semantic_tag YOK / tablo
+dokümante değil): interaktif filtre EKLENEMEZ — UYDURMA semantic_tag KULLANMA.
+İstenen bloğu yine üret, ama `/filters/-` patch'i ATMA ve explanation'da açıkla:
+"<KOLON> şu an bir concept'e bağlı olmadığı için filtre çubuğuna eklenemiyor
+(veri ekibi /concepts/review'dan bağlarsa interaktif filtre olur). İstersen
+SQL'e sabit bir koşul yazabilirim."
+
 Örnek çıktı (Phase 7 concept-native shape):
 ```json
 {
