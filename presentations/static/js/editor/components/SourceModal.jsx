@@ -19,8 +19,17 @@ import { copyToClipboard } from '../lib/clipboard.js';
 export default function SourceModal({ open, onClose, block, onRefresh, refreshing = false }) {
   const [copied, setCopied] = useState(null);  // null | "template" | "runnable"
 
+  // ALL hooks must run unconditionally, BEFORE any early return — otherwise
+  // a block whose data_source transitions empty→present changes the hook
+  // count between renders (React #310). Compute the runnable SQL up front;
+  // it yields '' when there's no data_source.
+  const ds = block && block.data_source;
+  const runnableSql = useMemo(
+    () => substituteBindParams((ds && (ds.sql || ds.original_sql)) || '', ds && ds.bind_params),
+    [ds && ds.sql, ds && ds.original_sql, ds && ds.bind_params],
+  );
+
   if (!block) return null;
-  const ds = block.data_source;
 
   // ── Gracefully handle "no data_source yet" (e.g. snapshot of an old block)
   if (!ds || (!ds.sql && !ds.original_sql)) {
@@ -35,16 +44,7 @@ export default function SourceModal({ open, onClose, block, onRefresh, refreshin
   }
 
   // Template = user-written SQL with `:binds` (original_sql preferred).
-  // Runnable = the same SQL with bind values literalised so the user can
-  // paste it into Oracle SQL Developer / DBeaver / DuckDB UI and run as-is.
   const templateSql = ds.original_sql || ds.sql;
-  // The rewritten SQL is what the system actually executed (enum_multi
-  // placeholders expanded to positional binds). Substitute bind_params into
-  // it for the runnable copy. Falls back to template if no params known.
-  const runnableSql = useMemo(
-    () => substituteBindParams(ds.sql || ds.original_sql, ds.bind_params),
-    [ds.sql, ds.original_sql, ds.bind_params],
-  );
   const showedRewritten = ds.rewritten && ds.sql && ds.sql !== ds.original_sql;
   const hasResolved = ds.bind_params && Object.keys(ds.bind_params).length > 0;
 
