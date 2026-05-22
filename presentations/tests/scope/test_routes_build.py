@@ -95,6 +95,13 @@ def _scope_body():
 
 # ── Hazırlık page ────────────────────────────────────────────────────────────
 
+def test_hazirlik_new_mints_pid_and_redirects(client):
+    resp = client.get("/presentations/hazirlik")
+    assert resp.status_code == 302
+    loc = resp.headers["Location"]
+    assert "/presentations/hazirlik/p_" in loc
+
+
 def test_hazirlik_page_renders(client):
     resp = client.get("/presentations/p_demo/scope")  # no scope yet → 404 on raw GET
     assert resp.status_code == 404

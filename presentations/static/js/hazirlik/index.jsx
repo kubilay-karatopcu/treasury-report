@@ -11,12 +11,14 @@
 import { createRoot } from "react-dom/client";
 import { useMemo, useState } from "react";
 import {
-  X, Plus, Trash2, Lock, SlidersHorizontal, Database, ArrowRight, Pencil,
+  X, Plus, Trash2, Lock, SlidersHorizontal, Database, ArrowRight, Pencil, ChevronLeft,
 } from "lucide-react";
 
 const DATA = JSON.parse(document.getElementById("hazirlik-data").textContent);
 const PID = DATA.presentation_id;
 const BUILD_URL = window.location.pathname.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
+// Proxy-safe "back to Raporlar" target: strip /hazirlik/<pid> down to /presentations/.
+const LIST_URL = window.location.pathname.slice(0, window.location.pathname.indexOf("/hazirlik")) + "/";
 
 const CONCEPTS = DATA.concepts || [];
 const CONCEPT_BY_ID = Object.fromEntries(CONCEPTS.map((c) => [c.id, c]));
@@ -389,6 +391,7 @@ function App() {
     <div className="hz-wrap">
       <header className="hz-top">
         <div>
+          <a className="hz-back" href={LIST_URL}><ChevronLeft size={14} /> Raporlar</a>
           <div className="hz-eyebrow">Hazırlık</div>
           <h1 className="hz-title">{DATA.title}</h1>
         </div>

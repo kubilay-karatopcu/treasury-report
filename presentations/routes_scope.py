@@ -223,6 +223,18 @@ def _catalog_json() -> dict[str, Any]:
         return {"domains": []}
 
 
+@presentations_bp.route("/hazirlik")
+@login_required
+def hazirlik_new():
+    """Menu entry point (R › Hazırlık): start a fresh preparation draft. Mints a
+    presentation id and redirects into the per-presentation Hazırlık screen. The
+    manifest + scope are only written on 'Sunum'a geç' (build_scope), so an
+    abandoned draft leaves nothing behind."""
+    import secrets
+    pid = "p_" + secrets.token_urlsafe(8)
+    return redirect(url_for("presentations.hazirlik", pid=pid))
+
+
 @presentations_bp.route("/hazirlik/<pid>")
 @login_required
 def hazirlik(pid: str):
