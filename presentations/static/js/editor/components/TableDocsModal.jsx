@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Database, Tag, Hash, Type as TypeIcon, Eye, Loader2, AlertTriangle } from 'lucide-react';
+import { Database, Tag, Hash, Type as TypeIcon, Eye, Loader2, AlertTriangle, Sparkles } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
 import Modal from './Modal.jsx';
-import { fetchTablePreview } from '../lib/api.js';
+import { fetchTablePreview, fetchTableConcepts } from '../lib/api.js';
 
 /**
  * Documentation modal for a single catalog table.
@@ -23,6 +23,8 @@ export default function TableDocsModal({ open, onClose, table, domain }) {
   const [previewData, setPreviewData] = useState(null);
   const [previewErr, setPreviewErr] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  // Phase 7 — per-column concept status, keyed by UPPERCASE column name.
+  const [conceptCols, setConceptCols] = useState({});
 
   // Reset preview state when the modal closes or the table changes.
   useEffect(() => {
@@ -34,10 +36,24 @@ export default function TableDocsModal({ open, onClose, table, domain }) {
     }
   }, [open, table?.id]);
 
+  // Phase 7 — fetch concept status for the table's columns when the modal opens.
+  useEffect(() => {
+    let cancelled = false;
+    if (open && table?.id) {
+      fetchTableConcepts(table.id)
+        .then((res) => { if (!cancelled) setConceptCols(res.columns || {}); })
+        .catch(() => { if (!cancelled) setConceptCols({}); });
+    } else {
+      setConceptCols({});
+    }
+    return () => { cancelled = true; };
+  }, [open, table?.id]);
+
   if (!table) return null;
 
   const cols = table.columns || [];
   const filters = table.common_filters || [];
+  const hasConceptInfo = Object.keys(conceptCols).length > 0;
 
   async function showPreview() {
     setPreviewOpen(true);
@@ -93,6 +109,7 @@ export default function TableDocsModal({ open, onClose, table, domain }) {
                 <th>Kolon</th>
                 <th>Tip</th>
                 <th className="docs-th-null">Null?</th>
+                <th>Concept / Filtre</th>
               </tr>
             </thead>
             <tbody>
@@ -105,10 +122,23 @@ export default function TableDocsModal({ open, onClose, table, domain }) {
                       ? <span className="docs-pill docs-pill--required">NOT NULL</span>
                       : <span className="docs-pill docs-pill--optional">NULL</span>}
                   </td>
+                  <td className="docs-col-concept">
+                    <ConceptCell info={conceptCols[String(c.name).toUpperCase()]} />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        )}
+        {hasConceptInfo && (
+          <div className="docs-concept-legend">
+            <span className="docs-concept docs-concept--bound">
+              <Sparkles size={10} strokeWidth={2} />concept
+            </span>
+            filtrede kullanılabilir (LLM &quot;{'{{concept_filters}}'}&quot; ile yazar).
+            <span className="docs-concept docs-concept--suggested">öneri</span>
+            henüz onaylanmadı — Concept &gt; İnceleme&apos;den bağlayın.
+          </div>
         )}
       </div>
 
@@ -173,6 +203,47 @@ function FilterRow({ filter }) {
       <code className="docs-filter-expr">{filter.expression}</code>
     </div>
   );
+}
+
+
+/**
+ * Per-column concept status for the docs schema table.
+ *
+ * Precedence:
+ *   bound_concept     → green "concept: X" (human_verified, compiler-usable)
+ *   suggested_concept → yellow "öneri: X" (table-doc hint, not yet bound)
+ *   filterable        → muted "filtrelenebilir"
+ *   otherwise         → "—"
+ */
+function ConceptCell({ info }) {
+  if (!info) return <span className="docs-col-dash">—</span>;
+  const { bound_concept, suggested_concept, transform, filterable } = info;
+
+  if (bound_concept) {
+    return (
+      <span
+        className="docs-concept docs-concept--bound"
+        title={transform ? `transform: ${transform}` : 'human_verified binding'}
+      >
+        <Sparkles size={10} strokeWidth={2} />
+        {bound_concept}
+      </span>
+    );
+  }
+  if (suggested_concept) {
+    return (
+      <span
+        className="docs-concept docs-concept--suggested"
+        title="Table-doc önerisi — Concept > İnceleme'den onaylayın."
+      >
+        öneri: {suggested_concept}
+      </span>
+    );
+  }
+  if (filterable) {
+    return <span className="docs-concept docs-concept--plain">filtrelenebilir</span>;
+  }
+  return <span className="docs-col-dash">—</span>;
 }
 
 

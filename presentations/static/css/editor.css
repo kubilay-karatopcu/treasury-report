@@ -1418,6 +1418,49 @@
   color: var(--ts-muted);
 }
 
+/* Phase 7 — per-column concept status */
+.docs-col-concept { white-space: nowrap; }
+.docs-col-dash { color: var(--ts-muted); opacity: 0.55; }
+
+.docs-concept {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-family: var(--ts-font-mono);
+}
+.docs-concept--bound {
+  background: rgba(47, 179, 68, 0.12);   /* --ts-green @ 12% */
+  color: #1a7a2a;
+}
+.docs-concept--suggested {
+  background: rgba(245, 159, 0, 0.14);    /* --ts-yellow @ 14% */
+  color: #9a6500;
+  font-family: var(--ts-font);
+}
+.docs-concept--plain {
+  background: #f1f5f9;
+  color: var(--ts-muted);
+  font-family: var(--ts-font);
+  font-weight: 500;
+}
+.docs-concept-legend {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--ts-hairline);
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--ts-muted);
+}
+.docs-concept-legend .docs-concept {
+  margin: 0 4px;
+  vertical-align: middle;
+}
+
 /* Common filters */
 .docs-filters {
   display: flex;

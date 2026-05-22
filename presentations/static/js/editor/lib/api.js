@@ -477,3 +477,32 @@ export async function fetchTablePreview(tableId) {
   }
   return resp.json();
 }
+
+
+/**
+ * Phase 7 — per-column concept status for the docs modal.
+ *
+ * `tableId` is "SCHEMA.TABLE" (e.g. "EDW.DEPOSITS_DAILY"). Returns
+ * `{ schema, table, columns: { COL: { filterable, filter_role,
+ * suggested_concept, bound_concept, transform } } }`. Returns an empty
+ * `columns` map (never throws) so the docs modal degrades gracefully when the
+ * concept registry isn't configured.
+ */
+export async function fetchTableConcepts(tableId) {
+  const dot = String(tableId || '').indexOf('.');
+  if (dot < 0) return { columns: {} };
+  const schema = tableId.slice(0, dot);
+  const table = tableId.slice(dot + 1);
+  try {
+    const resp = await fetch(
+      `${PRES_BASE}/concepts/api/table-columns`
+        + `?schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`,
+      { headers: { Accept: 'application/json' }, cache: 'no-store' },
+    );
+    if (!resp.ok) return { columns: {} };
+    const body = await resp.json();
+    return { ...body, columns: body.columns || {} };
+  } catch (_e) {
+    return { columns: {} };
+  }
+}
