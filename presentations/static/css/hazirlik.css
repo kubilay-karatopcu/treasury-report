@@ -174,3 +174,36 @@
 .react-flow__edge-text { font-size: 10px; fill: #64748b; }
 
 .hz-pop-meta { margin-bottom: 12px; font-size: 13px; color: #334155; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Redesign v2 — Sunum sidebar reuse, description nodes, AG Grid drawer
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Reuse Sunum's .editor-sidebar inside the Hazırlık flex body. */
+.hz-app .editor-sidebar.hz-sidebar {
+  position: static; height: 100%; flex: 0 0 300px;
+  border-right: 1px solid #e6e7e9;
+}
+.hz-app .editor-sidebar.hz-sidebar .sidebar-inner { height: 100%; display: flex; flex-direction: column; }
+
+/* Node body shows the description instead of a column list. */
+.hz-node-desc { padding: 8px 10px; font-size: 11px; color: #475569; line-height: 1.45; max-width: 240px; }
+
+.hz-canvas-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; font-size: 14px; pointer-events: none;
+}
+
+/* Resizable AG Grid preview drawer (overrides the earlier .hz-preview rule). */
+.hz-preview { flex: 0 0 auto; position: relative; border-top: 1px solid #e6e7e9; background: #fff; display: flex; flex-direction: column; min-height: 0; }
+.hz-preview-resize { position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; z-index: 5; }
+.hz-preview-resize:hover { background: #cbd5e1; }
+.hz-preview-actions { display: flex; align-items: center; gap: 8px; }
+.hz-preview-body { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
+.hz-preview-body .ag-theme-alpine { --ag-grid-size: 4px; --ag-font-size: 12px; }
+
+.hz-toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: #1e293b; color: #fff; padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; z-index: 200; box-shadow: 0 4px 14px rgba(0,0,0,.2);
+}
