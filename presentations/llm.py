@@ -133,6 +133,38 @@ class QwenClient:
         content = resp.json()["choices"][0]["message"]["content"]
         return _parse_llm_output(content)
 
+    def complete(self, system: str, user: str, *, max_tokens: int = 1024,
+                 temperature: float = 0.1) -> str:
+        """Generic single-turn completion → raw message content.
+
+        Used by non-manifest callers (e.g. the Phase 7.c binding proposer)
+        that just need a system+user prompt answered. Returns the model's
+        text content; the caller parses it.
+        """
+        payload = {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if self.model:
+            payload["model"] = self.model
+        if self.force_json:
+            payload["response_format"] = {"type": "json_object"}
+        resp = requests.post(
+            self.endpoint,
+            json=payload,
+            headers={"Authorization": f"Bearer {self.token}"},
+            verify=self.verify_ssl,
+            timeout=self.timeout,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"LLM provider HTTP {resp.status_code}: {resp.text[:500]}")
+        return resp.json()["choices"][0]["message"]["content"]
+
 
 def _block_layout_summary(blocks: list[dict]) -> str:
     """Index-table for the LLM. Top-level blocks are sections; their children
@@ -583,6 +615,12 @@ class FakeLLM:
             "Gerçek model ofis ortamında devreye girer.",
             [],
         )
+
+    def complete(self, system: str, user: str, **kwargs) -> str:
+        """No-op stub — DEV must not fabricate concept bindings. The Phase 7.c
+        proposer treats an empty ``columns`` map as "LLM had nothing to add",
+        so the deterministic stages stand alone offline."""
+        return '{"columns": {}}'
 
 
 def _find_block(manifest: dict, block_id: str | None):
