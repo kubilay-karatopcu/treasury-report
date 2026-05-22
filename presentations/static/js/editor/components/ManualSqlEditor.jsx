@@ -16,7 +16,7 @@
  * block.data_source via the run-manual endpoint.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Play, Plus, Trash2, AlertTriangle, Search } from 'lucide-react';
+import { Play, Plus, Trash2, AlertTriangle, Search, Database } from 'lucide-react';
 import useStore from '../lib/store.js';
 
 // Mirror of presentations.variables.semantic_tags.SEMANTIC_TAGS_V0.
@@ -210,6 +210,8 @@ function parseAllowedValues(raw) {
 export default function ManualSqlEditor({ block, previewMode = false, onPreviewResult }) {
   const runBlockManualSql = useStore((s) => s.runBlockManualSql);
   const setBlockField     = useStore((s) => s.setBlockField);
+  const addDashboardFilter = useStore((s) => s.addDashboardFilter);
+  const setFilterValue    = useStore((s) => s.setFilterValue);
 
   // Backward-compat: pre-Phase 6.5 blocks store their SQL on
   // data_source.original_sql with no variables. Seed the textarea from there
@@ -231,6 +233,9 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
   const [err, setErr] = useState(null);
   const [warnings, setWarnings] = useState([]);
   const [staleHint, setStaleHint] = useState(false);
+  // Phase 7 auto-conceptualize result (from Şemayı Tara): what got lifted
+  // into concept filters + what stayed hardcoded.
+  const [conceptMsg, setConceptMsg] = useState(null);
 
   // Reset local state when switching between blocks. Falls back to
   // data_source.original_sql for legacy LLM-generated blocks (see
@@ -396,6 +401,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
     setBusy(true);
     setErr(null);
     setWarnings([]);
+    setConceptMsg(null);
     // Persist the user's current draft to the manifest BEFORE the request,
     // so a subsequent "Şablon olarak kaydet" doesn't lose it if Çalıştır fails.
     pushDraftToManifest();
@@ -518,6 +524,21 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
           allowed_values_str: Array.isArray(vv.allowed_values) ? vv.allowed_values.join(', ') : '',
         })));
       }
+      // Phase 7 auto-conceptualize: Şemayı Tara detected concept-bound literal
+      // predicates → rewrite the SQL (predicate → {{concept_filters}}) and seed
+      // the matching dashboard filters with the extracted values.
+      const cz = result.conceptualize;
+      if (!previewMode && cz && Array.isArray(cz.seeded_filters) && cz.seeded_filters.length) {
+        setSql(cz.rewritten_sql);
+        setBlockField(block.id, 'query', cz.rewritten_sql);
+        for (const f of cz.seeded_filters) {
+          try { addDashboardFilter(f); } catch (_e) { /* already exists — ignore */ }
+          if (f.default !== undefined) setFilterValue(f.id, f.default);
+        }
+        setConceptMsg({ converted: cz.converted || [], skipped: cz.skipped || [] });
+      } else if (cz && Array.isArray(cz.skipped) && cz.skipped.length) {
+        setConceptMsg({ converted: [], skipped: cz.skipped });
+      }
       setWarnings(result.warnings || []);
       setStaleHint(false);
     } catch (e) {
@@ -586,6 +607,23 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
             <div className="props-stale-hint">
               <AlertTriangle size={12} strokeWidth={2} />
               <span>SQL değişti — şemayı tekrar tara, sonra çalıştır.</span>
+            </div>
+          )}
+          {conceptMsg && (conceptMsg.converted.length > 0 || conceptMsg.skipped.length > 0) && (
+            <div className="props-concept-note">
+              {conceptMsg.converted.map((c, i) => (
+                <div key={i} className="props-concept-note__row">
+                  <Database size={11} strokeWidth={2} />
+                  <span><code>{c.column}</code> → <strong>{c.concept}</strong> concept
+                    filtresine çevrildi ({c.values.join(', ')})</span>
+                </div>
+              ))}
+              {conceptMsg.skipped.map((s, i) => (
+                <div key={`s${i}`} className="props-concept-note__row props-concept-note__row--skip">
+                  <AlertTriangle size={11} strokeWidth={2} />
+                  <span>{s}</span>
+                </div>
+              ))}
             </div>
           )}
           {err && (

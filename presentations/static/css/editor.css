@@ -5731,6 +5731,33 @@ body.theme-dark .props-sql-helper__table td code {
 }
 .props-chips__input::placeholder { color: var(--ts-muted, #94a3b8); }
 
+/* Phase 7 — auto-conceptualize note (Şemayı Tara → concept filtreleri). */
+.props-concept-note {
+  margin-top: 8px;
+  background: rgba(37,99,235,0.06);
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.props-concept-note__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: #1e40af;
+  line-height: 1.35;
+}
+.props-concept-note__row code {
+  font-family: ui-monospace, monospace;
+  background: #dbeafe;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.props-concept-note__row--skip { color: #92400e; }
+
 /* Phase 7 — source tables editor (concept filter compilation). */
 .props-src-warn { color: #b45309; }
 .props-src-list {

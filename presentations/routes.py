@@ -1324,6 +1324,29 @@ def run_block_manual(pid: str, bid: str):
     if scan_only:
         block["query"] = query
         block["variables"] = [v.model_dump(mode="json", exclude_none=True) for v in var_models]
+
+        # Auto-conceptualize: detect concept-bound literal predicates in the
+        # WHERE and propose lifting them into dashboard concept filters. The
+        # UI shows the rewrite + seeds the filters on confirm.
+        conceptualize = None
+        _reg = current_app.config.get("CONCEPT_REGISTRY")
+        _cat = current_app.config.get("CONCEPT_BINDING_CATALOG")
+        if _reg is not None and _cat is not None:
+            try:
+                from .concepts.integration import conceptualize_query, derive_source_tables
+                from .concepts.user_scope import build_effective_registry
+                reg_snap = _reg.snapshot if hasattr(_reg, "snapshot") else _reg
+                cat_snap = _cat.snapshot if hasattr(_cat, "snapshot") else _cat
+                eff = build_effective_registry(reg_snap, manifest.get("user_concepts"))
+                tables = derive_source_tables({"query": query})
+                if tables:
+                    schema, table = tables[0]
+                    res = conceptualize_query(query, schema, table, cat_snap, eff)
+                    if res["seeded_filters"] or res["skipped"]:
+                        conceptualize = res
+            except Exception:
+                current_app.logger.exception("conceptualize during scan failed")
+
         manifest["version"] = manifest.get("version", 0) + 1
         session.set_manifest(manifest)
         return Response(
@@ -1333,6 +1356,7 @@ def run_block_manual(pid: str, bid: str):
                 "block": block,
                 "warnings": sql_check.warnings,
                 "discovered": discovered_info,
+                "conceptualize": conceptualize,
                 "scan_only": True,
             }, ensure_ascii=False, default=str),
             mimetype="application/json",
