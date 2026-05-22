@@ -16,8 +16,9 @@
     "esbuild": "^0.21.5"
   },
   "scripts": {
-    "build": "npx esbuild static/js/editor/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js",
-    "build:dev": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js",
+    "build": "npx esbuild static/js/editor/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js && npx esbuild static/js/hazirlik/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/hazirlik.bundle.js",
+    "build:dev": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js && npx esbuild static/js/hazirlik/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/hazirlik.bundle.js",
+    "build:hazirlik": "npx esbuild static/js/hazirlik/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/hazirlik.bundle.js",
     "watch": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js --watch"
   }
 }

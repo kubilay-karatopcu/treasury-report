@@ -1,0 +1,100 @@
+/* Hazırlık (Phase 8.b) page styles. Reuses .ts-modal / .ts-btn from editor.css. */
+
+.hz-wrap { max-width: 920px; margin: 0 auto; padding: 24px 20px 80px; }
+
+.hz-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 16px; margin-bottom: 8px; border-bottom: 1px solid #e6e7e9;
+}
+.hz-eyebrow { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #6c757d; }
+.hz-title { margin: 2px 0 0; font-size: 22px; font-weight: 650; color: #1e293b; }
+.hz-go { font-size: 14px; }
+
+.hz-error {
+  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+  padding: 10px 14px; border-radius: 8px; margin: 12px 0; font-size: 13px;
+}
+
+.hz-section { margin-top: 26px; }
+.hz-section > h2 { font-size: 15px; font-weight: 600; color: #334155; margin: 0 0 10px; }
+.hz-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.hz-section-head h2 { margin: 0; font-size: 15px; font-weight: 600; color: #334155; }
+
+.hz-card {
+  background: #fff; border: 1px solid #e6e7e9; border-radius: 10px;
+  padding: 14px 16px; margin-bottom: 10px;
+}
+.hz-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.hz-alias { display: flex; align-items: center; gap: 6px; font-weight: 600; color: #1e293b; }
+.hz-table { font-size: 12px; color: #6c757d; font-family: ui-monospace, Menlo, Consolas, monospace; margin-top: 2px; }
+.hz-card-actions { display: flex; align-items: center; gap: 6px; }
+.hz-cols { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hz-cols-label { font-size: 12px; color: #6c757d; margin-right: 4px; }
+
+.hz-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  background: #eef2f7; color: #334155; font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-chip--click { cursor: pointer; border: 1px solid transparent; }
+.hz-chip--click:hover { border-color: #206bc4; background: #e8f0fa; }
+
+.hz-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 2px 9px; border-radius: 999px; font-weight: 500;
+}
+.hz-badge .hz-dot { width: 7px; height: 7px; border-radius: 50%; }
+.hz-badge--cached { background: #e8f5ee; color: #166534; }
+.hz-badge--cached .hz-dot { background: #16a34a; }
+.hz-badge--lazy { background: #fef9e7; color: #854d0e; }
+.hz-badge--lazy .hz-dot { background: #ca8a04; }
+
+.hz-icon-btn {
+  border: 1px solid #e6e7e9; background: #fff; border-radius: 6px;
+  padding: 4px; cursor: pointer; color: #475569; line-height: 0;
+}
+.hz-icon-btn:hover { background: #f1f5f9; }
+.hz-danger:hover { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+
+.hz-filter-group { margin-bottom: 12px; }
+.hz-filter-group-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
+.hz-filter-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #fff; border: 1px solid #e6e7e9; border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+}
+.hz-filter-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+
+.hz-dist-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.hz-dist-label { font-size: 13px; font-weight: 600; color: #334155; min-width: 110px; }
+
+.hz-muted { color: #94a3b8; font-size: 13px; }
+
+/* Modal form bits */
+.hz-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; font-size: 13px; font-weight: 500; color: #334155; }
+.hz-field input[type=text], .hz-field input[type=date], .hz-field select {
+  border: 1px solid #d6dae0; border-radius: 6px; padding: 7px 9px; font-size: 13px; font-weight: 400;
+}
+.hz-row { display: flex; gap: 12px; }
+.hz-row .hz-field { flex: 1; }
+.hz-check { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 400; color: #334155; margin-bottom: 6px; cursor: pointer; }
+.hz-col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 14px; margin-top: 4px; }
+
+.hz-toggle { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid #d6dae0; border-radius: 8px; overflow: hidden; }
+.hz-toggle button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px; border: none; background: #fff; cursor: pointer; font-size: 13px; color: #64748b;
+}
+.hz-toggle button.active { background: #206bc4; color: #fff; font-weight: 600; }
+
+.hz-search { width: 100%; box-sizing: border-box; border: 1px solid #d6dae0; border-radius: 8px; padding: 9px 12px; font-size: 14px; margin-bottom: 12px; }
+.hz-results { max-height: 420px; overflow: auto; }
+.hz-result { padding: 10px 12px; border: 1px solid #eef0f3; border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+.hz-result:hover { border-color: #206bc4; background: #f8fafc; }
+
+/* Minimal .ts-btn fallback in case editor.css load order differs. */
+.ts-btn { border: 1px solid #d6dae0; background: #fff; color: #334155; border-radius: 7px; padding: 7px 13px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.ts-btn:hover { background: #f1f5f9; }
+.ts-btn--primary { background: #206bc4; border-color: #206bc4; color: #fff; }
+.ts-btn--primary:hover { background: #1a5aa8; }
+.ts-btn:disabled { opacity: .6; cursor: default; }

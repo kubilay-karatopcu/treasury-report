@@ -13,7 +13,7 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
-echo "[build] esbuild bundle oluşturuluyor..."
+echo "[build] esbuild editor bundle oluşturuluyor..."
 node_modules/.bin/esbuild static/js/editor/index.jsx \
   --bundle \
   --jsx=automatic \
@@ -22,4 +22,13 @@ node_modules/.bin/esbuild static/js/editor/index.jsx \
   --loader:.css=empty \
   --outfile=static/js/bundle.js
 
-echo "[build] Tamam → static/js/bundle.js"
+echo "[build] esbuild hazırlık bundle oluşturuluyor..."
+node_modules/.bin/esbuild static/js/hazirlik/index.jsx \
+  --bundle \
+  --jsx=automatic \
+  --minify \
+  --target=es2020 \
+  --loader:.css=empty \
+  --outfile=static/js/hazirlik.bundle.js
+
+echo "[build] Tamam → static/js/bundle.js + static/js/hazirlik.bundle.js"

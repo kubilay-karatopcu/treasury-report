@@ -26,6 +26,8 @@ Thumbs.db
 # Build artifacts — prod ortamında `bash presentations/build.sh` ile üretilecek
 presentations/static/js/bundle.js
 presentations/static/js/bundle.js.map
+presentations/static/js/hazirlik.bundle.js
+presentations/static/js/hazirlik.bundle.js.map
 
 # DEV-only — local stub, sample data, reference dumps. PROD'da kullanılmaz.
 fake_db.py
