@@ -26,7 +26,7 @@ import re
 from deposit_panel import deposit_panel_bp, init_app as deposit_panel_init
 from presentations import presentations_bp
 from presentations.session import SessionRegistry
-from presentations.store import S3SnapshotStore
+from presentations.store import S3SnapshotStore, S3DashboardStore, S3LibraryStore
 from presentations.blocks.store import S3BlockStore, LocalBlockStore
 from presentations.table_docs.store import (
     S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
@@ -459,7 +459,7 @@ app.config["SESSION_REGISTRY"] = SessionRegistry(
 
 if DEV_MODE:
     from presentations.llm import FakeLLM
-    from presentations.store import LocalSnapshotStore
+    from presentations.store import LocalSnapshotStore, LocalDashboardStore, LocalLibraryStore
 
     _openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if _openai_key:
@@ -476,11 +476,14 @@ if DEV_MODE:
         logging.info("DEV_MODE: OPENAI_API_KEY yok → FakeLLM stub.")
         app.config["LLM_CLIENT"] = FakeLLM()
 
-    app.config["SNAPSHOT_STORE"] = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
-    app.config["BLOCK_STORE"]    = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
+    app.config["SNAPSHOT_STORE"]  = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
+    app.config["DASHBOARD_STORE"] = LocalDashboardStore(base_dir=_DUCK_BASE_DIR / "dashboards")
+    app.config["LIBRARY_STORE"]   = LocalLibraryStore(base_dir=_DUCK_BASE_DIR / "library")
+    app.config["BLOCK_STORE"]     = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
         LocalTableDocStore(base_dir=Path(__file__).parent / "examples" / "table_docs")
     )
+    app.config["DEV_MODE"]        = True  # presentations/directory.py için bayrak
     # DEV catalog → fake_db ile aynı tablolar (examples/sample_catalog.json).
     app.config["CATALOG_PATH"] = str(Path(__file__).parent / "examples" / "sample_catalog.json")
 else:
@@ -491,8 +494,10 @@ else:
         verify_ssl=False,
         force_json=False,
     )
-    app.config["SNAPSHOT_STORE"] = S3SnapshotStore(dc=dc)
-    app.config["BLOCK_STORE"]    = S3BlockStore(dc=dc)
+    app.config["SNAPSHOT_STORE"]  = S3SnapshotStore(dc=dc)
+    app.config["DASHBOARD_STORE"] = S3DashboardStore(dc=dc)
+    app.config["LIBRARY_STORE"]   = S3LibraryStore(dc=dc)
+    app.config["BLOCK_STORE"]     = S3BlockStore(dc=dc)
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(S3TableDocStore(dc=dc))
 
  
@@ -501,7 +506,7 @@ app.config["S3_PUT"]    = _s3_put
 app.config["S3_DELETE"] = _s3_delete
 
 
-# ── Phase 7.a — concept registry ────────────────────────────────
+# ── Phase 7.a — concept registry ──────────────────────────────────────────
 # Hand-authored knowledge docs live under presentations/catalog/ (spec §3.1:
 # system/dept concepts are git-versioned). concepts/ holds the registry;
 # tables/ holds per-table concept bindings (read by the 7.b compiler). Same
@@ -557,6 +562,9 @@ class User(UserMixin):
         self.ip = user_json["ip"]
         self.department = user_json["department"]
         self.password = user_json["password"]
+        # Dashboard maker yetkisi — LDAP tablosundan gelecek. Şimdilik 1.
+        # Tabloya kolon eklendiğinde user_json["dashboard_maker"] olarak okunur.
+        self.dashboard_maker = int(user_json.get("dashboard_maker", 1)) == 1
 
     def get_id(self):
         object_id = self.user_json.get('user_id')

@@ -43,6 +43,10 @@ class GraphState:
     retries_left: int = 2               # Bumped from 1: SQL errors deserve an
                                         # extra retry vs pure schema errors.
     new_manifest: Optional[dict] = None
+    # F.5: Library suggestions — LLM kütüphaneden uygun blok bulduysa burada
+    # döner. patches=[] ise graph apply'ı atlar, sadece suggestion event'i emit
+    # eder. User accept ederse frontend addLibraryBlockToSection çağırır.
+    suggestions: list = field(default_factory=list)
 
 
 def run_pipeline(state: GraphState) -> Iterator[dict]:
@@ -87,11 +91,37 @@ def run_pipeline(state: GraphState) -> Iterator[dict]:
 
     if state.pending_patches:
         yield {"event": "status", "data": {"phase": "applying"}}
-        state = apply_patch(state)
+        try:
+            state = apply_patch(state)
+        except Exception as exc:
+            # Validate dry-run geçti ama execute_block_sqls patches'a ekleme
+            # yaptıysa son hâl invalid olabilir — kullanıcıya friendly mesaj
+            import logging
+            logging.getLogger(__name__).exception("apply_patch failed: %s", exc)
+            yield {
+                "event": "error",
+                "data": {
+                    "message": (
+                        f"Patch uygulanamadı: {exc!r}. "
+                        "LLM çıktısı tutarsız olabilir, biraz farklı bir şekilde yeniden dene "
+                        "(örn. 'sadece TEB ve QNB bankalarını göster' yerine 'WHERE BANK_NAME IN (...)' SQL'inde değişiklik iste)."
+                    ),
+                },
+            }
+            return
         yield {
             "event": "patch",
             "data": {
                 "patches": state.pending_patches,
+                "explanation": state.explanation,
+            },
+        }
+    elif state.suggestions:
+        # Library suggestion: kullanıcının onayını bekle, manifest değişmedi.
+        yield {
+            "event": "suggestion",
+            "data": {
+                "suggestions": state.suggestions,
                 "explanation": state.explanation,
             },
         }

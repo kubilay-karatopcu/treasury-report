@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import {
-  Presentation, FileText, ExternalLink, Home, HelpCircle, Pencil,
+  Presentation, Home, HelpCircle, Pencil, Save,
 } from 'lucide-react';
 import useStore from '../lib/store.js';
-import { createSnapshot } from '../lib/api.js';
 import HelpModal from './HelpModal.jsx';
 
 export default function Header() {
@@ -12,10 +11,9 @@ export default function Header() {
   const viewMode         = useStore((s) => s.viewMode);
   const layoutEditMode   = useStore((s) => s.layoutEditMode);
   const toggleLayoutEdit = useStore((s) => s.toggleLayoutEdit);
-  const openShareModal   = useStore((s) => s.openShareModal);
+  const openSaveModal    = useStore((s) => s.openSaveModal);
   const setMetaTitle     = useStore((s) => s.setMetaTitle);
 
-  const [snapshotting, setSnapshotting] = useState(false);
   const [helpOpen, setHelpOpen]         = useState(false);
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleLocal, setTitleLocal]     = useState('');
@@ -25,20 +23,6 @@ export default function Header() {
   const isSnapshot     = mode === 'snapshot';
   const isPresentation = viewMode === 'presentation';
   const listUrl = window.location.pathname.replace(/\/[^/]+$/, '/');
-
-  async function takeSnapshot() {
-    if (snapshotting) return;
-    setSnapshotting(true);
-    try {
-      const result = await createSnapshot();
-      const fullUrl = new URL(result.url, window.location.origin).href;
-      openShareModal({ ...result, url: fullUrl });
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setSnapshotting(false);
-    }
-  }
 
   return (
     <>
@@ -142,12 +126,11 @@ export default function Header() {
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={takeSnapshot}
-                disabled={snapshotting}
-                title="Sunum'un anlık halini paylaşılabilir bağlantı olarak dondur"
+                onClick={openSaveModal}
+                title="Snapshot oluştur, PDF indir veya Ekip Raporları'na yayınla"
               >
-                <ExternalLink size={13} strokeWidth={1.8} />
-                <span>{snapshotting ? 'Oluşturuluyor…' : 'Snapshot Al'}</span>
+                <Save size={13} strokeWidth={1.8} />
+                <span>Kaydet</span>
               </button>
             </>
           )}

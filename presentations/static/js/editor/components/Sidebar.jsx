@@ -75,6 +75,8 @@ function EditSidebar({ onPresent, width, onResizeStart }) {
 
 function PresentationSidebar({ onExit, width, onResizeStart }) {
   const manifest = useStore((s) => s.manifest);
+  const mode     = useStore((s) => s.mode);
+  const isSnapshot = mode === 'snapshot';
 
   // Flatten section_header blocks at top level + inside children, in document order.
   const headers = collectHeaders(manifest?.blocks || []);
@@ -145,22 +147,26 @@ function PresentationSidebar({ onExit, width, onResizeStart }) {
           <div className="toc-helper">
             <div className="toc-helper-title">
               <Sparkles size={11} strokeWidth={2} style={{ color: 'var(--ts-primary)' }} />
-              <span>Sunum modu</span>
+              <span>{isSnapshot ? 'Dondurulmuş rapor' : 'Sunum modu'}</span>
             </div>
-            Bloklar düzenlenemez. Veri kaynakları gizli. Yan menüden başlıklara atlayabilirsiniz.
+            {isSnapshot
+              ? 'Bu rapor anlık bir kopyadır. Yan menüden başlıklara atlayabilirsiniz.'
+              : 'Bloklar düzenlenemez. Veri kaynakları gizli. Yan menüden başlıklara atlayabilirsiniz.'}
           </div>
         </div>
 
-        <div className="sidebar-section sidebar-section--bottom">
-          <button
-            type="button"
-            className="mode-cta mode-cta--exit"
-            onClick={onExit}
-          >
-            <ArrowLeft size={14} strokeWidth={2} />
-            <span>Düzenlemeye Dön</span>
-          </button>
-        </div>
+        {!isSnapshot && (
+          <div className="sidebar-section sidebar-section--bottom">
+            <button
+              type="button"
+              className="mode-cta mode-cta--exit"
+              onClick={onExit}
+            >
+              <ArrowLeft size={14} strokeWidth={2} />
+              <span>Düzenlemeye Dön</span>
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );

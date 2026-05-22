@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ meta.title or "Blok Önizleme" }}</title>
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #1e293b;
+      height: 100%;
+      overflow: hidden;
+    }
+    #presentation-root {
+      position: fixed;
+      inset: 0;
+      overflow: auto;
+      padding: 16px;
+      background: #f8fafc;
+    }
+  </style>
+</head>
+<body>
+  <div
+    id="presentation-root"
+    data-presentation-id="{{ manifest.id }}"
+    data-mode="block-preview"
+  ></div>
+  <script id="initial-manifest" type="application/json">{{ manifest_json | safe }}</script>
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}"></script>
+</body>
+</html>
