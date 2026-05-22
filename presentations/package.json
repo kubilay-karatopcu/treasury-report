@@ -2,7 +2,7 @@
   "private": true,
   "description": "Treasury Studio — presentations editor frontend",
   "dependencies": {
-    "@xyflow/react": "^12.3.0",
+    "@xyflow/react": "^12.10.2",
     "ag-grid-community": "^31.3.2",
     "ag-grid-react": "^31.3.2",
     "apexcharts": "^5.11.0",
