@@ -99,7 +99,7 @@ Oracle is governed and slow. DuckDB is fast but ephemeral. S3 is durable but not
 | 5 | Persistence + share | ✅ | CLAUDE.md |
 | 6 | Polish + layout | ✅ | CLAUDE.md |
 | **6.5** | **Variable Binding MVP** | ✅ | `docs/PHASE_6_5_SPEC.md` |
-| **7** | **Concept Foundation** | 🟢 | `docs/PHASE_7_SPEC.md` |
+| **7** | **Concept Foundation** | ✅ (backend) | `docs/PHASE_7_SPEC.md` |
 | 8 | Stage 2 — Hazırlık (Prepare) | 🟡 | TBD |
 | 9 | Stage 1 — Keşif Tables (Discover) | 🟡 | TBD |
 | 10 | Block Marketplace MVP | 🟡 | TBD |
@@ -195,10 +195,18 @@ Block YAMLs and dashboard YAMLs from 6.5 remain valid throughout — no rewritin
 
 **Sub-phases (ship independently, in order — see spec §11).**
 
-- **7.a — Concept Registry + schema infrastructure.** ~5–7 days. Acceptance: spec §11.a.
-- **7.b — Column Bindings + filter compiler.** ~2–3 weeks. The heart of Phase 7. Acceptance: spec §11.b.
-- **7.c — Binding Inference pipeline + review UI.** ~2 weeks. Acceptance: spec §11.c.
-- **7.d — User-scoped concepts + promotion flow.** ~1 week. Ships independently after 7.b. Acceptance: spec §11.d.
+- **7.a — Concept Registry + schema infrastructure.** ✅ Done. Acceptance: spec §11.a.
+- **7.b — Column Bindings + filter compiler.** ✅ Done. The heart of Phase 7. Acceptance: spec §11.b.
+- **7.c — Binding Inference pipeline + review UI.** ✅ Done. Acceptance: spec §11.c.
+- **7.d — User-scoped concepts + promotion flow.** ✅ Done (backend + API). Acceptance: spec §11.d.
+
+**Status note (backend complete).** All four sub-phases are implemented and tested
+(163 concept tests). The deterministic engine + APIs + the binding review UI
+(`/concepts/review`) ship. Remaining UI wiring to exercise the full dashboard
+concept-filter loop end-to-end from the editor (block `source_tables` editor +
+`{{concept_filters}}` sentinel helper + concept-aware filter bar) is a focused
+follow-up — the backend path (`/<pid>/apply-filters`) already honours it for
+blocks authored with those fields.
 
 **Effort estimate.** ~6–8 weeks total. Largest chunk: 7.b filter compiler + per-table bindings rollout.
 
