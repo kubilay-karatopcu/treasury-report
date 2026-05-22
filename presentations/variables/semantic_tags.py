@@ -1,14 +1,43 @@
-"""Semantic tag allow-list — Phase 6.5 seed of the future concept registry.
+"""Semantic tag allow-list — Phase 6.5 seed of the Phase 7 concept registry.
 
-Variables carry a mandatory ``semantic_tag`` drawn from ``SEMANTIC_TAGS_V0``.
-When Phase 7 lands, this allow-list will be replaced by a YAML-backed concept
-registry; the migration script keys off the same tag string. **Adding a new
-tag here requires a code change + PR** — users cannot mint tags in v0.
+Variables carry a mandatory ``semantic_tag``. In Phase 6.5 this was bounded by
+the frozen ``SEMANTIC_TAGS_V0`` set. In Phase 7 (7.a) the concept registry
+becomes the source of truth: when an active registry is installed via
+:func:`set_active_registry`, validity + the UI tag list are sourced from it,
+with ``SEMANTIC_TAGS_V0`` retained as a **baseline floor**.
 
-The set is intentionally small and Treasury-flavoured. ``other`` is the
-explicit escape hatch and is flagged in the editor UI.
+The registry is always a *superset* of the v0 baseline (the migration emits a
+concept per v0 tag), so every block authored under Phase 6.5 keeps validating
+— zero regression. If no registry is installed (bare imports, some tests), the
+functions fall back to the frozen set exactly as before.
+
+``other`` is the explicit escape hatch and is flagged in the editor UI.
 """
 from __future__ import annotations
+
+from typing import Any
+
+
+# Active concept registry — installed by the Flask app at startup via
+# set_active_registry(). Duck-typed: needs all_ids() + all_concepts(). Kept as
+# a module global (not imported) so this module stays free of a hard
+# dependency on presentations.concepts (avoids an import cycle).
+_active_registry: Any | None = None
+
+
+def set_active_registry(registry: Any | None) -> None:
+    """Install (or clear) the concept registry backing tag validity + the UI list."""
+    global _active_registry
+    _active_registry = registry
+
+
+def _registry_ids() -> set[str] | None:
+    if _active_registry is None:
+        return None
+    try:
+        return set(_active_registry.all_ids())
+    except Exception:
+        return None
 
 
 # Frozen set so it cannot be mutated at runtime.
@@ -78,8 +107,18 @@ _DESCRIPTIONS_TR: dict[str, str] = {
 
 
 def is_valid_tag(s: str | None) -> bool:
-    """True if ``s`` is exactly one of the allow-listed semantic tags."""
-    return isinstance(s, str) and s in SEMANTIC_TAGS_V0
+    """True if ``s`` is a valid semantic tag.
+
+    Valid = in the frozen v0 baseline OR in the active concept registry. The
+    baseline is always accepted so pre-Phase-7 blocks never break, even if a
+    registry is installed that (incorrectly) omits a tag.
+    """
+    if not isinstance(s, str) or not s.strip():
+        return False
+    if s in SEMANTIC_TAGS_V0:
+        return True
+    ids = _registry_ids()
+    return bool(ids and s in ids)
 
 
 def describe_tag(s: str) -> str:
@@ -93,15 +132,39 @@ def tag_description(s: str) -> str:
 
 
 def all_tags() -> list[dict[str, str]]:
-    """Materialize the allow-list for UI dropdowns.
+    """Materialize the tag allow-list for UI dropdowns.
 
-    Returns a list ordered to keep ``other`` last (it is the escape hatch and
-    the editor highlights it with a yellow warning).
+    Union of the v0 baseline and the active registry's concept ids — the
+    result is always a superset of v0. When a concept is present in the
+    registry its ``name`` / ``description`` win over the static Turkish
+    label tables; otherwise the static tables are used. ``other`` is always
+    rendered last (escape hatch; the editor flags it).
     """
-    ordered = sorted(t for t in SEMANTIC_TAGS_V0 if t != "other")
-    if "other" in SEMANTIC_TAGS_V0:
+    reg_by_id: dict[str, Any] = {}
+    if _active_registry is not None:
+        try:
+            reg_by_id = {c.id: c for c in _active_registry.all_concepts()}
+        except Exception:
+            reg_by_id = {}
+
+    ids = set(SEMANTIC_TAGS_V0) | set(reg_by_id.keys())
+
+    def label_for(t: str) -> str:
+        c = reg_by_id.get(t)
+        if c is not None and getattr(c, "name", None):
+            return c.name
+        return describe_tag(t)
+
+    def desc_for(t: str) -> str:
+        c = reg_by_id.get(t)
+        if c is not None and getattr(c, "description", None):
+            return c.description
+        return tag_description(t)
+
+    ordered = sorted(t for t in ids if t != "other")
+    if "other" in ids:
         ordered.append("other")
     return [
-        {"tag": t, "label": describe_tag(t), "description": tag_description(t)}
+        {"tag": t, "label": label_for(t), "description": desc_for(t)}
         for t in ordered
     ]
