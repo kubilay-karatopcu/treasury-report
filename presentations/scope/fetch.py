@@ -50,7 +50,7 @@ def _partition_pushdown(
 ) -> tuple[str, dict[str, Any]]:
     """Return (where_clause, binds) for a pinned date range on the partition
     column, or ("", {}) when not applicable."""
-    if catalog is None:
+    if catalog is None or item.table_ref is None:
         return "", {}
     tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
     if tm is None or not tm.partition_column:
@@ -126,27 +126,56 @@ def compose_cached_sql(
     return f"SELECT {cols} FROM {table}{where_sql}", binds
 
 
+_AGG = {"sum": "SUM", "avg": "AVG", "count": "COUNT", "min": "MIN", "max": "MAX"}
+
+
+def compile_aggregate_sql(item: BasketItem) -> str:
+    """Generate the GROUP BY SQL for a derived (aggregate) basket item (§6R).
+
+    Runs against the *source alias* (a DuckDB view materialised earlier), so the
+    aggregate is over the already-scoped source. The pivot UI and the LLM both
+    produce the ``derivation`` definition; this is the single place SQL is
+    emitted from it.
+    """
+    d = item.derivation
+    selects = list(d.group_by)
+    for m in d.measures:
+        if m.fn == "count_distinct":
+            selects.append(f"COUNT(DISTINCT {m.column}) AS {m.as_}")
+        else:
+            selects.append(f"{_AGG[m.fn]}({m.column}) AS {m.as_}")
+    sel = ", ".join(selects) if selects else "*"
+    group = (" GROUP BY " + ", ".join(d.group_by)) if d.group_by else ""
+    return f"SELECT {sel} FROM {d.source_alias}{group}"
+
+
 def fetch_cached_tables(
     dc, conn, scope: ScopeContract, *, catalog: Catalog | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Fetch every ``cached`` basket table into a DuckDB view named by alias.
+    """Materialise the scope into DuckDB views named by alias.
 
-    Returns ``{alias: {"table": "<schema.name>", "rows": <n>}}``. Lazy tables
-    are skipped (8.d). Raises on Oracle / DuckDB errors so the caller can mark
-    ``status.state = failed`` with the message.
+    Two passes: (1) raw ``cached`` tables → projected Oracle SELECT → view;
+    (2) derived aggregate tables → GROUP BY run *on DuckDB* over the
+    already-materialised source view. Lazy tables are skipped (8.d). Raises on
+    Oracle / DuckDB errors so the caller can mark ``status.state = failed``.
+
+    Returns ``{alias: {...}}``.
     """
     import pandas as pd
 
     loaded: dict[str, dict[str, Any]] = {}
+
+    # Pass 1 — raw cached tables.
     for item in scope.basket:
+        if item.derivation is not None or item.table_ref is None:
+            continue
         if item.routing.decision != "cached":
             continue
         sql, binds = compose_cached_sql(scope, item, catalog)
         df = dc.get_data(
             base_prefix=None,
             dataset=f"scope::{scope.presentation_id}/{item.alias}",
-            query=sql,
-            query_params=binds,
+            query=sql, query_params=binds,
         )
         if df is None:
             df = pd.DataFrame()
@@ -156,8 +185,22 @@ def fetch_cached_tables(
             "table": f"{item.table_ref.schema_name}.{item.table_ref.name}",
             "rows": int(len(df)),
         }
-        log.info(
-            "scope.fetch_cached_tables: %s ← %s (%d rows)",
-            item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df),
-        )
+        log.info("scope.fetch_cached_tables: %s ← %s (%d rows)",
+                 item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df))
+
+    # Pass 2 — derived (aggregate) tables, computed on DuckDB over the source.
+    for item in scope.derived_items():
+        sql = compile_aggregate_sql(item)
+        try:
+            df = conn.execute(sql).fetchdf()
+        except Exception as exc:
+            raise RuntimeError(
+                f"derived table '{item.alias}' failed ({sql!r}): {exc}"
+            ) from exc
+        if len(df.columns) > 0:
+            register_dataframe(conn, item.alias, df)
+        loaded[item.alias] = {"derived_from": item.derivation.source_alias, "rows": int(len(df))}
+        log.info("scope.fetch_cached_tables: %s ⇐ aggregate of %s (%d rows)",
+                 item.alias, item.derivation.source_alias, len(df))
+
     return loaded

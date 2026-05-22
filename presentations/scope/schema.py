@@ -149,16 +149,53 @@ class NodePosition(BaseModel):
     y: float
 
 
-class BasketItem(BaseModel):
-    """One table in the scope basket."""
+AggFn = Literal["sum", "avg", "count", "count_distinct", "min", "max"]
+
+
+class Measure(BaseModel):
+    """An aggregation in a derived table: ``fn(column) AS as``."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    column: str = Field(min_length=1, max_length=128)
+    fn: AggFn
+    as_: str = Field(alias="as", min_length=1, max_length=128)
+
+
+class Derivation(BaseModel):
+    """An aggregate table generated from another basket alias (§6R aggregate
+    tables). The pivot UI and the Stage-2 LLM both emit this *definition*; the
+    compiler (``fetch.compile_aggregate_sql``) emits the GROUP BY SQL — no
+    front-end ever produces SQL directly."""
 
     model_config = ConfigDict(extra="forbid")
 
-    table_ref: TableRef
+    kind: Literal["aggregate"] = "aggregate"
+    source_alias: Alias
+    group_by: list[str] = Field(default_factory=list)
+    measures: list[Measure] = Field(default_factory=list)
+
+
+class BasketItem(BaseModel):
+    """One table in the scope basket — either a real Oracle table
+    (``table_ref``) or a derived/aggregate table (``derivation``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    table_ref: TableRef | None = None
+    derivation: Derivation | None = None
     alias: Alias
     projection: Projection
     routing: Routing
     layout: NodePosition | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "BasketItem":
+        if (self.table_ref is None) == (self.derivation is None):
+            raise ValueError(
+                f"basket item {self.alias!r}: set exactly one of table_ref or derivation"
+            )
+        return self
 
 
 # ── Joins ─────────────────────────────────────────────────────────────────
@@ -343,6 +380,14 @@ class ScopeContract(BaseModel):
                 return b
         return None
 
+    def raw_items(self) -> list[BasketItem]:
+        """Basket items backed by a real Oracle table."""
+        return [b for b in self.basket if b.table_ref is not None]
+
+    def derived_items(self) -> list[BasketItem]:
+        """Derived (aggregate) basket items."""
+        return [b for b in self.basket if b.derivation is not None]
+
     def find_pinned(self, filter_id: str) -> PinnedFilter | None:
         for f in self.filters.pinned:
             if f.id == filter_id:
@@ -432,7 +477,7 @@ class ScopeRef(BaseModel):
 
 __all__ = [
     "TableRef", "Projection", "JoinedColumn", "DerivedColumn", "Routing",
-    "NodePosition", "BasketItem",
+    "NodePosition", "AggFn", "Measure", "Derivation", "BasketItem",
     "JoinSide", "Join",
     "FilterOp", "PinnedFilter", "InteractiveFilter", "RawFilter", "Filters",
     "Status", "ScopeContract", "ScopeDocument", "ScopeRef",
