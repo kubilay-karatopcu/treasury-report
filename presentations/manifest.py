@@ -65,7 +65,7 @@ BLOCK_TYPES = LEAF_BLOCK_TYPES | CONTAINER_BLOCK_TYPES
 
 IMMUTABLE_BLOCK_FIELDS = frozenset({"id", "type", "locked"})
 
-ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/", "/filters", "/filter_state")
+ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/", "/filters", "/filter_state", "/user_concepts")
 
 # Block width — Phase 6.
 WIDTH_VALUES = frozenset({"full", "1/2", "1/3", "2/3"})
