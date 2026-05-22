@@ -223,6 +223,75 @@ def _catalog_json() -> dict[str, Any]:
         return {"domains": []}
 
 
+def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
+    """Per-column metadata for a table node: name, type, concept, FK lookup."""
+    store = current_app.config.get("TABLE_DOC_STORE")
+    if store is None:
+        return []
+    try:
+        doc = store.load(schema, name)
+    except Exception:
+        return []
+    out: list[dict[str, Any]] = []
+    for col, cd in (getattr(doc, "columns", {}) or {}).items():
+        lk = getattr(cd, "lookup", None)
+        out.append({
+            "name": col,
+            "type": getattr(cd, "type", None),
+            "concept": getattr(cd, "suggested_semantic_tag", None),
+            "lookup": ({"table": lk.table, "key": lk.key, "display": lk.display} if lk else None),
+        })
+    return out
+
+
+def _columns_by_alias(scope: ScopeContract) -> dict[str, list[dict[str, Any]]]:
+    return {b.alias: _columns_for(b.table_ref.schema_name, b.table_ref.name) for b in scope.basket}
+
+
+def _suggested_edges(scope: ScopeContract, cols_by_alias: dict[str, list[dict[str, Any]]]):
+    """Auto-suggested join edges between basket aliases (§6R.3): FK ``lookup``
+    declarations + columns sharing a concept. The frontend draws these
+    (deduped against confirmed scope.joins) and the user can confirm/delete."""
+    edges: list[dict[str, Any]] = []
+    seen: set = set()
+    by_name: dict[str, str] = {}
+    for b in scope.basket:
+        by_name.setdefault(b.table_ref.name, b.alias)
+
+    def add(la, lc, ra, rc, kind, source):
+        if la == ra:
+            return
+        key = tuple(sorted([(la, lc), (ra, rc)]))
+        if key in seen:
+            return
+        seen.add(key)
+        edges.append({"left": {"alias": la, "column": lc},
+                      "right": {"alias": ra, "column": rc},
+                      "kind": kind, "source": source})
+
+    # (a) FK lookup → solid suggestion.
+    for alias, cols in cols_by_alias.items():
+        for col in cols:
+            lk = col.get("lookup")
+            if lk and lk["table"] in by_name:
+                add(alias, col["name"], by_name[lk["table"]], lk["key"], "lookup", "catalog_lookup")
+
+    # (b) shared concept → softer suggestion.
+    concept_cols: dict[str, dict[str, str]] = {}
+    for alias, cols in cols_by_alias.items():
+        for col in cols:
+            c = col.get("concept")
+            if c:
+                concept_cols.setdefault(c, {}).setdefault(alias, col["name"])
+    for c, per_alias in concept_cols.items():
+        items = list(per_alias.items())
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                (la, lc), (ra, rc) = items[i], items[j]
+                add(la, lc, ra, rc, "inner", f"shared_concept:{c}")
+    return edges
+
+
 @presentations_bp.route("/hazirlik")
 @login_required
 def hazirlik_new():
@@ -251,6 +320,7 @@ def hazirlik(pid: str):
     except Exception:
         pass
 
+    cols_by_alias = _columns_by_alias(scope)
     payload = {
         "presentation_id": pid,
         "title": title,
@@ -258,6 +328,8 @@ def hazirlik(pid: str):
         "catalog": _catalog_json(),
         "concepts": _concepts_payload(),
         "distributions": _distributions_payload(scope),
+        "columns_by_alias": cols_by_alias,
+        "suggested_edges": _suggested_edges(scope, cols_by_alias),
     }
     return render_template(
         "presentations/hazirlik.html",
@@ -328,6 +400,46 @@ def build_scope(pid: str):
         "cached_tables": scope.status.cached_tables,
         "lazy_tables": scope.status.lazy_tables,
         "redirect": url_for("presentations.editor", pid=pid),
+    })
+
+
+@presentations_bp.route("/<pid>/scope/preview", methods=["GET"])
+@login_required
+def scope_preview(pid: str):
+    """Sample rows for a table, shown in the Hazırlık preview drawer (§6R.4).
+    Query: ?schema=&table=&columns=col1,col2&limit=N. Reads via DataClient with
+    an Oracle row cap; never the full table."""
+    schema = (request.args.get("schema") or "").strip()
+    table = (request.args.get("table") or "").strip()
+    if not table:
+        return _json({"error": "table param required"}, status=400)
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 500))
+    except ValueError:
+        limit = 50
+    columns = (request.args.get("columns") or "").strip()
+    select = columns if columns else "*"
+    full = f"{schema}.{table}" if schema else table
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"error": "DATA_CLIENT not configured"}, status=500)
+    sql = f"SELECT {select} FROM {full} FETCH FIRST {limit} ROWS ONLY"
+    try:
+        df = dc.get_data(base_prefix=None, dataset=f"preview::{full}", query=sql, query_params={})
+    except Exception as exc:
+        return _json({"error": str(exc)}, status=502)
+
+    import pandas as pd
+    from presentations import duck
+    if df is None:
+        df = pd.DataFrame()
+    rows = [[duck._jsonable(v) for v in r] for r in df.itertuples(index=False, name=None)]
+    return _json({
+        "columns": _columns_for(schema, table) or [{"name": str(c)} for c in df.columns],
+        "data_columns": [str(c) for c in df.columns],
+        "rows": rows,
+        "row_count": int(len(df)),
     })
 
 
