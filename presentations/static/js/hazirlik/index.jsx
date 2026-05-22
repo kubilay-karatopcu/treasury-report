@@ -1,27 +1,35 @@
-/* Hazırlık (Stage 2 / Prepare) — standalone React page. Phase 8.b.
+/* Hazırlık (Stage 2 / Prepare) — ChartDB-style ER editor. Phase 8.b redesign.
  *
- * Reads the server-embedded payload (#hazirlik-data): the current scope
- * contract, the table catalog, available concepts, and concept value
- * distributions. Lets the user edit the basket (add table, projection),
- * pinned/interactive filters, then "Sunum'a geç" → POST /<pid>/scope/build,
- * which validates + fetches cached tables + writes scope_ref + redirects.
+ * Layout mirrors Sunum: left = basket + chat; right = React Flow ER canvas
+ * (top) + preview drawer (bottom). Tables are nodes whose column rows carry
+ * connection handles; an edge between two column handles IS a join. Filtering
+ * happens per-column (concept → concept filter, else raw WHERE). Everything is
+ * saved to the scope contract and consumed by Sunum (spec §6R).
  *
- * No routing override here (that's 8.d); routing badges are read-only.
+ * Built at the office (build.sh / npm) — requires @xyflow/react.
  */
 import { createRoot } from "react-dom/client";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  X, Plus, Trash2, Lock, SlidersHorizontal, Database, ArrowRight, Pencil, ChevronLeft,
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  Handle, Position, useNodesState,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import {
+  X, Plus, Trash2, Lock, Database, ArrowRight, ChevronLeft, SlidersHorizontal,
 } from "lucide-react";
 
 const DATA = JSON.parse(document.getElementById("hazirlik-data").textContent);
 const PID = DATA.presentation_id;
-const BUILD_URL = window.location.pathname.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
-// Proxy-safe "back to Raporlar" target: strip /hazirlik/<pid> down to /presentations/.
-const LIST_URL = window.location.pathname.slice(0, window.location.pathname.indexOf("/hazirlik")) + "/";
+const _path = window.location.pathname;
+const BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
+const PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview`);
+const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const CONCEPTS = DATA.concepts || [];
 const CONCEPT_BY_ID = Object.fromEntries(CONCEPTS.map((c) => [c.id, c]));
+const COLS_BY_ALIAS = DATA.columns_by_alias || {};
+const SUGGESTED = DATA.suggested_edges || [];
 
 const CATALOG_TABLES = (() => {
   const out = [];
@@ -30,19 +38,7 @@ const CATALOG_TABLES = (() => {
   return out;
 })();
 
-function catalogColumnsFor(schema, name) {
-  const id = schema ? `${schema}.${name}` : name;
-  const t = CATALOG_TABLES.find((x) => x.id === id || x.id.endsWith("." + name));
-  return t && t.columns ? t.columns.map((c) => c.name) : [];
-}
-
-function humanBytes(n) {
-  if (!n || n < 0) return "0 B";
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0, v = n;
-  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
-  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${u[i]}`;
-}
+const clone = (o) => JSON.parse(JSON.stringify(o));
 
 function makeAlias(name, existing) {
   let base = (name || "table").toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/^_+/, "");
@@ -55,7 +51,7 @@ function makeAlias(name, existing) {
   return alias;
 }
 
-const clone = (o) => JSON.parse(JSON.stringify(o));
+const joinKey = (l, lc, r, rc) => [`${l}.${lc}`, `${r}.${rc}`].sort().join("—");
 
 // ── Modal shell (reuses editor.css .ts-modal) ──────────────────────────────
 
@@ -74,182 +70,182 @@ function Modal({ title, onClose, children, footer, size = "md" }) {
   );
 }
 
-// ── Routing badge (read-only in 8.b) ───────────────────────────────────────
+// ── Table node ───────────────────────────────────────────────────────────────
 
-function RoutingBadge({ routing }) {
-  const cached = routing?.decision === "cached";
+function TableNode({ data }) {
+  const { item, columns, onColumnClick } = data;
+  const cached = item.routing?.decision === "cached";
   return (
-    <span className={`hz-badge ${cached ? "hz-badge--cached" : "hz-badge--lazy"}`}
-          title={`decided_by: ${routing?.decided_by || "system"}`}>
-      <span className="hz-dot" />
-      {cached ? "cached" : "lazy (Oracle)"} · {humanBytes(routing?.estimated_bytes)}
-    </span>
-  );
-}
-
-// ── Basket card ─────────────────────────────────────────────────────────────
-
-function BasketCard({ item, onEditProjection, onRemove }) {
-  const cols = item.projection?.include_all ? ["(tüm kolonlar)"] : (item.projection?.columns || []);
-  return (
-    <div className="hz-card">
-      <div className="hz-card-head">
-        <div>
-          <div className="hz-alias"><Database size={14} /> {item.alias}</div>
-          <div className="hz-table">{item.table_ref.schema}.{item.table_ref.name}</div>
-        </div>
-        <div className="hz-card-actions">
-          <RoutingBadge routing={item.routing} />
-          <button className="hz-icon-btn" title="Projeksiyon" onClick={() => onEditProjection(item.alias)}><Pencil size={15} /></button>
-          <button className="hz-icon-btn hz-danger" title="Sepetten çıkar" onClick={() => onRemove(item.alias)}><Trash2 size={15} /></button>
-        </div>
+    <div className="hz-node">
+      <div className="hz-node-head">
+        <span className="hz-node-alias"><Database size={13} /> {item.alias}</span>
+        <span className={`hz-badge hz-badge--${cached ? "cached" : "lazy"}`}>
+          {cached ? "cached" : "lazy"}
+        </span>
       </div>
-      <div className="hz-cols">
-        <span className="hz-cols-label">Kolonlar:</span>
-        {cols.map((c) => <span key={c} className="hz-chip">{c}</span>)}
+      <div className="hz-node-sub">{item.table_ref.schema}.{item.table_ref.name}</div>
+      <div className="hz-node-cols">
+        {(columns || []).map((col) => (
+          <div key={col.name} className="hz-node-col" onClick={() => onColumnClick(item.alias, col)}>
+            <Handle type="target" position={Position.Left} id={col.name} className="hz-handle" />
+            <span className="hz-col-name">{col.name}</span>
+            {col.concept
+              ? <span className="hz-col-concept" title={col.concept}>{col.concept}</span>
+              : <span className="hz-col-concept hz-col-concept--none">—</span>}
+            <Handle type="source" position={Position.Right} id={col.name} className="hz-handle" />
+          </div>
+        ))}
+        {(!columns || columns.length === 0) &&
+          <div className="hz-node-col hz-muted">(kolon bilgisi yok)</div>}
       </div>
     </div>
   );
 }
 
-// ── Projection modal ─────────────────────────────────────────────────────────
+const NODE_TYPES = { tableNode: TableNode };
 
-function ProjectionModal({ item, onSave, onClose }) {
-  const available = catalogColumnsFor(item.table_ref.schema, item.table_ref.name);
-  const [includeAll, setIncludeAll] = useState(!!item.projection?.include_all);
-  const [sel, setSel] = useState(new Set(item.projection?.columns || []));
-  const toggle = (c) => {
-    const n = new Set(sel);
-    n.has(c) ? n.delete(c) : n.add(c);
-    setSel(n);
-  };
-  const cols = available.length ? available : (item.projection?.columns || []);
-  return (
-    <Modal title={`Projeksiyon — ${item.alias}`} onClose={onClose} footer={
-      <>
-        <button className="ts-btn" onClick={onClose}>Vazgeç</button>
-        <button className="ts-btn ts-btn--primary"
-                onClick={() => onSave({ include_all: includeAll, columns: includeAll ? [] : [...sel] })}>
-          Kaydet
-        </button>
-      </>
-    }>
-      <label className="hz-check">
-        <input type="checkbox" checked={includeAll} onChange={(e) => setIncludeAll(e.target.checked)} />
-        Tüm kolonları al (include_all)
-      </label>
-      {!includeAll && (
-        <div className="hz-col-grid">
-          {cols.length === 0 && <p className="hz-muted">Bu tablo için katalog kolon bilgisi yok — kolonları elle ekleyemiyoruz.</p>}
-          {cols.map((c) => (
-            <label key={c} className="hz-check">
-              <input type="checkbox" checked={sel.has(c)} onChange={() => toggle(c)} /> {c}
-            </label>
-          ))}
-        </div>
-      )}
-    </Modal>
-  );
+// ── Initial nodes ──────────────────────────────────────────────────────────
+
+function initialNodes(scope, onColumnClick) {
+  return scope.basket.map((item, i) => ({
+    id: item.alias,
+    type: "tableNode",
+    position: item.layout
+      ? { x: item.layout.x, y: item.layout.y }
+      : { x: 40 + (i % 3) * 300, y: 40 + Math.floor(i / 3) * 280 },
+    data: { item, columns: COLS_BY_ALIAS[item.alias] || [], onColumnClick },
+  }));
 }
 
-// ── Filter modal (pinned / interactive) ─────────────────────────────────────
+function buildEdges(scope) {
+  const confirmed = new Set(scope.joins.map(
+    (j) => joinKey(j.left.alias, j.left.column, j.right.alias, j.right.column)));
+  const edges = scope.joins.map((j) => ({
+    id: j.id, source: j.left.alias, sourceHandle: j.left.column,
+    target: j.right.alias, targetHandle: j.right.column,
+    label: j.kind, className: "hz-edge hz-edge--confirmed",
+    data: { confirmed: true, join: j },
+  }));
+  const aliases = new Set(scope.basket.map((b) => b.alias));
+  SUGGESTED.forEach((s, i) => {
+    if (!aliases.has(s.left.alias) || !aliases.has(s.right.alias)) return;
+    if (confirmed.has(joinKey(s.left.alias, s.left.column, s.right.alias, s.right.column))) return;
+    edges.push({
+      id: `sug_${i}`, source: s.left.alias, sourceHandle: s.left.column,
+      target: s.right.alias, targetHandle: s.right.column,
+      label: s.source && s.source.startsWith("shared_concept") ? "≈ concept" : "fk",
+      className: "hz-edge hz-edge--suggested",
+      data: { suggested: true, edge: s },
+    });
+  });
+  return edges;
+}
 
-function FilterModal({ initial, basketAliases, onSave, onClose }) {
-  const isNew = !initial.id;
-  const [pinned, setPinned] = useState(initial.pinned ?? true);
-  const [concept, setConcept] = useState(initial.concept || (CONCEPTS[0]?.id ?? ""));
-  const cdef = CONCEPT_BY_ID[concept] || { ops: ["in"], canonical_values: [] };
-  const [op, setOp] = useState(initial.op || cdef.ops[0]);
-  const [from, setFrom] = useState(initial.from || "");
-  const [to, setTo] = useState(initial.to || "");
-  const [values, setValues] = useState(new Set(initial.values || initial.default_values || []));
-  const [label, setLabel] = useState(initial.label || cdef.label || "");
-  const [appliesTo, setAppliesTo] = useState(new Set(initial.applies_to || basketAliases));
+// ── Filter popover (concept or raw) ──────────────────────────────────────────
 
-  const toggleVal = (v) => { const n = new Set(values); n.has(v) ? n.delete(v) : n.add(v); setValues(n); };
-  const toggleAlias = (a) => { const n = new Set(appliesTo); n.has(a) ? n.delete(a) : n.add(a); setAppliesTo(n); };
+function FilterPopover({ ctx, onSave, onClose }) {
+  const { alias, col } = ctx;
+  const concept = col.concept ? CONCEPT_BY_ID[col.concept] : null;
+  const ops = concept ? concept.ops : ["eq", "in", "between"];
+  const [op, setOp] = useState(ops[0]);
+  const [values, setValues] = useState(new Set());
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [value, setValue] = useState("");
 
   const isBetween = op === "between";
-  const isEnum = ["in", "not_in"].includes(op);
+  const isIn = op === "in" || op === "not_in";
+  const canon = concept ? (concept.canonical_values || []) : [];
+  const toggle = (v) => { const n = new Set(values); n.has(v) ? n.delete(v) : n.add(v); setValues(n); };
 
   const save = () => {
-    const base = {
-      id: initial.id || `${pinned ? "pf" : "if"}_${concept}_${Date.now().toString(36)}`.slice(0, 58),
-      concept, op, applies_to: [...appliesTo],
-    };
-    if (isBetween) { base.from = from; base.to = to; }
-    if (pinned) {
-      if (isEnum) base.values = [...values];
-      onSave("pinned", base, initial);
+    if (concept) {
+      const f = { id: `pf_${col.concept}_${Date.now().toString(36)}`.slice(0, 58),
+        concept: col.concept, op, applies_to: [alias] };
+      if (isBetween) { f.from = from; f.to = to; }
+      else if (isIn) { f.values = [...values]; }
+      else { f.value = value; }
+      onSave("concept", f);
     } else {
-      base.label = label || cdef.label || concept;
-      if (isEnum) {
-        base.allowed_values = cdef.canonical_values || [...values];
-        base.default_values = [...values];
-      }
-      onSave("interactive", base, initial);
+      const f = { id: `rf_${col.name.toLowerCase()}_${Date.now().toString(36)}`.slice(0, 58),
+        alias, column: col.name, op };
+      if (isBetween) { f.from = from; f.to = to; }
+      else if (isIn) { f.values = value.split(",").map((s) => s.trim()).filter(Boolean); }
+      else { f.value = value; }
+      onSave("raw", f);
     }
   };
 
   return (
-    <Modal title={isNew ? "Filtre ekle" : "Filtreyi düzenle"} onClose={onClose} footer={
+    <Modal title={`Filtre · ${alias}.${col.name}`} onClose={onClose} size="sm" footer={
       <>
         <button className="ts-btn" onClick={onClose}>Vazgeç</button>
-        <button className="ts-btn ts-btn--primary" onClick={save}>Kaydet</button>
+        <button className="ts-btn ts-btn--primary" onClick={save}>Ekle</button>
       </>
     }>
-      <div className="hz-toggle">
-        <button className={pinned ? "active" : ""} onClick={() => setPinned(true)}><Lock size={13} /> Pinned (kilitli)</button>
-        <button className={!pinned ? "active" : ""} onClick={() => setPinned(false)}><SlidersHorizontal size={13} /> Interactive</button>
+      <div className="hz-pop-meta">
+        {concept
+          ? <>Concept: <strong>{concept.label}</strong> <span className="hz-muted">({col.concept})</span></>
+          : <span className="hz-muted">Concept yok — hard-coded filtre olarak kaydedilecek.</span>}
       </div>
-
-      <label className="hz-field">Concept
-        <select value={concept} disabled={!isNew}
-                onChange={(e) => { setConcept(e.target.value); const d = CONCEPT_BY_ID[e.target.value]; setOp(d?.ops?.[0] || "in"); setValues(new Set()); }}>
-          {CONCEPTS.map((c) => <option key={c.id} value={c.id}>{c.label} ({c.id})</option>)}
-        </select>
-      </label>
-
       <label className="hz-field">Operatör
         <select value={op} onChange={(e) => setOp(e.target.value)}>
-          {(cdef.ops || ["in"]).map((o) => <option key={o} value={o}>{o}</option>)}
+          {ops.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       </label>
-
       {isBetween && (
         <div className="hz-row">
           <label className="hz-field">Başlangıç<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label className="hz-field">Bitiş<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         </div>
       )}
-
-      {isEnum && (
+      {isIn && concept && canon.length > 0 && (
         <div className="hz-field">Değerler
           <div className="hz-col-grid">
-            {(cdef.canonical_values || []).map((v) => (
+            {canon.map((v) => (
               <label key={v} className="hz-check">
-                <input type="checkbox" checked={values.has(v)} onChange={() => toggleVal(v)} /> {v}
+                <input type="checkbox" checked={values.has(v)} onChange={() => toggle(v)} /> {v}
               </label>
             ))}
-            {(cdef.canonical_values || []).length === 0 && <p className="hz-muted">Bu concept için kanonik değer tanımı yok.</p>}
           </div>
         </div>
       )}
-
-      {!pinned && (
-        <label className="hz-field">Etiket (widget başlığı)
-          <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={concept} />
+      {isIn && (!concept || canon.length === 0) && (
+        <label className="hz-field">Değerler (virgülle)
+          <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder="TRY, USD" />
         </label>
       )}
+      {!isBetween && !isIn && (
+        <label className="hz-field">Değer
+          <input type="text" value={value} onChange={(e) => setValue(e.target.value)} />
+        </label>
+      )}
+    </Modal>
+  );
+}
 
-      <div className="hz-field">Hangi tablolara uygulansın (applies_to)
-        <div className="hz-col-grid">
-          {basketAliases.map((a) => (
-            <label key={a} className="hz-check">
-              <input type="checkbox" checked={appliesTo.has(a)} onChange={() => toggleAlias(a)} /> {a}
-            </label>
-          ))}
-        </div>
+// ── Add-columns popover (after a join is drawn) ──────────────────────────────
+
+function AddColumnsPopover({ join, onSave, onClose }) {
+  const cols = COLS_BY_ALIAS[join.right.alias] || [];
+  const [sel, setSel] = useState(new Set());
+  const toggle = (c) => { const n = new Set(sel); n.has(c) ? n.delete(c) : n.add(c); setSel(n); };
+  return (
+    <Modal title={`Kolon ekle · ${join.right.alias} → ${join.left.alias}`} onClose={onClose} footer={
+      <>
+        <button className="ts-btn" onClick={onClose}>Atla</button>
+        <button className="ts-btn ts-btn--primary" onClick={() => onSave([...sel])}>Ekle</button>
+      </>
+    }>
+      <p className="hz-muted">Join kuruldu ({join.left.alias}.{join.left.column} → {join.right.alias}.{join.right.column}).
+        {join.right.alias} tablosundan hangi kolonları {join.left.alias}'a getirelim?</p>
+      <div className="hz-col-grid">
+        {cols.map((c) => (
+          <label key={c.name} className="hz-check">
+            <input type="checkbox" checked={sel.has(c.name)} onChange={() => toggle(c.name)} /> {c.name}
+          </label>
+        ))}
+        {cols.length === 0 && <p className="hz-muted">Bu tablo için kolon bilgisi yok.</p>}
       </div>
     </Modal>
   );
@@ -257,7 +253,7 @@ function FilterModal({ initial, basketAliases, onSave, onClose }) {
 
 // ── Add-table modal ──────────────────────────────────────────────────────────
 
-function AddTableModal({ existingAliases, onAdd, onClose }) {
+function AddTableModal({ onAdd, onClose }) {
   const [q, setQ] = useState("");
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -266,8 +262,7 @@ function AddTableModal({ existingAliases, onAdd, onClose }) {
   }, [q]);
   return (
     <Modal title="Tablo ekle" onClose={onClose} size="lg">
-      <input className="hz-search" autoFocus placeholder="Tablo ara (ad / açıklama)…"
-             value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="hz-search" autoFocus placeholder="Tablo ara…" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="hz-results">
         {results.map((t) => (
           <div key={t.id} className="hz-result" onClick={() => onAdd(t)}>
@@ -281,24 +276,30 @@ function AddTableModal({ existingAliases, onAdd, onClose }) {
   );
 }
 
-// ── Concept distribution chips ───────────────────────────────────────────────
+// ── Preview drawer ───────────────────────────────────────────────────────────
 
-function ConceptChips({ distributions, onPick }) {
-  const entries = Object.entries(distributions || {});
-  if (entries.length === 0) return null;
+function PreviewDrawer({ preview, loading, onClose }) {
   return (
-    <section className="hz-section">
-      <h2>Concept dağılımları</h2>
-      {entries.map(([concept, vals]) => (
-        <div key={concept} className="hz-dist-row">
-          <span className="hz-dist-label">{CONCEPT_BY_ID[concept]?.label || concept}</span>
-          {(vals || []).slice(0, 12).map((v) => (
-            <button key={String(v)} className="hz-chip hz-chip--click"
-                    title="Bu değerle filtrele" onClick={() => onPick(concept, v)}>{String(v)}</button>
-          ))}
-        </div>
-      ))}
-    </section>
+    <div className="hz-preview">
+      <div className="hz-preview-head">
+        <span><Database size={14} /> Önizleme{preview ? ` · ${preview.alias}` : ""}{preview && preview.row_count != null ? ` (${preview.row_count} satır örnek)` : ""}</span>
+        <button className="hz-icon-btn" onClick={onClose}><X size={15} /></button>
+      </div>
+      <div className="hz-preview-body ts-scroll">
+        {loading && <p className="hz-muted">Yükleniyor…</p>}
+        {!loading && preview && preview.error && <p className="hz-error">{preview.error}</p>}
+        {!loading && preview && !preview.error && (
+          <table className="hz-table-grid">
+            <thead><tr>{preview.data_columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+            <tbody>
+              {preview.rows.slice(0, 50).map((r, i) => (
+                <tr key={i}>{r.map((v, j) => <td key={j}>{v === null ? "" : String(v)}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -306,165 +307,251 @@ function ConceptChips({ distributions, onPick }) {
 
 function App() {
   const [scope, setScope] = useState(DATA.scope);
-  const [projAlias, setProjAlias] = useState(null);
-  const [filterModal, setFilterModal] = useState(null); // {initial}
+  const [filterCtx, setFilterCtx] = useState(null);
+  const [addCols, setAddCols] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
-  const aliases = scope.basket.map((b) => b.alias);
+  const onColumnClick = useCallback((alias, col) => setFilterCtx({ alias, col }), []);
 
-  const updateProjection = (alias, projection) => {
-    const next = clone(scope);
-    const it = next.basket.find((b) => b.alias === alias);
-    if (it) it.projection = projection;
-    setScope(next);
-    setProjAlias(null);
+  // React Flow owns node positions/drag; edges are derived from the scope.
+  const [nodes, setNodes, onNodesChange] = useNodesStateCompat(
+    () => initialNodes(DATA.scope, onColumnClick));
+  const edges = useMemo(() => buildEdges(scope), [scope]);
+
+  const addJoin = useCallback((la, lc, ra, rc, kind = "lookup") => {
+    const id = `j_${la}_${ra}_${Math.random().toString(36).slice(2, 6)}`;
+    const join = { id, kind, left: { alias: la, column: lc }, right: { alias: ra, column: rc } };
+    setScope((s) => {
+      const key = joinKey(la, lc, ra, rc);
+      if (s.joins.some((j) => joinKey(j.left.alias, j.left.column, j.right.alias, j.right.column) === key)) return s;
+      return { ...s, joins: [...s.joins, join] };
+    });
+    return join;
+  }, []);
+
+  const onConnect = useCallback((params) => {
+    if (!params.source || !params.target || params.source === params.target) return;
+    const join = addJoin(params.source, params.sourceHandle, params.target, params.targetHandle);
+    setAddCols({ join });
+  }, [addJoin]);
+
+  const onEdgeClick = useCallback((_e, edge) => {
+    if (edge.data?.suggested) {
+      const s = edge.data.edge;
+      addJoin(s.left.alias, s.left.column, s.right.alias, s.right.column, s.kind || "lookup");
+    } else if (edge.data?.confirmed) {
+      if (window.confirm("Bu join silinsin mi?")) {
+        const jid = edge.data.join.id;
+        setScope((s) => ({
+          ...s,
+          joins: s.joins.filter((j) => j.id !== jid),
+          basket: s.basket.map((b) => ({
+            ...b,
+            projection: { ...b.projection, joined: (b.projection.joined || []).filter((c) => c.via_join !== jid) },
+          })),
+        }));
+      }
+    }
+  }, [addJoin]);
+
+  const saveJoinedColumns = (join, columns) => {
+    setScope((s) => ({
+      ...s,
+      basket: s.basket.map((b) => b.alias === join.left.alias
+        ? { ...b, projection: { ...b.projection, joined: [
+            ...(b.projection.joined || []),
+            ...columns.map((c) => ({ via_join: join.id, column: c })),
+          ] } }
+        : b),
+    }));
+    setAddCols(null);
   };
 
-  const removeTable = (alias) => {
-    const next = clone(scope);
-    next.basket = next.basket.filter((b) => b.alias !== alias);
-    setScope(next);
+  const saveFilter = (kind, f) => {
+    setScope((s) => {
+      const filters = { ...s.filters };
+      if (kind === "concept") filters.pinned = [...(filters.pinned || []), f];
+      else filters.raw = [...(filters.raw || []), f];
+      return { ...s, filters };
+    });
+    setFilterCtx(null);
   };
+
+  const removeFilter = (kind, id) => setScope((s) => {
+    const filters = { ...s.filters };
+    filters[kind] = (filters[kind] || []).filter((f) => f.id !== id);
+    return { ...s, filters };
+  });
 
   const addTable = (t) => {
     const [schema, ...rest] = t.id.split(".");
     const name = rest.length ? rest.join(".") : schema;
     const realSchema = rest.length ? schema : "";
-    const next = clone(scope);
-    const alias = makeAlias(name, next.basket.map((b) => b.alias));
-    next.basket.push({
-      table_ref: { schema: realSchema || schema, name },
-      alias,
+    const alias = makeAlias(name, scope.basket.map((b) => b.alias));
+    const item = {
+      table_ref: { schema: realSchema || schema, name }, alias,
       projection: { columns: (t.columns || []).map((c) => c.name), include_all: (t.columns || []).length === 0 },
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
-    });
-    setScope(next);
+    };
+    COLS_BY_ALIAS[alias] = (t.columns || []).map((c) => ({ name: c.name, type: c.type, concept: null, lookup: null }));
+    setScope((s) => ({ ...s, basket: [...s.basket, item] }));
+    setNodes((nds) => [...nds, {
+      id: alias, type: "tableNode",
+      position: { x: 60 + (nds.length % 3) * 300, y: 60 + Math.floor(nds.length / 3) * 280 },
+      data: { item, columns: COLS_BY_ALIAS[alias], onColumnClick },
+    }]);
     setAddOpen(false);
   };
 
-  const saveFilter = (kind, filt, prev) => {
-    const next = clone(scope);
-    if (!next.filters) next.filters = { pinned: [], interactive: [] };
-    // Remove the previous instance (it may have switched pinned↔interactive).
-    if (prev?.id) {
-      next.filters.pinned = (next.filters.pinned || []).filter((f) => f.id !== prev.id);
-      next.filters.interactive = (next.filters.interactive || []).filter((f) => f.id !== prev.id);
-    }
-    (next.filters[kind] = next.filters[kind] || []).push(filt);
-    setScope(next);
-    setFilterModal(null);
+  const removeTable = (alias) => {
+    setScope((s) => ({
+      ...s,
+      basket: s.basket.filter((b) => b.alias !== alias),
+      joins: s.joins.filter((j) => j.left.alias !== alias && j.right.alias !== alias),
+      filters: { ...s.filters, raw: (s.filters.raw || []).filter((f) => f.alias !== alias) },
+    }));
+    setNodes((nds) => nds.filter((n) => n.id !== alias));
   };
 
-  const removeFilter = (kind, id) => {
-    const next = clone(scope);
-    next.filters[kind] = (next.filters[kind] || []).filter((f) => f.id !== id);
-    setScope(next);
-  };
+  const showPreview = useCallback(async (alias) => {
+    const item = scope.basket.find((b) => b.alias === alias);
+    if (!item) return;
+    setPreviewLoading(true);
+    setPreview({ alias });
+    try {
+      const u = new URL(PREVIEW_URL, window.location.origin);
+      u.searchParams.set("schema", item.table_ref.schema);
+      u.searchParams.set("table", item.table_ref.name);
+      u.searchParams.set("limit", "50");
+      const resp = await fetch(u.pathname + u.search);
+      const data = await resp.json();
+      setPreview({ alias, ...data });
+    } catch (e) {
+      setPreview({ alias, error: String(e) });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [scope]);
+
+  const onNodeClick = useCallback((_e, node) => showPreview(node.id), [showPreview]);
 
   const goToSunum = async () => {
     setBusy(true); setErr(null);
+    const posByAlias = Object.fromEntries(nodes.map((n) => [n.id, n.position]));
+    const finalScope = {
+      ...scope,
+      basket: scope.basket.map((b) => posByAlias[b.alias]
+        ? { ...b, layout: { x: posByAlias[b.alias].x, y: posByAlias[b.alias].y } } : b),
+    };
     try {
       const resp = await fetch(BUILD_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: finalScope }),
       });
       const data = await resp.json();
-      if (!resp.ok || !data.ok) {
-        setErr((data.errors || ["Bilinmeyen hata"]).join(" · "));
-        setBusy(false);
-        return;
-      }
+      if (!resp.ok || !data.ok) { setErr((data.errors || ["Bilinmeyen hata"]).join(" · ")); setBusy(false); return; }
       window.location.href = data.redirect;
-    } catch (e) {
-      setErr(String(e));
-      setBusy(false);
-    }
+    } catch (e) { setErr(String(e)); setBusy(false); }
   };
 
   const pinned = scope.filters?.pinned || [];
-  const interactive = scope.filters?.interactive || [];
+  const raw = scope.filters?.raw || [];
 
   return (
-    <div className="hz-wrap">
-      <header className="hz-top">
-        <div>
+    <div className="hz-app">
+      <header className="hz-topbar">
+        <div className="hz-topbar-left">
           <a className="hz-back" href={LIST_URL}><ChevronLeft size={14} /> Raporlar</a>
-          <div className="hz-eyebrow">Hazırlık</div>
-          <h1 className="hz-title">{DATA.title}</h1>
+          <span className="hz-eyebrow">HAZIRLIK</span>
+          <span className="hz-title">{DATA.title}</span>
         </div>
-        <button className="ts-btn ts-btn--primary hz-go" disabled={busy} onClick={goToSunum}>
-          {busy ? "Hazırlanıyor…" : <>Sunum'a geç <ArrowRight size={16} /></>}
+        <button className="ts-btn ts-btn--primary" disabled={busy} onClick={goToSunum}>
+          {busy ? "Hazırlanıyor…" : <>Sunum'a geç <ArrowRight size={15} /></>}
         </button>
       </header>
 
-      {err && <div className="hz-error">{err}</div>}
+      {err && <div className="hz-error hz-error--bar">{err}</div>}
 
-      <section className="hz-section">
-        <div className="hz-section-head">
-          <h2>Sepet ({scope.basket.length} tablo)</h2>
-          <button className="ts-btn" onClick={() => setAddOpen(true)}><Plus size={15} /> Tablo</button>
-        </div>
-        {scope.basket.length === 0 && <p className="hz-muted">Sepet boş — başlamak için bir tablo ekleyin.</p>}
-        {scope.basket.map((it) => (
-          <BasketCard key={it.alias} item={it} onEditProjection={setProjAlias} onRemove={removeTable} />
-        ))}
-      </section>
-
-      <section className="hz-section">
-        <div className="hz-section-head">
-          <h2>Filtreler</h2>
-          <button className="ts-btn" disabled={aliases.length === 0}
-                  onClick={() => setFilterModal({ initial: {} })}><Plus size={15} /> Filtre</button>
-        </div>
-
-        <div className="hz-filter-group">
-          <div className="hz-filter-group-title"><Lock size={13} /> Pinned</div>
-          {pinned.length === 0 && <p className="hz-muted">Yok.</p>}
-          {pinned.map((f) => (
-            <div key={f.id} className="hz-filter-row">
-              <span><strong>{f.id}</strong>: {f.concept} {f.op} {f.op === "between" ? `${f.from} – ${f.to}` : (f.values || []).join(", ")}</span>
-              <span className="hz-filter-actions">
-                <button className="hz-icon-btn" onClick={() => setFilterModal({ initial: { ...f, pinned: true } })}><Pencil size={14} /></button>
-                <button className="hz-icon-btn hz-danger" onClick={() => removeFilter("pinned", f.id)}><Trash2 size={14} /></button>
-              </span>
+      <div className="hz-body">
+        <aside className="hz-left">
+          <div className="hz-left-section">
+            <div className="hz-section-head">
+              <strong>Sepet ({scope.basket.length})</strong>
+              <button className="ts-btn ts-btn--sm" onClick={() => setAddOpen(true)}><Plus size={13} /> Tablo</button>
             </div>
-          ))}
-        </div>
+            {scope.basket.map((b) => (
+              <div key={b.alias} className="hz-basket-row" onClick={() => showPreview(b.alias)}>
+                <span><Database size={12} /> {b.alias}</span>
+                <button className="hz-icon-btn hz-danger" title="Çıkar"
+                  onClick={(e) => { e.stopPropagation(); removeTable(b.alias); }}><Trash2 size={13} /></button>
+              </div>
+            ))}
+            {scope.basket.length === 0 && <p className="hz-muted">Sepet boş — tablo ekleyin.</p>}
+          </div>
 
-        <div className="hz-filter-group">
-          <div className="hz-filter-group-title"><SlidersHorizontal size={13} /> Interactive</div>
-          {interactive.length === 0 && <p className="hz-muted">Yok.</p>}
-          {interactive.map((f) => (
-            <div key={f.id} className="hz-filter-row">
-              <span><strong>{f.id}</strong>: {f.concept} {f.op} [{(f.default_values || []).join(", ")}] <span className="hz-muted">— {f.label}</span></span>
-              <span className="hz-filter-actions">
-                <button className="hz-icon-btn" onClick={() => setFilterModal({ initial: { ...f, pinned: false } })}><Pencil size={14} /></button>
-                <button className="hz-icon-btn hz-danger" onClick={() => removeFilter("interactive", f.id)}><Trash2 size={14} /></button>
-              </span>
+          {(pinned.length > 0 || raw.length > 0) && (
+            <div className="hz-left-section">
+              <strong>Filtreler</strong>
+              {pinned.map((f) => (
+                <div key={f.id} className="hz-filter-mini">
+                  <span><Lock size={11} /> {f.concept} {f.op} {f.op === "between" ? `${f.from}…${f.to}` : (f.values || [f.value]).join(",")}</span>
+                  <button className="hz-icon-btn hz-danger" onClick={() => removeFilter("pinned", f.id)}><X size={12} /></button>
+                </div>
+              ))}
+              {raw.map((f) => (
+                <div key={f.id} className="hz-filter-mini">
+                  <span><SlidersHorizontal size={11} /> {f.alias}.{f.column} {f.op} {f.op === "between" ? `${f.from}…${f.to}` : (f.values || [f.value]).join(",")}</span>
+                  <button className="hz-icon-btn hz-danger" onClick={() => removeFilter("raw", f.id)}><X size={12} /></button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          )}
 
-      <ConceptChips distributions={DATA.distributions}
-                    onPick={(concept, v) => setFilterModal({ initial: { concept, op: "in", values: [v], pinned: true } })} />
+          <div className="hz-left-section hz-chat">
+            <strong>Asistan</strong>
+            <div className="hz-chat-log hz-muted">Stage-2 scope asistanı yakında (8.f).</div>
+            <textarea className="hz-chat-input" placeholder="Scope hakkında soru sor… (yakında)" disabled />
+          </div>
+        </aside>
 
-      {projAlias && (
-        <ProjectionModal item={scope.basket.find((b) => b.alias === projAlias)}
-                         onSave={(p) => updateProjection(projAlias, p)} onClose={() => setProjAlias(null)} />
-      )}
-      {filterModal && (
-        <FilterModal initial={filterModal.initial} basketAliases={aliases}
-                     onSave={saveFilter} onClose={() => setFilterModal(null)} />
-      )}
-      {addOpen && (
-        <AddTableModal existingAliases={aliases} onAdd={addTable} onClose={() => setAddOpen(false)} />
-      )}
+        <main className="hz-right">
+          <div className="hz-canvas">
+            <ReactFlow
+              nodes={nodes} edges={edges}
+              onNodesChange={onNodesChange}
+              onConnect={onConnect}
+              onEdgeClick={onEdgeClick}
+              onNodeClick={onNodeClick}
+              nodeTypes={NODE_TYPES}
+              fitView
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background gap={16} />
+              <Controls />
+              <MiniMap pannable zoomable />
+            </ReactFlow>
+          </div>
+          {preview && <PreviewDrawer preview={preview} loading={previewLoading} onClose={() => setPreview(null)} />}
+        </main>
+      </div>
+
+      {filterCtx && <FilterPopover ctx={filterCtx} onSave={saveFilter} onClose={() => setFilterCtx(null)} />}
+      {addCols && <AddColumnsPopover join={addCols.join} onSave={(cols) => saveJoinedColumns(addCols.join, cols)} onClose={() => setAddCols(null)} />}
+      {addOpen && <AddTableModal onAdd={addTable} onClose={() => setAddOpen(false)} />}
     </div>
   );
 }
 
-createRoot(document.getElementById("hazirlik-root")).render(<App />);
+// useNodesState accepts an initial array; wrap to allow a lazy initializer.
+function useNodesStateCompat(init) {
+  const [initial] = useState(init);
+  return useNodesState(initial);
+}
+
+createRoot(document.getElementById("hazirlik-root")).render(
+  <ReactFlowProvider><App /></ReactFlowProvider>
+);
