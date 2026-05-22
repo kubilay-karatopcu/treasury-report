@@ -95,7 +95,13 @@ export default function App({ initialManifest, mode = 'editor' }) {
     const firstSection = sections[0];
     const block = firstSection?.children?.[0];
     if (!block) return <div className="editor-loading">Şablon yüklenemedi.</div>;
-    return <TemplateEditView block={block} templateRef={initialManifest.template_ref} />;
+    return (
+      <TemplateEditView
+        block={block}
+        templateRef={initialManifest.template_ref}
+        templateNew={!!initialManifest.template_new}
+      />
+    );
   }
 
   const rootClass = [
@@ -325,7 +331,7 @@ function Hint({ hasSelection }) {
    Bottom: PropertiesPanel-shaped form (ManualSqlEditor + title/type).
    Toolbar: "Şablonu güncelle (yeni sürüm)" → POST /blocks/api/save_new_version.
    ──────────────────────────────────────────────────────────────────────── */
-function TemplateEditView({ block, templateRef }) {
+function TemplateEditView({ block, templateRef, templateNew }) {
   const setBlockField = useStore((s) => s.setBlockField);
 
   // Auto-preview on mount: trigger the same /blocks/api/preview the user
@@ -333,7 +339,7 @@ function TemplateEditView({ block, templateRef }) {
   // Only runs once per block.id; no-op if the block has no query yet.
   useEffect(() => {
     if (!block?.query) return;
-    const baseUrl = window.location.pathname.replace(/\/blocks\/edit\/.*/, '/blocks/api');
+    const baseUrl = window.location.pathname.replace(/\/blocks\/(edit|new).*/, '/blocks/api');
     fetch(`${baseUrl}/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -364,23 +370,25 @@ function TemplateEditView({ block, templateRef }) {
 
   return (
     <div className="template-edit-root template-edit-root--side-by-side">
-      <TemplateEditToolbar templateRef={templateRef} />
+      <TemplateEditToolbar templateRef={templateRef} templateNew={templateNew} blockId={block.id} />
       <div className="template-edit-canvas">
         <BlockCard block={block} />
       </div>
       <div className="template-edit-properties">
         <TemplateEditProperties block={block} />
       </div>
+      <SaveBlockModal />
     </div>
   );
 }
 
 
-function TemplateEditToolbar({ templateRef }) {
+function TemplateEditToolbar({ templateRef, templateNew, blockId }) {
   const [busy, setBusy]     = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr]       = useState(null);
   const manifest = useStore((s) => s.manifest);
+  const openSaveBlockModal = useStore((s) => s.openSaveBlockModal);
 
   async function handleSaveNewVersion() {
     setBusy(true); setErr(null); setResult(null);
@@ -419,13 +427,15 @@ function TemplateEditToolbar({ templateRef }) {
     }
   }
 
-  const libraryUrl = window.location.pathname.replace(/\/edit\/.*/, '/');
+  const libraryUrl = window.location.pathname.replace(/\/blocks\/(edit\/.*|new).*/, '/blocks/');
 
   return (
     <div className="template-edit-toolbar">
       <div className="template-edit-toolbar__left">
         <a className="template-edit-back" href={libraryUrl}>← Kütüphane</a>
-        {templateRef && (
+        {templateNew ? (
+          <span className="template-edit-ref"><strong>Yeni blok</strong></span>
+        ) : templateRef && (
           <span className="template-edit-ref">
             <strong>{templateRef.team}/{templateRef.id}</strong>
             <span className="template-edit-version">v{templateRef.version}</span>
@@ -433,20 +443,30 @@ function TemplateEditToolbar({ templateRef }) {
         )}
       </div>
       <div className="template-edit-toolbar__right">
-        {err && <span className="template-edit-err">{err}</span>}
-        {result && (
+        {!templateNew && err && <span className="template-edit-err">{err}</span>}
+        {!templateNew && result && (
           <span className="template-edit-ok">
             v{result.version} olarak kaydedildi
           </span>
         )}
-        <button
-          type="button"
-          className="template-edit-save-btn"
-          onClick={handleSaveNewVersion}
-          disabled={busy}
-        >
-          {busy ? 'Kaydediliyor…' : 'Yeni sürüm olarak kaydet'}
-        </button>
+        {templateNew ? (
+          <button
+            type="button"
+            className="template-edit-save-btn"
+            onClick={() => openSaveBlockModal(blockId)}
+          >
+            Şablon olarak kaydet
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="template-edit-save-btn"
+            onClick={handleSaveNewVersion}
+            disabled={busy}
+          >
+            {busy ? 'Kaydediliyor…' : 'Yeni sürüm olarak kaydet'}
+          </button>
+        )}
       </div>
     </div>
   );

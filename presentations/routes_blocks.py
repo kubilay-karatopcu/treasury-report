@@ -122,13 +122,50 @@ def block_library():
 @presentations_bp.route("/blocks/new")
 @login_required
 def block_new():
-    """Deprecated. Phase 6.5's new authoring loop happens inside the
-    presentation editor: add a block, fill Properties, then "Şablon olarak
-    kaydet" promotes it to the BlockStore. We redirect to the library so
-    legacy bookmarks still land somewhere useful.
+    """Dedicated new-block authoring page (Phase 6.5).
+
+    Renders the same React bundle as :func:`block_edit`, in ``template-edit``
+    mode, but with an *empty* synthetic block and a ``template_new`` flag (no
+    ``template_ref``). The user writes SQL, runs preview, then saves via the
+    "Şablon olarak kaydet" modal → POST /blocks/api/save (creates v1). No
+    throwaway presentation is created — this replaces the old flow where
+    "Yeni Blok" spun up a 'Yeni Şablon' presentation.
     """
-    from flask import redirect, url_for
-    return redirect(url_for("presentations.block_library"))
+    new_block_id = "b_new"
+    synthetic_manifest = {
+        "id": "tmpl_new",
+        "version": 1,
+        "owner_id": getattr(current_user, "sicil", "") or "",
+        "meta": {
+            "title": "Yeni Blok",
+            "eyebrow": "Yeni Şablon",
+            "date": "",
+            "author_label": getattr(current_user, "sicil", "") or "",
+        },
+        "template_new": True,
+        "blocks": [{
+            "id": "sec_new",
+            "type": "section_header",
+            "title": "",
+            "children": [{
+                "id": new_block_id,
+                "type": "bar_chart",
+                "title": "Yeni Blok",
+                "locked": False,
+                "manual_sql": True,
+                "query": "",
+                "variables": [],
+                "config": _seed_config_for("bar_chart"),
+                "data_source": {"original_sql": ""},
+            }],
+        }],
+    }
+    return render_template(
+        "presentations/block_template_edit.html",
+        manifest_json=json.dumps(
+            synthetic_manifest, ensure_ascii=False, default=_json_default,
+        ),
+    )
 
 
 @presentations_bp.route("/blocks/edit/<team>/<block_id>")

@@ -364,9 +364,17 @@ export async function fetchBlockTemplate(team, id, version) {
  * variable-aware shape (semantic_tag required for every variable).
  */
 export async function saveBlockAsTemplate(payload) {
-  // Derive the /blocks API base from the editor pathname:
-  //   /proxy/8080/presentations/<pid>  →  /proxy/8080/presentations/blocks
-  const blockApiBase = API_BASE.replace(/\/[^/]+$/, '') + '/blocks/api';
+  // Derive the /blocks API base robustly — works from the editor
+  // (/presentations/<pid>), the new-block page (/presentations/blocks/new),
+  // and the template editor (/presentations/blocks/edit/...). Anchoring on the
+  // "/presentations" segment avoids the double "/blocks" the old
+  // strip-last-segment derivation produced on /blocks/* pages.
+  const path = window.location.pathname;
+  const i = path.indexOf('/presentations/');
+  const root = i >= 0
+    ? path.slice(0, i + '/presentations'.length)
+    : API_BASE.replace(/\/[^/]+$/, '');
+  const blockApiBase = `${root}/blocks/api`;
   const resp = await fetch(`${blockApiBase}/save`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

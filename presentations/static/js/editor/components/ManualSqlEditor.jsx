@@ -470,7 +470,7 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
         }
         // Pulls the render type from the in-canvas block so the response
         // already has config[categories/series/etc] populated.
-        const baseUrl = window.location.pathname.replace(/\/blocks\/edit\/.*/, '/blocks/api');
+        const baseUrl = window.location.pathname.replace(/\/blocks\/(edit|new).*/, '/blocks/api');
         const resp = await fetch(`${baseUrl}/preview`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
