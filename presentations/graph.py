@@ -33,6 +33,11 @@ class GraphState:
     selected_block_id: Optional[str] = None
     session: object = None              # PresentationSession or None
 
+    # Phase 8.a — the active scope contract (ScopeContract) when the dashboard
+    # has a scope_ref. None = no scope contract (pre-Phase-8 behaviour). The
+    # patch validator uses it to reject pinned-filter mutations (§4.1).
+    scope_contract: object = None
+
     # Routing decision set by plan_fetch.
     fetch_mode: str = "render"          # "render" | "requery" | "refetch"
     loaded_views: dict = field(default_factory=dict)
