@@ -17,6 +17,7 @@ import {
   Handle, Position, useNodesState,
 } from "@xyflow/react";
 import { AgGridReact } from "ag-grid-react";
+import "ag-grid-enterprise";   // demo (unlicensed → watermark) — pivot/row-grouping/aggregation
 import "@xyflow/react/dist/style.css";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-alpine.css";
@@ -42,8 +43,8 @@ const CATALOG_BY_ID = (() => {
   DOMAINS.forEach((d) => (d.tables || []).forEach((t) => { m[t.id] = t; }));
   return m;
 })();
-const tableId = (ref) => (ref.schema ? `${ref.schema}.${ref.name}` : ref.name);
-const descFor = (ref) => CATALOG_BY_ID[tableId(ref)]?.desc || "";
+const tableId = (ref) => (ref ? (ref.schema ? `${ref.schema}.${ref.name}` : ref.name) : null);
+const descFor = (ref) => (ref ? CATALOG_BY_ID[tableId(ref)]?.desc || "" : "");
 
 const joinKey = (l, lc, r, rc) => [`${l}.${lc}`, `${r}.${rc}`].sort().join("—");
 const rid = () => Math.random().toString(36).slice(2, 7);
@@ -113,6 +114,12 @@ const NODE_TYPES = { tableNode: TableNode };
 
 function nodeData(item) {
   const cols = COLS_BY_ALIAS[item.alias] || [];
+  if (item.derivation) {
+    return {
+      item, derived: true, desc: `${item.derivation.source_alias} → aggregate`,
+      size: null, colCount: cols.length, keyCols: cols.filter((c) => c.join_key),
+    };
+  }
   const cat = CATALOG_BY_ID[tableId(item.table_ref)];
   return {
     item, desc: descFor(item.table_ref),
@@ -260,9 +267,10 @@ function SourcesSidebar({ scope, onToggleTable, onRemove }) {
 
 // ── AG Grid preview drawer (resizable) ───────────────────────────────────────
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onGridReady }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady }) {
   const colDefs = useMemo(() => (preview?.data_columns || []).map((c) => ({
     field: c, headerName: c, sortable: true, resizable: true, filter: true, minWidth: 110, flex: 1,
+    enableRowGroup: true, enablePivot: true, enableValue: true,
   })), [preview?.data_columns]);
   const rowData = useMemo(() => {
     if (!preview?.rows) return [];
@@ -279,6 +287,9 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters} title="Grid filtrelerini scope'a kaydet">
             <Save size={13} /> Filtreleri kaydet
           </button>
+          <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveAsTable} title="Gruplama/aggregation'ı yeni bir tablo olarak kaydet">
+            <Database size={13} /> Tablo olarak kaydet
+          </button>
           <button className="hz-icon-btn" onClick={onClose}><X size={15} /></button>
         </div>
       </div>
@@ -287,7 +298,13 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
         {!loading && preview && preview.error && <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>}
         {!loading && preview && !preview.error && (
           <div className="ag-theme-alpine" style={{ width: "100%", height: "100%" }}>
-            <AgGridReact columnDefs={colDefs} rowData={rowData} animateRows onGridReady={onGridReady} />
+            <AgGridReact
+              columnDefs={colDefs} rowData={rowData} animateRows
+              onGridReady={onGridReady}
+              sideBar={{ toolPanels: ["columns", "filters"] }}
+              rowGroupPanelShow="always"
+              pivotPanelShow="always"
+            />
           </div>
         )}
       </div>
@@ -433,6 +450,45 @@ function App() {
     setToast(`${pinned.length + raw.length} filtre kaydedildi.`);
   };
 
+  // Read the grid's row-grouping + value (aggregation) state → derived table.
+  const saveAsTable = () => {
+    const api = gridApiRef.current;
+    if (!api || !preview) return;
+    const groupBy = (api.getRowGroupColumns?.() || []).map((c) => c.getColId());
+    const valueCols = (api.getValueColumns?.() || []).map((c) => ({
+      col: c.getColId(),
+      fn: (c.getAggFunc && c.getAggFunc()) || c.getColDef?.().aggFunc || "sum",
+    }));
+    if (groupBy.length === 0 && valueCols.length === 0) {
+      setToast("Önce kolonları 'Row Groups' / 'Values' alanlarına sürükle."); return;
+    }
+    const FN = { sum: "sum", avg: "avg", count: "count", min: "min", max: "max" };
+    const measures = valueCols.map((v) => {
+      const fn = FN[v.fn] || "sum";
+      return { column: v.col, fn, as: `${fn.toUpperCase()}_${v.col}` };
+    });
+    const source = preview.alias;
+    const alias = makeAlias(`${source}_agg`, scope.basket.map((b) => b.alias));
+    const item = {
+      derivation: { kind: "aggregate", source_alias: source, group_by: groupBy, measures },
+      alias,
+      projection: { columns: [...groupBy, ...measures.map((m) => m.as)], include_all: false },
+      routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
+    };
+    const srcCols = Object.fromEntries((COLS_BY_ALIAS[source] || []).map((c) => [c.name, c]));
+    COLS_BY_ALIAS[alias] = [
+      ...groupBy.map((g) => ({ name: g, concept: srcCols[g]?.concept || null, join_key: true })),
+      ...measures.map((m) => ({ name: m.as, concept: null, join_key: false })),
+    ];
+    setScope((s) => ({ ...s, basket: [...s.basket, item] }));
+    setNodes((nds) => [...nds, {
+      id: alias, type: "tableNode",
+      position: { x: 100 + (nds.length % 3) * 340, y: 100 + Math.floor(nds.length / 3) * 240 },
+      data: nodeData(item),
+    }]);
+    setToast(`'${alias}' türetilmiş tablo eklendi (${groupBy.length} grup, ${measures.length} measure).`);
+  };
+
   // Drawer resize (drag the top edge up/down).
   const startResize = (e) => {
     e.preventDefault();
@@ -499,8 +555,8 @@ function App() {
             <PreviewDrawer
               preview={preview} loading={previewLoading} height={drawerH}
               onResizeStart={startResize} onClose={() => setPreview(null)}
-              onSaveFilters={saveFilters}
-              onGridReady={(p) => { gridApiRef.current = p.api; }}
+              onSaveFilters={saveFilters} onSaveAsTable={saveAsTable}
+              onGridReady={(p) => { gridApiRef.current = p.api; window.__hzGridApi = p.api; }}
             />
           )}
         </main>
