@@ -1,0 +1,236 @@
+"""Scope contract validators (spec §2.2).
+
+Seven rules, each an independently-callable function returning
+``(errors, warnings)`` so it can be unit-tested in isolation (the fixture
+``examples/phase_8/expected_validator_outputs.yaml`` drives one case per rule).
+:func:`validate_scope` runs all seven and aggregates into a
+:class:`ValidationResult`.
+
+The split between *errors* and *warnings* follows the spec: a warning means
+"this probably isn't what you want / will be slow" (the scope can still be
+saved and fetched); an error blocks the build. Concept coverage (rule 3) and
+the projection partition-column omission (rule 6) are warnings; everything
+else that fails is an error.
+
+All catalog lookups go through the :mod:`presentations.scope.catalog`
+abstraction. A table absent from the catalog is treated as "cannot verify" —
+its column / coverage checks are skipped rather than failed, matching Phase 7's
+concept-blind tolerance.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date
+
+from presentations.scope.catalog import Catalog
+from presentations.scope.schema import ScopeContract
+
+
+# Floor below which a routing threshold is almost certainly a misconfiguration
+# (1 MB). Matches the message in expected_validator_outputs.yaml.
+THRESHOLD_FLOOR_BYTES = 1024 * 1024
+
+
+@dataclass
+class ValidationResult:
+    ok: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+# ── Rule 1: alias uniqueness ────────────────────────────────────────────────
+
+def rule_alias_uniqueness(scope: ScopeContract, catalog: Catalog | None = None):
+    errors: list[str] = []
+    seen: set[str] = set()
+    reported: set[str] = set()
+    for item in scope.basket:
+        a = item.alias
+        if a in seen and a not in reported:
+            errors.append(f"Duplicate basket alias '{a}'")
+            reported.add(a)
+        seen.add(a)
+    return errors, []
+
+
+# ── Rule 2: concept validity ────────────────────────────────────────────────
+
+def rule_concept_validity(scope: ScopeContract, catalog: Catalog):
+    errors: list[str] = []
+    seen: set[str] = set()
+    for f in [*scope.filters.pinned, *scope.filters.interactive]:
+        c = f.concept
+        if c in seen:
+            continue
+        if not catalog.concept_exists(c):
+            errors.append(f"Concept '{c}' not in registry")
+            seen.add(c)
+    return errors, []
+
+
+# ── Rule 3: concept coverage (warning) ──────────────────────────────────────
+
+def rule_concept_coverage(scope: ScopeContract, catalog: Catalog):
+    warnings: list[str] = []
+    for f in [*scope.filters.pinned, *scope.filters.interactive]:
+        if not f.applies_to:
+            continue  # empty = "all tables that bind it"; nothing explicit to check.
+        for alias in f.applies_to:
+            item = scope.basket_item(alias)
+            if item is None:
+                continue  # alias not in basket — cannot verify here.
+            bound = catalog.table_binds_concept(
+                item.table_ref.schema_name, item.table_ref.name, f.concept
+            )
+            if bound is False:
+                warnings.append(
+                    f"Filter '{f.id}' has no effect on alias '{alias}' "
+                    f"(concept '{f.concept}' not bound)"
+                )
+            # bound is None → table not in catalog → skip (cannot verify).
+    return [], warnings
+
+
+# ── Rule 4: pinned filter consistency ───────────────────────────────────────
+
+def _as_date(v):
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        try:
+            return date.fromisoformat(v.strip()[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def rule_pinned_consistency(scope: ScopeContract, catalog: Catalog):
+    errors: list[str] = []
+    for f in scope.filters.pinned:
+        if f.op == "between":
+            lo, hi = f.from_, f.to
+            lo_d, hi_d = _as_date(lo), _as_date(hi)
+            inverted = (
+                (lo_d is not None and hi_d is not None and lo_d > hi_d)
+                or (lo_d is None and hi_d is None and lo is not None and hi is not None and lo > hi)
+            )
+            if inverted:
+                errors.append(
+                    f"Pinned filter '{f.id}': between requires from <= to "
+                    f"(got {lo} > {hi})"
+                )
+        elif f.op in ("in", "not_in"):
+            codes = catalog.concept_canonical_codes(f.concept)
+            if codes is not None:
+                allowed = set(codes)
+                for v in (f.values or []):
+                    if v not in allowed:
+                        errors.append(
+                            f"Pinned filter '{f.id}': value '{v}' not in concept "
+                            f"'{f.concept}' canonical_values"
+                        )
+    return errors, []
+
+
+# ── Rule 5: join consistency ────────────────────────────────────────────────
+
+def rule_join_consistency(scope: ScopeContract, catalog: Catalog | None = None):
+    errors: list[str] = []
+    aliases = set(scope.alias_list())
+    for j in scope.joins:
+        for side_name, side in (("left", j.left), ("right", j.right)):
+            if side.alias not in aliases:
+                errors.append(
+                    f"Join '{j.id}': {side_name} alias '{side.alias}' not in basket"
+                )
+                continue
+            item = scope.basket_item(side.alias)
+            if item is None:
+                continue
+            if item.projection.include_all:
+                # Verify against the table schema when the catalog knows it.
+                if catalog is not None:
+                    tm = catalog.table_meta(
+                        item.table_ref.schema_name, item.table_ref.name
+                    )
+                    if tm is not None and not tm.has_column(side.column):
+                        errors.append(
+                            f"Join '{j.id}': column '{side.column}' does not exist "
+                            f"on {item.table_ref.name}"
+                        )
+            elif side.column not in item.projection.columns:
+                errors.append(
+                    f"Join '{j.id}': column '{side.column}' not projected on "
+                    f"alias '{side.alias}'"
+                )
+    return errors, []
+
+
+# ── Rule 6: projection sanity ───────────────────────────────────────────────
+
+def rule_projection_sanity(scope: ScopeContract, catalog: Catalog):
+    errors: list[str] = []
+    warnings: list[str] = []
+    for item in scope.basket:
+        tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
+        if tm is None:
+            continue  # table not in catalog — cannot verify columns.
+        proj = item.projection
+        if not proj.include_all:
+            for col in proj.columns:
+                if not tm.has_column(col):
+                    errors.append(
+                        f"Projection on '{item.alias}': column '{col}' does not "
+                        f"exist on {item.table_ref.name}"
+                    )
+            if tm.partition_column and tm.partition_column not in proj.columns:
+                warnings.append(
+                    f"Projection on '{item.alias}' omits partition column "
+                    f"'{tm.partition_column}'; queries may be slow"
+                )
+    return errors, warnings
+
+
+# ── Rule 7: routing threshold sanity ────────────────────────────────────────
+
+def rule_routing_threshold(scope: ScopeContract, catalog: Catalog | None = None):
+    errors: list[str] = []
+    warnings: list[str] = []
+    for item in scope.basket:
+        r = item.routing
+        if r.estimated_bytes < 0:
+            errors.append(
+                f"Routing for '{item.alias}': estimated_bytes must be >= 0 "
+                f"(got {r.estimated_bytes})"
+            )
+        if r.threshold_bytes is not None and r.threshold_bytes < THRESHOLD_FLOOR_BYTES:
+            warnings.append(
+                f"Routing for '{item.alias}': threshold_bytes {r.threshold_bytes} "
+                f"below floor ({THRESHOLD_FLOOR_BYTES}), likely misconfiguration"
+            )
+    return errors, warnings
+
+
+# ── Aggregate ───────────────────────────────────────────────────────────────
+
+# Ordered so the result reads predictably; §2.2 numbering.
+RULES = [
+    rule_alias_uniqueness,
+    rule_concept_validity,
+    rule_concept_coverage,
+    rule_pinned_consistency,
+    rule_join_consistency,
+    rule_projection_sanity,
+    rule_routing_threshold,
+]
+
+
+def validate_scope(scope: ScopeContract, catalog: Catalog) -> ValidationResult:
+    """Run all seven §2.2 rules and aggregate. ``ok`` is True iff no errors."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    for rule in RULES:
+        e, w = rule(scope, catalog)
+        errors.extend(e)
+        warnings.extend(w)
+    return ValidationResult(ok=not errors, errors=errors, warnings=warnings)
