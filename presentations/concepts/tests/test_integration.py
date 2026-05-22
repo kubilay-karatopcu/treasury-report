@@ -89,16 +89,29 @@ def test_inject_at_sentinel(registry, catalog):
     assert inj.blind == []
 
 
-def test_no_sentinel_reports_but_no_inject(registry, catalog):
-    block = _block("SELECT * FROM FX_SWAP_DEALS WHERE 1=1")
+def test_no_sentinel_injects_into_where(registry, catalog):
+    # No sentinel: the predicate is injected into the WHERE directly so the
+    # filter still applies (user expectation).
+    block = _block("SELECT CCY FROM FX_SWAP_DEALS WHERE 1=1")
     resolved = dashboard_filters_to_resolved(
         [{"id": "f0", "semantic_tag": "currency", "type": "enum_multi"}],
         {"f0": ["USD"]}, registry)
     inj = apply_concepts_to_block(block, block["query"], {}, resolved, registry, catalog)
-    assert inj.injected is False
-    assert inj.sql == block["query"]          # untouched
-    assert inj.params == {}
-    assert len(inj.applied) == 1              # but reported
+    assert inj.injected is True
+    assert "CCY IN (:f0_currency_0)" in inj.sql
+    assert "AND (CCY IN (:f0_currency_0))" in inj.sql   # ANDed onto existing WHERE
+    assert inj.params == {"f0_currency_0": "USD"}
+
+
+def test_no_sentinel_no_where_adds_where(registry, catalog):
+    block = _block("SELECT CCY, SUM(NOTIONAL_TRY) FROM FX_SWAP_DEALS GROUP BY CCY")
+    resolved = dashboard_filters_to_resolved(
+        [{"id": "f0", "semantic_tag": "currency", "type": "enum_multi"}],
+        {"f0": ["USD"]}, registry)
+    inj = apply_concepts_to_block(block, block["query"], {}, resolved, registry, catalog)
+    assert inj.injected is True
+    # WHERE added before GROUP BY.
+    assert "WHERE CCY IN (:f0_currency_0) GROUP BY CCY" in inj.sql
 
 
 def test_no_source_tables_noop(registry, catalog):

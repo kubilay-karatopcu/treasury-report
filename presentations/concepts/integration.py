@@ -74,6 +74,45 @@ def derive_source_tables(block: dict[str, Any]) -> list[tuple[str, str]]:
     return out
 
 
+# Trailing clauses that a WHERE predicate must precede (top-level only).
+_TRAILING_CLAUSE_RE = re.compile(
+    r"\b(GROUP\s+BY|ORDER\s+BY|HAVING|FETCH\s+(?:FIRST|NEXT)|OFFSET|LIMIT|WINDOW)\b",
+    re.IGNORECASE,
+)
+_WHERE_RE = re.compile(r"\bWHERE\b", re.IGNORECASE)
+
+
+def _toplevel_matches(text: str, regex: "re.Pattern") -> list:
+    """Regex matches at parenthesis depth 0 (ignores subquery contents)."""
+    out = []
+    for m in regex.finditer(text):
+        depth = text.count("(", 0, m.start()) - text.count(")", 0, m.start())
+        if depth == 0:
+            out.append(m)
+    return out
+
+
+def inject_where_predicate(sql: str, predicate: str) -> str:
+    """Append ``predicate`` to a single-SELECT query's WHERE without a sentinel.
+
+    Inserts before the first top-level GROUP BY / ORDER BY / HAVING / FETCH /
+    OFFSET (or at the end). ANDs onto an existing top-level WHERE, else adds a
+    new WHERE. Parenthesis-aware so subquery WHEREs/clauses are never touched.
+    Used when the block author (or LLM) didn't embed ``{{concept_filters}}``.
+    """
+    body = sql.rstrip()
+    while body.endswith(";"):
+        body = body[:-1].rstrip()
+    clause = _toplevel_matches(body, _TRAILING_CLAUSE_RE)
+    insert_at = clause[0].start() if clause else len(body)
+    head, tail = body[:insert_at], body[insert_at:]
+    if _toplevel_matches(head, _WHERE_RE):
+        head = head.rstrip() + f" AND ({predicate})"
+    else:
+        head = head.rstrip() + f" WHERE {predicate}"
+    return (head + (" " + tail if tail else "")).strip()
+
+
 def strip_concept_sentinel(sql: str) -> str:
     """Neutralize an un-injected ``{{concept_filters}}`` to a no-op ``1 = 1``.
 
@@ -186,9 +225,9 @@ def apply_concepts_to_block(
                    for p in usable]
         if SENTINEL in base_sql:
             sql = base_sql.replace(SENTINEL, "1 = 0")
-            return ConceptInjection(sql=sql, params=merged, injected=True,
-                                    applied=applied, blind=blind, empty=True)
-        return ConceptInjection(sql=base_sql, params=merged, injected=False,
+        else:
+            sql = inject_where_predicate(base_sql, "1 = 0")
+        return ConceptInjection(sql=sql, params=merged, injected=True,
                                 applied=applied, blind=blind, empty=True)
 
     applied = [{"filter_id": p.filter_id, "concept": p.concept, "sql": p.sql}
@@ -204,10 +243,11 @@ def apply_concepts_to_block(
         merged.update(p.params)
 
     if SENTINEL in base_sql:
+        # Preferred path: clean replacement at the author-placed sentinel.
         sql = base_sql.replace(SENTINEL, where)
-        return ConceptInjection(sql=sql, params=merged, injected=True,
-                                applied=applied, blind=blind)
-
-    # No sentinel — report what would apply, but leave SQL untouched (§10.6).
-    return ConceptInjection(sql=base_sql, params=dict(base_params),
-                            injected=False, applied=applied, blind=blind)
+    else:
+        # No sentinel — inject into the WHERE clause directly so the filter
+        # still applies (the user's expectation; parenthesis-aware insertion).
+        sql = inject_where_predicate(base_sql, where)
+    return ConceptInjection(sql=sql, params=merged, injected=True,
+                            applied=applied, blind=blind)
