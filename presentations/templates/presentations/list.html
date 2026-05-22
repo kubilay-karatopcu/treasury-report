@@ -872,49 +872,11 @@
     }
   }
 
-  async function createNewBlock() {
-    // Yeni şablon akışı: yeni sunum aç + içine boş bar_chart blok ekle
-    // + editor'a focus_block=<bid> ile yönlendir. Kullanıcı doğrudan
-    // SQL yazmaya başlayabilir, Properties otomatik o bloğa açılır.
-    try {
-      // 1. Yeni sunum
-      const presResp = await fetch("{{ url_for('presentations.create_presentation') }}", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Yeni Şablon' }),
-      });
-      if (!presResp.ok) throw new Error('HTTP ' + presResp.status);
-      const presData = await presResp.json();
-      const pid = presData.id;
-
-      // 2. Section + boş bar_chart blok ekle
-      const sid = 's_' + Math.random().toString(36).slice(2, 8);
-      const bid = 'b_' + Math.random().toString(36).slice(2, 8);
-      const patches = [{
-        op: 'add', path: '/blocks/-',
-        value: {
-          id: sid, type: 'section_header', title: 'Yeni Bölüm', locked: false,
-          children: [{
-            id: bid, type: 'bar_chart', title: 'Yeni Çubuk Grafik', locked: false,
-            query: '', variables: [],
-            config: { categories: [], series: [{ name: 'Seri 1', values: [] }] },
-            data_source: { original_sql: '' },
-          }],
-        },
-      }];
-      // Build patch URL from the presentation create URL pattern.
-      const patchUrl = "{{ url_for('presentations.create_presentation') }}" + pid + '/patch';
-      await fetch(patchUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patches }),
-      });
-
-      // 3. Editor'a focus parametresiyle yönlendir
-      window.location.href = presData.url + '?focus_block=' + encodeURIComponent(bid);
-    } catch (e) {
-      alert('Yeni blok oluşturulamadı: ' + e.message);
-    }
+  function createNewBlock() {
+    // Ayrı "yeni blok" editörüne git. Sunu OLUŞTURMAZ — boş bir şablon
+    // editörü açılır; kullanıcı SQL yazıp "Şablon olarak kaydet" ile doğrudan
+    // blok kütüphanesine (v1) yazar.
+    window.location.href = "{{ url_for('presentations.block_new') }}";
   }
 
   function activeTabKey() {
