@@ -1,0 +1,371 @@
+"""Pydantic models for the Phase 8 scope contract (spec §2.1, §2.4).
+
+A scope contract is stored at
+``s3://<bucket>/presentations/<user>/<id>/scope_v<N>.yaml`` with a single
+top-level ``scope:`` key whose value matches :class:`ScopeContract`. See
+``examples/phase_8/sample_scope.yaml`` for the canonical fixture.
+
+This module is pure: it parses / validates / serialises the contract shape and
+the identifier rules from §2.4. The *semantic* validators (concept existence,
+projection-column existence, join consistency, …) live in
+:mod:`presentations.scope.validators` because they need catalog metadata; the
+routing decision lives in :mod:`presentations.scope.routing`.
+
+Field defaults (§2.1, "All scope contract field defaults documented"):
+
+- ``parent_version``        → ``None`` (first version of a presentation).
+- ``projection.include_all``→ ``False`` (explicit column list is honoured).
+- ``routing.decided_by``    → ``"system"`` (the algorithm chose it).
+- ``routing.threshold_bytes``→ ``None`` (decision recorded without the cap that
+  produced it — only meaningful for audit; the live cap comes from config).
+- ``filters.pinned`` / ``filters.interactive`` → ``[]``.
+- ``<filter>.applies_to``   → ``[]`` meaning "all basket tables that bind the
+  concept" (§2.1; the validator interprets the empty list, not the schema).
+- ``status.state``          → ``"drafting"`` (no fetch has run yet).
+- ``status.cached_tables`` / ``lazy_tables`` / ``errors`` → ``[]``.
+"""
+from __future__ import annotations
+
+import re
+from datetime import date, datetime
+from typing import Annotated, Any, Literal
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from presentations.scope._yaml import dump_yaml, load_yaml
+
+
+# ── Identifier types (§2.4) ────────────────────────────────────────────────
+
+_ALIAS_RE = re.compile(r"^[a-z][a-z0-9_]*$")          # snake_case, 3–40 chars
+_PF_ID_RE = re.compile(r"^pf_[a-z0-9_-]+$")
+_IF_ID_RE = re.compile(r"^if_[a-z0-9_-]+$")
+_JOIN_ID_RE = re.compile(r"^j_[a-z0-9_-]+$")
+_ORACLE_IDENT_RE = re.compile(r"^[A-Z_][A-Z0-9_$#]*$")
+
+Alias = Annotated[
+    str,
+    StringConstraints(min_length=3, max_length=40, pattern=_ALIAS_RE.pattern),
+]
+PinnedFilterId = Annotated[
+    str, StringConstraints(min_length=4, max_length=60, pattern=_PF_ID_RE.pattern)
+]
+InteractiveFilterId = Annotated[
+    str, StringConstraints(min_length=4, max_length=60, pattern=_IF_ID_RE.pattern)
+]
+JoinId = Annotated[
+    str, StringConstraints(min_length=3, max_length=60, pattern=_JOIN_ID_RE.pattern)
+]
+OracleIdentifier = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=128, pattern=_ORACLE_IDENT_RE.pattern),
+]
+
+
+# ── Basket ──────────────────────────────────────────────────────────────────
+
+class TableRef(BaseModel):
+    """A fully-qualified Oracle table reference."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    # `schema` shadows BaseModel.schema(); store as schema_name, alias on disk.
+    schema_name: OracleIdentifier = Field(alias="schema")
+    name: OracleIdentifier
+
+
+class Projection(BaseModel):
+    """Which columns of the table are pulled into scope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    columns: list[str] = Field(default_factory=list)
+    include_all: bool = False
+
+    @field_validator("columns")
+    @classmethod
+    def _strip(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        for c in v:
+            if not isinstance(c, str) or not c.strip():
+                raise ValueError(f"projection column must be a non-empty string: {c!r}")
+            out.append(c.strip())
+        return out
+
+
+class Routing(BaseModel):
+    """Per-table cached/lazy decision, recorded at scope-build time."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["cached", "lazy"]
+    decided_by: Literal["system", "user"] = "system"
+    # Sign / floor sanity is a *validator* concern (§2.2 rule 7), not a schema
+    # one — the contract must be parseable even when these are misconfigured so
+    # the validator can surface a precise message instead of a Pydantic error.
+    estimated_bytes: int
+    # The cap that was applied at decision time (audit only — the live cap is a
+    # config value). Optional so a contract can be recorded without it.
+    threshold_bytes: int | None = None
+
+
+class BasketItem(BaseModel):
+    """One table in the scope basket."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    table_ref: TableRef
+    alias: Alias
+    projection: Projection
+    routing: Routing
+
+
+# ── Joins ─────────────────────────────────────────────────────────────────
+
+class JoinSide(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alias: Alias
+    column: str = Field(min_length=1, max_length=128)
+
+
+class Join(BaseModel):
+    """A confirmed join between two basket aliases."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: JoinId
+    kind: Literal["lookup", "inner", "left"]
+    left: JoinSide
+    right: JoinSide
+    confirmed_at: datetime | None = None
+
+
+# ── Filters ─────────────────────────────────────────────────────────────────
+
+FilterOp = Literal["between", "in", "not_in", "eq", "last_n_days"]
+
+
+def _iso(v: Any) -> Any:
+    """Normalise a date/datetime to an ISO string; pass everything else
+    through. Filter values are JSON-native (strings/numbers) after this, so
+    a contract round-trips through YAML/JSON without date↔str drift, and ISO
+    date strings compare correctly for the ``between`` rule."""
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    return v
+
+
+def _iso_list(v: Any) -> Any:
+    if isinstance(v, list):
+        return [_iso(x) for x in v]
+    return v
+
+
+class PinnedFilter(BaseModel):
+    """A filter locked at scope time. Immutable in Sunum (§2.1, §4.1).
+
+    Op-dependent value carriers:
+      - ``between``            → ``from`` / ``to``
+      - ``in`` / ``not_in``    → ``values``
+      - ``eq`` / ``last_n_days``→ ``value``
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: PinnedFilterId
+    concept: str = Field(min_length=1)
+    op: FilterOp
+    # `from` is a Python keyword; store as from_ with the on-disk alias.
+    from_: Any | None = Field(default=None, alias="from")
+    to: Any | None = None
+    values: list[Any] | None = None
+    value: Any | None = None
+    applies_to: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalise_dates(self) -> "PinnedFilter":
+        self.from_ = _iso(self.from_)
+        self.to = _iso(self.to)
+        self.value = _iso(self.value)
+        self.values = _iso_list(self.values)
+        return self
+
+
+class InteractiveFilter(BaseModel):
+    """A filter exposed as a dashboard widget in Sunum (§2.1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: InteractiveFilterId
+    concept: str = Field(min_length=1)
+    op: FilterOp
+    default_values: list[Any] | None = None
+    allowed_values: list[Any] | None = None
+    label: str | None = None
+    applies_to: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalise_dates(self) -> "InteractiveFilter":
+        self.default_values = _iso_list(self.default_values)
+        self.allowed_values = _iso_list(self.allowed_values)
+        return self
+
+
+class Filters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pinned: list[PinnedFilter] = Field(default_factory=list)
+    interactive: list[InteractiveFilter] = Field(default_factory=list)
+
+
+# ── Status ──────────────────────────────────────────────────────────────────
+
+class Status(BaseModel):
+    """System-mutated materialisation state (§2.1).
+
+    The user-authored fields of the contract never change once
+    ``state == "ready"``; only this block is rewritten as the scope is fetched.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["drafting", "fetching", "ready", "failed"] = "drafting"
+    fetched_at: datetime | None = None
+    fetch_duration_ms: int | None = Field(default=None, ge=0)
+    cached_tables: list[str] = Field(default_factory=list)
+    lazy_tables: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+# ── Scope contract (root) ──────────────────────────────────────────────────
+
+class ScopeContract(BaseModel):
+    """The durable scope artifact for one presentation version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    presentation_id: str = Field(min_length=1, max_length=80)
+    version: int = Field(ge=1, le=1_000_000)
+    created_by: str = Field(min_length=1, max_length=80)
+    created_at: datetime
+    parent_version: int | None = Field(default=None, ge=1)
+
+    basket: list[BasketItem] = Field(default_factory=list)
+    joins: list[Join] = Field(default_factory=list)
+    filters: Filters = Field(default_factory=Filters)
+    status: Status = Field(default_factory=Status)
+
+    @model_validator(mode="after")
+    def _parent_below_self(self) -> "ScopeContract":
+        if self.parent_version is not None and self.parent_version >= self.version:
+            raise ValueError(
+                f"parent_version ({self.parent_version}) must be < version ({self.version})"
+            )
+        return self
+
+    # ── Convenience accessors (used by validators / routing / resolver) ──────
+
+    def alias_list(self) -> list[str]:
+        return [b.alias for b in self.basket]
+
+    def basket_item(self, alias: str) -> BasketItem | None:
+        for b in self.basket:
+            if b.alias == alias:
+                return b
+        return None
+
+    def find_pinned(self, filter_id: str) -> PinnedFilter | None:
+        for f in self.filters.pinned:
+            if f.id == filter_id:
+                return f
+        return None
+
+    def find_interactive(self, filter_id: str) -> InteractiveFilter | None:
+        for f in self.filters.interactive:
+            if f.id == filter_id:
+                return f
+        return None
+
+    def pinned_filter_ids(self) -> set[str]:
+        return {f.id for f in self.filters.pinned}
+
+    def pinned_filters_for_alias(self, alias: str) -> list[PinnedFilter]:
+        """Pinned filters that target ``alias`` — explicit match, or empty
+        ``applies_to`` (= all basket tables, per §2.1)."""
+        return [
+            f for f in self.filters.pinned
+            if not f.applies_to or alias in f.applies_to
+        ]
+
+    def is_lazy_alias(self, alias: str) -> bool:
+        return alias in self.status.lazy_tables
+
+
+# ── YAML wrappers ───────────────────────────────────────────────────────────
+
+class ScopeDocument(BaseModel):
+    """On-disk YAML root: ``{scope: {...}}``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: ScopeContract
+
+
+def load_scope_from_dict(raw: dict[str, Any]) -> ScopeContract:
+    """Parse a scope dict (with or without the ``scope:`` wrapper)."""
+    if isinstance(raw, dict) and set(raw.keys()) == {"scope"}:
+        return ScopeDocument.model_validate(raw).scope
+    return ScopeContract.model_validate(raw)
+
+
+def scope_to_dict(scope: ScopeContract) -> dict[str, Any]:
+    """Serialise to the ``{scope: {...}}`` shape (aliases applied, dates as
+    ISO strings, ``None`` fields dropped). Stable field order."""
+    return {
+        "scope": scope.model_dump(by_alias=True, mode="json", exclude_none=True)
+    }
+
+
+def load_scope_yaml(text: str) -> ScopeContract:
+    """Parse scope YAML text (bool-safe) into a :class:`ScopeContract`."""
+    raw = load_yaml(text)
+    if raw is None:
+        raise ValueError("empty scope YAML")
+    return load_scope_from_dict(raw)
+
+
+def dump_scope_yaml(scope: ScopeContract) -> str:
+    """Serialise a :class:`ScopeContract` to YAML text. Idempotent:
+    ``dump_scope_yaml(load_scope_yaml(t))`` is a fixed point."""
+    return dump_yaml(scope_to_dict(scope))
+
+
+# ── ScopeRef (for the dashboard manifest, §2.3) ────────────────────────────
+
+class ScopeRef(BaseModel):
+    """Pointer from a dashboard manifest to a scope contract version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    presentation_id: str = Field(min_length=1, max_length=80)
+    scope_version: int = Field(ge=1, le=1_000_000)
+
+
+__all__ = [
+    "TableRef", "Projection", "Routing", "BasketItem",
+    "JoinSide", "Join",
+    "FilterOp", "PinnedFilter", "InteractiveFilter", "Filters",
+    "Status", "ScopeContract", "ScopeDocument", "ScopeRef",
+    "load_scope_from_dict", "scope_to_dict",
+    "load_scope_yaml", "dump_scope_yaml",
+]
