@@ -235,10 +235,17 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for col, cd in (getattr(doc, "columns", {}) or {}).items():
         lk = getattr(cd, "lookup", None)
+        fr = getattr(cd, "filter_role", None)
+        # Join-key candidate: an FK lookup, or a dimension column. (Data team can
+        # later add an explicit `join_key` flag to the table-doc schema; until
+        # then we derive it from existing signals.)
+        join_key = bool(lk) or fr == "dimension"
         out.append({
             "name": col,
             "type": getattr(cd, "type", None),
             "concept": getattr(cd, "suggested_semantic_tag", None),
+            "filter_role": fr,
+            "join_key": join_key,
             "lookup": ({"table": lk.table, "key": lk.key, "display": lk.display} if lk else None),
         })
     return out

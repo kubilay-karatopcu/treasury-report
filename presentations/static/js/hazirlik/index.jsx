@@ -79,29 +79,54 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc } = data;
+  const { item, desc, size, colCount, keyCols, derived } = data;
   const cached = item.routing?.decision === "cached";
   return (
-    <div className="hz-node">
-      <Handle type="target" position={Position.Left} className="hz-handle" />
+    <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
       <div className="hz-node-head">
-        <span className="hz-node-alias"><Database size={13} /> {item.alias}</span>
-        <span className={`hz-badge hz-badge--${cached ? "cached" : "lazy"}`}>{cached ? "cached" : "lazy"}</span>
+        <span className="hz-node-alias"><Database size={12} /> {derived ? item.alias : `${item.table_ref.schema}.${item.table_ref.name}`}</span>
+        <span className={`hz-badge hz-badge--${derived ? "derived" : (cached ? "cached" : "lazy")}`}>
+          {derived ? "türetilmiş" : (cached ? "cached" : "lazy")}
+        </span>
       </div>
-      <div className="hz-node-sub">{item.table_ref.schema}.{item.table_ref.name}</div>
-      <div className="hz-node-desc">{desc || <span className="hz-muted">(açıklama yok)</span>}</div>
-      <Handle type="source" position={Position.Right} className="hz-handle" />
+      <div className="hz-node-meta">{item.alias}{size ? ` · ${size}` : ""} · {colCount} kolon</div>
+      {desc && <div className="hz-node-desc">{desc}</div>}
+      <div className="hz-node-keys">
+        {(keyCols || []).map((c) => (
+          <div key={c.name} className="hz-node-col" title={c.concept || ""}>
+            <Handle type="target" position={Position.Left} id={c.name} className="hz-handle" />
+            <span className="hz-col-name">{c.name}</span>
+            {c.concept && <span className="hz-col-concept">{c.concept}</span>}
+            <Handle type="source" position={Position.Right} id={c.name} className="hz-handle" />
+          </div>
+        ))}
+        <div className="hz-node-col hz-node-col--other">
+          <Handle type="target" position={Position.Left} id="__other__" className="hz-handle hz-handle--other" />
+          <span className="hz-col-name hz-muted">Diğer Kolonlar…</span>
+          <Handle type="source" position={Position.Right} id="__other__" className="hz-handle hz-handle--other" />
+        </div>
+      </div>
     </div>
   );
 }
 const NODE_TYPES = { tableNode: TableNode };
 
+function nodeData(item) {
+  const cols = COLS_BY_ALIAS[item.alias] || [];
+  const cat = CATALOG_BY_ID[tableId(item.table_ref)];
+  return {
+    item, desc: descFor(item.table_ref),
+    size: cat?.rows || null, colCount: cols.length,
+    keyCols: cols.filter((c) => c.join_key),
+  };
+}
+
 function initialNodes(scope) {
   return scope.basket.map((item, i) => ({
     id: item.alias, type: "tableNode",
     position: item.layout ? { x: item.layout.x, y: item.layout.y }
-      : { x: 60 + (i % 3) * 320, y: 60 + Math.floor(i / 3) * 220 },
-    data: { item, desc: descFor(item.table_ref) },
+      : { x: 60 + (i % 3) * 340, y: 60 + Math.floor(i / 3) * 240 },
+    data: nodeData(item),
   }));
 }
 
@@ -128,11 +153,11 @@ function buildEdges(scope) {
 
 // ── Join-key modal ───────────────────────────────────────────────────────────
 
-function JoinKeyModal({ left, right, onSave, onClose }) {
+function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
   const lc = COLS_BY_ALIAS[left] || [];
   const rc = COLS_BY_ALIAS[right] || [];
-  const [lcol, setLcol] = useState(lc[0]?.name || "");
-  const [rcol, setRcol] = useState(rc[0]?.name || "");
+  const [lcol, setLcol] = useState(preLcol || lc[0]?.name || "");
+  const [rcol, setRcol] = useState(preRcol || rc[0]?.name || "");
   const [kind, setKind] = useState("lookup");
   return (
     <Modal title={`Join: ${left} → ${right}`} onClose={onClose} footer={
@@ -317,8 +342,15 @@ function App() {
 
   const onConnect = useCallback((p) => {
     if (!p.source || !p.target || p.source === p.target) return;
-    setJoinModal({ left: p.source, right: p.target });   // ask for keys, no projection step
-  }, []);
+    const lc = p.sourceHandle, rc = p.targetHandle;
+    if (lc && rc && lc !== "__other__" && rc !== "__other__") {
+      addJoin(p.source, lc, p.target, rc);   // catalog key → key: direct, no modal
+    } else {
+      setJoinModal({ left: p.source, right: p.target,
+        preLcol: lc && lc !== "__other__" ? lc : null,
+        preRcol: rc && rc !== "__other__" ? rc : null });
+    }
+  }, [addJoin]);
 
   const onEdgeClick = useCallback((_e, edge) => {
     if (edge.data?.suggested) {
@@ -345,8 +377,8 @@ function App() {
     setScope((s) => ({ ...s, basket: [...s.basket, item] }));
     setNodes((nds) => [...nds, {
       id: alias, type: "tableNode",
-      position: { x: 80 + (nds.length % 3) * 320, y: 80 + Math.floor(nds.length / 3) * 220 },
-      data: { item, desc: t.desc || "" },
+      position: { x: 80 + (nds.length % 3) * 340, y: 80 + Math.floor(nds.length / 3) * 240 },
+      data: nodeData(item),
     }]);
   };
 
