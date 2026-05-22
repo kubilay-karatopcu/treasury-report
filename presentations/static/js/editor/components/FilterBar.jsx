@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import useStore from '../lib/store.js';
+import { fetchConceptFilterSuggestions } from '../lib/api.js';
 
 
 const STATUS_LABELS = {
@@ -449,8 +450,25 @@ function AddFilterModal({ onClose }) {
 
   const [view, setView] = useState('suggest');   // 'suggest' | 'manual'
   const [err, setErr]   = useState(null);
+  const [conceptProps, setConceptProps] = useState([]);
 
-  const proposals = useMemo(() => proposeFiltersFromManifest(manifest), [manifest]);
+  // Phase 7: concepts the blocks' source_tables bind to (server-computed).
+  // Concept-native blocks have no `variables`, so the legacy walk finds
+  // nothing — these come from the binding catalog instead.
+  useEffect(() => {
+    let alive = true;
+    fetchConceptFilterSuggestions().then((s) => { if (alive) setConceptProps(s); });
+    return () => { alive = false; };
+  }, []);
+
+  const proposals = useMemo(() => {
+    const variableProps = proposeFiltersFromManifest(manifest);
+    // Merge: concept-based first; variable-based for any tag not covered.
+    const byTag = new Map();
+    for (const p of conceptProps) byTag.set(p.semantic_tag, p);
+    for (const p of variableProps) if (!byTag.has(p.semantic_tag)) byTag.set(p.semantic_tag, p);
+    return [...byTag.values()];
+  }, [manifest, conceptProps]);
 
   function addProposal(prop) {
     setErr(null);
@@ -535,8 +553,12 @@ function SuggestionList({ proposals, onAdd, onSwitchManual, err }) {
 
 
 function SuggestionRow({ prop, onAdd }) {
-  const tagLabel = SEMANTIC_TAG_LABELS[prop.semantic_tag] || prop.semantic_tag;
-  const params = prop.variable_names.map((n) => `:${n}`).join(', ');
+  const tagLabel = prop.label || SEMANTIC_TAG_LABELS[prop.semantic_tag] || prop.semantic_tag;
+  // Concept-based proposals (Phase 7) drive blocks via the binding catalog,
+  // not named :params — show the concept instead of variable names.
+  const params = prop.source === 'concept'
+    ? `concept: ${prop.semantic_tag}`
+    : (prop.variable_names || []).map((n) => `:${n}`).join(', ');
   let detail = '';
   if (prop.type === 'date_range') detail = `Tarih aralığı`;
   else if (prop.type === 'enum_multi')  detail = `${(prop.allowed_values || []).length} değer (çoklu)`;
@@ -545,7 +567,7 @@ function SuggestionRow({ prop, onAdd }) {
 
   const blockSummary = prop.block_count === 1
     ? '1 blokta kullanılıyor'
-    : `${prop.block_count} blokta kullanılıyor`;
+    : `${prop.block_count || 1} blokta kullanılıyor`;
 
   return (
     <button type="button" className="filter-suggest-row" onClick={onAdd}>

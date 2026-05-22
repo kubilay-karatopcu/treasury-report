@@ -310,6 +310,26 @@ export async function applyDashboardFilters(filterState) {
 
 
 /**
+ * Phase 7 — propose dashboard filters from the blocks' concept bindings.
+ * Returns ``[{id, semantic_tag, type, label, allowed_values?, default, source}]``.
+ * Concept-native blocks (LLM-authored, source_tables + sentinel, no variables)
+ * surface here; the legacy variable-based proposals are computed client-side.
+ */
+export async function fetchConceptFilterSuggestions() {
+  try {
+    const resp = await fetch(`${API_BASE}/concepts/filter-suggestions`, {
+      headers: { Accept: 'application/json' }, cache: 'no-store',
+    });
+    if (!resp.ok) return [];
+    const body = await resp.json();
+    return Array.isArray(body.suggestions) ? body.suggestions : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+
+/**
  * List Phase 6.5 block templates from the BlockStore. Used by AddBlockPanel's
  * "Şablonlar" tab.
  */

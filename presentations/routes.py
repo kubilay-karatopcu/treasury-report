@@ -2367,6 +2367,89 @@ def promote_presentation_concept(pid: str, cid: str):
                     mimetype="application/json")
 
 
+@presentations_bp.route("/<pid>/concepts/filter-suggestions", methods=["GET"])
+@login_required
+def concept_filter_suggestions(pid: str):
+    """Propose dashboard filters from the blocks' concept bindings (Phase 7).
+
+    Concept-native blocks carry ``source_tables`` (not ``variables``), so the
+    old variable-based suggestion engine finds nothing. This walks every
+    block's source tables, collects the concepts those tables bind to
+    (human_verified only), and proposes a filter per concept that isn't
+    already on the dashboard. The React filter modal merges these with the
+    legacy variable-based suggestions.
+    """
+    from .manifest import iter_all_blocks
+    from .concepts.user_scope import build_effective_registry
+
+    session = _get_session(pid)
+    manifest = session.get_manifest() or {}
+    base = _base_registry_snapshot()
+    catalog = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    if base is None or catalog is None:
+        return Response(json.dumps({"suggestions": []}), mimetype="application/json")
+
+    cat = catalog.snapshot if hasattr(catalog, "snapshot") else catalog
+    eff = build_effective_registry(base, manifest.get("user_concepts"))
+    existing = {f.get("concept_ref") or f.get("semantic_tag")
+                for f in (manifest.get("filters") or [])}
+
+    seen: set[str] = set()
+    suggestions: list[dict] = []
+    block_count: dict[str, int] = {}
+
+    for block in iter_all_blocks(manifest):
+        for st in (block.get("source_tables") or []):
+            if not isinstance(st, dict):
+                continue
+            schema, table = st.get("schema"), st.get("table")
+            if not schema or not table:
+                continue
+            for b in cat.get_bindings(schema, table):   # human_verified only
+                cid = b.concept
+                block_count[cid] = block_count.get(cid, 0) + 1
+                if cid in existing or cid in seen:
+                    continue
+                concept = eff.get(cid)
+                if concept is None:
+                    continue
+                seen.add(cid)
+                suggestions.append(_filter_proposal_from_concept(concept))
+
+    for s in suggestions:
+        s["block_count"] = block_count.get(s["semantic_tag"], 1)
+
+    return Response(
+        json.dumps({"suggestions": suggestions}, ensure_ascii=False, default=str),
+        mimetype="application/json",
+    )
+
+
+def _filter_proposal_from_concept(concept) -> dict:
+    """Build a dashboard-filter proposal dict from a concept definition."""
+    codes = [cv.code for cv in concept.canonical_values]
+    if concept.type == "time":
+        return {
+            "id": "f_" + concept.id,
+            "semantic_tag": concept.id,
+            "type": "date_range",
+            "label": concept.name,
+            "default": {"from": "today - 30d", "to": "today"},
+            "source": "concept",
+        }
+    # enum / bucket / scalar → enum_multi (multi-select); default = all codes
+    # so the initial state shows everything and the user narrows.
+    return {
+        "id": "f_" + concept.id,
+        "semantic_tag": concept.id,
+        "type": "enum_multi",
+        "label": concept.name,
+        "allowed_values": codes,
+        "default": codes,
+        "source": "concept",
+    }
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_session(pid: str):
