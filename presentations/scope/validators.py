@@ -149,7 +149,7 @@ def rule_join_consistency(scope: ScopeContract, catalog: Catalog | None = None):
                 continue
             if item.projection.include_all:
                 # Verify against the table schema when the catalog knows it.
-                if catalog is not None:
+                if catalog is not None and item.table_ref is not None:
                     tm = catalog.table_meta(
                         item.table_ref.schema_name, item.table_ref.name
                     )
@@ -172,6 +172,8 @@ def rule_projection_sanity(scope: ScopeContract, catalog: Catalog):
     errors: list[str] = []
     warnings: list[str] = []
     for item in scope.basket:
+        if item.table_ref is None:
+            continue  # derived (aggregate) table — no Oracle columns to verify.
         tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
         if tm is None:
             continue  # table not in catalog — cannot verify columns.
@@ -221,7 +223,8 @@ def rule_raw_filters(scope: ScopeContract, catalog: Catalog):
             errors.append(f"Raw filter '{f.id}': alias '{f.alias}' not in basket")
             continue
         item = scope.basket_item(f.alias)
-        tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name) if item else None
+        tm = (catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
+              if item and item.table_ref else None)
         if tm is not None and not tm.has_column(f.column):
             errors.append(
                 f"Raw filter '{f.id}': column '{f.column}' does not exist on "
@@ -237,9 +240,27 @@ def rule_raw_filters(scope: ScopeContract, catalog: Catalog):
     return errors, []
 
 
+# ── Rule 9: derived (aggregate) tables (§6R) ────────────────────────────────
+
+def rule_derived_tables(scope: ScopeContract, catalog: Catalog | None = None):
+    errors: list[str] = []
+    aliases = set(scope.alias_list())
+    for item in scope.derived_items():
+        d = item.derivation
+        if d.source_alias not in aliases:
+            errors.append(
+                f"Derived table '{item.alias}': source alias '{d.source_alias}' not in basket"
+            )
+        if not d.group_by and not d.measures:
+            errors.append(
+                f"Derived table '{item.alias}': aggregate needs at least one group_by or measure"
+            )
+    return errors, []
+
+
 # ── Aggregate ───────────────────────────────────────────────────────────────
 
-# Ordered so the result reads predictably; §2.2 numbering (+ §6R raw filters).
+# Ordered so the result reads predictably; §2.2 numbering (+ §6R raw/derived).
 RULES = [
     rule_alias_uniqueness,
     rule_concept_validity,
@@ -249,6 +270,7 @@ RULES = [
     rule_projection_sanity,
     rule_routing_threshold,
     rule_raw_filters,
+    rule_derived_tables,
 ]
 
 
