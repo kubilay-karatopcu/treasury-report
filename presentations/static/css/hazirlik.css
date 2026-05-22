@@ -207,3 +207,15 @@
   background: #1e293b; color: #fff; padding: 8px 16px; border-radius: 8px;
   font-size: 13px; z-index: 200; box-shadow: 0 4px 14px rgba(0,0,0,.2);
 }
+
+/* ── Node card v3: schema.name header, meta, join-key cols, "Diğer Kolonlar" ── */
+.hz-node { max-width: 280px; }
+.hz-node-alias { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.hz-node-meta { padding: 3px 10px; font-size: 10px; color: #64748b; border-bottom: 1px solid #eef0f3; }
+.hz-node-keys { }
+.hz-node-col--other { background: #fafbfc; }
+.hz-node-col--other .hz-col-name { font-style: italic; }
+.hz-handle--other { background: #cbd5e1 !important; }
+/* Derived (aggregate) tables */
+.hz-node--derived .hz-node-head { background: #7c3aed; }
+.hz-badge--derived { background: rgba(255,255,255,.22); color: #fff; }
