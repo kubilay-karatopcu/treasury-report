@@ -710,6 +710,9 @@ const useStore = create((set) => ({
   // applied to all blocks on Güncelle.
   filterState: {},
   filterStatus: {},   // {blockId: 'cache_hit'|'subset'|'refetching'|'refetched'|'error', ...}
+  // Phase 7 concept compilation per block (from apply-filters response):
+  //   {blockId: {blind: [conceptId,...], applied: [{filter_id,concept,sql}], injected: bool}}
+  conceptStatus: {},
   filterBusy: false,
 
   setFilterValue: (filterId, value) => {
@@ -800,7 +803,7 @@ const useStore = create((set) => ({
   applyFilters: async () => {
     const state = useStore.getState();
     if (!state.manifest) return;
-    set({ filterBusy: true, filterStatus: {} });
+    set({ filterBusy: true, filterStatus: {}, conceptStatus: {} });
     try {
       const result = await applyDashboardFilters(state.filterState);
       // Refresh manifest from server (server wrote block.data_source +
@@ -811,10 +814,19 @@ const useStore = create((set) => ({
       // bump and the existing manifest refresh on next mount, OR we walk
       // the response and merge each block in-place by id.
       const statusMap = {};
+      const conceptMap = {};
       for (const blk of result.blocks || []) {
         statusMap[blk.id] = blk.status;
+        // Phase 7: capture concept compilation outcome for the block badge.
+        if (blk.blind_filters || blk.applied_predicates || blk.concept_injected !== undefined) {
+          conceptMap[blk.id] = {
+            blind: blk.blind_filters || [],
+            applied: blk.applied_predicates || [],
+            injected: !!blk.concept_injected,
+          };
+        }
       }
-      set({ filterStatus: statusMap });
+      set({ filterStatus: statusMap, conceptStatus: conceptMap });
       // Re-fetch manifest to pick up the per-block data_source/config that
       // the server already wrote. The lightweight path: GET /manifest.
       const refreshed = await fetch(`${window.location.pathname.replace(/\/$/, '')}/manifest`);

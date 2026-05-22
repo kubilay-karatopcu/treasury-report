@@ -1654,6 +1654,30 @@
   text-transform: uppercase;
 }
 
+/* Phase 7 — concept compilation pills (after Güncelle). */
+.block-concept-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  background: rgba(37,99,235,0.10);
+  color: #1e40af;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.block-blind-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  background: rgba(100,116,139,0.14);
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
 .block-footer--button {
   background: none;
   width: 100%;
@@ -5706,6 +5730,47 @@ body.theme-dark .props-sql-helper__table td code {
   padding: 3px 4px;
 }
 .props-chips__input::placeholder { color: var(--ts-muted, #94a3b8); }
+
+/* Phase 7 — source tables editor (concept filter compilation). */
+.props-src-warn { color: #b45309; }
+.props-src-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0;
+}
+.props-src-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #bfdbfe;
+  border-radius: 5px;
+  padding: 3px 4px 3px 9px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+.props-src-chip__rm {
+  background: transparent;
+  border: none;
+  color: #1e3a8a;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 50%;
+  opacity: 0.6;
+}
+.props-src-chip__rm:hover { opacity: 1; background: rgba(30,58,138,0.12); }
+.props-src-add {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.props-src-add .props-input { flex: 1; min-width: 0; }
+.props-src-dot { color: #94a3b8; font-weight: 700; }
 
 /* Primary execute button below the variable list — the second half of the
    "Şemayı Tara → Çalıştır" workflow. Larger than the scan button up top
