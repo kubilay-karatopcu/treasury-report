@@ -1554,7 +1554,11 @@ def apply_dashboard_filters(pid: str):
     resolved_concept_filters = []
     if _registry is not None and _catalog is not None:
         try:
-            reg_snapshot = _registry.snapshot if hasattr(_registry, "snapshot") else _registry
+            from .concepts.user_scope import build_effective_registry
+            _base = _registry.snapshot if hasattr(_registry, "snapshot") else _registry
+            # Effective registry = base ⊕ this presentation's user concepts
+            # (Phase 7.d). Base wins id collisions (extension-only, §10.5).
+            reg_snapshot = build_effective_registry(_base, manifest.get("user_concepts"))
             cat_snapshot = _catalog.snapshot if hasattr(_catalog, "snapshot") else _catalog
             resolved_concept_filters = dashboard_filters_to_resolved(
                 manifest.get("filters") or [], filter_state, reg_snapshot,
@@ -2198,6 +2202,163 @@ def delete_upload(pid: str, upload_id: str):
         json.dumps({"ok": True, "version": manifest["version"]}, ensure_ascii=False),
         mimetype="application/json",
     )
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 7.d — user-scoped concepts (per-presentation) + promotion
+# ════════════════════════════════════════════════════════════════════════
+
+def _base_registry_snapshot():
+    reg = current_app.config.get("CONCEPT_REGISTRY")
+    if reg is None:
+        return None
+    return reg.snapshot if hasattr(reg, "snapshot") else reg
+
+
+@presentations_bp.route("/<pid>/concepts", methods=["GET"])
+@login_required
+def list_presentation_concepts(pid: str):
+    """Effective concepts for a presentation: base (global+dept) ⊕ user.
+
+    Returns ``{concepts: [...], user_concepts: [...]}`` where each concept
+    carries its scope so the UI can flag user-defined ones.
+    """
+    from .concepts.user_scope import build_effective_registry
+
+    session = _get_session(pid)
+    manifest = session.get_manifest() or {}
+    base = _base_registry_snapshot()
+    if base is None:
+        return Response(json.dumps({"concepts": [], "user_concepts": []}),
+                        mimetype="application/json")
+    user_raw = manifest.get("user_concepts") or []
+    eff = build_effective_registry(base, user_raw)
+
+    def _rank(c):
+        s = c.scope or ""
+        return (0 if s == "global" else 1 if s.startswith("dept:") else 2, c.id)
+
+    concepts = sorted(eff.all_concepts(), key=_rank)
+    return Response(
+        json.dumps({
+            "concepts": [c.model_dump(mode="json", exclude_none=True) for c in concepts],
+            "user_concepts": user_raw,
+        }, ensure_ascii=False, default=str),
+        mimetype="application/json",
+    )
+
+
+@presentations_bp.route("/<pid>/concepts", methods=["POST"])
+@login_required
+def add_presentation_concept(pid: str):
+    """Add a user-scoped concept to this presentation.
+
+    Body: a concept dict (id, name, type, canonical_values, ...). Validated
+    against the base registry — an id colliding with a global/dept concept is
+    rejected (extension-only, §10.5).
+    """
+    from .concepts.user_scope import validate_user_concept, UserConceptError
+
+    session = _get_session(pid)
+    manifest = session.get_manifest()
+    if not manifest:
+        return Response(json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+                        status=404, mimetype="application/json")
+    base = _base_registry_snapshot()
+    if base is None:
+        return Response(json.dumps({"error": "Concept registry yapılandırılmamış."},
+                                   ensure_ascii=False),
+                        status=500, mimetype="application/json")
+
+    raw = request.get_json(silent=True) or {}
+    try:
+        concept = validate_user_concept(base, raw)
+    except UserConceptError as exc:
+        return Response(json.dumps({"error": str(exc), "kind": "user_concept"},
+                                   ensure_ascii=False),
+                        status=400, mimetype="application/json")
+
+    user_concepts = list(manifest.get("user_concepts") or [])
+    # Replace an existing same-id user concept (edit), else append.
+    cid = concept.id
+    user_concepts = [c for c in user_concepts if c.get("id") != cid]
+    user_concepts.append(concept.model_dump(mode="json", exclude_none=True))
+    manifest["user_concepts"] = user_concepts
+    manifest["version"] = manifest.get("version", 0) + 1
+    session.set_manifest(manifest)
+
+    return Response(
+        json.dumps({"ok": True, "version": manifest["version"],
+                    "concept": concept.model_dump(mode="json", exclude_none=True)},
+                   ensure_ascii=False, default=str),
+        mimetype="application/json",
+    )
+
+
+@presentations_bp.route("/<pid>/concepts/<cid>", methods=["DELETE"])
+@login_required
+def delete_presentation_concept(pid: str, cid: str):
+    """Remove a user-scoped concept from this presentation."""
+    session = _get_session(pid)
+    manifest = session.get_manifest()
+    if not manifest:
+        return Response(json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+                        status=404, mimetype="application/json")
+    user_concepts = list(manifest.get("user_concepts") or [])
+    new_list = [c for c in user_concepts if c.get("id") != cid]
+    if len(new_list) == len(user_concepts):
+        return Response(json.dumps({"error": f"Kullanıcı kavramı '{cid}' bulunamadı."},
+                                   ensure_ascii=False),
+                        status=404, mimetype="application/json")
+    manifest["user_concepts"] = new_list
+    manifest["version"] = manifest.get("version", 0) + 1
+    session.set_manifest(manifest)
+    return Response(json.dumps({"ok": True, "version": manifest["version"]},
+                               ensure_ascii=False), mimetype="application/json")
+
+
+@presentations_bp.route("/<pid>/concepts/<cid>/promote", methods=["POST"])
+@login_required
+def promote_presentation_concept(pid: str, cid: str):
+    """Record a promotion intent (user concept → departmental).
+
+    Phase 7 only records the intent in the promotions ledger; a review queue
+    UI lands in Phase 11 (spec §3.4).
+    """
+    from .concepts.promotions import record_promotion
+
+    session = _get_session(pid)
+    manifest = session.get_manifest()
+    if not manifest:
+        return Response(json.dumps({"error": "Sunum bulunamadı."}, ensure_ascii=False),
+                        status=404, mimetype="application/json")
+    user_concepts = manifest.get("user_concepts") or []
+    concept = next((c for c in user_concepts if c.get("id") == cid), None)
+    if concept is None:
+        return Response(json.dumps({"error": f"Kullanıcı kavramı '{cid}' bulunamadı."},
+                                   ensure_ascii=False),
+                        status=404, mimetype="application/json")
+
+    body = request.get_json(silent=True) or {}
+    target = (body.get("target_scope") or "dept:treasury").strip()
+    try:
+        import presentations as _pkg
+        from pathlib import Path as _Path
+        root = current_app.config.get("CONCEPT_CATALOG_ROOT") or \
+            (_Path(_pkg.__file__).parent / "catalog")
+        entry = record_promotion(
+            root, concept=concept, presentation_id=pid,
+            requested_by=getattr(current_user, "sicil", "unknown"),
+            target_scope=target,
+        )
+    except Exception as exc:
+        current_app.logger.exception("record_promotion failed")
+        return Response(json.dumps({"error": str(exc)}, ensure_ascii=False),
+                        status=500, mimetype="application/json")
+    return Response(json.dumps({"ok": True, "promotion": entry},
+                               ensure_ascii=False, default=str),
+                    mimetype="application/json")
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
