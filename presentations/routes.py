@@ -1197,6 +1197,30 @@ def refresh_block_data(pid: str, bid: str):
         mimetype="application/json",
     )
  
+# The manifest renderer's block-type vocabulary (pie_chart, area_chart,
+# heatmap, radial_bar, data_table, ...) is broader than the Phase 6.5 Block
+# schema's VizType literal. When we hydrate a throwaway stand-in Block for the
+# resolver / binder / cache, its viz type is irrelevant to resolution — coerce
+# the manifest type to a schema-valid VizType so e.g. pie_chart blocks don't
+# fail Block validation here (the bug behind apply-filters' "block_schema"
+# errors on pie/area/heatmap/radial/table blocks).
+_STANDIN_VIZ_TYPE = {
+    "kpi": "kpi",
+    "bar_chart": "bar_chart",
+    "line_chart": "line_chart",
+    "area_chart": "line_chart",
+    "pie_chart": "pie",
+    "heatmap": "table",
+    "radial_bar": "kpi",
+    "data_table": "table",
+}
+
+
+def _standin_viz_type(manifest_type: str | None) -> str:
+    """Map a manifest block type → a valid Phase 6.5 VizType (default 'table')."""
+    return _STANDIN_VIZ_TYPE.get(manifest_type or "", "table")
+
+
 @presentations_bp.route("/<pid>/block/<bid>/run-manual", methods=["POST"])
 @login_required
 def run_block_manual(pid: str, bid: str):
@@ -1374,7 +1398,7 @@ def run_block_manual(pid: str, bid: str):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "query": query,
             "variables": [v.model_dump() for v in var_models],
-            "visualization": {"type": block.get("type", "kpi"), "config": {}},
+            "visualization": {"type": _standin_viz_type(block.get("type")), "config": {}},
         })
     except Exception as exc:
         return Response(
@@ -1635,7 +1659,7 @@ def apply_dashboard_filters(pid: str):
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "query": query,
                 "variables": [v.model_dump() for v in var_models],
-                "visualization": {"type": block.get("type", "kpi"), "config": {}},
+                "visualization": {"type": _standin_viz_type(block.get("type")), "config": {}},
             })
         except Exception as exc:
             results.append({"id": block["id"], "status": "error",
