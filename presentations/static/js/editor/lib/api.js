@@ -506,3 +506,69 @@ export async function fetchTableConcepts(tableId) {
     return { columns: {} };
   }
 }
+
+
+function _splitTableId(tableId) {
+  const dot = String(tableId || '').indexOf('.');
+  if (dot < 0) return null;
+  return { schema: tableId.slice(0, dot), table: tableId.slice(dot + 1) };
+}
+
+
+/**
+ * Phase 7.c — binding inference review queue for a table.
+ *
+ * Runs the deterministic stages (+ an LLM fallback for unmatched columns), so
+ * it can take a beat — call it lazily, not on every panel open. Returns
+ * `[{ column, dtype, proposals: [{concept, transform, confidence, score,
+ * rationale, stage}] }]` for columns that aren't already human_verified-bound.
+ */
+export async function fetchBindingQueue(tableId) {
+  const st = _splitTableId(tableId);
+  if (!st) return [];
+  const resp = await fetch(
+    `${PRES_BASE}/concepts/review/api/queue`
+      + `?schema=${encodeURIComponent(st.schema)}&table=${encodeURIComponent(st.table)}`,
+    { headers: { Accept: 'application/json' }, cache: 'no-store' },
+  );
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(body.error || `Tarama başarısız (${resp.status})`);
+  return Array.isArray(body.queue) ? body.queue : [];
+}
+
+
+/**
+ * Phase 7.c — approve proposals → human_verified bindings in the table YAML.
+ * `bindings` is `[{column, concept, transform}]`. The server reloads the
+ * catalog so the compiler picks them up without a restart.
+ */
+export async function approveBindings(tableId, bindings) {
+  const st = _splitTableId(tableId);
+  if (!st) throw new Error('Geçersiz tablo: ' + tableId);
+  const resp = await fetch(`${PRES_BASE}/concepts/review/api/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schema: st.schema, table: st.table, bindings }),
+  });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok || !body.ok) throw new Error(body.error || `Onay başarısız (${resp.status})`);
+  return body;  // {ok, written, schema, table}
+}
+
+
+/**
+ * Phase 7.c — persist (column, concept) rejections so they don't resurface.
+ * `items` is `[{column, concept}]`.
+ */
+export async function rejectBindings(tableId, items) {
+  const st = _splitTableId(tableId);
+  if (!st) throw new Error('Geçersiz tablo: ' + tableId);
+  const resp = await fetch(`${PRES_BASE}/concepts/review/api/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schema: st.schema, table: st.table, items }),
+  });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok || !body.ok) throw new Error(body.error || `Reddetme başarısız (${resp.status})`);
+  return body;  // {ok, rejected}
+}
