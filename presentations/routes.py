@@ -1590,7 +1590,10 @@ def apply_dashboard_filters(pid: str):
         # (Phase 6.5) OR are concept-native (source_tables + active concept
         # filters, Phase 7). Concept-native blocks have no `variables`, so the
         # old `not variables_raw → skip` guard wrongly dropped them.
-        query = block.get("query") or ""
+        # SQL may live on block.query (Phase 6.5/7 shape) OR on
+        # data_source.original_sql (legacy LLM shape) — read both so concept
+        # filtering reaches legacy-shaped blocks too.
+        query = block.get("query") or (block.get("data_source") or {}).get("original_sql") or ""
         variables_raw = block.get("variables") or []
         concept_eligible = bool(resolved_concept_filters) and bool(_derive_st(block))
         if not query or (not variables_raw and not concept_eligible):
