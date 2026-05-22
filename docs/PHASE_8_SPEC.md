@@ -414,6 +414,13 @@ Stage 2 LLM's prompt and output contract are designed to extend naturally in Pha
 
 ## 6. UI Surfaces
 
+> **⚠️ Revised 2026-05-22 — §6.1, §6.4, §6.5, §6.6 below are SUPERSEDED by [§6R](#6r-hazırlık--revised-design-react-flow-er-editor).**
+> The Hazırlık screen is now a **React Flow / ChartDB-style ER editor** (table
+> nodes with column rows, column-to-column join edges) instead of the
+> form-based card list. The **routing badge (§6.2)** and the **Sunum scope
+> banner (§6.3)** carry over unchanged. Filters are no longer a standalone
+> section — filtering happens per-column in the node/preview (§6R).
+
 ### 6.1 Hazırlık main screen layout
 
 Route: `/atolye/hazirlik/<presentation_id>`. Standalone screen, not nested in Sunum.
@@ -506,6 +513,113 @@ Phase 9 will provide the proper Stage 1 catalog browser. For Phase 8, "Add table
 - Confirm → table added to basket with `cached` decision (system-decided).
 
 This is intentionally minimal; the polished UX lives in Phase 9.
+
+---
+
+## 6R. Hazırlık — Revised Design (React Flow ER editor)
+
+Supersedes §6.1/§6.4/§6.5/§6.6. The Hazırlık screen becomes a visual
+**ER/join editor** — inspired by ChartDB's UX, built fresh on **React Flow
+(`@xyflow/react`, MIT)**. Tables are nodes with their columns listed inside;
+relationships are **column-to-column edges** which *are* the joins. Everything
+the user does here (filters, joins, calculated columns) is the raw material the
+Sunum block author / LLM uses to write queries.
+
+### 6R.1 Layout (mirrors Sunum)
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│ Hazırlık · <başlık>                              [Sunum'a geç →]│
+├──────────────┬────────────────────────────────────────────────┤
+│ SEPET        │   ER CANVAS (React Flow)                         │
+│ • positions  │   nodes = basket tables (column rows inside)     │
+│ • branch_dim │   edges = joins (column→column)                  │
+│ [+ Tablo]    │   auto edges: catalog lookup / shared concept    │
+│ ───────────  │   manual: drag column-handle → column-handle     │
+│ CHAT (Stage2)├────────────────────────────────────────────────┤
+│ [mesaj…]     │  ÖNİZLEME (drawer): <table> sample rows          │
+└──────────────┴────────────────────────────────────────────────┘
+```
+
+Left column: basket list + Stage-2 chat panel (chat UI is scaffolded here; LLM
+wiring is §8.f). Right: React Flow canvas (top) + collapsible preview drawer
+(bottom). Node positions are persisted so the diagram is stable across reloads.
+
+### 6R.2 Table node
+
+A custom React Flow node renders as a card:
+- **Header:** `alias` · `SCHEMA.TABLE` · routing badge (§6.2, read-only).
+- **Column rows:** `name` · type · **concept badge** (color-coded; "—" if
+  unbound) · PK/FK marker. Each row has left + right **connection handles**.
+- Clicking a column row opens the **filter popover** (§6R.4).
+
+### 6R.3 Join edges
+
+- An edge connects a **source column handle** to a **target column handle** →
+  this is a join on those two columns (e.g. `positions.BRANCH_ID →
+  branch_dim.BRANCH_ID`). The visual connection *is* the key selection.
+- **Auto edges** are drawn on load from (a) table-doc `lookup` declarations and
+  (b) two basket tables sharing a Phase-7 concept on a column.
+- **Manual edges**: the user drags one column handle to another. A small edge
+  menu sets the **kind** (`lookup` | `inner` | `left`).
+- Each edge maps to a `joins[]` entry (`left/right = {alias, column}`, `kind`).
+
+### 6R.4 Per-column filtering (replaces the filters section)
+
+Clicking a column opens a popover:
+- **Concept-bound column** → a **concept filter** (op + values per concept
+  type). Stored under `filters.pinned[]` with the column's `concept`.
+- **Non-concept column** → a **raw filter** (`{column, op, value}`), stored
+  under the new `filters.raw[]` (see §6R.7). No concept involved.
+
+All filters authored here are **fetch-time / pinned**: they (a) shrink the
+cached table via a pushed-down `WHERE` at fetch, and (b) are exported to Sunum
+as the `{{concept_filters}}` seed (concept filters) — the contract in §6R.8.
+The **interactive (dashboard-widget) filter layer is not authored in Hazırlık**
+anymore; the `filters.interactive[]` field remains for back-compat but Hazırlık
+leaves it empty.
+
+### 6R.5 Add columns (join-sourced projection)
+
+"Power BI add columns" = pull columns from a related table:
+1. The user draws a column→column edge (the join, §6R.3) — or one already
+   exists.
+2. A popover lists the joined table's columns; the user ticks which to bring.
+3. Those become **join-sourced projection columns** on the owning alias
+   (see §6R.7), available to Sunum query authors as if local.
+
+### 6R.6 Add table & chat
+
+- **Add table** (interim) unchanged from §6.6: catalog search → add node.
+- **Chat panel** (left, bottom): Stage-2 scope-refinement chat. UI scaffolded
+  in this redesign; suggestion → apply wiring is §8.f.
+
+### 6R.7 Data-model deltas (extends §2.1)
+
+- **`filters.raw[]`** — non-concept, column-level filters:
+  `{ id: rf_*, alias, column, op, values|value|from/to }`. Validated against the
+  table's projected columns; applied as fetch-time `WHERE`.
+- **`basket[].projection.derived[]`** *(deferred — calc columns, future
+  sub-phase)* — `{ name, expr }` computed columns.
+- **`basket[].projection.joined[]`** — join-sourced columns:
+  `{ via_join: j_*, column, as? }` pulled from a related alias.
+- **`basket[].layout`** — `{ x, y }` React Flow node position (UI persistence).
+- **`filters.interactive[]`** stays in the schema (back-compat) but is no longer
+  authored by Hazırlık.
+
+### 6R.8 Hazırlık → Sunum contract
+
+When Sunum opens with a `scope_ref`, the scope exposes to the block author / LLM:
+- the **alias list** and, per alias, its **available columns** = projection
+  columns + join-sourced columns + (future) derived columns;
+- the **join graph** (`joins[]`) so multi-table queries know how to relate
+  aliases;
+- the **`{{concept_filters}}` injection** (Phase 7 sentinel) carrying the
+  concept filters authored here, plus raw filters pushed into the cached views
+  at fetch (so even a naïve `SELECT * FROM alias` is already scoped).
+
+This contract is the whole point of Hazırlık: the diagram + filters are not
+decoration, they are the inputs the Sunum query layer consumes.
 
 ---
 
