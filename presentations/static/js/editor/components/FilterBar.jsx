@@ -144,11 +144,47 @@ function FilterWidget({ filter, value, onChange, editable, onRemove }) {
 }
 
 
-function _asIsoDate(v) {
-  if (!v) return '';
-  if (typeof v === 'string') return v.length >= 10 ? v.slice(0, 10) : v;
-  // Hopefully date-shaped already.
-  return String(v);
+function _pad2(n) { return String(n).padStart(2, '0'); }
+function _toIsoDate(d) {
+  return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`;
+}
+
+/**
+ * Resolve a stored filter value (ISO date OR relative expr like "today",
+ * "today - 30d", "start_of_month") to a yyyy-MM-dd string for the native
+ * <input type="date">. Mirrors the backend parse_date_expr
+ * (presentations/variables/resolver.py) so the shown date matches what the
+ * server actually filters on. Returns '' when unparseable, so the input
+ * renders empty instead of throwing the HTML5 "must be yyyy-MM-dd" error.
+ */
+function _resolveDateExpr(v) {
+  if (!v || typeof v !== 'string') return '';
+  const s = v.trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);   // ISO (date or datetime)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const rel = s.match(/^today(?:\s*-\s*(\d+)\s*([dwmy]))?$/i);
+  if (rel) {
+    if (!rel[1]) return _toIsoDate(today);
+    const n = parseInt(rel[1], 10);
+    const u = rel[2].toLowerCase();
+    const d = new Date(today);
+    if (u === 'd') d.setDate(d.getDate() - n);
+    else if (u === 'w') d.setDate(d.getDate() - n * 7);
+    else if (u === 'm') d.setMonth(d.getMonth() - n);
+    else if (u === 'y') d.setFullYear(d.getFullYear() - n);
+    return _toIsoDate(d);
+  }
+  const anchor = s.match(/^start_of_(month|year|quarter)$/i);
+  if (anchor) {
+    const a = anchor[1].toLowerCase();
+    const d = new Date(today);
+    if (a === 'month') d.setDate(1);
+    else if (a === 'year') { d.setMonth(0); d.setDate(1); }
+    else { d.setMonth(Math.floor(d.getMonth() / 3) * 3); d.setDate(1); }
+    return _toIsoDate(d);
+  }
+  return '';   // unparseable → empty input (no console error)
 }
 
 
@@ -158,13 +194,13 @@ function DateRangeWidget({ value, onChange }) {
     <div className="filter-widget__date-range">
       <input
         type="date"
-        value={_asIsoDate(v.from)}
+        value={_resolveDateExpr(v.from)}
         onChange={(e) => onChange({ ...v, from: e.target.value })}
       />
       <span className="filter-widget__date-sep">→</span>
       <input
         type="date"
-        value={_asIsoDate(v.to)}
+        value={_resolveDateExpr(v.to)}
         onChange={(e) => onChange({ ...v, to: e.target.value })}
       />
     </div>

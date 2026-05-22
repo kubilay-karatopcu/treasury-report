@@ -32,6 +32,7 @@ from presentations.concepts.compiler import (
     CompiledPredicate,
     compile_filters,
 )
+from presentations.variables.resolver import parse_date_expr
 
 
 SENTINEL = "{{concept_filters}}"
@@ -294,14 +295,26 @@ def dashboard_filters_to_resolved(
             continue
         ftype = f.get("type")
         if ftype == "date_range":
+            # Resolve relative exprs ("today", "today - 30d") → concrete dates
+            # here, at the boundary. The compiler stays pure/deterministic
+            # (§10.3) and Oracle never sees a literal "today" bind. Mirrors the
+            # variable path (dashboards/binding.py).
             if isinstance(val, dict) and "from" in val and "to" in val:
-                out.append(ResolvedFilter(concept, "between",
-                                          [val["from"], val["to"]], fid))
+                try:
+                    frm = parse_date_expr(val["from"])
+                    to = parse_date_expr(val["to"])
+                except (ValueError, TypeError):
+                    continue   # unparseable bound → skip (don't crash apply)
+                out.append(ResolvedFilter(concept, "between", [frm, to], fid))
         elif ftype in ("enum_multi", "enum_single"):
             vals = val if isinstance(val, list) else [val]
             out.append(ResolvedFilter(concept, "in", list(vals), fid))
         elif ftype == "date":
-            out.append(ResolvedFilter(concept, "eq", [val], fid))
+            try:
+                d = parse_date_expr(val)
+            except (ValueError, TypeError):
+                continue
+            out.append(ResolvedFilter(concept, "eq", [d], fid))
         # number_range: deferred (no numeric concept transform in v0).
     return out
 
