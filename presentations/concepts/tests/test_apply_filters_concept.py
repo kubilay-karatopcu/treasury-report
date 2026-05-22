@@ -142,3 +142,34 @@ def test_corp_translates_to_corporate():
     _post(client, "p1", {"f_segment": ["CORP"]})
     # canonical CORP → table value CORPORATE via the map binding.
     assert "CORPORATE" in dc.calls[-1]["params"].values()
+
+
+def _legacy_manifest():
+    # The shape gpt-4o-mini actually produced: SQL on data_source.original_sql,
+    # no `query`, no `source_tables`, no `variables`.
+    return {
+        "id": "p1", "version": 1,
+        "filters": [{"id": "f_segment", "semantic_tag": "segment",
+                     "type": "enum_multi", "label": "Segment",
+                     "allowed_values": ["RETAIL", "SME", "CORP", "PRIVATE"]}],
+        "blocks": [{
+            "id": "sec", "type": "section_header", "title": "x", "children": [{
+                "id": "b_seg", "type": "bar_chart", "title": "Segment",
+                "data_source": {"original_sql": "SELECT SEGMENT, SUM(BALANCE_TRY)/1e9 AS total FROM EDW.DEPOSITS_DAILY GROUP BY SEGMENT"},
+                "config": {"categories": [], "series": [{"name": "T", "values": []}]},
+            }],
+        }],
+    }
+
+
+def test_legacy_data_source_shape_is_processed():
+    """SQL on data_source.original_sql (no `query`) must still get concept
+    filtering — the exact case that returned blocks: [] before the fix."""
+    dc = _RecordingDC()
+    client = _make_app(_legacy_manifest(), dc).test_client()
+    resp = _post(client, "p1", {"f_segment": ["RETAIL", "SME"]})
+    body = resp.get_json()
+    assert len(body["blocks"]) == 1
+    assert body["blocks"][0]["concept_injected"] is True
+    sql = dc.calls[-1]["query"]
+    assert "SEGMENT IN" in sql and "GROUP BY SEGMENT" in sql
