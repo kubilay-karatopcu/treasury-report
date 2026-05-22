@@ -472,8 +472,11 @@ function AddFilterModal({ onClose }) {
 
   function addProposal(prop) {
     setErr(null);
+    // Concept proposals (server) carry `id`; variable proposals carry
+    // `suggested_id`. Without this fallback the filter id is undefined and
+    // filter_state ends up keyed by `undefined`.
     const def = {
-      id: prop.suggested_id,
+      id: prop.id || prop.suggested_id,
       semantic_tag: prop.semantic_tag,
       type: prop.type,
       label: prop.label,

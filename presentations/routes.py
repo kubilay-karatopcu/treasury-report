@@ -1578,16 +1578,22 @@ def apply_dashboard_filters(pid: str):
     # sentinel) — merged into their result after the loop.
     concept_info: dict[str, dict] = {}
 
+    from .concepts.integration import derive_source_tables as _derive_st
+
     results: list[dict] = []
     touched = 0
 
     for block in iter_all_blocks(manifest):
         if block.get("type") == "section_header":
             continue
-        # Only data-bound blocks with variables participate.
+        # Data-bound blocks participate if they EITHER declare variables
+        # (Phase 6.5) OR are concept-native (source_tables + active concept
+        # filters, Phase 7). Concept-native blocks have no `variables`, so the
+        # old `not variables_raw → skip` guard wrongly dropped them.
         query = block.get("query") or ""
         variables_raw = block.get("variables") or []
-        if not query or not variables_raw:
+        concept_eligible = bool(resolved_concept_filters) and bool(_derive_st(block))
+        if not query or (not variables_raw and not concept_eligible):
             continue
 
         # Hydrate Pydantic Block stand-in for resolver / binder / cache.
@@ -1658,7 +1664,6 @@ def apply_dashboard_filters(pid: str):
         # the cache and fetch fresh (subset/incremental for concept-injected
         # blocks is backlog). Blocks that don't opt in fall through to the
         # unchanged Phase 6.5.c cache path below.
-        from .concepts.integration import derive_source_tables as _derive_st
         if resolved_concept_filters and reg_snapshot is not None \
                 and _derive_st(block):
             try:
