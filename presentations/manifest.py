@@ -341,6 +341,19 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
 
 
 def validate_manifest(manifest: dict) -> list[str]:
+    """Validate a presentation/dashboard manifest.
+
+    Optional top-level fields (all backwards-compatible — absence preserves
+    pre-existing behaviour):
+
+    - ``filters`` (Phase 6.5.c): list of dashboard filters.
+    - ``scope_ref`` (Phase 8.a): ``{presentation_id, scope_version}`` pointing
+      at a scope contract (``s3://.../scope_v<N>.yaml``). When present, Sunum
+      surfaces the scope's interactive filters and enforces its pinned filters
+      (see ``presentations/scope`` + ``nodes/validate_patch.py``). When absent,
+      the dashboard behaves exactly as in Phase 6.5/7: all filters interactive,
+      all tables cached.
+    """
     errors: list[str] = []
 
     if "meta" not in manifest:
@@ -378,6 +391,15 @@ def validate_manifest(manifest: dict) -> list[str]:
                 if df.id in seen_ids:
                     errors.append(f"filters[{i}]: duplicate id {df.id!r}")
                 seen_ids.add(df.id)
+
+    # ── Phase 8.a: optional scope_ref ─────────────────────────────────────
+    scope_ref = manifest.get("scope_ref")
+    if scope_ref is not None:
+        from presentations.scope.schema import ScopeRef
+        try:
+            ScopeRef.model_validate(scope_ref)
+        except Exception as exc:
+            errors.append(f"scope_ref: {exc}")
 
     return errors
 
