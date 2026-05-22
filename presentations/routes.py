@@ -1658,8 +1658,9 @@ def apply_dashboard_filters(pid: str):
         # the cache and fetch fresh (subset/incremental for concept-injected
         # blocks is backlog). Blocks that don't opt in fall through to the
         # unchanged Phase 6.5.c cache path below.
+        from .concepts.integration import derive_source_tables as _derive_st
         if resolved_concept_filters and reg_snapshot is not None \
-                and block.get("source_tables"):
+                and _derive_st(block):
             try:
                 _bound = expand_binds(stand_in, resolved)
                 inj = apply_concepts_to_block(
@@ -2381,6 +2382,7 @@ def concept_filter_suggestions(pid: str):
     """
     from .manifest import iter_all_blocks
     from .concepts.user_scope import build_effective_registry
+    from .concepts.integration import derive_source_tables
 
     session = _get_session(pid)
     manifest = session.get_manifest() or {}
@@ -2399,12 +2401,8 @@ def concept_filter_suggestions(pid: str):
     block_count: dict[str, int] = {}
 
     for block in iter_all_blocks(manifest):
-        for st in (block.get("source_tables") or []):
-            if not isinstance(st, dict):
-                continue
-            schema, table = st.get("schema"), st.get("table")
-            if not schema or not table:
-                continue
+        # Explicit source_tables, else derived from the block's FROM clause.
+        for (schema, table) in derive_source_tables(block):
             for b in cat.get_bindings(schema, table):   # human_verified only
                 cid = b.concept
                 block_count[cid] = block_count.get(cid, 0) + 1

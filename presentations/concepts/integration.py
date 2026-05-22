@@ -21,6 +21,7 @@ Blocks lacking either are byte-for-byte unaffected.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,6 +35,43 @@ from presentations.concepts.compiler import (
 
 
 SENTINEL = "{{concept_filters}}"
+
+# Schema-qualified table after FROM/JOIN (e.g. "FROM EDW.DEPOSITS_DAILY t").
+# Used only as a fallback to derive source_tables when the block (LLM or
+# user) didn't declare them explicitly — reliable for the common single-table
+# case; explicit source_tables always wins.
+_FROM_JOIN_RE = re.compile(
+    r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_$#]*)\.([A-Za-z_][A-Za-z0-9_$#]*)",
+    re.IGNORECASE,
+)
+
+
+def derive_source_tables(block: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return ``[(SCHEMA, TABLE), ...]`` for a block.
+
+    Prefers the explicit ``source_tables`` field (LLM-authored / future
+    scope contract). Falls back to parsing schema-qualified tables from the
+    block's SQL ``FROM`` / ``JOIN`` clauses so concept filters still reach
+    blocks whose author omitted the field. All identifiers upper-cased to
+    match the catalog keys.
+    """
+    explicit = block.get("source_tables")
+    if explicit:
+        out: list[tuple[str, str]] = []
+        for t in explicit:
+            if isinstance(t, dict) and t.get("schema") and t.get("table"):
+                out.append((str(t["schema"]).upper(), str(t["table"]).upper()))
+        if out:
+            return out
+    sql = block.get("query") or (block.get("data_source") or {}).get("original_sql") or ""
+    seen: set[tuple[str, str]] = set()
+    out = []
+    for m in _FROM_JOIN_RE.finditer(sql):
+        key = (m.group(1).upper(), m.group(2).upper())
+        if key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
 
 
 def strip_concept_sentinel(sql: str) -> str:
@@ -100,11 +138,8 @@ def dashboard_filters_to_resolved(
 
 
 def _block_tables(block: dict[str, Any]) -> list[tuple[str, str]]:
-    out: list[tuple[str, str]] = []
-    for t in block.get("source_tables") or []:
-        if isinstance(t, dict) and t.get("schema") and t.get("table"):
-            out.append((t["schema"], t["table"]))
-    return out
+    # Explicit source_tables, else FROM-clause fallback (§ derive_source_tables).
+    return derive_source_tables(block)
 
 
 def apply_concepts_to_block(
