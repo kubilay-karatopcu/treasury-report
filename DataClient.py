@@ -833,24 +833,34 @@ class DataClient:
             data = self.load_latest_parquet_to_pandas(dataset=dataset, base_prefix=base_prefix)
         else:
             if query is not None:
-                with open(f"{query}", "r") as sql:
-                    query_string = sql.read()
-    
+                # query, ya bir .sql dosya yolu (legacy TRP pattern) ya da
+                # ham SQL string olabilir (LLM-driven block pipeline).
+                try:
+                    is_path = os.path.isfile(query)
+                except (OSError, ValueError, TypeError):
+                    is_path = False
+
+                if is_path:
+                    with open(query, "r") as sql:
+                        query_string = sql.read()
+                else:
+                    query_string = query
+
                 conn = self.get_connection()
                 cur = conn.cursor()
                 cur.execute(query_string, query_params or {})
-    
+
                 colnames = [d[0] for d in cur.description]
                 all_rows = []
-    
+
                 while True:
                     rows = cur.fetchmany(chunk_rows)
                     if not rows:
                         break
                     all_rows.extend(rows)
-    
+
                 data = pd.DataFrame.from_records(all_rows, columns=colnames)
             else:
                 raise Exception("Query path is None or wrong!")
-    
-        return data  
+
+        return data

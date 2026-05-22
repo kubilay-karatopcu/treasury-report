@@ -372,7 +372,19 @@ def execute_block_sqls(state):
                         })
 
     if extra_patches:
-        state.pending_patches.extend(extra_patches)
+        # Extra patch'leri eklemeden önce final apply'ı dry-run et — paths
+        # geçersizse kullanıcıya retry için anlamlı hata ver, çökme.
+        from presentations.patch import apply_patches
+        candidate = list(state.pending_patches) + extra_patches
+        try:
+            apply_patches(state.manifest, candidate)
+            state.pending_patches.extend(extra_patches)
+        except Exception as exc:
+            log.warning("execute_block_sqls: extra_patches dry-run failed: %s", exc)
+            errors.append(
+                f"execute sonrası eklenen patch'ler invalid: {exc!r}. "
+                "Genelde önceki patch'ler manifest'i kaydırdığı için path'ler artık geçersiz."
+            )
 
     if errors:
         state.validation_errors = (state.validation_errors or []) + errors
