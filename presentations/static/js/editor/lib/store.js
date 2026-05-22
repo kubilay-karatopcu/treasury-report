@@ -736,6 +736,27 @@ const useStore = create((set) => ({
     set({ filterState: initial });
   },
 
+  // Non-destructive: seed defaults ONLY for filters not already in
+  // filterState. Used after a chat turn that seeded a new dashboard filter
+  // (Phase 7) so the new filter's default value populates the widget +
+  // flows to the backend, without clobbering the user's existing selections.
+  // Returns true if anything was added.
+  hydrateFilterDefaults: () => {
+    const state = useStore.getState();
+    const m = state.manifest;
+    if (!m) return false;
+    const next = { ...state.filterState };
+    let changed = false;
+    for (const f of (m.filters || [])) {
+      if (!(f.id in next) && f.default != null) {
+        next[f.id] = f.default;
+        changed = true;
+      }
+    }
+    if (changed) set({ filterState: next });
+    return changed;
+  },
+
   addDashboardFilter: (filterDef) => {
     const state = useStore.getState();
     if (!state.manifest) return;

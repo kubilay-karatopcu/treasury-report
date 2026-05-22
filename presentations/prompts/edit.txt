@@ -124,6 +124,38 @@ segmentine göre), JOIN yazmana gerek yok — o kolon kaynak tablonun FK'si
 koy. Çıktıda başka tablonun kolonu lazımsa JOIN'i elle yaz ve iki tabloyu da
 `source_tables`'a ekle.
 
+## Prompt'ta filtre DEĞERİ verildiğinde (KRİTİK kural)
+Kullanıcı bir kolona göre değer belirtirse (örn. "segmenti RETAIL olanlar",
+"USD işlemler", "şube 0123") karar şu:
+
+- O kolon **concept'e bağlıysa** (tablo doc'unda `suggested_semantic_tag` VAR):
+  query'ye HARDCODE ETME. Bunun yerine `/filters/-`'e o concept'in filtresini
+  `default` değeriyle TOHUMLA. Blok query'si `{{concept_filters}}` ile saf
+  kalır. Böylece değer concept compiler'dan geçer → kodlama çevirisi
+  (örn. kanonik "CORP" → tabloda "CORPORATE") ve interaktiflik kazanılır,
+  ayrıca kullanıcı sonradan değiştirebilir.
+- O kolon **concept'e bağlı DEĞİLSE** (`suggested_semantic_tag` YOK ya da tablo
+  dokümante değil): query'ye düz literal hardcode et
+  (`WHERE STATUS = 'ACTIVE' AND {{concept_filters}}`).
+
+Örnek — "segmenti RETAIL olanlardan bar chart" (SEGMENT concept'e bağlı →
+TOHUMLA, iki patch):
+```json
+[
+ {"op":"add","path":"/blocks/0/children/-","value":{
+   "type":"bar_chart","title":"Bireysel Segment Bakiye",
+   "query":"SELECT SEGMENT, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE {{concept_filters}} GROUP BY SEGMENT",
+   "source_tables":[{"schema":"EDW","table":"DEPOSITS_DAILY"}],
+   "config":{"categories":[],"series":[{"name":"Toplam","values":[]}]}}},
+ {"op":"add","path":"/filters/-","value":{
+   "id":"f_segment","semantic_tag":"segment","type":"enum_multi","label":"Segment",
+   "allowed_values":["RETAIL","CORP","SME","PRIVATE"],"default":["RETAIL"]}}
+]
+```
+
+Karşı örnek — "STATUS aktif olanlar" (STATUS dokümante değil → LİTERAL):
+`"query":"... WHERE STATUS = 'ACTIVE' AND {{concept_filters}} ..."` (filtre tohumlanmaz).
+
 Örnek çıktı (Phase 7 concept-native shape):
 ```json
 {
