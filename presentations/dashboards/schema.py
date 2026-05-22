@@ -160,6 +160,11 @@ class VariableBinding(BaseModel):
     Exactly one of:
     - ``from_filter`` (+ optional ``accessor``): take the value from the named
       dashboard filter at run time.
+    - ``from_scope_filter`` (+ optional ``accessor``): Phase 8 — take the value
+      from a scope-contract filter. If that filter is *pinned*, the value is
+      immutable and ignores any dashboard widget state; if *interactive*, it
+      behaves like ``from_filter`` against the surfaced widget. The id refers
+      to a scope ``pf_*`` / ``if_*`` filter.
     - ``constant``: hard-code an expression (passed to ``parse_date_expr`` for
       dates, used as-is otherwise). Spec §5.4 — used for "this block always
       shows last 7d regardless of filter" patterns.
@@ -168,6 +173,7 @@ class VariableBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     from_filter: FilterId | None = None
+    from_scope_filter: str | None = None
     accessor: Literal["from", "to", "min", "max"] | None = None
     constant: Any | None = None
 
@@ -175,14 +181,18 @@ class VariableBinding(BaseModel):
     def _exactly_one_source(self) -> "VariableBinding":
         sources = sum([
             self.from_filter is not None,
+            self.from_scope_filter is not None,
             self.constant is not None,
         ])
         if sources != 1:
             raise ValueError(
-                "VariableBinding must set exactly one of from_filter or constant"
+                "VariableBinding must set exactly one of from_filter, "
+                "from_scope_filter or constant"
             )
-        if self.accessor is not None and self.from_filter is None:
+        if self.accessor is not None and (
+            self.from_filter is None and self.from_scope_filter is None
+        ):
             raise ValueError(
-                "accessor only makes sense with from_filter"
+                "accessor only makes sense with from_filter / from_scope_filter"
             )
         return self
