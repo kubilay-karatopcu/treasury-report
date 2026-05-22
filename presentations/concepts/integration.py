@@ -92,6 +92,136 @@ def _toplevel_matches(text: str, regex: "re.Pattern") -> list:
     return out
 
 
+# ── Auto-conceptualize a manual query ──────────────────────────────────────
+# Detect literal predicates on concept-bound columns in a user's WHERE and
+# lift them into dashboard concept filters, replacing them with the
+# {{concept_filters}} sentinel. Non-concept predicates (e.g. STATUS='ACTIVE')
+# stay hardcoded. v0 scope: top-level AND-separated `COL = '...'` / `COL IN
+# (...)` on identity/map concepts. OR-containing WHEREs, BETWEEN/time, and
+# lookup/bucket transforms are left untouched.
+
+_AND_RE = re.compile(r"\bAND\b", re.IGNORECASE)
+_OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
+_EQ_PRED_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_$#]*)\s*=\s*'([^']*)'\s*$")
+_IN_PRED_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_$#]*)\s+IN\s*\((.+)\)\s*$", re.IGNORECASE)
+_STR_LIT_RE = re.compile(r"'([^']*)'")
+
+
+def _split_top_and(text: str) -> list[str]:
+    parts, last = [], 0
+    for m in _AND_RE.finditer(text):
+        s = m.start()
+        if text.count("(", 0, s) - text.count(")", 0, s) == 0:
+            parts.append(text[last:s])
+            last = m.end()
+    parts.append(text[last:])
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _parse_predicate(conjunct: str) -> tuple[str | None, list[str]]:
+    """Return (column, [string literal values]) for `COL = '...'` / `COL IN
+    ('a','b')`, else (None, []). Only pure string-literal IN lists qualify
+    (rejects IN (subquery), numbers, etc.)."""
+    m = _EQ_PRED_RE.match(conjunct)
+    if m:
+        return m.group(1), [m.group(2)]
+    m = _IN_PRED_RE.match(conjunct)
+    if m:
+        col, inner = m.group(1), m.group(2)
+        vals = _STR_LIT_RE.findall(inner)
+        residue = _STR_LIT_RE.sub("", inner)        # strip the 'literals'
+        if vals and residue.replace(",", "").strip() == "":
+            return col, vals
+    return None, []
+
+
+def _reverse_translate(binding, table_values: list[str]) -> list[str] | None:
+    """Table literal(s) → canonical code(s). None if any value can't translate."""
+    kind = binding.transform.kind
+    if kind == "identity":
+        return list(table_values)              # table value IS the canonical token
+    if kind == "map":
+        pairs = binding.transform.pairs        # {table_value: canonical}
+        out = []
+        for v in table_values:
+            if v not in pairs:
+                return None
+            out.append(pairs[v])
+        return out
+    return None                                # bucket / lookup / time → don't convert
+
+
+def conceptualize_query(sql: str, schema: str, table: str, catalog, registry) -> dict:
+    """Lift concept-bound literal predicates out of ``sql`` into concept filters.
+
+    Returns ``{rewritten_sql, seeded_filters, converted, skipped}``:
+      - ``rewritten_sql``  : SQL with lifted predicates replaced by
+                             ``{{concept_filters}}`` (non-concept predicates kept).
+      - ``seeded_filters`` : dashboard filter defs (one per detected concept,
+                             default = the extracted canonical values).
+      - ``converted``      : ``[{column, concept, values}]`` for UI display.
+      - ``skipped``        : human-readable reasons anything was left as-is.
+    """
+    result = {"rewritten_sql": sql, "seeded_filters": [], "converted": [], "skipped": []}
+
+    where_m = _toplevel_matches(sql, _WHERE_RE)
+    if not where_m:
+        return result
+    head = sql[:where_m[0].start()]
+    rest = sql[where_m[0].end():]
+    trailing = _toplevel_matches(rest, _TRAILING_CLAUSE_RE)
+    cut = trailing[0].start() if trailing else len(rest)
+    where_text, tail = rest[:cut], rest[cut:]
+
+    if [m for m in _OR_RE.finditer(where_text)
+        if where_text.count("(", 0, m.start()) - where_text.count(")", 0, m.start()) == 0]:
+        result["skipped"].append("WHERE'de OR var — güvenlik için concept'e çevrilmedi")
+        return result
+
+    bindings = {b.column.upper(): b for b in catalog.get_bindings(schema, table)}
+
+    kept: list[str] = []
+    by_concept: dict[str, list[str]] = {}
+    for cj in _split_top_and(where_text):
+        if cj == SENTINEL or re.match(r"^1\s*=\s*1$", cj):
+            continue
+        col, vals = _parse_predicate(cj)
+        binding = bindings.get(col.upper()) if col else None
+        if binding is None:
+            kept.append(cj)
+            continue
+        canon = _reverse_translate(binding, vals)
+        if canon is None:
+            kept.append(cj)
+            result["skipped"].append(f"{col}: değer concept'e çevrilemedi, hardcoded kaldı")
+            continue
+        bucket = by_concept.setdefault(binding.concept, [])
+        for c in canon:
+            if c not in bucket:
+                bucket.append(c)
+        result["converted"].append({"column": col, "concept": binding.concept, "values": canon})
+
+    if not by_concept:
+        return result
+
+    new_where = " AND ".join(kept + [SENTINEL])
+    result["rewritten_sql"] = (head.rstrip() + " WHERE " + new_where
+                               + (" " + tail.strip() if tail.strip() else "")).strip()
+
+    for concept_id, canon_vals in by_concept.items():
+        c = registry.get(concept_id)
+        codes = [cv.code for cv in c.canonical_values] if c and c.canonical_values else list(canon_vals)
+        result["seeded_filters"].append({
+            "id": "f_" + concept_id,
+            "semantic_tag": concept_id,
+            "type": "enum_multi",
+            "label": c.name if c else concept_id,
+            "allowed_values": codes,
+            "default": list(canon_vals),
+        })
+    return result
+
+
 def inject_where_predicate(sql: str, predicate: str) -> str:
     """Append ``predicate`` to a single-SELECT query's WHERE without a sentinel.
 
