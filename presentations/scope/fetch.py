@@ -70,16 +70,59 @@ def _partition_pushdown(
     return "", {}
 
 
+def _raw_predicates(scope: ScopeContract, item: BasketItem) -> tuple[list[str], dict[str, Any]]:
+    """Fetch-time WHERE clauses for the alias's raw (non-concept) filters (§6R.4).
+    Parameterised binds only — values are never concatenated into SQL."""
+    clauses: list[str] = []
+    binds: dict[str, Any] = {}
+    for i, rf in enumerate(scope.raw_filters_for_alias(item.alias)):
+        col = rf.column
+        if rf.op in ("in", "not_in") and rf.values:
+            names = []
+            for j, v in enumerate(rf.values):
+                b = f"{item.alias}_rf{i}_{j}"
+                binds[b] = v
+                names.append(f":{b}")
+            op = "IN" if rf.op == "in" else "NOT IN"
+            clauses.append(f"{col} {op} ({', '.join(names)})")
+        elif rf.op == "between" and rf.from_ is not None and rf.to is not None:
+            bf, bt = f"{item.alias}_rf{i}_f", f"{item.alias}_rf{i}_t"
+            binds[bf] = _as_date(rf.from_) or rf.from_
+            binds[bt] = _as_date(rf.to) or rf.to
+            clauses.append(f"{col} BETWEEN :{bf} AND :{bt}")
+        elif rf.op == "eq" and rf.value is not None:
+            b = f"{item.alias}_rf{i}"
+            binds[b] = rf.value
+            clauses.append(f"{col} = :{b}")
+    return clauses, binds
+
+
 def compose_cached_sql(
     scope: ScopeContract, item: BasketItem, catalog: Catalog | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Compose the projected Oracle SELECT (+ optional partition pushdown) for a
-    cached basket table. Returns (sql, binds)."""
+    """Compose the projected Oracle SELECT for a cached basket table, shrinking
+    it with fetch-time WHERE clauses: a partition date-range pushdown (if a
+    pinned ``between`` targets the partition column) plus the alias's raw
+    filters (§6R.4). Returns (sql, binds).
+
+    Full concept-filter pushdown (non-date pinned concept filters via the
+    Phase 7 compiler) remains 8.d; those filters are still enforced downstream
+    and exported as ``{{concept_filters}}``."""
     proj = item.projection
     cols = "*" if (proj.include_all or not proj.columns) else ", ".join(proj.columns)
     table = f"{item.table_ref.schema_name}.{item.table_ref.name}"
-    where, binds = _partition_pushdown(scope, item, catalog)
-    where_sql = f" WHERE {where}" if where else ""
+
+    where_parts: list[str] = []
+    binds: dict[str, Any] = {}
+    pw, pb = _partition_pushdown(scope, item, catalog)
+    if pw:
+        where_parts.append(pw)
+        binds.update(pb)
+    rw, rb = _raw_predicates(scope, item)
+    where_parts.extend(rw)
+    binds.update(rb)
+
+    where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
     return f"SELECT {cols} FROM {table}{where_sql}", binds
 
 
