@@ -16,7 +16,8 @@ import re
 # concept_id → list of regex patterns matched against the UPPER-cased column name.
 REGEX_HINTS: dict[str, list[str]] = {
     "currency":        [r"^CCY$", r"^CURRENCY$", r"^CUR_CODE$", r"^CURRENCY_CODE$", r".*_CCY$", r"^PARA_BIRIMI$"],
-    "as_of_time":      [r"^AS_OF_DATE$", r"^ASOF_DATE$", r"^SNAPSHOT_DATE$", r"^REPORT_DATE$", r"^POZISYON_TARIHI$"],
+    "as_of_time":      [r"^AS_OF_DATE$", r"^ASOF_DATE$", r"^SNAPSHOT_DATE$", r"^REPORT_DATE$",
+                        r"^POZISYON_TARIHI$", r"^DATE$", r"^TARIH$", r"^GUN_SONU.*", r"^EOD_DATE$"],
     "trade_time":      [r"^TRADE_DATE$", r"^DEAL_DATE$", r"^BOOKING_DATE$", r"^ISLEM_TARIHI$"],
     "value_time":      [r"^VALUE_DATE$", r"^VALOR$", r"^VALOR_DATE$", r"^VALOR_TARIHI$"],
     "settle_time":     [r"^SETTLE_DATE$", r"^SETTLEMENT_DATE$", r"^TAKAS_TARIHI$"],
