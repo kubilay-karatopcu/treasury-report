@@ -27,6 +27,7 @@ from deposit_panel import deposit_panel_bp, init_app as deposit_panel_init
 from presentations import presentations_bp
 from presentations.session import SessionRegistry
 from presentations.store import S3SnapshotStore, S3DashboardStore, S3LibraryStore
+from presentations.scope.store import S3ScopeStore
 from presentations.blocks.store import S3BlockStore, LocalBlockStore
 from presentations.table_docs.store import (
     S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
@@ -460,6 +461,7 @@ app.config["SESSION_REGISTRY"] = SessionRegistry(
 if DEV_MODE:
     from presentations.llm import FakeLLM
     from presentations.store import LocalSnapshotStore, LocalDashboardStore, LocalLibraryStore
+    from presentations.scope.store import LocalScopeStore
 
     _openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if _openai_key:
@@ -480,6 +482,7 @@ if DEV_MODE:
     app.config["DASHBOARD_STORE"] = LocalDashboardStore(base_dir=_DUCK_BASE_DIR / "dashboards")
     app.config["LIBRARY_STORE"]   = LocalLibraryStore(base_dir=_DUCK_BASE_DIR / "library")
     app.config["BLOCK_STORE"]     = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
+    app.config["SCOPE_STORE"]     = LocalScopeStore(base_dir=_DUCK_BASE_DIR / "scopes")
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
         LocalTableDocStore(base_dir=Path(__file__).parent / "examples" / "table_docs")
     )
@@ -498,12 +501,21 @@ else:
     app.config["DASHBOARD_STORE"] = S3DashboardStore(dc=dc)
     app.config["LIBRARY_STORE"]   = S3LibraryStore(dc=dc)
     app.config["BLOCK_STORE"]     = S3BlockStore(dc=dc)
+    app.config["SCOPE_STORE"]     = S3ScopeStore(dc=dc)
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(S3TableDocStore(dc=dc))
 
  
 app.config["S3_GET"]    = _s3_get
 app.config["S3_PUT"]    = _s3_put
 app.config["S3_DELETE"] = _s3_delete
+
+# Phase 8.a — routing override ceiling. A user may force a system-decided
+# `lazy` table to `cached`, but never above this size (DuckDB would thrash).
+# See presentations/scope/routing.py::apply_user_override.
+from presentations.scope.routing import DEFAULT_HARD_CEILING_BYTES as _ROUTING_CEILING
+app.config["PRESENTATIONS_ROUTING_HARD_CEILING_BYTES"] = int(
+    os.environ.get("PRESENTATIONS_ROUTING_HARD_CEILING_BYTES", _ROUTING_CEILING)
+)
 
 
 # ── Phase 7.a — concept registry ──────────────────────────────────────────

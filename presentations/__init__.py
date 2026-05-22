@@ -10,3 +10,4 @@ presentations_bp = Blueprint(
 from presentations import routes  # noqa: E402, F401
 from presentations import routes_blocks  # noqa: E402, F401
 from presentations import routes_concepts  # noqa: E402, F401
+from presentations import routes_scope  # noqa: E402, F401  (Phase 8.a — temporary)
