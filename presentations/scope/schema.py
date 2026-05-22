@@ -63,6 +63,9 @@ InteractiveFilterId = Annotated[
 JoinId = Annotated[
     str, StringConstraints(min_length=3, max_length=60, pattern=_JOIN_ID_RE.pattern)
 ]
+RawFilterId = Annotated[
+    str, StringConstraints(min_length=4, max_length=60, pattern=r"^rf_[a-z0-9_-]+$")
+]
 OracleIdentifier = Annotated[
     str,
     StringConstraints(min_length=1, max_length=128, pattern=_ORACLE_IDENT_RE.pattern),
@@ -81,6 +84,25 @@ class TableRef(BaseModel):
     name: OracleIdentifier
 
 
+class JoinedColumn(BaseModel):
+    """A column pulled from a related alias via a confirmed join (§6R.5)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    via_join: JoinId
+    column: str = Field(min_length=1, max_length=128)
+    as_: str | None = Field(default=None, alias="as", max_length=128)
+
+
+class DerivedColumn(BaseModel):
+    """A calculated column. Authoring is deferred (§6R.7); schema-only for now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    expr: str = Field(min_length=1)
+
+
 class Projection(BaseModel):
     """Which columns of the table are pulled into scope."""
 
@@ -88,6 +110,8 @@ class Projection(BaseModel):
 
     columns: list[str] = Field(default_factory=list)
     include_all: bool = False
+    joined: list[JoinedColumn] = Field(default_factory=list)
+    derived: list[DerivedColumn] = Field(default_factory=list)
 
     @field_validator("columns")
     @classmethod
@@ -116,6 +140,15 @@ class Routing(BaseModel):
     threshold_bytes: int | None = None
 
 
+class NodePosition(BaseModel):
+    """React Flow node position on the ER canvas (UI persistence, §6R.7)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    x: float
+    y: float
+
+
 class BasketItem(BaseModel):
     """One table in the scope basket."""
 
@@ -125,6 +158,7 @@ class BasketItem(BaseModel):
     alias: Alias
     projection: Projection
     routing: Routing
+    layout: NodePosition | None = None
 
 
 # ── Joins ─────────────────────────────────────────────────────────────────
@@ -221,11 +255,36 @@ class InteractiveFilter(BaseModel):
         return self
 
 
+class RawFilter(BaseModel):
+    """A non-concept, column-level filter (§6R.4). Applied as a fetch-time
+    WHERE to shrink the cached table; never exported as a concept filter."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: RawFilterId
+    alias: Alias
+    column: str = Field(min_length=1, max_length=128)
+    op: FilterOp
+    from_: Any | None = Field(default=None, alias="from")
+    to: Any | None = None
+    values: list[Any] | None = None
+    value: Any | None = None
+
+    @model_validator(mode="after")
+    def _normalise_dates(self) -> "RawFilter":
+        self.from_ = _iso(self.from_)
+        self.to = _iso(self.to)
+        self.value = _iso(self.value)
+        self.values = _iso_list(self.values)
+        return self
+
+
 class Filters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pinned: list[PinnedFilter] = Field(default_factory=list)
     interactive: list[InteractiveFilter] = Field(default_factory=list)
+    raw: list[RawFilter] = Field(default_factory=list)
 
 
 # ── Status ──────────────────────────────────────────────────────────────────
@@ -307,6 +366,16 @@ class ScopeContract(BaseModel):
             if not f.applies_to or alias in f.applies_to
         ]
 
+    def raw_filters_for_alias(self, alias: str) -> list["RawFilter"]:
+        """Non-concept (raw) filters targeting ``alias`` (§6R.4)."""
+        return [f for f in self.filters.raw if f.alias == alias]
+
+    def find_join(self, join_id: str) -> Join | None:
+        for j in self.joins:
+            if j.id == join_id:
+                return j
+        return None
+
     def is_lazy_alias(self, alias: str) -> bool:
         return alias in self.status.lazy_tables
 
@@ -362,9 +431,10 @@ class ScopeRef(BaseModel):
 
 
 __all__ = [
-    "TableRef", "Projection", "Routing", "BasketItem",
+    "TableRef", "Projection", "JoinedColumn", "DerivedColumn", "Routing",
+    "NodePosition", "BasketItem",
     "JoinSide", "Join",
-    "FilterOp", "PinnedFilter", "InteractiveFilter", "Filters",
+    "FilterOp", "PinnedFilter", "InteractiveFilter", "RawFilter", "Filters",
     "Status", "ScopeContract", "ScopeDocument", "ScopeRef",
     "load_scope_from_dict", "scope_to_dict",
     "load_scope_yaml", "dump_scope_yaml",

@@ -211,9 +211,35 @@ def rule_routing_threshold(scope: ScopeContract, catalog: Catalog | None = None)
     return errors, warnings
 
 
+# ── Rule 8: raw (non-concept) filter sanity (§6R.4) ─────────────────────────
+
+def rule_raw_filters(scope: ScopeContract, catalog: Catalog):
+    errors: list[str] = []
+    aliases = set(scope.alias_list())
+    for f in scope.filters.raw:
+        if f.alias not in aliases:
+            errors.append(f"Raw filter '{f.id}': alias '{f.alias}' not in basket")
+            continue
+        item = scope.basket_item(f.alias)
+        tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name) if item else None
+        if tm is not None and not tm.has_column(f.column):
+            errors.append(
+                f"Raw filter '{f.id}': column '{f.column}' does not exist on "
+                f"{item.table_ref.name}"
+            )
+        if f.op == "between":
+            lo, hi = _as_date(f.from_), _as_date(f.to)
+            if lo is not None and hi is not None and lo > hi:
+                errors.append(
+                    f"Raw filter '{f.id}': between requires from <= to "
+                    f"(got {f.from_} > {f.to})"
+                )
+    return errors, []
+
+
 # ── Aggregate ───────────────────────────────────────────────────────────────
 
-# Ordered so the result reads predictably; §2.2 numbering.
+# Ordered so the result reads predictably; §2.2 numbering (+ §6R raw filters).
 RULES = [
     rule_alias_uniqueness,
     rule_concept_validity,
@@ -222,6 +248,7 @@ RULES = [
     rule_join_consistency,
     rule_projection_sanity,
     rule_routing_threshold,
+    rule_raw_filters,
 ]
 
 
