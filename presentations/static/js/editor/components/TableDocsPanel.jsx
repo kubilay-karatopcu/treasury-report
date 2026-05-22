@@ -1,14 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  Database, Tag, Hash, Type as TypeIcon, Eye, Loader2, AlertTriangle, X,
-  Sparkles, Check, Ban, ExternalLink,
-} from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Database, Tag, Hash, Type as TypeIcon, Eye, Loader2, AlertTriangle, X, Sparkles } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
 import useStore from '../lib/store.js';
-import {
-  fetchTablePreview, fetchTableConcepts,
-  fetchBindingQueue, approveBindings, rejectBindings,
-} from '../lib/api.js';
+import { fetchTablePreview, fetchTableConcepts } from '../lib/api.js';
 
 /**
  * Side-dock variant of the catalog docs (was a modal previously).
@@ -28,36 +22,27 @@ export default function TableDocsPanel({ width, onResizeStart }) {
   const [loadingPreview, setLoadingPreview] = useState(false);
   // Phase 7 — per-column concept status, keyed by UPPERCASE column name.
   const [conceptCols, setConceptCols] = useState({});
-  // Phase 7.c — binding inference review queue (lazy; runs an LLM fallback).
-  const [queue, setQueue] = useState(null);       // null = not scanned yet
-  const [queueLoading, setQueueLoading] = useState(false);
-  const [queueErr, setQueueErr] = useState(null);
-  const [busyKeys, setBusyKeys] = useState({});   // {`col|concept`: true} while approving
-  const [note, setNote] = useState(null);         // inline success/error feedback
 
-  const tableId = table?.id;
-
-  const refreshConcepts = useCallback(() => {
-    if (!tableId) { setConceptCols({}); return; }
-    fetchTableConcepts(tableId)
-      .then((res) => setConceptCols(res.columns || {}))
-      .catch(() => setConceptCols({}));
-  }, [tableId]);
-
-  // Reset all per-table state when the target table changes (or panel closes).
+  // Reset preview state when target table changes (or panel closes).
   useEffect(() => {
     setPreviewOpen(false);
     setPreviewData(null);
     setPreviewErr(null);
     setLoadingPreview(false);
-    setQueue(null);
-    setQueueErr(null);
-    setNote(null);
-    setBusyKeys({});
-  }, [tableId]);
+  }, [table?.id]);
 
   // Phase 7 — fetch concept status for the table's columns.
-  useEffect(() => { refreshConcepts(); }, [refreshConcepts]);
+  useEffect(() => {
+    let cancelled = false;
+    if (table?.id) {
+      fetchTableConcepts(table.id)
+        .then((res) => { if (!cancelled) setConceptCols(res.columns || {}); })
+        .catch(() => { if (!cancelled) setConceptCols({}); });
+    } else {
+      setConceptCols({});
+    }
+    return () => { cancelled = true; };
+  }, [table?.id]);
 
   // ESC ile panel kapansın.
   useEffect(() => {
@@ -86,69 +71,6 @@ export default function TableDocsPanel({ width, onResizeStart }) {
       setLoadingPreview(false);
     }
   }
-
-  // ── Phase 7.c — inline binding approval ──────────────────────────────────
-  async function scanQueue() {
-    if (!tableId) return;
-    setQueueLoading(true);
-    setQueueErr(null);
-    try {
-      setQueue(await fetchBindingQueue(tableId));
-    } catch (e) {
-      setQueueErr(e.message);
-      setQueue([]);
-    } finally {
-      setQueueLoading(false);
-    }
-  }
-
-  async function doApprove(column, prop) {
-    const key = `${column}|${prop.concept}`;
-    setBusyKeys((b) => ({ ...b, [key]: true }));
-    setNote(null);
-    try {
-      await approveBindings(tableId, [
-        { column, concept: prop.concept, transform: prop.transform },
-      ]);
-      // The column is now human_verified-bound → drop it from the queue and
-      // re-fetch concept status so its badge flips green.
-      setQueue((q) => (q || []).filter((c) => c.column !== column));
-      refreshConcepts();
-      setNote(`✓ ${column} → ${prop.concept} bağlandı — artık filtrelenebilir.`);
-    } catch (e) {
-      setNote('Hata: ' + e.message);
-    } finally {
-      setBusyKeys((b) => { const n = { ...b }; delete n[key]; return n; });
-    }
-  }
-
-  async function doReject(column, prop) {
-    const key = `${column}|${prop.concept}`;
-    setBusyKeys((b) => ({ ...b, [key]: true }));
-    try {
-      await rejectBindings(tableId, [{ column, concept: prop.concept }]);
-      // Drop just this proposal; remove the column if nothing's left.
-      setQueue((q) => (q || [])
-        .map((c) => (c.column === column
-          ? { ...c, proposals: c.proposals.filter((p) => p.concept !== prop.concept) }
-          : c))
-        .filter((c) => c.proposals.length > 0));
-    } catch (e) {
-      setNote('Hata: ' + e.message);
-    } finally {
-      setBusyKeys((b) => { const n = { ...b }; delete n[key]; return n; });
-    }
-  }
-
-  // Deep-link to the full review page, pre-scoped to this table.
-  const reviewHref = (() => {
-    const presBase = window.location.pathname.replace(/\/$/, '').replace(/\/[^/]+$/, '');
-    const dot = String(tableId || '').indexOf('.');
-    if (dot < 0) return `${presBase}/concepts/review`;
-    const schema = tableId.slice(0, dot);
-    const tbl = tableId.slice(dot + 1);
-    return `${presBase}/concepts/review?schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(tbl)}`;
-  })();
 
   return (
     <aside className="docs-side-panel" style={width ? { width } : undefined}>
@@ -219,101 +141,10 @@ export default function TableDocsPanel({ width, onResizeStart }) {
               </span>
               filtrede kullanılabilir.
               <span className="docs-concept docs-concept--suggested">öneri</span>
-              henüz onaylanmadı — aşağıdan bağlayabilirsin.
+              henüz onaylanmadı — Concept &gt; İnceleme&apos;den bağlayın.
             </div>
           )}
         </div>
-
-        {hasConceptInfo && (
-          <div className="docs-section">
-            <div className="docs-section-title">
-              <Sparkles size={12} strokeWidth={2} />
-              <span>Concept önerileri</span>
-            </div>
-
-            {queue === null && (
-              <button
-                type="button"
-                className="btn-secondary docs-preview-load"
-                onClick={scanQueue}
-                disabled={queueLoading}
-              >
-                {queueLoading
-                  ? <Loader2 size={12} className="ts-spin" />
-                  : <Sparkles size={12} strokeWidth={1.8} />}
-                <span>{queueLoading ? 'Taranıyor…' : 'Bağlanabilir kolonları tara'}</span>
-              </button>
-            )}
-
-            {queueErr && (
-              <div className="docs-preview-error">
-                <AlertTriangle size={12} strokeWidth={2} /><span>{queueErr}</span>
-              </div>
-            )}
-
-            {queue !== null && !queueErr && queue.length === 0 && (
-              <div className="docs-empty">
-                Bekleyen öneri yok — kolonlar ya bağlı ya da reddedilmiş.
-              </div>
-            )}
-
-            {queue !== null && queue.length > 0 && (
-              <div className="docs-bind-list">
-                {queue.map((c) => (
-                  <div className="docs-bind-col" key={c.column}>
-                    <div className="docs-bind-col__name">
-                      {c.column}
-                      {c.dtype && <span className="docs-bind-col__dtype">{c.dtype}</span>}
-                    </div>
-                    {c.proposals.map((p) => {
-                      const k = `${c.column}|${p.concept}`;
-                      const busy = !!busyKeys[k];
-                      return (
-                        <div className="docs-bind-prop" key={`${p.concept}-${p.stage}`}>
-                          <span className="docs-bind-prop__concept">{p.concept}</span>
-                          <span className="docs-bind-prop__kind">{p.transform?.kind}</span>
-                          <span className="docs-bind-prop__score" title={p.rationale || ''}>
-                            {p.confidence} · {p.score}
-                          </span>
-                          <span className="docs-bind-prop__actions">
-                            <button
-                              type="button" className="docs-bind-approve"
-                              disabled={busy} onClick={() => doApprove(c.column, p)}
-                              title="Bağla (human_verified → filtrelenebilir)"
-                            >
-                              {busy
-                                ? <Loader2 size={11} className="ts-spin" />
-                                : <Check size={11} strokeWidth={2.5} />}
-                            </button>
-                            <button
-                              type="button" className="docs-bind-reject"
-                              disabled={busy} onClick={() => doReject(c.column, p)}
-                              title="Reddet (bir daha önerme)"
-                            >
-                              <Ban size={11} strokeWidth={2.5} />
-                            </button>
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {note && <div className="docs-bind-note">{note}</div>}
-
-            <a
-              className="docs-bind-review-link"
-              href={reviewHref}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <ExternalLink size={11} strokeWidth={1.8} />
-              Tüm önerileri İnceleme sayfasında aç
-            </a>
-          </div>
-        )}
 
         {filters.length > 0 && (
           <div className="docs-section">

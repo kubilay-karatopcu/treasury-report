@@ -218,24 +218,6 @@
   });
 
   form.addEventListener('submit', (e) => { e.preventDefault(); scan(); });
-
-  // Deep-link: ?schema=&table= → preselect dropdown + auto-scan. The editor's
-  // table-docs panel links here pre-scoped to a table.
-  (function initFromQuery() {
-    const params = new URLSearchParams(window.location.search);
-    const schema = params.get('schema');
-    const table = params.get('table');
-    if (!schema || !table) return;
-    const val = `${schema}|${table}`;
-    if (!Array.from(sel.options).some((o) => o.value === val)) {
-      const opt = document.createElement('option');
-      opt.value = val;
-      opt.textContent = `${schema}.${table}`;
-      sel.appendChild(opt);
-    }
-    sel.value = val;
-    scan();
-  })();
 })();
 </script>
 {% endblock %}
