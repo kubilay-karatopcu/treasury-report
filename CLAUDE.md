@@ -484,7 +484,7 @@ Reference fixtures (representative blocks + dashboard + extended table doc + exp
 
 Phase 6.5 does NOT change Phase 1–6 artifacts. Existing pre-6.5 blocks (with hardcoded queries and no variables) remain functional and unmodified. Existing dashboards without a `filters` array render exactly as before. Migration of existing artifacts to the variable layer is opt-in, never forced.
 
-**Phase 7 — Concept Foundation** *(currently active — 6.5 is in production)*
+**Phase 7 — Concept Foundation** *(backend complete — 7.a–7.d implemented + tested; full editor UI wiring is a follow-up)*
 
 Full spec: **[`docs/PHASE_7_SPEC.md`](docs/PHASE_7_SPEC.md)** — authoritative for all 7.a–7.d work. Read before starting any Phase 7 task.
 
