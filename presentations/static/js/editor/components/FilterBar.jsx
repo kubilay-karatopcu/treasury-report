@@ -36,6 +36,7 @@ export default function FilterBar() {
   const filterState     = useStore((s) => s.filterState);
   const filterBusy      = useStore((s) => s.filterBusy);
   const filterStatus    = useStore((s) => s.filterStatus);
+  const filterErrors    = useStore((s) => s.filterErrors);
   const setFilterValue  = useStore((s) => s.setFilterValue);
   const applyFilters    = useStore((s) => s.applyFilters);
   const removeFilter    = useStore((s) => s.removeDashboardFilter);
@@ -91,7 +92,14 @@ export default function FilterBar() {
           {Object.keys(filterStatus).length > 0 && !filterBusy && (
             <span className="filter-bar__status">
               {successCount} güncellendi
-              {errorCount > 0 && <span className="filter-bar__err"> · {errorCount} hata</span>}
+              {errorCount > 0 && (
+                <span
+                  className="filter-bar__err"
+                  title={(filterErrors || [])
+                    .map((e) => `${e.title || e.id} [${e.kind || '?'}]: ${e.error || '(mesaj yok)'}`)
+                    .join('\n')}
+                > · {errorCount} hata</span>
+              )}
             </span>
           )}
           {err && <span className="filter-bar__err">{err}</span>}

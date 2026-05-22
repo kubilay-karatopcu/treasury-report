@@ -710,6 +710,9 @@ const useStore = create((set) => ({
   // applied to all blocks on Güncelle.
   filterState: {},
   filterStatus: {},   // {blockId: 'cache_hit'|'subset'|'refetching'|'refetched'|'error', ...}
+  // Detail for blocks whose apply-filters status was 'error' — drives the
+  // hover tooltip on the "N hata" indicator so failures aren't silent.
+  filterErrors: [],   // [{id, kind, error, title}]
   // Phase 7 concept compilation per block (from apply-filters response):
   //   {blockId: {blind: [conceptId,...], applied: [{filter_id,concept,sql}], injected: bool}}
   conceptStatus: {},
@@ -824,7 +827,7 @@ const useStore = create((set) => ({
   applyFilters: async () => {
     const state = useStore.getState();
     if (!state.manifest) return;
-    set({ filterBusy: true, filterStatus: {}, conceptStatus: {} });
+    set({ filterBusy: true, filterStatus: {}, conceptStatus: {}, filterErrors: [] });
     try {
       const result = await applyDashboardFilters(state.filterState);
       // Refresh manifest from server (server wrote block.data_source +
@@ -836,8 +839,14 @@ const useStore = create((set) => ({
       // the response and merge each block in-place by id.
       const statusMap = {};
       const conceptMap = {};
+      const errs = [];
       for (const blk of result.blocks || []) {
         statusMap[blk.id] = blk.status;
+        if (blk.status === 'error') {
+          const loc = findBlockPath(state.manifest, blk.id);
+          const title = blk.title || loc?.slide?.title || loc?.child?.title || loc?.section?.title;
+          errs.push({ id: blk.id, kind: blk.kind, error: blk.error, title });
+        }
         // Phase 7: capture concept compilation outcome for the block badge.
         if (blk.blind_filters || blk.applied_predicates || blk.concept_injected !== undefined) {
           conceptMap[blk.id] = {
@@ -847,7 +856,15 @@ const useStore = create((set) => ({
           };
         }
       }
-      set({ filterStatus: statusMap, conceptStatus: conceptMap });
+      if (errs.length) {
+        // Surface the silent failures: the "N hata" chip only counts; the
+        // actual message lives here (and in console for quick copy-paste).
+        console.warn(
+          '[apply-filters] blok hataları:\n'
+          + errs.map((e) => `  • ${e.id} [${e.kind || '?'}]: ${e.error || '(mesaj yok)'}`).join('\n'),
+        );
+      }
+      set({ filterStatus: statusMap, conceptStatus: conceptMap, filterErrors: errs });
       // Re-fetch manifest to pick up the per-block data_source/config that
       // the server already wrote. The lightweight path: GET /manifest.
       const refreshed = await fetch(`${window.location.pathname.replace(/\/$/, '')}/manifest`);
