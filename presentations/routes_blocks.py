@@ -405,11 +405,16 @@ def _run_block(block: Block, overrides: dict[str, Any] | None) -> tuple[pd.DataF
     if dc is None:
         raise RuntimeError("DATA_CLIENT not configured")
 
+    # Preview / library runs have no dashboard concept filters; neutralize an
+    # un-injected {{concept_filters}} sentinel to a no-op so the SQL is valid.
+    from presentations.concepts.integration import strip_concept_sentinel
+    exec_sql = strip_concept_sentinel(bound.sql)
+
     started = time.perf_counter()
     df = dc.get_data(
         base_prefix=None,
         dataset=f"block::{block.team}/{block.id}/v{block.version}",
-        query=bound.sql,
+        query=exec_sql,
         query_params=bound.params,
     )
     if df is None:
@@ -417,7 +422,7 @@ def _run_block(block: Block, overrides: dict[str, Any] | None) -> tuple[pd.DataF
     duration_ms = int((time.perf_counter() - started) * 1000)
 
     meta = {
-        "rewritten_sql": bound.sql,
+        "rewritten_sql": exec_sql,
         "bind_params": _stringify_params(bound.params),
         "resolved_variables": normalize_for_cache_key(resolved),
         "row_count": int(len(df)),

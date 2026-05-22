@@ -1224,6 +1224,7 @@ def run_block_manual(pid: str, bid: str):
     from .sql.binder import expand_binds
     from .variables.resolver import resolve_variables, ResolutionError
     from .nodes.execute_block_sqls import apply_data_to_config
+    from .concepts.integration import strip_concept_sentinel
 
     session = _get_session(pid)
     manifest = session.get_manifest()
@@ -1388,11 +1389,14 @@ def run_block_manual(pid: str, bid: str):
     # Bind params are routed through DataClient.get_data (DEV stub passes them
     # to DuckDB; prod oracledb honours :name binds natively). We mirror the
     # query_params signature the rest of the code uses.
+    # Neutralize an un-injected {{concept_filters}} sentinel — a manual run has
+    # no dashboard concept filters, so the sentinel becomes a no-op 1 = 1.
+    exec_sql = strip_concept_sentinel(bound.sql)
     try:
         df = dc.get_data(
             base_prefix=None,
             dataset=f"block::{bid}",
-            query=bound.sql,
+            query=exec_sql,
             query_params=bound.params,
         )
     except GateError as exc:
@@ -1422,7 +1426,7 @@ def run_block_manual(pid: str, bid: str):
             all_rows.append([duck._jsonable(v) for v in row])
 
     new_ds = {
-        "sql":           bound.sql,
+        "sql":           exec_sql,
         "original_sql":  query,
         "rewritten":     False,
         "truncated":     False,
@@ -1740,11 +1744,14 @@ def apply_dashboard_filters(pid: str):
         # Cache miss — fetch from Oracle.
         try:
             from .sql.binder import expand_binds
+            from .concepts.integration import strip_concept_sentinel
             bound = expand_binds(stand_in, resolved)
+            # This block carries the sentinel but reached the non-concept path
+            # (no source_tables or no active concept filter) — neutralize it.
             df = dc.get_data(
                 base_prefix=None,
                 dataset=f"block::{block['id']}",
-                query=bound.sql,
+                query=strip_concept_sentinel(bound.sql),
                 query_params=bound.params,
             )
             if df is None:
