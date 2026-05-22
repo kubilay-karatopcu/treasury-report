@@ -31,6 +31,8 @@ from presentations.blocks.store import S3BlockStore, LocalBlockStore
 from presentations.table_docs.store import (
     S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
 )
+from presentations.concepts.registry import CachedConceptRegistry
+from presentations.variables.semantic_tags import set_active_registry
 from presentations.llm import QwenClient
 import prisma_nav
 from pathlib import Path
@@ -496,6 +498,22 @@ else:
 app.config["S3_GET"]    = _s3_get
 app.config["S3_PUT"]    = _s3_put
 app.config["S3_DELETE"] = _s3_delete
+
+
+# ── Phase 7.a — concept registry ────────────────────────────────
+# Global + departmental concepts ship as git-tracked YAML under
+# presentations/concepts/registry_data/ (spec §3.1: system/dept concepts are
+# git-versioned). Same path in DEV and prod for parity — no "rich in dev,
+# empty in prod" surprises. The cached registry hot-reloads on YAML mtime
+# change so the data team can edit without a restart.
+_CONCEPT_DIR = Path(__file__).parent / "presentations" / "concepts" / "registry_data"
+concept_registry = CachedConceptRegistry(_CONCEPT_DIR)
+app.config["CONCEPT_REGISTRY"] = concept_registry
+# Back the semantic-tag allow-list (block validation + UI dropdown) with the
+# registry; SEMANTIC_TAGS_V0 stays as the baseline floor (zero regression).
+set_active_registry(concept_registry)
+logging.info("CONCEPT_REGISTRY loaded: %d concepts from %s",
+             len(concept_registry), _CONCEPT_DIR)
 
 
 data_ops = DataOperations(dc)
