@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
-from flask import Response, current_app, request
-from flask_login import login_required
+from flask import Response, current_app, render_template, request
+from flask_login import current_user, login_required
 
 from presentations import presentations_bp
 
@@ -88,3 +89,167 @@ def api_get_concept(concept_id: str):
     if concept is None:
         return _json({"error": f"concept {concept_id!r} not found"}, status=404)
     return _json({"concept": _concept_to_dict(concept)})
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 7.c — binding inference review (queue / approve / reject)
+# ════════════════════════════════════════════════════════════════════════
+
+def _catalog():
+    return current_app.config.get("CONCEPT_BINDING_CATALOG")
+
+
+def _catalog_root() -> Path:
+    """Filesystem root of the hand-authored catalog (concepts/ + tables/)."""
+    override = current_app.config.get("CONCEPT_CATALOG_ROOT")
+    if override:
+        return Path(override)
+    import presentations
+    return Path(presentations.__file__).parent / "catalog"
+
+
+def _complete_fn():
+    """LLM completion callable from the configured client, or None."""
+    client = current_app.config.get("LLM_CLIENT")
+    if client is not None and hasattr(client, "complete"):
+        return client.complete
+    return None
+
+
+def _build_queue_for(schema: str, table: str) -> list[dict]:
+    """Shared queue computation used by /inference/run and /review/api/queue."""
+    from presentations.concepts.review import build_queue
+    from presentations.concepts.inference.profiles import profiles_from_table_doc
+
+    registry = _registry()
+    catalog = _catalog()
+    if registry is None or catalog is None:
+        return []
+
+    store = current_app.config.get("TABLE_DOC_STORE")
+    if store is None:
+        return []
+    doc = store.load(schema, table)
+    profiles = profiles_from_table_doc(doc)
+
+    reg_snap = registry.snapshot if hasattr(registry, "snapshot") else registry
+    cat_snap = catalog.snapshot if hasattr(catalog, "snapshot") else catalog
+    return build_queue(
+        schema, table, profiles, reg_snap, cat_snap,
+        complete_fn=_complete_fn(), catalog_root=_catalog_root(),
+    )
+
+
+@presentations_bp.route("/concepts/inference/run", methods=["POST"])
+@login_required
+def api_inference_run():
+    """Run inference for a table → return the review queue.
+
+    Body: ``{"schema": "...", "table": "..."}``.
+    """
+    body = request.get_json(silent=True) or {}
+    schema = (body.get("schema") or "").strip()
+    table = (body.get("table") or "").strip()
+    if not schema or not table:
+        return _json({"error": "schema ve table zorunlu"}, status=400)
+    try:
+        queue = _build_queue_for(schema, table)
+    except Exception as exc:
+        log.exception("inference run failed for %s.%s", schema, table)
+        return _json({"error": str(exc)}, status=500)
+    return _json({"schema": schema, "table": table, "queue": queue, "count": len(queue)})
+
+
+@presentations_bp.route("/concepts/review/api/queue")
+@login_required
+def api_review_queue():
+    """Review queue for ``?schema=&table=`` (same compute as /inference/run)."""
+    schema = (request.args.get("schema") or "").strip()
+    table = (request.args.get("table") or "").strip()
+    if not schema or not table:
+        return _json({"error": "schema ve table zorunlu"}, status=400)
+    try:
+        queue = _build_queue_for(schema, table)
+    except Exception as exc:
+        log.exception("review queue failed for %s.%s", schema, table)
+        return _json({"error": str(exc)}, status=500)
+    return _json({"schema": schema, "table": table, "queue": queue, "count": len(queue)})
+
+
+@presentations_bp.route("/concepts/review/api/approve", methods=["POST"])
+@login_required
+def api_review_approve():
+    """Approve proposals → write human_verified bindings to the table YAML.
+
+    Body: ``{"schema", "table", "bindings": [{column, concept, transform}, ...]}``.
+    Triggers a catalog reload so the compiler sees the new bindings without a
+    restart.
+    """
+    from presentations.concepts.review import approve_bindings
+
+    body = request.get_json(silent=True) or {}
+    schema = (body.get("schema") or "").strip()
+    table = (body.get("table") or "").strip()
+    bindings = body.get("bindings")
+    if not schema or not table or not isinstance(bindings, list):
+        return _json({"error": "schema, table ve bindings[] zorunlu"}, status=400)
+
+    try:
+        n = approve_bindings(
+            _catalog_root(), schema, table, bindings,
+            verified_by=getattr(current_user, "sicil", "unknown"),
+        )
+    except Exception as exc:
+        log.exception("approve_bindings failed for %s.%s", schema, table)
+        return _json({"error": str(exc), "kind": "validation"}, status=400)
+
+    # Force the cached catalog to pick up the freshly written YAML now.
+    catalog = _catalog()
+    if catalog is not None and hasattr(catalog, "reload"):
+        try:
+            catalog.reload()
+        except Exception:
+            log.exception("catalog reload after approve failed")
+
+    return _json({"ok": True, "written": n, "schema": schema, "table": table})
+
+
+@presentations_bp.route("/concepts/review/api/reject", methods=["POST"])
+@login_required
+def api_review_reject():
+    """Persist (column, concept) rejections so they don't resurface.
+
+    Body: ``{"schema", "table", "items": [{column, concept}, ...]}``.
+    """
+    from presentations.concepts.review import reject_items
+
+    body = request.get_json(silent=True) or {}
+    schema = (body.get("schema") or "").strip()
+    table = (body.get("table") or "").strip()
+    items = body.get("items")
+    if not schema or not table or not isinstance(items, list):
+        return _json({"error": "schema, table ve items[] zorunlu"}, status=400)
+    try:
+        n = reject_items(_catalog_root(), schema, table, items)
+    except Exception as exc:
+        log.exception("reject_items failed")
+        return _json({"error": str(exc)}, status=500)
+    return _json({"ok": True, "rejected": n})
+
+
+@presentations_bp.route("/concepts/review")
+@login_required
+def review_page():
+    """Binding review UI (HTML). Lists candidate tables; the page fetches the
+    per-table queue and posts approvals. Implemented in 7.c.4."""
+    store = current_app.config.get("TABLE_DOC_STORE")
+    tables = []
+    if store is not None:
+        try:
+            tables = [{"schema": s, "table": t} for (s, t) in store.list_tables()]
+        except Exception:
+            log.exception("list_tables failed for review page")
+    return Response(
+        render_template("concepts/review.html", tables=tables),
+        mimetype="text/html",
+    )
