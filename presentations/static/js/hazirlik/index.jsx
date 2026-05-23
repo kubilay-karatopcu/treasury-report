@@ -24,7 +24,26 @@ import "ag-grid-community/styles/ag-theme-alpine.css";
 import {
   X, Plus, Trash2, Database, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2,
+  Building2, Percent, Network, Calendar, Upload, Send, Loader2,
 } from "lucide-react";
+
+// Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
+// catalog-declared value (building / percent / network / …), otherwise we
+// fall back to a heuristic on the domain id/label.
+const DOMAIN_ICONS = {
+  building: Building2, percent: Percent, network: Network,
+  calendar: Calendar, database: Database, upload: Upload,
+};
+function pickDomainIcon(domain) {
+  if (domain.icon && DOMAIN_ICONS[domain.icon]) return DOMAIN_ICONS[domain.icon];
+  const haystack = `${domain.id || ""} ${domain.label || ""}`.toLowerCase();
+  if (/(mevduat|deposit|bilanco)/.test(haystack)) return Building2;
+  if (/(nii|faiz|interest|rate)/.test(haystack)) return Percent;
+  if (/(rakip|sektor|sector|competitor|market)/.test(haystack)) return Network;
+  if (/(takvim|calendar|event)/.test(haystack)) return Calendar;
+  if (/(yuklenen|upload)/.test(haystack)) return Upload;
+  return Database;
+}
 
 const DATA = JSON.parse(document.getElementById("hazirlik-data").textContent);
 const PID = DATA.presentation_id;
@@ -319,12 +338,13 @@ function SourcesSidebar({ scope, onToggleTable, onRemove, chat }) {
             {DOMAINS.map((d) => {
               const isOpen = !!open[d.id];
               const cnt = (d.tables || []).filter((t) => inBasket.has(t.id)).length;
+              const DomainIcon = pickDomainIcon(d);
               return (
                 <div key={d.id} className={`sources-domain${isOpen ? " is-open" : ""}`}>
                   <button type="button" className="sources-domain-header"
                     onClick={() => setOpen((o) => ({ ...o, [d.id]: !o[d.id] }))}>
-                    <ChevronRight size={12} className="sources-domain-chevron" />
-                    <Database size={14} className="sources-domain-icon" />
+                    <ChevronRight size={12} strokeWidth={2} className="sources-domain-chevron" />
+                    <DomainIcon size={14} strokeWidth={1.8} className="sources-domain-icon" />
                     <span className="sources-domain-label">{d.label}</span>
                     {cnt > 0 && <span className="sources-domain-count">{cnt}</span>}
                   </button>
@@ -334,12 +354,20 @@ function SourcesSidebar({ scope, onToggleTable, onRemove, chat }) {
                         const active = inBasket.has(t.id);
                         return (
                           <div key={t.id} className={`sources-table-wrap${active ? " is-active" : ""}`}>
-                            <button type="button" className="sources-table" onClick={() => onToggleTable(t)} title={active ? "Sepetten çıkar" : "Sepete ekle"}>
+                            <button type="button" className="sources-table"
+                              onClick={() => onToggleTable(t)}
+                              title={active ? "Sepetten çıkar" : "Sepete ekle"}>
                               <div className="sources-table-info">
                                 <div className="sources-table-name">{(t.id || "").split(".").pop()}</div>
-                                <div className="sources-table-desc">{t.desc}{t.rows ? ` · ${t.rows}` : ""}</div>
+                                <div className="sources-table-desc">
+                                  {t.desc}{t.rows ? ` · ${t.rows}` : ""}
+                                </div>
                               </div>
-                              <span className="sources-table-eye-hint">{active ? <Trash2 size={12} /> : <Plus size={12} />}</span>
+                              <span className="sources-table-eye-hint" title={active ? "Sepetten çıkar" : "Sepete ekle"}>
+                                {active
+                                  ? <Trash2 size={12} strokeWidth={1.8} />
+                                  : <Plus size={12} strokeWidth={1.8} />}
+                              </span>
                             </button>
                           </div>
                         );
@@ -383,7 +411,8 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
   return (
     <div className="chat-box">
       <div className="chat-box-header">
-        <MessageSquare size={11} /> <span>Asistan</span>
+        <MessageSquare size={11} strokeWidth={2} />
+        <span>Scope Asistanı</span>
       </div>
       <div className="chat-messages ts-scroll" ref={listRef}>
         {history.length === 0 && !busy && (
@@ -395,8 +424,8 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
         {history.map((m, i) => (
           <ChatTurn key={i} turn={m} onApply={onApply} onDismiss={onDismiss} applyingId={applyingId} />
         ))}
-        {busy && <div className="chat-turn chat-turn--assistant"><div className="chat-bubble">Düşünüyor…</div></div>}
-        {error && <div className="hz-error" style={{ margin: "4px 8px", fontSize: 11 }}>{error}</div>}
+        {busy && <div className="chat-msg chat-msg--loading">Düşünüyor…</div>}
+        {error && <div className="chat-msg chat-msg--assistant chat-msg--error">{error}</div>}
       </div>
       <textarea
         ref={taRef}
@@ -411,7 +440,9 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
       <div className="chat-footer">
         <span className="chat-footer-hint">⌘/Ctrl + Enter ile gönder</span>
         <button type="button" className="btn-primary" onClick={submit} disabled={busy || !(draft || "").trim()}>
-          Gönder
+          {busy
+            ? <><Loader2 size={12} className="ts-spin" /><span>İşleniyor…</span></>
+            : <><Send size={12} strokeWidth={2} /><span>Gönder</span></>}
         </button>
       </div>
     </div>

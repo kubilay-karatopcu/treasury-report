@@ -193,12 +193,18 @@
    Redesign v2 — Sunum sidebar reuse, description nodes, AG Grid drawer
    ════════════════════════════════════════════════════════════════════ */
 
-/* Reuse Sunum's .editor-sidebar inside the Hazırlık flex body. */
+/* Reuse Sunum's .editor-sidebar inside the Hazırlık flex body.
+   Width matches --ts-sidebar-w from editor.css (320px) so the inner
+   .sidebar-inner (which is `width: var(--ts-sidebar-w)`) fits without
+   overflowing — otherwise the chat input + Gönder button get clipped. */
 .hz-app .editor-sidebar.hz-sidebar {
-  position: static; height: 100%; flex: 0 0 300px;
+  position: static; height: 100%;
+  flex: 0 0 var(--ts-sidebar-w, 320px);
   border-right: 1px solid #e6e7e9;
 }
-.hz-app .editor-sidebar.hz-sidebar .sidebar-inner { height: 100%; display: flex; flex-direction: column; }
+.hz-app .editor-sidebar.hz-sidebar .sidebar-inner {
+  height: 100%; display: flex; flex-direction: column;
+}
 
 /* Node body shows the description instead of a column list. */
 .hz-node-desc { padding: 8px 10px; font-size: 11px; color: #475569; line-height: 1.45; max-width: 240px; }
