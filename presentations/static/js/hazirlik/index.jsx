@@ -330,16 +330,26 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
     return preview.rows.map((r) => Object.fromEntries(cols.map((c, i) => [c, r[i]])));
   }, [preview]);
 
+  const isDerived = !!preview?.derived;
   return (
     <div className="hz-preview" style={{ height }}>
       <div className="hz-preview-resize" onMouseDown={onResizeStart} title="Sürükle: yükseklik" />
       <div className="hz-preview-head">
-        <span><Database size={14} /> Önizleme{previewLabel ? ` · ${previewLabel}` : ""}{preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}</span>
+        <span>
+          <Database size={14} /> Önizleme{previewLabel ? ` · ${previewLabel}` : ""}
+          {isDerived ? " · türetilmiş (örnek)" : ""}
+          {preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}
+        </span>
         <div className="hz-preview-actions">
           <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters} title="Grid filtrelerini scope'a kaydet">
             <Save size={13} /> Filtreleri kaydet
           </button>
-          <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveAsTable} title="Gruplama/aggregation'ı yeni bir tablo olarak kaydet">
+          <button
+            className="ts-btn ts-btn--sm"
+            disabled={!preview || preview.error || isDerived}
+            onClick={onSaveAsTable}
+            title={isDerived ? "Türetilmiş tablodan yeniden agregat yapılamaz" : "Gruplama/aggregation'ı yeni bir tablo olarak kaydet"}
+          >
             <Database size={13} /> Tablo olarak kaydet
           </button>
           <button className="hz-icon-btn" onClick={onClose}><X size={15} /></button>
@@ -349,19 +359,72 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
         {loading && <p className="hz-muted" style={{ padding: 10 }}>Yükleniyor…</p>}
         {!loading && preview && preview.error && <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>}
         {!loading && preview && !preview.error && (
-          <div className="ag-theme-alpine" style={{ width: "100%", height: "100%" }}>
-            <AgGridReact
-              columnDefs={colDefs} rowData={rowData} animateRows
-              onGridReady={handleReady}
-              sideBar={{ toolPanels: ["columns", "filters"] }}
-              rowGroupPanelShow="always"
-              pivotPanelShow="always"
-            />
-          </div>
+          <>
+            {isDerived && (
+              <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
+                Türetilmiş tablo · kaynak tablonun örneği üzerinde hesaplandı. Sunum tam veri üzerinde yeniden hesaplayacak.
+              </p>
+            )}
+            <div className="ag-theme-alpine" style={{ width: "100%", height: "100%" }}>
+              <AgGridReact
+                columnDefs={colDefs} rowData={rowData} animateRows
+                onGridReady={handleReady}
+                sideBar={{ toolPanels: ["columns", "filters"] }}
+                rowGroupPanelShow="always"
+                pivotPanelShow="always"
+              />
+            </div>
+          </>
         )}
       </div>
     </div>
   );
+}
+
+// Client-side aggregation for derived-table previews. Mirrors the shape of
+// scope/fetch.compile_aggregate_sql so what the user sees in the drawer matches
+// what Sunum will compute over the full pull (within sampling noise).
+function aggregateLocal(srcData, derivation) {
+  const { group_by = [], measures = [] } = derivation || {};
+  const dataCols = srcData.data_columns || [];
+  const colIdx = Object.fromEntries(dataCols.map((c, i) => [c, i]));
+  const groups = new Map();
+  for (const row of (srcData.rows || [])) {
+    const keyParts = group_by.map((c) => row[colIdx[c]]);
+    const key = JSON.stringify(keyParts);
+    if (!groups.has(key)) groups.set(key, { keyParts, rows: [] });
+    groups.get(key).rows.push(row);
+  }
+  const nums = (vals) => vals.filter((v) => typeof v === "number" && isFinite(v));
+  const reduce = (fn, vals) => {
+    const ns = nums(vals);
+    switch (fn) {
+      case "sum":   return ns.reduce((a, b) => a + b, 0);
+      case "avg":   return ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : null;
+      case "min":   return ns.length ? Math.min(...ns) : null;
+      case "max":   return ns.length ? Math.max(...ns) : null;
+      case "count": return vals.length;
+      case "count_distinct": return new Set(vals).size;
+      default: return null;
+    }
+  };
+  const outRows = [];
+  for (const { keyParts, rows } of groups.values()) {
+    const out = [...keyParts];
+    for (const m of measures) {
+      out.push(reduce(m.fn, rows.map((r) => r[colIdx[m.column]])));
+    }
+    outRows.push(out);
+  }
+  return {
+    columns: [
+      ...group_by.map((c) => ({ name: c })),
+      ...measures.map((m) => ({ name: m.as })),
+    ],
+    data_columns: [...group_by, ...measures.map((m) => m.as)],
+    rows: outRows,
+    row_count: outRows.length,
+  };
 }
 
 // AG Grid filter model → scope filters (concept if column bound, else raw).
@@ -509,11 +572,27 @@ function App() {
     if (!item) return;
     setPreviewLoading(true); setPreview({ alias });
     try {
-      const u = new URL(PREVIEW_URL, window.location.origin);
-      u.searchParams.set("schema", item.table_ref.schema);
-      u.searchParams.set("table", item.table_ref.name);
-      u.searchParams.set("limit", "100");
-      const data = await (await fetch(u.pathname + u.search)).json();
+      let data;
+      if (item.derivation) {
+        // Derived: fetch source's raw rows, aggregate in-browser. Preview is a
+        // sample so aggregates are illustrative — Sunum re-runs the derivation
+        // on the full pull via DuckDB (see scope/fetch.compile_aggregate_sql).
+        const src = scope.basket.find((b) => b.alias === item.derivation.source_alias);
+        if (!src || !src.table_ref) throw new Error("Kaynak tablo basketta yok.");
+        const u = new URL(PREVIEW_URL, window.location.origin);
+        u.searchParams.set("schema", src.table_ref.schema);
+        u.searchParams.set("table", src.table_ref.name);
+        u.searchParams.set("limit", "1000");
+        const srcData = await (await fetch(u.pathname + u.search)).json();
+        if (srcData.error) throw new Error(srcData.error);
+        data = { ...aggregateLocal(srcData, item.derivation), derived: true };
+      } else {
+        const u = new URL(PREVIEW_URL, window.location.origin);
+        u.searchParams.set("schema", item.table_ref.schema);
+        u.searchParams.set("table", item.table_ref.name);
+        u.searchParams.set("limit", "100");
+        data = await (await fetch(u.pathname + u.search)).json();
+      }
       setPreview({ alias, ...data });
     } catch (e) { setPreview({ alias, error: String(e) }); }
     finally { setPreviewLoading(false); }
