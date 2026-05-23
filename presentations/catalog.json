@@ -4,6 +4,7 @@
       "id": "dom_mevduat",
       "label": "Mevduat",
       "icon": "building",
+      "color": "#2563eb",
       "tables": [
         {
           "id": "A16438.MEVDUAT_YETKILER",

@@ -236,10 +236,11 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
     for col, cd in (getattr(doc, "columns", {}) or {}).items():
         lk = getattr(cd, "lookup", None)
         fr = getattr(cd, "filter_role", None)
-        # Join-key candidate: an FK lookup, or a dimension column. (Data team can
-        # later add an explicit `join_key` flag to the table-doc schema; until
-        # then we derive it from existing signals.)
-        join_key = bool(lk) or fr == "dimension"
+        # Join-key candidate: an FK lookup, OR a dimension column, OR a
+        # time-axis column (time keys are natural joins for time-series tables).
+        # Data team can add an explicit `join_key` flag to the table-doc schema
+        # later; until then we derive it from these signals.
+        join_key = bool(lk) or fr in ("dimension", "time_axis")
         out.append({
             "name": col,
             "type": getattr(cd, "type", None),
