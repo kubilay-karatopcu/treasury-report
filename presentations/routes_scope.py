@@ -27,6 +27,13 @@ from pydantic import ValidationError
 from presentations import presentations_bp
 from presentations.scope.catalog import AppCatalog
 from presentations.scope.fetch import fetch_cached_tables
+from presentations.scope.routing import (
+    DEFAULT_HARD_CEILING_BYTES,
+    DEFAULT_THRESHOLD_BYTES,
+    RoutingCeilingError,
+    apply_user_override,
+    decide_routing,
+)
 from presentations.scope.schema import (
     ScopeContract,
     load_scope_from_dict,
@@ -68,6 +75,49 @@ def _catalog() -> AppCatalog:
         concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
         binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
     )
+
+
+def _routing_threshold_bytes() -> int:
+    return int(current_app.config.get(
+        "PRESENTATIONS_ROUTING_THRESHOLD_BYTES", DEFAULT_THRESHOLD_BYTES))
+
+
+def _routing_hard_ceiling_bytes() -> int:
+    return int(current_app.config.get(
+        "PRESENTATIONS_ROUTING_HARD_CEILING_BYTES", DEFAULT_HARD_CEILING_BYTES))
+
+
+def _refresh_routing(scope: ScopeContract, catalog: AppCatalog) -> None:
+    """Recompute the routing decision for every system-owned raw basket item.
+
+    User overrides (``decided_by == "user"``) are preserved verbatim. Derived
+    items (aggregates) always run inside DuckDB so they're conceptually
+    "cached" — their routing field is normalised to that.
+
+    Mutates ``scope`` in place. Called on every Hazırlık page load and on
+    build, so the UI badges + the fetch pass always agree on the current
+    estimate as pinned filters / projections evolve.
+    """
+    threshold = _routing_threshold_bytes()
+    for item in scope.basket:
+        if item.derivation is not None or item.table_ref is None:
+            # Derived items run on DuckDB over the source view — there is no
+            # Oracle pull to size, so they don't carry a routing decision.
+            continue
+        if item.routing.decided_by == "user":
+            continue
+        pinned = scope.pinned_filters_for_alias(item.alias)
+        decision = decide_routing(
+            table_ref=item.table_ref,
+            projection=item.projection,
+            pinned_filters=pinned,
+            threshold_bytes=threshold,
+            catalog=catalog,
+        )
+        item.routing.decision = decision.decision
+        item.routing.decided_by = "system"
+        item.routing.estimated_bytes = decision.estimated_bytes
+        item.routing.threshold_bytes = decision.threshold_bytes
 
 
 @presentations_bp.route("/<pid>/scope", methods=["POST"])
@@ -347,6 +397,13 @@ def hazirlik(pid: str):
     except Exception:
         pass
 
+    # Recompute routing from the live catalog so the UI badges reflect the
+    # latest estimate as filters / projections evolve. User overrides survive.
+    try:
+        _refresh_routing(scope, _catalog())
+    except Exception:
+        log.warning("hazirlik: _refresh_routing failed", exc_info=True)
+
     cols_by_alias = _columns_by_alias(scope)
     payload = {
         "presentation_id": pid,
@@ -357,6 +414,10 @@ def hazirlik(pid: str):
         "distributions": _distributions_payload(scope),
         "columns_by_alias": cols_by_alias,
         "suggested_edges": _suggested_edges(scope, cols_by_alias),
+        "routing_config": {
+            "threshold_bytes": _routing_threshold_bytes(),
+            "hard_ceiling_bytes": _routing_hard_ceiling_bytes(),
+        },
     }
     return render_template(
         "presentations/hazirlik.html",
@@ -384,6 +445,9 @@ def build_scope(pid: str):
     scope.created_by = getattr(current_user, "sicil", None) or scope.created_by
 
     catalog = _catalog()
+    # Refresh routing so the fetch pass acts on the current estimate, not on
+    # whatever the client posted (which is a hint but never authoritative).
+    _refresh_routing(scope, catalog)
     result = validate_scope(scope, catalog)
     if not result.ok:
         return _json({"ok": False, "phase": "validation",
@@ -392,10 +456,16 @@ def build_scope(pid: str):
     dc = current_app.config.get("DATA_CLIENT")
     session = _registry().get_or_create(current_user.sicil, pid)
     conn = session.get_duck_conn()
-    lazy = [b.alias for b in scope.basket if b.routing.decision == "lazy"]
+    lazy = [b.alias for b in scope.basket
+            if b.table_ref is not None and b.routing.decision == "lazy"]
 
     try:
-        loaded = fetch_cached_tables(dc, conn, scope, catalog=catalog)
+        loaded = fetch_cached_tables(
+            dc, conn, scope,
+            catalog=catalog,
+            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
+            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+        )
     except Exception as exc:
         scope.status.state = "failed"
         scope.status.errors = [str(exc)]
@@ -428,6 +498,91 @@ def build_scope(pid: str):
         "lazy_tables": scope.status.lazy_tables,
         "redirect": url_for("presentations.editor", pid=pid),
     })
+
+
+@presentations_bp.route("/<pid>/scope/recompute-routing", methods=["POST"])
+@login_required
+def scope_recompute_routing(pid: str):
+    """Refresh routing decisions for every system-owned basket item.
+
+    Called by the frontend after a client-side scope mutation that the
+    server didn't see (e.g. ``addTableFromCatalog``). User overrides survive.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    if not isinstance(scope_in, dict):
+        return _json({"ok": False, "error": "scope required"}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+    _refresh_routing(scope, _catalog())
+    return _json({"ok": True, "scope": scope_to_dict(scope)["scope"]})
+
+
+@presentations_bp.route("/<pid>/scope/routing-override", methods=["POST"])
+@login_required
+def scope_routing_override(pid: str):
+    """Apply a user override of the system routing decision (§3.4).
+
+    Request: ``{"scope": <draft>, "alias": "...", "forced": "cached"|"lazy"}``
+    Response: ``{"ok": true, "scope": <mutated>}`` or
+              ``{"ok": false, "error": "...", "estimated_bytes": int, "hard_ceiling_bytes": int}``
+    on hard-ceiling refusal.
+
+    The mutated scope echoes back the new ``routing`` for the alias with
+    ``decided_by: "user"``; nothing else changes. Persistence is the caller's
+    responsibility (the same flow as apply-suggestion — the draft lives in the
+    React state and is persisted at build time).
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    forced = (body.get("forced") or "").strip()
+    if not isinstance(scope_in, dict) or not alias or forced not in ("cached", "lazy"):
+        return _json({"ok": False, "error": "scope, alias ve forced ('cached'/'lazy') zorunlu"}, status=400)
+
+    # Re-read the draft as a Pydantic model so we can use the routing helpers.
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "error": "scope schema invalid", "errors": _flatten(exc)}, status=400)
+
+    item = next((b for b in scope.basket if b.alias == alias), None)
+    if item is None:
+        return _json({"ok": False, "error": f"alias '{alias}' basket'te yok"}, status=400)
+    if item.derivation is not None or item.table_ref is None:
+        return _json({"ok": False, "error": "türetilmiş tablolar için routing override geçerli değil"}, status=400)
+
+    # Compute the current estimate fresh so the ceiling check uses live data
+    # rather than a stale value persisted from a previous version.
+    fresh = decide_routing(
+        table_ref=item.table_ref,
+        projection=item.projection,
+        pinned_filters=scope.pinned_filters_for_alias(item.alias),
+        threshold_bytes=_routing_threshold_bytes(),
+        catalog=_catalog(),
+    )
+    try:
+        overridden = apply_user_override(
+            fresh, forced,
+            hard_ceiling_bytes=_routing_hard_ceiling_bytes(),
+        )
+    except RoutingCeilingError as exc:
+        return _json({
+            "ok": False,
+            "error": str(exc),
+            "estimated_bytes": exc.estimated_bytes,
+            "hard_ceiling_bytes": exc.hard_ceiling_bytes,
+        }, status=400)
+
+    item.routing.decision = overridden.decision
+    item.routing.decided_by = "user"
+    item.routing.estimated_bytes = overridden.estimated_bytes
+    item.routing.threshold_bytes = overridden.threshold_bytes
+
+    out = scope_to_dict(scope)["scope"]
+    return _json({"ok": True, "scope": out})
 
 
 @presentations_bp.route("/<pid>/scope/preview", methods=["GET"])
@@ -663,8 +818,13 @@ def apply_scope_suggestion(pid: str):
             vres = validate_scope(loaded, _catalog())
             warnings = list(vres.warnings or [])
             errors = list(vres.errors or [])
+            # Refresh routing too — a freshly-pinned date filter typically
+            # changes the cached/lazy decision (and the badge size).
+            if not errors:
+                _refresh_routing(loaded, _catalog())
+                mutated = scope_to_dict(loaded)["scope"]
         except Exception:
-            log.warning("apply_scope_suggestion: validator failed", exc_info=True)
+            log.warning("apply_scope_suggestion: validator/routing failed", exc_info=True)
 
     return _json({
         "ok": not errors,

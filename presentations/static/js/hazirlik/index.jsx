@@ -33,11 +33,23 @@ const BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
 const PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview`);
 const CHAT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/chat`);
 const APPLY_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/apply-suggestion`);
+const ROUTING_OVERRIDE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/routing-override`);
+const ROUTING_RECOMPUTE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/recompute-routing`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
 const SUGGESTED = DATA.suggested_edges || [];
 const DOMAINS = DATA.catalog?.domains || [];
+const ROUTING_CONFIG = DATA.routing_config || { threshold_bytes: 500_000_000, hard_ceiling_bytes: 10_000_000_000 };
+
+// Compact byte formatter — "320 MB", "4.2 GB", "—" for unknown.
+function formatBytes(n) {
+  if (n == null || n <= 0) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1_000_000) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(n < 100_000_000 ? 1 : 0)} MB`;
+  return `${(n / 1_000_000_000).toFixed(n < 100_000_000_000 ? 1 : 0)} GB`;
+}
 
 // table id ("SCHEMA.NAME") → catalog table (desc, columns…)
 const CATALOG_BY_ID = (() => {
@@ -89,8 +101,17 @@ function summarizeFilter(f) {
   if (f.value != null) return String(f.value);
   return "";
 }
+// Singleton holder for node-data handlers — App registers once, every
+// enrichNodeData() call reads from here. Avoids threading callbacks through
+// every node-creating site (initialNodes / addTable / saveAsTable / chat-apply).
+const NODE_HANDLERS = { onOverrideRouting: null };
+
 function enrichNodeData(item, scope) {
-  return { ...nodeData(item), activeFilters: filtersForAlias(scope, item.alias) };
+  return {
+    ...nodeData(item),
+    activeFilters: filtersForAlias(scope, item.alias),
+    onOverrideRouting: NODE_HANDLERS.onOverrideRouting,
+  };
 }
 
 // ── Modal shell ────────────────────────────────────────────────────────────
@@ -113,18 +134,49 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived, activeFilters, color } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting } = data;
   const cached = item.routing?.decision === "cached";
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   const headStyle = !derived && color ? { background: color } : undefined;
+  const estimatedBytes = item.routing?.estimated_bytes;
+  const decidedBy = item.routing?.decided_by || "system";
+  const hardCeilingExceeded = (estimatedBytes || 0) > ROUTING_CONFIG.hard_ceiling_bytes;
+  const sizeText = derived ? null : formatBytes(estimatedBytes);
+  const overrideLabel = cached ? "→ lazy" : "→ cached";
+  const overrideDisabled = !cached && hardCeilingExceeded;
+  const overrideTitle = overrideDisabled
+    ? `Force cached reddedildi: tahmin ${formatBytes(estimatedBytes)} > hard ceiling ${formatBytes(ROUTING_CONFIG.hard_ceiling_bytes)}.`
+    : (cached ? "Lazy'ye geç (Oracle'dan blok zamanında çek)" : "Cached'a geç (DuckDB'ye materialise)");
+  const decisionTitle = derived
+    ? "Türetilmiş tablo — DuckDB'de hesaplanır."
+    : `Tahmini boyut: ${formatBytes(estimatedBytes)}. Karar: ${decidedBy === "user" ? "kullanıcı override'ı" : "sistem"}.`;
   return (
     <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
       <div className="hz-node-head" style={headStyle}>
         <span className="hz-node-alias"><Database size={12} /> {derived ? item.alias : `${item.table_ref.schema}.${item.table_ref.name}`}</span>
-        <span className={`hz-badge hz-badge--${derived ? "derived" : (cached ? "cached" : "lazy")}`}>
-          {derived ? "türetilmiş" : (cached ? "cached" : "lazy")}
+        <span
+          className={`hz-badge hz-badge--${derived ? "derived" : (cached ? "cached" : "lazy")}`}
+          title={decisionTitle}
+        >
+          {derived
+            ? "türetilmiş"
+            : (cached ? `cached · ${sizeText}` : `lazy · ${sizeText}`)}
+          {decidedBy === "user" && !derived && <span className="hz-badge-user-mark"> ✦</span>}
         </span>
       </div>
+      {!derived && (
+        <div className="hz-node-routing">
+          <button
+            type="button"
+            className="hz-route-override"
+            disabled={overrideDisabled}
+            title={overrideTitle}
+            onClick={(e) => { e.stopPropagation(); onOverrideRouting && onOverrideRouting(item.alias, cached ? "lazy" : "cached"); }}
+          >
+            {overrideLabel}
+          </button>
+        </div>
+      )}
       <div className="hz-node-meta">{size ? `${size} · ` : ""}{colCount} kolon</div>
       {desc && <div className="hz-node-desc">{desc}</div>}
       <div className="hz-node-keys">
@@ -689,6 +741,32 @@ function App() {
     }));
   }, []);
 
+  const overrideRouting = useCallback(async (alias, forced) => {
+    try {
+      const r = await fetch(ROUTING_OVERRIDE_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, alias, forced }),
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        setToast(`Override reddedildi: ${data.error || "bilinmeyen hata"}`);
+        return;
+      }
+      setScope(data.scope);
+      setToast(`'${alias}' → ${forced}`);
+    } catch (e) {
+      setToast(`Hata: ${e.message || e}`);
+    }
+  }, [scope]);
+
+  // Register the override handler on the module singleton so every node
+  // re-render (driven by setNodes inside the [scope] effect) sees the latest
+  // reference. NODE_HANDLERS itself is module-level so this is one-shot.
+  useEffect(() => {
+    NODE_HANDLERS.onOverrideRouting = overrideRouting;
+    return () => { NODE_HANDLERS.onOverrideRouting = null; };
+  }, [overrideRouting]);
+
   const applySuggestion = useCallback(async (turnId, suggestion) => {
     setApplyingId(suggestion.id);
     try {
@@ -775,7 +853,19 @@ function App() {
       join_key: !!c.key,             // honour the catalog's explicit `key` flag
     }));
     CATALOG_BY_ID[t.id] = t;
-    setScope((s) => ({ ...s, basket: [...s.basket, item] }));
+    setScope((s) => {
+      const next = { ...s, basket: [...s.basket, item] };
+      // Best-effort recompute of routing decisions on the server. The badge
+      // stays at "—" if this fails (offline / 500) — that's tolerable since
+      // the build endpoint re-runs the decision authoritatively anyway.
+      fetch(ROUTING_RECOMPUTE_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: next }),
+      }).then((r) => r.json()).then((data) => {
+        if (data && data.ok) setScope(data.scope);
+      }).catch(() => {});
+      return next;
+    });
     setNodes((nds) => [...nds, {
       id: alias, type: "tableNode",
       position: { x: 80 + (nds.length % 3) * 340, y: 80 + Math.floor(nds.length / 3) * 240 },
