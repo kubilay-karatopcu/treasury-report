@@ -187,26 +187,26 @@
 .hz-route-override:disabled,
 .hz-route-btn:disabled { color: #cbd5e1; cursor: not-allowed; border-color: #e5e7eb; }
 
-/* Projection modal */
-.hz-proj-actions { display: flex; gap: 6px; margin: 6px 0 10px; flex-wrap: wrap; }
-.hz-proj-list {
-  max-height: 380px; overflow-y: auto; border: 1px solid #e5e7eb;
-  border-radius: 4px; background: #fff;
+/* Projection count chip on the node card (read-only — projection is edited
+   by hiding columns in the AG Grid preview and clicking "Görünümü kaydet") */
+.hz-proj-count {
+  font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace;
+  padding: 1px 6px; align-self: center;
 }
-.hz-proj-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; border-bottom: 1px solid #f1f5f9;
-  font-size: 12px; cursor: pointer;
+
+/* AG Grid custom header — column name + concept chip on a single line so the
+   header reads "DATE  as_of_time" like the ER node card rows do. */
+.hz-grid-header {
+  display: flex; align-items: center; gap: 5px;
+  min-width: 0; width: 100%;
 }
-.hz-proj-row:last-child { border-bottom: none; }
-.hz-proj-row:hover { background: #f8fafc; }
-.hz-proj-row.is-selected { background: #eff6ff; }
-.hz-proj-row input { cursor: pointer; }
-.hz-proj-col-name { flex: 1; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
-.hz-proj-col-type { font-size: 10px; color: #94a3b8; font-family: ui-monospace, Menlo, Consolas, monospace; }
-.hz-proj-key-tag {
-  font-size: 9px; padding: 0 5px; border-radius: 3px;
-  background: #fef3c7; color: #92400e; text-transform: uppercase; letter-spacing: 0.04em;
+.hz-grid-header-name {
+  font-weight: 600; color: #1f2937;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hz-grid-header-concept {
+  font-size: 9px; padding: 0 4px; line-height: 1.5;
+  flex-shrink: 0;
 }
 .hz-node-sub { padding: 3px 10px; font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace; border-bottom: 1px solid #eef0f3; }
 .hz-node-col { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-bottom: 1px solid #f5f7fa; cursor: pointer; position: relative; }

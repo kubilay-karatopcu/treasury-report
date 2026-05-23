@@ -124,14 +124,13 @@ function summarizeFilter(f) {
 // Singleton holder for node-data handlers — App registers once, every
 // enrichNodeData() call reads from here. Avoids threading callbacks through
 // every node-creating site (initialNodes / addTable / saveAsTable / chat-apply).
-const NODE_HANDLERS = { onOverrideRouting: null, onOpenProjection: null };
+const NODE_HANDLERS = { onOverrideRouting: null };
 
 function enrichNodeData(item, scope) {
   return {
     ...nodeData(item),
     activeFilters: filtersForAlias(scope, item.alias),
     onOverrideRouting: NODE_HANDLERS.onOverrideRouting,
-    onOpenProjection: NODE_HANDLERS.onOpenProjection,
   };
 }
 
@@ -155,7 +154,7 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting, onOpenProjection } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting } = data;
   const cached = item.routing?.decision === "cached";
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   const headStyle = !derived && color ? { background: color } : undefined;
@@ -187,14 +186,12 @@ function TableNode({ data }) {
       </div>
       {!derived && (
         <div className="hz-node-routing">
-          <button
-            type="button"
-            className="hz-route-btn"
-            title={`Projection — şu an ${item.projection?.include_all ? "tüm kolonlar" : (item.projection?.columns?.length || 0) + " seçili"}`}
-            onClick={(e) => { e.stopPropagation(); onOpenProjection && onOpenProjection(item.alias); }}
+          <span
+            className="hz-proj-count"
+            title="Projection: önizleme'de gizlediğin kolonlar buradan düşer ('Görünümü kaydet' ile)"
           >
-            Kolonlar ({item.projection?.include_all ? "tümü" : (item.projection?.columns?.length || 0)}/{colCount})
-          </button>
+            {item.projection?.include_all ? `tümü (${colCount})` : `${item.projection?.columns?.length || 0}/${colCount} kolon`}
+          </span>
           <button
             type="button"
             className="hz-route-override"
@@ -378,90 +375,6 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
     </Modal>
   );
 }
-
-// ── Projection picker (per-table column selector) ─────────────────────────────
-
-function ProjectionModal({ alias, item, onSave, onClose, error }) {
-  // Pull the full catalog column list for the table (not just the keys from
-  // COLS_BY_ALIAS, which is curated for the node card). For raw catalog
-  // entries we look up CATALOG_BY_ID; for table-doc entries we fall back to
-  // COLS_BY_ALIAS itself.
-  const tid = item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : null;
-  const catalogCols = (CATALOG_BY_ID[tid]?.columns || []).map((c) => ({
-    name: c.name || c, type: c.type || null,
-    concept: c.concept || null,
-    key: !!c.key,
-  }));
-  const allCols = catalogCols.length
-    ? catalogCols
-    : (COLS_BY_ALIAS[alias] || []).map((c) => ({ name: c.name, type: c.type, concept: c.concept, key: c.join_key }));
-
-  const initial = item.projection?.include_all
-    ? new Set(allCols.map((c) => c.name))
-    : new Set(item.projection?.columns || []);
-  const [selected, setSelected] = useState(initial);
-
-  const toggle = (name) => setSelected((s) => {
-    const next = new Set(s);
-    if (next.has(name)) next.delete(name); else next.add(name);
-    return next;
-  });
-  const selectAll = () => setSelected(new Set(allCols.map((c) => c.name)));
-  const selectKeysOnly = () => setSelected(new Set(allCols.filter((c) => c.key).map((c) => c.name)));
-  const clear = () => setSelected(new Set());
-
-  // Sort: keys first, then alphabetical.
-  const sorted = [...allCols].sort((a, b) => {
-    if (a.key !== b.key) return a.key ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  const allSelected = selected.size === allCols.length && allCols.length > 0;
-  const count = selected.size;
-  const total = allCols.length;
-
-  return (
-    <Modal title={`Kolonlar: ${alias}`} size="md" onClose={onClose} footer={
-      <>
-        <button className="ts-btn" onClick={onClose}>Vazgeç</button>
-        <button
-          className="ts-btn ts-btn--primary"
-          disabled={count === 0}
-          onClick={() => onSave({
-            columns: Array.from(selected),
-            include_all: allSelected,
-          })}
-        >
-          Kaydet ({count}/{total})
-        </button>
-      </>
-    }>
-      <p className="hz-muted">Bu tablodan fetch'lenecek kolonları seç. Konsept'i olanlar yeşil chip ile işaretli.</p>
-      {error && <div className="hz-error" style={{ margin: "6px 0", padding: "6px 9px" }}>{error}</div>}
-      <div className="hz-proj-actions">
-        <button type="button" className="hz-route-btn" onClick={selectAll}>Tümünü seç</button>
-        <button type="button" className="hz-route-btn" onClick={selectKeysOnly}>Sadece key'ler</button>
-        <button type="button" className="hz-route-btn" onClick={clear}>Hepsini kaldır</button>
-      </div>
-      <div className="hz-proj-list">
-        {sorted.map((c) => (
-          <label key={c.name} className={`hz-proj-row${selected.has(c.name) ? " is-selected" : ""}`}>
-            <input
-              type="checkbox"
-              checked={selected.has(c.name)}
-              onChange={() => toggle(c.name)}
-            />
-            <span className="hz-proj-col-name">{c.name}</span>
-            {c.type && <span className="hz-proj-col-type">{c.type}</span>}
-            {c.key && <span className="hz-proj-key-tag">key</span>}
-            {c.concept && <span className="hz-col-concept">{c.concept}</span>}
-          </label>
-        ))}
-      </div>
-    </Modal>
-  );
-}
-
 
 // ── Left sidebar (Sunum design: source categories + chat) ────────────────────
 
@@ -658,8 +571,24 @@ function SuggestionCard({ suggestion, onApply, onDismiss, busy }) {
 
 // ── AG Grid preview drawer (resizable) ───────────────────────────────────────
 
+// AG Grid custom header: column name + small concept chip when the column
+// is concept-bound (same green chip as the ER node card). Falls back to the
+// plain column name when there's no concept.
+function ConceptHeader(props) {
+  const { displayName, concept } = props;
+  return (
+    <div className="hz-grid-header">
+      <span className="hz-grid-header-name">{displayName}</span>
+      {concept && <span className="hz-col-concept hz-grid-header-concept">{concept}</span>}
+    </div>
+  );
+}
+
 function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel }) {
+  const apiRef = useRef(null);
+
   const handleReady = (p) => {
+    apiRef.current = p.api;
     if (onGridReady) onGridReady(p);
     if (savedGridState) {
       try {
@@ -668,10 +597,41 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
       } catch (e) { /* ignore restore errors */ }
     }
   };
+
+  // Auto-size columns to their content the first time rows render — gives
+  // narrow columns for compact values (currency codes) and wider columns
+  // for long strings (branch names) without forcing every cell to flex
+  // across the full drawer width. Capped at maxWidth (320) so a stray long
+  // value doesn't blow up the layout.
+  const handleFirstDataRendered = () => {
+    if (!apiRef.current) return;
+    try {
+      if (apiRef.current.autoSizeAllColumns) {
+        apiRef.current.autoSizeAllColumns(false);
+      } else if (apiRef.current.autoSizeColumns) {
+        const allIds = (apiRef.current.getColumns?.() || []).map((c) => c.getColId());
+        apiRef.current.autoSizeColumns(allIds, false);
+      }
+    } catch (e) { /* community build may lack this API — non-fatal */ }
+  };
+
+  // Per-alias concept lookup so the header renderer can show the same chip
+  // we use on the ER node card.
+  const conceptByCol = useMemo(() => {
+    const m = {};
+    (COLS_BY_ALIAS[preview?.alias] || []).forEach((c) => { m[c.name] = c.concept || null; });
+    return m;
+  }, [preview?.alias]);
+
   const colDefs = useMemo(() => (preview?.data_columns || []).map((c) => ({
-    field: c, headerName: c, sortable: true, resizable: true, filter: true, minWidth: 110, flex: 1,
+    field: c, headerName: c,
+    sortable: true, resizable: true, filter: true,
+    minWidth: 80, maxWidth: 320,
     enableRowGroup: true, enablePivot: true, enableValue: true,
-  })), [preview?.data_columns]);
+    headerComponent: ConceptHeader,
+    headerComponentParams: { concept: conceptByCol[c] || null },
+  })), [preview?.data_columns, conceptByCol]);
+
   const rowData = useMemo(() => {
     if (!preview?.rows) return [];
     const cols = preview.data_columns || [];
@@ -689,8 +649,8 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           {preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}
         </span>
         <div className="hz-preview-actions">
-          <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters} title="Grid filtrelerini scope'a kaydet">
-            <Save size={13} /> Filtreleri kaydet
+          <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters} title="Görünür kolonları + aktif filtreleri scope'a yaz">
+            <Save size={13} /> Görünümü kaydet
           </button>
           <button
             className="ts-btn ts-btn--sm"
@@ -717,9 +677,11 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
               <AgGridReact
                 columnDefs={colDefs} rowData={rowData} animateRows
                 onGridReady={handleReady}
+                onFirstDataRendered={handleFirstDataRendered}
                 sideBar={{ toolPanels: ["columns", "filters"] }}
                 rowGroupPanelShow="always"
                 pivotPanelShow="always"
+                headerHeight={36}
               />
             </div>
           </>
@@ -911,16 +873,26 @@ function App() {
     }));
   }, []);
 
-  const [projectionAlias, setProjectionAlias] = useState(null);
-  const [projectionError, setProjectionError] = useState(null);
-
-  const saveProjection = useCallback(async ({ columns, include_all }) => {
-    setProjectionError(null);
-    if (!projectionAlias) return;
+  // Update an alias's projection from the current AG Grid column-visibility
+  // state — called from saveFilters() ("Görünümü kaydet"). Pulls visible
+  // columns from the live grid api and posts to /scope/projection-update.
+  // Returns true on success, false on validation failure (toast already set).
+  const updateProjectionFromGrid = useCallback(async (alias) => {
+    const api = gridApiRef.current;
+    if (!api || !alias) return false;
+    const item = scope.basket.find((b) => b.alias === alias);
+    if (!item || item.derivation) return false;   // skip derived items
+    // Visible columns = AG Grid columns minus hidden ones (auto-generated
+    // row-grouping cols are filtered out by `getColDef().field` presence).
+    const allCols = api.getAllGridColumns ? api.getAllGridColumns() : api.getColumns();
+    const visible = (allCols || [])
+      .filter((c) => c.isVisible() && c.getColDef().field)
+      .map((c) => c.getColDef().field);
+    if (visible.length === 0) return false;
     try {
       const r = await fetch(PROJECTION_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope, alias: projectionAlias, columns, include_all }),
+        body: JSON.stringify({ scope, alias, columns: visible, include_all: false }),
       });
       const data = await r.json();
       if (!data.ok) {
@@ -929,16 +901,16 @@ function App() {
           const cols = data.blocked_by_joins.map((b) => b.column).join(", ");
           msg = `${msg} (etkilenen kolonlar: ${cols})`;
         }
-        setProjectionError(msg);
-        return;
+        setToast(`Projection güncellenemedi: ${msg}`);
+        return false;
       }
       setScope(data.scope);
-      setToast(`'${projectionAlias}' projection güncellendi (${include_all ? "tümü" : columns.length} kolon).`);
-      setProjectionAlias(null);
+      return true;
     } catch (e) {
-      setProjectionError(e.message || String(e));
+      setToast(`Projection hatası: ${e.message || e}`);
+      return false;
     }
-  }, [scope, projectionAlias]);
+  }, [scope]);
 
   const overrideRouting = useCallback(async (alias, forced) => {
     try {
@@ -967,15 +939,6 @@ function App() {
     return () => { NODE_HANDLERS.onOverrideRouting = null; };
   }, [overrideRouting]);
 
-  const openProjection = useCallback((alias) => {
-    setProjectionError(null);
-    setProjectionAlias(alias);
-  }, []);
-
-  useEffect(() => {
-    NODE_HANDLERS.onOpenProjection = openProjection;
-    return () => { NODE_HANDLERS.onOpenProjection = null; };
-  }, [openProjection]);
 
   const applySuggestion = useCallback(async (turnId, suggestion) => {
     setApplyingId(suggestion.id);
@@ -1132,24 +1095,47 @@ function App() {
 
   const onNodeClick = useCallback((_e, node) => showPreview(node.id), [showPreview]);
 
-  const saveFilters = () => {
+  // "Görünümü kaydet" — captures the current AG Grid state in one shot:
+  //   - filter model     → scope.filters (pinned if column has concept, else raw)
+  //   - visible columns  → basket item's projection (hidden cols dropped at fetch)
+  // Single user-facing button so both stay in sync. Derived items don't carry
+  // a projection (computed from derivation) so we skip the projection write
+  // for them.
+  const saveFilters = async () => {
     if (!gridApiRef.current || !preview) return;
+    const alias = preview.alias;
     const model = gridApiRef.current.getFilterModel();
-    const colMeta = Object.fromEntries((COLS_BY_ALIAS[preview.alias] || []).map((c) => [c.name, c]));
-    const { pinned, raw } = agModelToFilters(model, preview.alias, colMeta);
-    if (pinned.length === 0 && raw.length === 0) { setToast("Kaydedilecek aktif filtre yok."); return; }
-    setScope((s) => ({
-      ...s,
-      filters: {
-        ...s.filters,
-        pinned: [...(s.filters.pinned || []), ...pinned],
-        // replace previous raw filters for this alias with the current grid state
-        raw: [...(s.filters.raw || []).filter((f) => f.alias !== preview.alias), ...raw],
-      },
-    }));
-    setToast(`${pinned.length + raw.length} filtre kaydedildi.`);
+    const colMeta = Object.fromEntries((COLS_BY_ALIAS[alias] || []).map((c) => [c.name, c]));
+    const { pinned, raw } = agModelToFilters(model, alias, colMeta);
+
+    // Update projection from visible cols first (server-validated; survives
+    // even when there are no filters to save).
+    const projUpdated = await updateProjectionFromGrid(alias);
+
+    const hasFilters = pinned.length > 0 || raw.length > 0;
+    if (hasFilters) {
+      setScope((s) => ({
+        ...s,
+        filters: {
+          ...s.filters,
+          pinned: [...(s.filters.pinned || []), ...pinned],
+          // replace previous raw filters for this alias with the current grid state
+          raw: [...(s.filters.raw || []).filter((f) => f.alias !== alias), ...raw],
+        },
+      }));
+    }
+
+    if (!hasFilters && !projUpdated) {
+      setToast("Kaydedilecek aktif filtre veya kolon değişikliği yok.");
+    } else {
+      const parts = [];
+      if (hasFilters) parts.push(`${pinned.length + raw.length} filtre`);
+      if (projUpdated) parts.push("projection");
+      setToast(`${parts.join(" + ")} kaydedildi.`);
+    }
+
     const snap = captureGridState();
-    if (snap) setGridStateByAlias((s) => ({ ...s, [preview.alias]: snap }));
+    if (snap) setGridStateByAlias((s) => ({ ...s, [alias]: snap }));
   };
 
   // Read the grid's row-grouping + value (aggregation) state → derived table.
@@ -1285,18 +1271,6 @@ function App() {
           onClose={() => setJoinModal(null)}
           onSave={({ lcol, rcol, kind }) => { addJoin(joinModal.left, lcol, joinModal.right, rcol, kind); setJoinModal(null); }} />
       )}
-      {projectionAlias && (() => {
-        const item = scope.basket.find((b) => b.alias === projectionAlias);
-        if (!item) return null;
-        return (
-          <ProjectionModal
-            alias={projectionAlias} item={item}
-            error={projectionError}
-            onSave={saveProjection}
-            onClose={() => { setProjectionAlias(null); setProjectionError(null); }}
-          />
-        );
-      })()}
       {toast && <div className="hz-toast">{toast}</div>}
     </div>
   );
