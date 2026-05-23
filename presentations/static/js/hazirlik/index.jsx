@@ -43,8 +43,16 @@ const CATALOG_BY_ID = (() => {
   DOMAINS.forEach((d) => (d.tables || []).forEach((t) => { m[t.id] = t; }));
   return m;
 })();
+const DOMAIN_BY_TABLE_ID = (() => {
+  const m = {};
+  DOMAINS.forEach((d) => (d.tables || []).forEach((t) => {
+    m[t.id] = { id: d.id, label: d.label, color: d.color || null };
+  }));
+  return m;
+})();
 const tableId = (ref) => (ref ? (ref.schema ? `${ref.schema}.${ref.name}` : ref.name) : null);
 const descFor = (ref) => (ref ? CATALOG_BY_ID[tableId(ref)]?.desc || "" : "");
+const colorForRef = (ref) => DOMAIN_BY_TABLE_ID[tableId(ref)]?.color || null;
 
 const joinKey = (l, lc, r, rc) => [`${l}.${lc}`, `${r}.${rc}`].sort().join("—");
 const rid = () => Math.random().toString(36).slice(2, 7);
@@ -95,18 +103,19 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived, activeFilters } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters, color } = data;
   const cached = item.routing?.decision === "cached";
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
+  const headStyle = !derived && color ? { background: color } : undefined;
   return (
     <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
-      <div className="hz-node-head">
+      <div className="hz-node-head" style={headStyle}>
         <span className="hz-node-alias"><Database size={12} /> {derived ? item.alias : `${item.table_ref.schema}.${item.table_ref.name}`}</span>
         <span className={`hz-badge hz-badge--${derived ? "derived" : (cached ? "cached" : "lazy")}`}>
           {derived ? "türetilmiş" : (cached ? "cached" : "lazy")}
         </span>
       </div>
-      <div className="hz-node-meta">{item.alias}{size ? ` · ${size}` : ""} · {colCount} kolon</div>
+      <div className="hz-node-meta">{size ? `${size} · ` : ""}{colCount} kolon</div>
       {desc && <div className="hz-node-desc">{desc}</div>}
       <div className="hz-node-keys">
         {(keyCols || []).map((c) => (
@@ -150,6 +159,7 @@ function nodeData(item) {
     return {
       item, derived: true, desc: `${item.derivation.source_alias} → aggregate`,
       size: null, colCount: cols.length, keyCols: cols.filter((c) => c.join_key),
+      color: null,   // derived → purple via .hz-node--derived class
     };
   }
   const cat = CATALOG_BY_ID[tableId(item.table_ref)];
@@ -157,6 +167,7 @@ function nodeData(item) {
     item, desc: descFor(item.table_ref),
     size: cat?.rows || null, colCount: cols.length,
     keyCols: cols.filter((c) => c.join_key),
+    color: colorForRef(item.table_ref),
   };
 }
 
@@ -299,7 +310,7 @@ function SourcesSidebar({ scope, onToggleTable, onRemove }) {
 
 // ── AG Grid preview drawer (resizable) ───────────────────────────────────────
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel }) {
   const handleReady = (p) => {
     if (onGridReady) onGridReady(p);
     if (savedGridState) {
@@ -323,7 +334,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
     <div className="hz-preview" style={{ height }}>
       <div className="hz-preview-resize" onMouseDown={onResizeStart} title="Sürükle: yükseklik" />
       <div className="hz-preview-head">
-        <span><Table2 size={14} /> Önizleme{preview ? ` · ${preview.alias}` : ""}{preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}</span>
+        <span><Database size={14} /> Önizleme{previewLabel ? ` · ${previewLabel}` : ""}{preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}</span>
         <div className="hz-preview-actions">
           <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters} title="Grid filtrelerini scope'a kaydet">
             <Save size={13} /> Filtreleri kaydet
@@ -464,7 +475,10 @@ function App() {
       projection: { columns: (t.columns || []).map((c) => c.name), include_all: (t.columns || []).length === 0 },
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
     };
-    COLS_BY_ALIAS[alias] = (t.columns || []).map((c) => ({ name: c.name || c, type: c.type, concept: null }));
+    COLS_BY_ALIAS[alias] = (t.columns || []).map((c) => ({
+      name: c.name || c, type: c.type, concept: null,
+      join_key: !!c.key,   // honour the catalog's explicit `key` flag
+    }));
     CATALOG_BY_ID[t.id] = t;
     setScope((s) => ({ ...s, basket: [...s.basket, item] }));
     setNodes((nds) => [...nds, {
@@ -634,6 +648,10 @@ function App() {
             <PreviewDrawer
               key={preview.alias}
               preview={preview} loading={previewLoading} height={drawerH}
+              previewLabel={(() => {
+                const it = scope.basket.find((b) => b.alias === preview.alias);
+                return it?.table_ref ? `${it.table_ref.schema}.${it.table_ref.name}` : preview.alias;
+              })()}
               onResizeStart={startResize} onClose={() => setPreview(null)}
               onSaveFilters={saveFilters} onSaveAsTable={saveAsTable}
               savedGridState={gridStateByAlias[preview.alias]}
