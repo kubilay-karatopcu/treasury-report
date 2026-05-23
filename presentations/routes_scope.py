@@ -223,6 +223,25 @@ def _catalog_json() -> dict[str, Any]:
         return {"domains": []}
 
 
+def _catalog_json_enriched() -> dict[str, Any]:
+    """Catalog JSON enriched with per-column ``concept`` from the table-doc
+    store. The frontend's ``addTableFromCatalog`` reads this so concept
+    information survives the catalog → basket transition (without which the
+    LLM's ``applies_to: []`` filter footers can't be rendered on the node)."""
+    cat = _catalog_json()
+    for d in (cat.get("domains") or []):
+        for t in (d.get("tables") or []):
+            tid = t.get("id") or ""
+            if "." not in tid:
+                continue
+            schema, name = tid.split(".", 1)
+            concept_by_col = {c["name"]: c.get("concept") for c in _columns_for(schema, name)}
+            for col in (t.get("columns") or []):
+                if col.get("name") in concept_by_col and concept_by_col[col["name"]]:
+                    col["concept"] = concept_by_col[col["name"]]
+    return cat
+
+
 def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
     """Per-column metadata for a table node: name, type, concept, FK lookup."""
     store = current_app.config.get("TABLE_DOC_STORE")
@@ -333,7 +352,7 @@ def hazirlik(pid: str):
         "presentation_id": pid,
         "title": title,
         "scope": scope_to_dict(scope)["scope"],
-        "catalog": _catalog_json(),
+        "catalog": _catalog_json_enriched(),
         "concepts": _concepts_payload(),
         "distributions": _distributions_payload(scope),
         "columns_by_alias": cols_by_alias,
@@ -484,3 +503,344 @@ def scope_banner(scope) -> dict | None:
         "pinned": pinned,
         "edit_url": url_for("presentations.hazirlik", pid=scope.presentation_id),
     }
+
+
+# ── Phase 8.f — Hazırlık scope-refinement chat ───────────────────────────────
+
+def _bound_concepts_for_scope(scope_dict: dict, cols_by_alias: dict) -> list[dict]:
+    """concept → [alias.column, …] index across the basket — used by the
+    Stage-2 LLM to restrict its filter suggestions to concept names that are
+    actually bindable in the current scope."""
+    out: dict[str, list[str]] = {}
+    for b in (scope_dict.get("basket") or []):
+        alias = b.get("alias")
+        if not alias:
+            continue
+        for col in (cols_by_alias.get(alias) or []):
+            concept = col.get("concept")
+            if concept:
+                out.setdefault(concept, []).append(f"{alias}.{col['name']}")
+    return [{"concept": c, "bound_in": sorted(v)} for c, v in sorted(out.items())]
+
+
+def _catalog_excerpt_for_basket(scope_dict: dict) -> list[dict]:
+    """The basket's catalog metadata, filtered to just the tables in scope.
+    Lets the LLM see column names / types / common_values without paying for
+    the whole catalog dump."""
+    in_basket = set()
+    for b in (scope_dict.get("basket") or []):
+        ref = b.get("table_ref") or {}
+        if ref:
+            sid = f"{ref.get('schema','')}.{ref.get('name','')}".strip(".")
+            if sid:
+                in_basket.add(sid)
+    full = _catalog_json() or {"domains": []}
+    out: list[dict] = []
+    for d in (full.get("domains") or []):
+        for t in (d.get("tables") or []):
+            if t.get("id") in in_basket:
+                out.append(t)
+    return out
+
+
+@presentations_bp.route("/<pid>/scope/chat", methods=["POST"])
+@login_required
+def scope_chat(pid: str):
+    """Phase 8.f — Hazırlık LLM refinement chat.
+
+    Request body:
+        {"scope": <draft scope dict>, "message": "...", "history": [...] }
+
+    Response:
+        {"explanation": str, "suggestions": [{ "id": "sg_...", "kind": ..., ...}]}
+
+    Each suggestion gets a server-assigned `id` so the frontend's Apply
+    round-trip can reference it; the scope itself is not mutated here —
+    Apply goes through ``/scope/apply-suggestion``.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope") or {}
+    user_message = (body.get("message") or "").strip()
+    history = body.get("history") or []
+    if not user_message:
+        return _json({"error": "Mesaj boş olamaz."}, status=400)
+    if not isinstance(scope_in, dict):
+        return _json({"error": "scope must be a JSON object"}, status=400)
+
+    # Server-side basket → cols_by_alias even on a draft (unvalidated) scope —
+    # we don't load_scope_from_dict here because the user may be mid-edit.
+    cols_by_alias: dict[str, list[dict]] = {}
+    for b in (scope_in.get("basket") or []):
+        alias = b.get("alias")
+        ref = b.get("table_ref") or {}
+        if alias and ref.get("schema") and ref.get("name"):
+            cols_by_alias[alias] = _columns_for(ref["schema"], ref["name"])
+
+    bound = _bound_concepts_for_scope(scope_in, cols_by_alias)
+    catalog_excerpt = _catalog_excerpt_for_basket(scope_in)
+
+    llm = current_app.config.get("LLM_CLIENT")
+    if llm is None:
+        return _json({"error": "LLM_CLIENT not configured"}, status=500)
+
+    try:
+        result = llm.suggest_scope_refinements(
+            scope=scope_in,
+            user_message=user_message,
+            bound_concepts=bound,
+            catalog_excerpt=catalog_excerpt,
+            history=history,
+        )
+    except Exception as exc:
+        log.exception("scope_chat: LLM call failed")
+        return _json({"error": str(exc)}, status=502)
+
+    # Stamp suggestions with server-side IDs so Apply can round-trip them.
+    suggestions = []
+    for i, s in enumerate(result.get("suggestions") or []):
+        if not isinstance(s, dict):
+            continue
+        s2 = dict(s)
+        s2.setdefault("id", f"sg_{i+1}_{_rand_token(4)}")
+        suggestions.append(s2)
+
+    return _json({
+        "explanation": result.get("explanation", ""),
+        "suggestions": suggestions,
+    })
+
+
+def _rand_token(n: int = 6) -> str:
+    import secrets
+    import string
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(n))
+
+
+def _slug(s: str, maxlen: int = 20) -> str:
+    """Lower-case ASCII slug for filter / join IDs. Keeps the regex happy
+    (`^pf_[a-z0-9_-]+$`)."""
+    import re as _re
+    s = (s or "").lower()
+    s = _re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    return (s or "x")[:maxlen]
+
+
+@presentations_bp.route("/<pid>/scope/apply-suggestion", methods=["POST"])
+@login_required
+def apply_scope_suggestion(pid: str):
+    """Apply one LLM suggestion against the draft scope sent by the client.
+
+    Each ``kind`` maps to a specific mutation. The mutated scope is run
+    through the §2.2 validators; warnings are returned but do not block
+    (Apply is non-destructive — the frontend can still let the user reject
+    a warning-laden mutation if it wants).
+
+    Request: ``{"scope": <draft>, "suggestion": {"kind": ..., ...}}``
+    Response: ``{"ok": true, "scope": <mutated draft>, "warnings": [...]}``
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    sugg = body.get("suggestion")
+    if not isinstance(scope_in, dict) or not isinstance(sugg, dict):
+        return _json({"ok": False, "error": "scope + suggestion required"}, status=400)
+
+    kind = sugg.get("kind")
+    try:
+        mutated = _mutate_scope_with_suggestion(scope_in, sugg)
+    except _ApplyError as exc:
+        return _json({"ok": False, "error": str(exc), "kind": kind}, status=400)
+
+    # Validate the mutated scope so the UI can surface schema/business issues.
+    warnings: list[str] = []
+    errors: list[str] = []
+    try:
+        loaded = load_scope_from_dict({"scope": mutated})
+    except (ValidationError, ValueError) as exc:
+        errors = _flatten(exc)
+    else:
+        try:
+            vres = validate_scope(loaded, _catalog())
+            warnings = list(vres.warnings or [])
+            errors = list(vres.errors or [])
+        except Exception:
+            log.warning("apply_scope_suggestion: validator failed", exc_info=True)
+
+    return _json({
+        "ok": not errors,
+        "scope": mutated,
+        "warnings": warnings,
+        "errors": errors,
+        "kind": kind,
+    })
+
+
+class _ApplyError(Exception):
+    """Raised by the mutators when a suggestion cannot be applied as given."""
+
+
+def _mutate_scope_with_suggestion(scope: dict, sugg: dict) -> dict:
+    """Pure function: returns a deep-copied scope with the suggestion applied.
+
+    The 5 kinds correspond to spec §5.3 + spec §6R aggregate handling.
+    """
+    import copy
+    s = copy.deepcopy(scope)
+    s.setdefault("filters", {}).setdefault("pinned", [])
+    s["filters"].setdefault("interactive", [])
+    s["filters"].setdefault("raw", [])
+    s.setdefault("joins", [])
+    s.setdefault("basket", [])
+
+    kind = sugg.get("kind")
+    if kind == "pin_filter":
+        return _apply_pin_filter(s, sugg)
+    if kind == "add_filter":
+        return _apply_add_filter(s, sugg)
+    if kind == "add_projection_column":
+        return _apply_add_projection_column(s, sugg)
+    if kind == "confirm_join":
+        return _apply_confirm_join(s, sugg)
+    if kind == "create_aggregate":
+        return _apply_create_aggregate(s, sugg)
+    raise _ApplyError(f"Bilinmeyen öneri tipi: {kind!r}")
+
+
+def _apply_pin_filter(s: dict, sugg: dict) -> dict:
+    fid = sugg.get("filter_id")
+    if not fid:
+        raise _ApplyError("pin_filter: filter_id eksik")
+    interactive = s["filters"]["interactive"]
+    for i, f in enumerate(interactive):
+        if f.get("id") == fid:
+            # Build pinned from interactive: concept + op + (default_values → values).
+            pinned_id = f"pf_{_slug(f.get('concept','x'))}_{_rand_token(4)}"
+            pf = {
+                "id": pinned_id,
+                "concept": f.get("concept"),
+                "op": f.get("op"),
+                "applies_to": f.get("applies_to") or [],
+            }
+            vals = f.get("default_values")
+            if f.get("op") == "between" and isinstance(vals, list) and len(vals) == 2:
+                pf["from"], pf["to"] = vals[0], vals[1]
+            elif f.get("op") in ("in", "not_in"):
+                pf["values"] = vals or []
+            else:
+                pf["value"] = (vals or [None])[0]
+            s["filters"]["pinned"].append(pf)
+            s["filters"]["interactive"].pop(i)
+            return s
+    raise _ApplyError(f"pin_filter: interactive '{fid}' bulunamadı")
+
+
+def _apply_add_filter(s: dict, sugg: dict) -> dict:
+    mode = sugg.get("mode") or "pinned"
+    concept = sugg.get("concept")
+    op = sugg.get("op")
+    if not concept or not op:
+        raise _ApplyError("add_filter: concept ve op zorunlu")
+    applies_to = sugg.get("applies_to") or []
+    if mode == "pinned":
+        f = {
+            "id": f"pf_{_slug(concept)}_{_rand_token(4)}",
+            "concept": concept,
+            "op": op,
+            "applies_to": applies_to,
+        }
+        if op == "between":
+            f["from"] = sugg.get("from")
+            f["to"] = sugg.get("to")
+        elif op in ("in", "not_in"):
+            f["values"] = sugg.get("values") or []
+        else:
+            f["value"] = sugg.get("value")
+        s["filters"]["pinned"].append(f)
+    else:
+        f = {
+            "id": f"if_{_slug(concept)}_{_rand_token(4)}",
+            "concept": concept,
+            "op": op,
+            "applies_to": applies_to,
+            "default_values": sugg.get("default_values") or sugg.get("values") or [],
+            "allowed_values": sugg.get("allowed_values"),
+            "label": sugg.get("label"),
+        }
+        s["filters"]["interactive"].append(f)
+    return s
+
+
+def _apply_add_projection_column(s: dict, sugg: dict) -> dict:
+    alias = sugg.get("alias")
+    column = sugg.get("column")
+    if not alias or not column:
+        raise _ApplyError("add_projection_column: alias + column zorunlu")
+    for b in s["basket"]:
+        if b.get("alias") == alias:
+            proj = b.setdefault("projection", {"columns": [], "include_all": False})
+            cols = list(proj.get("columns") or [])
+            if column not in cols:
+                cols.append(column)
+            proj["columns"] = cols
+            proj["include_all"] = False
+            return s
+    raise _ApplyError(f"add_projection_column: alias '{alias}' basket'te yok")
+
+
+def _apply_confirm_join(s: dict, sugg: dict) -> dict:
+    la, lc = sugg.get("left_alias"), sugg.get("left_column")
+    ra, rc = sugg.get("right_alias"), sugg.get("right_column")
+    jkind = sugg.get("kind_of_join") or "inner"
+    if not all([la, lc, ra, rc]):
+        raise _ApplyError("confirm_join: left/right alias+column zorunlu")
+    aliases = {b.get("alias") for b in s["basket"]}
+    if la not in aliases or ra not in aliases:
+        raise _ApplyError(f"confirm_join: alias basket'te yok ({la} / {ra})")
+    # Reject duplicate join on same column pair.
+    for j in s["joins"]:
+        l = j.get("left") or {}
+        r = j.get("right") or {}
+        if {(l.get("alias"), l.get("column")), (r.get("alias"), r.get("column"))} == {(la, lc), (ra, rc)}:
+            raise _ApplyError("confirm_join: bu join zaten kayıtlı")
+    s["joins"].append({
+        "id": f"j_{_slug(la)}_{_slug(ra)}_{_rand_token(3)}",
+        "left": {"alias": la, "column": lc},
+        "right": {"alias": ra, "column": rc},
+        "kind": jkind,
+    })
+    return s
+
+
+def _apply_create_aggregate(s: dict, sugg: dict) -> dict:
+    src = sugg.get("source_alias")
+    new_alias = sugg.get("new_alias")
+    group_by = list(sugg.get("group_by") or [])
+    measures = list(sugg.get("measures") or [])
+    if not src or not new_alias:
+        raise _ApplyError("create_aggregate: source_alias + new_alias zorunlu")
+    aliases = {b.get("alias") for b in s["basket"]}
+    if src not in aliases:
+        raise _ApplyError(f"create_aggregate: source_alias '{src}' basket'te yok")
+    if new_alias in aliases:
+        raise _ApplyError(f"create_aggregate: '{new_alias}' alias'ı zaten mevcut")
+    # Reject derived-from-derived (matches frontend rule: aggregate only from raw).
+    src_item = next(b for b in s["basket"] if b.get("alias") == src)
+    if src_item.get("derivation"):
+        raise _ApplyError("create_aggregate: kaynak türetilmiş tablo olamaz (sadece raw)")
+    if not (group_by or measures):
+        raise _ApplyError("create_aggregate: group_by veya measures gerekli")
+    s["basket"].append({
+        "alias": new_alias,
+        "derivation": {
+            "kind": "aggregate",
+            "source_alias": src,
+            "group_by": group_by,
+            "measures": [{"column": m["column"], "fn": m["fn"], "as": m.get("as") or f"{m['fn'].upper()}_{m['column']}"} for m in measures],
+        },
+        "projection": {
+            "columns": list(group_by) + [m.get("as") or f"{m['fn'].upper()}_{m['column']}" for m in measures],
+            "include_all": False,
+        },
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
+    })
+    return s

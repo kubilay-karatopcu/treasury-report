@@ -165,6 +165,68 @@ class QwenClient:
             raise RuntimeError(f"LLM provider HTTP {resp.status_code}: {resp.text[:500]}")
         return resp.json()["choices"][0]["message"]["content"]
 
+    def suggest_scope_refinements(
+        self,
+        scope: dict,
+        user_message: str,
+        bound_concepts: list[dict] | None = None,
+        catalog_excerpt: list[dict] | None = None,
+        history: list[dict] | None = None,
+    ) -> dict:
+        """Phase 8.f Hazırlık chat: scope refinement suggestions.
+
+        Returns ``{"explanation": str, "suggestions": [{"kind": ..., ...}]}``
+        matching the contract in PHASE_8_SPEC §5.3. One retry on invalid JSON
+        with the error fed back as a follow-up turn (§10.f).
+        """
+        system = load_prompt("scope_refine")
+        composed = compose_scope_user_message(
+            scope, user_message,
+            bound_concepts=bound_concepts,
+            catalog_excerpt=catalog_excerpt,
+            history=history,
+        )
+        result = self._call_scope(system, composed)
+        if result.get("_invalid"):
+            # One retry — feed back the parse error so the model corrects format.
+            retry_user = (
+                composed
+                + "\n\n# Önceki cevabın JSON parse edilemedi\n"
+                + f"Hata: {result['_invalid']}\n"
+                + "Lütfen SADECE JSON döndür — markdown, prose ya da code fence yok.\n"
+            )
+            result = self._call_scope(system, retry_user)
+        return {
+            "explanation": result.get("explanation", ""),
+            "suggestions": result.get("suggestions", []) or [],
+        }
+
+    def _call_scope(self, system: str, user: str) -> dict:
+        payload = {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        if self.model:
+            payload["model"] = self.model
+        if self.force_json:
+            payload["response_format"] = {"type": "json_object"}
+        resp = requests.post(
+            self.endpoint,
+            json=payload,
+            headers={"Authorization": f"Bearer {self.token}"},
+            verify=self.verify_ssl,
+            timeout=self.timeout,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"LLM provider HTTP {resp.status_code}: {resp.text[:500]}")
+        content = resp.json()["choices"][0]["message"]["content"]
+        return _parse_scope_output(content)
+
 
 def _block_layout_summary(blocks: list[dict]) -> str:
     """Index-table for the LLM. Top-level blocks are sections; their children
@@ -527,6 +589,143 @@ def _parse_llm_output(content: str) -> tuple[list[dict], str]:
     )
 
 
+# ── Phase 8.f — scope refinement helpers ─────────────────────────────────────
+
+def compose_scope_user_message(
+    scope: dict,
+    user_message: str,
+    bound_concepts: list[dict] | None = None,
+    catalog_excerpt: list[dict] | None = None,
+    history: list[dict] | None = None,
+) -> str:
+    """Render the user-side payload for `suggest_scope_refinements`.
+
+    Layout: scope summary → bound concepts → catalog excerpt → chat history →
+    user's latest message. Each section is kept short — the LLM only needs
+    enough to ground its suggestions, not the full scope JSON dump.
+    """
+    parts: list[str] = []
+
+    # 1. Scope summary — just what affects suggestion validity.
+    basket = scope.get("basket") or []
+    pinned = (scope.get("filters") or {}).get("pinned") or []
+    interactive = (scope.get("filters") or {}).get("interactive") or []
+    joins = scope.get("joins") or []
+
+    parts.append("## Mevcut scope")
+    if basket:
+        parts.append("**Basket (basket aliasları + kaynak):**")
+        for b in basket:
+            alias = b.get("alias", "?")
+            if b.get("table_ref"):
+                ref = b["table_ref"]
+                src = f"{ref.get('schema','')}.{ref.get('name','')}"
+            elif b.get("derivation"):
+                d = b["derivation"]
+                src = f"derived from {d.get('source_alias','?')} (group_by={d.get('group_by',[])})"
+            else:
+                src = "(boş)"
+            cols = (b.get("projection") or {}).get("columns") or []
+            include_all = (b.get("projection") or {}).get("include_all")
+            cols_summary = "include_all" if include_all else f"{len(cols)} kolon"
+            parts.append(f"- `{alias}` ← {src} · projection: {cols_summary}")
+    else:
+        parts.append("(boş — kullanıcı önce tablo eklemeli — Stage 1)")
+
+    if pinned:
+        parts.append("\n**Pinned filters:**")
+        for f in pinned:
+            parts.append(f"- `{f.get('id','?')}` concept={f.get('concept')} op={f.get('op')} value/values/from-to={_filter_value_repr(f)}")
+    if interactive:
+        parts.append("\n**Interactive filters:**")
+        for f in interactive:
+            parts.append(f"- `{f.get('id','?')}` concept={f.get('concept')} op={f.get('op')} default={f.get('default_values')}")
+    if joins:
+        parts.append("\n**Joins:**")
+        for j in joins:
+            l = j.get("left") or {}
+            r = j.get("right") or {}
+            parts.append(f"- `{j.get('id','?')}` {l.get('alias')}.{l.get('column')} ↔ {r.get('alias')}.{r.get('column')} ({j.get('kind','?')})")
+
+    # 2. Bound concepts — the legal set for filter suggestions.
+    if bound_concepts:
+        parts.append("\n## Bağlı concept'ler (filter önerirken sadece bunları kullan)")
+        for bc in bound_concepts:
+            tables = ", ".join(bc.get("bound_in") or [])
+            parts.append(f"- `{bc.get('concept','?')}` → {tables}")
+    else:
+        parts.append("\n## Bağlı concept'ler\n(yok — filter önerisi üretme; clarify et)")
+
+    # 3. Catalog excerpt — column names + common values for each basket table.
+    if catalog_excerpt:
+        parts.append("\n## Tablo katalog özeti")
+        for t in catalog_excerpt:
+            tid = t.get("id", "?")
+            desc = t.get("desc") or ""
+            parts.append(f"**{tid}** — {desc}")
+            for c in (t.get("columns") or [])[:30]:
+                bits = [f"`{c.get('name','?')}`"]
+                ctype = c.get("type")
+                if ctype:
+                    bits.append(f"({ctype})")
+                if c.get("key"):
+                    bits.append("[key]")
+                cv = c.get("common_values")
+                if cv:
+                    bits.append("vals: " + ", ".join(str(x) for x in cv[:5]))
+                parts.append("  - " + " ".join(bits))
+
+    # 4. Chat history (last N turns, max ~6).
+    if history:
+        parts.append("\n## Önceki mesajlar")
+        for turn in history[-6:]:
+            role = turn.get("role", "user")
+            content = (turn.get("content") or "")[:300]
+            parts.append(f"- **{role}:** {content}")
+
+    parts.append("\n# Yeni talep")
+    parts.append(user_message)
+    return "\n".join(parts)
+
+
+def _filter_value_repr(f: dict) -> str:
+    if f.get("from") is not None or f.get("to") is not None:
+        return f"{f.get('from','')}…{f.get('to','')}"
+    if f.get("values"):
+        return repr(f["values"][:5])
+    if f.get("value") is not None:
+        return repr(f["value"])
+    return "(none)"
+
+
+def _parse_scope_output(content: str) -> dict:
+    """Tolerant JSON extraction for the scope-refinement contract.
+
+    On parse failure returns ``{"_invalid": "<error>"}`` so the caller can
+    trigger a single retry with the error fed back to the model (§10.f).
+    """
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return {"_invalid": f"no JSON object in output (snippet: {text[:200]!r})"}
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError as exc:
+            return {"_invalid": str(exc)}
+    if not isinstance(data, dict):
+        return {"_invalid": "top-level JSON must be an object"}
+    sugg = data.get("suggestions")
+    if sugg is not None and not isinstance(sugg, list):
+        return {"_invalid": "`suggestions` must be a list"}
+    return data
+
+
 # ── Local dev stub ────────────────────────────────────────────────────────────
 
 class FakeLLM:
@@ -621,6 +820,106 @@ class FakeLLM:
         proposer treats an empty ``columns`` map as "LLM had nothing to add",
         so the deterministic stages stand alone offline."""
         return '{"columns": {}}'
+
+    # ── Phase 8.f — scope refinement (pattern matched, offline-safe) ────────
+    def suggest_scope_refinements(
+        self,
+        scope: dict,
+        user_message: str,
+        bound_concepts: list[dict] | None = None,
+        catalog_excerpt: list[dict] | None = None,
+        history: list[dict] | None = None,
+    ) -> dict:
+        """Offline canned responses keyed on user intent.
+
+        Covers the 5 suggestion kinds so the demo flow is exercisable without
+        VPN. Pattern matching is intentionally simple — the real model lives
+        on the office machine; this stub just keeps the UX alive in dev.
+        """
+        msg = (user_message or "").strip().lower()
+        basket = scope.get("basket") or []
+        aliases = [b.get("alias") for b in basket if b.get("alias")]
+        raw_aliases = [b.get("alias") for b in basket if b.get("table_ref") and b.get("alias")]
+        bound = {bc.get("concept") for bc in (bound_concepts or [])}
+        existing_pinned_concepts = {f.get("concept") for f in (scope.get("filters") or {}).get("pinned", [])}
+
+        def _has_words(*ws: str) -> bool:
+            return any(w in msg for w in ws)
+
+        # Tablo eklemek (reject — Stage 1's job). Match a broad "table … add"
+        # / "add … table" pattern so common phrasings ("loans tablosunu da
+        # ekle", "yeni tablo ekle") all land here.
+        if re.search(r"tablo\w*\b.*\bekle\b|\bekle\w*\b.*\btablo", msg):
+            return {
+                "explanation": "Yeni tablo eklemek Hazırlık'ta değil — soldaki katalog panelinden seçersen basket'e otomatik girecek (Keşif aşaması).",
+                "suggestions": [],
+            }
+
+        # Q4 / tarih pin.
+        if _has_words("q4", "çeyrek", "son çeyrek", "kilitle", "sabitle") and "as_of_time" in bound and "as_of_time" not in existing_pinned_concepts:
+            return {
+                "explanation": "Tarihi Q4 2025'e pin'lemeni öneririm — Sunum'da kimse değiştiremez.",
+                "suggestions": [{
+                    "kind": "add_filter",
+                    "mode": "pinned",
+                    "concept": "as_of_time",
+                    "op": "between",
+                    "from": "2025-10-01",
+                    "to": "2025-12-31",
+                    "applies_to": [],
+                    "rationale": "Pin'li tarih scope'a sabitlenir.",
+                }],
+            }
+
+        # Currency filter.
+        if _has_words("try", "tl cinsi", "tl cinsinden", "currency", "para birimi") and "currency" in bound:
+            return {
+                "explanation": "Sadece TL hesaplar üzerinde durmak istiyorsan currency'yi TRY'ye filtrele.",
+                "suggestions": [{
+                    "kind": "add_filter",
+                    "mode": "pinned",
+                    "concept": "currency",
+                    "op": "in",
+                    "values": ["TRY"],
+                    "applies_to": [],
+                    "rationale": "Çoklu para birimi karışıklığını önler.",
+                }],
+            }
+
+        # Aggregate.
+        agg_match = re.search(r"(şube|branch|currency|segment)\s+(?:baz|göre).*(topla|toplam|sum|agg|aggregate)", msg)
+        if not agg_match and ("aggregate" in msg or "agregat" in msg or "topla" in msg) and raw_aliases:
+            agg_match = re.search(r"(şube|branch|currency|segment)", msg)
+        if agg_match and raw_aliases:
+            dim = agg_match.group(1)
+            col_map = {"şube": "BRANCH_CODE", "branch": "BRANCH_CODE", "currency": "CUR", "segment": "SEGMENT"}
+            group_col = col_map.get(dim, "BRANCH_CODE")
+            src = raw_aliases[0]
+            measure_col = "BALANCE_TRY" if "balance_try" in str(catalog_excerpt).lower() else "TRY_BALANCE"
+            # Use the resolved column (BRANCH_CODE / CUR / SEGMENT) for the alias
+            # rather than the user's word — alias regex is ASCII-only.
+            new_alias = f"{src}_by_{group_col.lower()}"
+            return {
+                "explanation": f"`{src}` tablosunu `{group_col}` bazında topla — bir agregat node oluşturuyorum.",
+                "suggestions": [{
+                    "kind": "create_aggregate",
+                    "source_alias": src,
+                    "new_alias": new_alias,
+                    "group_by": [group_col],
+                    "measures": [{"column": measure_col, "fn": "sum", "as": f"SUM_{measure_col}"}],
+                    "rationale": f"{dim} seviyesinde toplam.",
+                }],
+            }
+
+        # Empty / belirsiz.
+        return {
+            "explanation": (
+                "(yerel stub) Şu örneklerden birini deneyebilirsin: "
+                "'Q4 2025'e kilitle', 'TL'ye filtrele', 'şube bazında topla', 'yeni tablo ekle'. "
+                "Gerçek model ofis ortamında devreye girer."
+            ),
+            "suggestions": [],
+        }
 
 
 def _find_block(manifest: dict, block_id: str | None):
