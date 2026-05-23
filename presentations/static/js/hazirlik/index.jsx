@@ -31,6 +31,8 @@ const PID = DATA.presentation_id;
 const _path = window.location.pathname;
 const BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
 const PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview`);
+const CHAT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/chat`);
+const APPLY_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/apply-suggestion`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
@@ -69,7 +71,15 @@ function makeAlias(name, existing) {
 }
 
 function filtersForAlias(scope, alias) {
-  const pinned = (scope?.filters?.pinned || []).filter((f) => (f.applies_to || []).includes(alias));
+  // Per spec §2.1: `applies_to: []` resolves to "all basket aliases that bind
+  // the concept" — match by the alias's column→concept index.
+  const cols = COLS_BY_ALIAS[alias] || [];
+  const boundConcepts = new Set(cols.map((c) => c.concept).filter(Boolean));
+  const pinned = (scope?.filters?.pinned || []).filter((f) => {
+    const at = f.applies_to || [];
+    if (at.length === 0) return boundConcepts.has(f.concept);
+    return at.includes(alias);
+  });
   const raw = (scope?.filters?.raw || []).filter((f) => f.alias === alias);
   return { pinned, raw };
 }
@@ -245,7 +255,7 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
 
 // ── Left sidebar (Sunum design: source categories + chat) ────────────────────
 
-function SourcesSidebar({ scope, onToggleTable, onRemove }) {
+function SourcesSidebar({ scope, onToggleTable, onRemove, chat }) {
   const [open, setOpen] = useState({});
   const inBasket = new Set(scope.basket.map((b) => tableId(b.table_ref)));
   return (
@@ -291,20 +301,136 @@ function SourcesSidebar({ scope, onToggleTable, onRemove }) {
         </div>
 
         <div className="sidebar-section sidebar-section--chat">
-          <div className="chat-box">
-            <div className="chat-box-header"><MessageSquare size={11} /><span>Asistan</span></div>
-            <div className="chat-messages ts-scroll">
-              <div className="chat-empty">Scope asistanı yakında (Stage 2 · 8.f).</div>
-            </div>
-            <textarea className="chat-input" rows={3} disabled placeholder="Scope hakkında soru sor… (yakında)" />
-            <div className="chat-footer">
-              <span className="chat-footer-hint">⌘/Ctrl + Enter ile gönder</span>
-              <button type="button" className="btn-primary" disabled>Gönder</button>
-            </div>
-          </div>
+          <ChatPanel {...chat} />
         </div>
       </div>
     </aside>
+  );
+}
+
+// ── Stage-2 LLM scope-refinement chat ────────────────────────────────────────
+
+function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply, onDismiss, applyingId }) {
+  const taRef = useRef(null);
+  const listRef = useRef(null);
+
+  // Auto-scroll on new messages.
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [history, busy]);
+
+  const submit = () => {
+    const v = (draft || "").trim();
+    if (!v || busy) return;
+    onSend(v);
+  };
+  const onKey = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submit(); }
+  };
+
+  return (
+    <div className="chat-box">
+      <div className="chat-box-header">
+        <MessageSquare size={11} /> <span>Asistan</span>
+      </div>
+      <div className="chat-messages ts-scroll" ref={listRef}>
+        {history.length === 0 && !busy && (
+          <div className="chat-empty">
+            Scope hakkında konuş — örn. "Q4 2025'e kilitle", "TL'ye filtrele",
+            "şube bazında topla".
+          </div>
+        )}
+        {history.map((m, i) => (
+          <ChatTurn key={i} turn={m} onApply={onApply} onDismiss={onDismiss} applyingId={applyingId} />
+        ))}
+        {busy && <div className="chat-turn chat-turn--assistant"><div className="chat-bubble">Düşünüyor…</div></div>}
+        {error && <div className="hz-error" style={{ margin: "4px 8px", fontSize: 11 }}>{error}</div>}
+      </div>
+      <textarea
+        ref={taRef}
+        className="chat-input"
+        rows={3}
+        value={draft || ""}
+        onChange={(e) => onDraftChange(e.target.value)}
+        onKeyDown={onKey}
+        placeholder="Scope hakkında soru sor…"
+        disabled={busy}
+      />
+      <div className="chat-footer">
+        <span className="chat-footer-hint">⌘/Ctrl + Enter ile gönder</span>
+        <button type="button" className="btn-primary" onClick={submit} disabled={busy || !(draft || "").trim()}>
+          Gönder
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ChatTurn({ turn, onApply, onDismiss, applyingId }) {
+  if (turn.role === "user") {
+    return (
+      <div className="chat-turn chat-turn--user">
+        <div className="chat-bubble">{turn.content}</div>
+      </div>
+    );
+  }
+  // assistant turn — explanation + suggestion cards
+  const suggestions = turn.suggestions || [];
+  return (
+    <div className="chat-turn chat-turn--assistant">
+      {turn.explanation && <div className="chat-bubble">{turn.explanation}</div>}
+      {suggestions.map((s) => (
+        <SuggestionCard key={s.id} suggestion={s}
+          onApply={() => onApply(turn._turnId, s)}
+          onDismiss={() => onDismiss(turn._turnId, s.id)}
+          busy={applyingId === s.id}
+        />
+      ))}
+    </div>
+  );
+}
+
+const KIND_LABEL = {
+  pin_filter: "Pin filter",
+  add_filter: "Filtre ekle",
+  add_projection_column: "Kolon ekle",
+  confirm_join: "Join onayla",
+  create_aggregate: "Agregat tablo",
+};
+
+function summariseSuggestion(s) {
+  switch (s.kind) {
+    case "pin_filter": return `interactive filter ${s.filter_id} → pinned`;
+    case "add_filter": {
+      const tail = s.from ? `${s.from} – ${s.to}` : (s.values ? s.values.join(", ") : (s.value ?? ""));
+      return `${s.mode || "pinned"} · ${s.concept} ${s.op} ${tail}`;
+    }
+    case "add_projection_column": return `${s.alias}.${s.column}`;
+    case "confirm_join": return `${s.left_alias}.${s.left_column} ↔ ${s.right_alias}.${s.right_column} (${s.kind_of_join || "inner"})`;
+    case "create_aggregate": {
+      const grp = (s.group_by || []).join(", ");
+      const mes = (s.measures || []).map((m) => `${m.fn}(${m.column})`).join(", ");
+      return `${s.source_alias} → ${s.new_alias} · group_by [${grp}] · ${mes}`;
+    }
+    default: return JSON.stringify(s).slice(0, 100);
+  }
+}
+
+function SuggestionCard({ suggestion, onApply, onDismiss, busy }) {
+  return (
+    <div className="hz-sugg">
+      <div className="hz-sugg-head">
+        <span className="hz-sugg-kind">{KIND_LABEL[suggestion.kind] || suggestion.kind}</span>
+      </div>
+      <div className="hz-sugg-body">{summariseSuggestion(suggestion)}</div>
+      {suggestion.rationale && <div className="hz-sugg-rationale">{suggestion.rationale}</div>}
+      <div className="hz-sugg-actions">
+        <button className="ts-btn ts-btn--sm ts-btn--primary" disabled={busy} onClick={onApply}>
+          {busy ? "Uygulanıyor…" : "Apply"}
+        </button>
+        <button className="ts-btn ts-btn--sm" disabled={busy} onClick={onDismiss}>Reddet</button>
+      </div>
+    </div>
   );
 }
 
@@ -477,15 +603,120 @@ function App() {
   const [nodes, setNodes, onNodesChange] = useNodesStateCompat(() => initialNodes(DATA.scope));
   const edges = useMemo(() => buildEdges(scope), [scope]);
 
-  // Refresh each node's data (activeFilters, etc.) whenever the scope changes,
-  // preserving position (RF owns positions via setNodes).
+  // Reconcile React Flow nodes with the basket:
+  //   - update data for nodes that still match a basket alias
+  //   - drop nodes whose alias was removed from the basket
+  //   - append nodes for basket items added without a UI mutation (e.g. the
+  //     LLM `create_aggregate` suggestion adds a derived item directly).
+  // Positions are preserved for known nodes; new nodes get a grid layout.
   useEffect(() => {
-    setNodes((nds) => nds.map((n) => {
-      const item = scope.basket.find((b) => b.alias === n.id);
-      return item ? { ...n, data: enrichNodeData(item, scope) } : n;
-    }));
+    setNodes((nds) => {
+      const aliasesInScope = new Set(scope.basket.map((b) => b.alias));
+      const kept = nds
+        .filter((n) => aliasesInScope.has(n.id))
+        .map((n) => {
+          const item = scope.basket.find((b) => b.alias === n.id);
+          return item ? { ...n, data: enrichNodeData(item, scope) } : n;
+        });
+      const known = new Set(kept.map((n) => n.id));
+      const added = [];
+      scope.basket.forEach((item, i) => {
+        if (known.has(item.alias)) return;
+        // Populate COLS_BY_ALIAS for newly-added derived items so the node
+        // can display them in the "Diğer Kolonlar" handle.
+        if (item.derivation && !COLS_BY_ALIAS[item.alias]) {
+          const srcCols = Object.fromEntries((COLS_BY_ALIAS[item.derivation.source_alias] || []).map((c) => [c.name, c]));
+          COLS_BY_ALIAS[item.alias] = [
+            ...(item.derivation.group_by || []).map((g) => ({ name: g, concept: srcCols[g]?.concept || null, join_key: true })),
+            ...(item.derivation.measures || []).map((m) => ({ name: m.as, concept: null, join_key: false })),
+          ];
+        }
+        const seq = kept.length + added.length;
+        added.push({
+          id: item.alias, type: "tableNode",
+          position: { x: 100 + (seq % 3) * 340, y: 100 + Math.floor(seq / 3) * 240 },
+          data: enrichNodeData(item, scope),
+        });
+      });
+      return [...kept, ...added];
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
+
+  // ── Stage-2 LLM chat (8.f) ─────────────────────────────────────────────────
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState(null);
+  const [chatDraft, setChatDraft] = useState("");
+  const [applyingId, setApplyingId] = useState(null);
+
+  const sendChat = useCallback(async (message) => {
+    setChatError(null);
+    setChatBusy(true);
+    setChatDraft("");
+    const userTurn = { role: "user", content: message };
+    // Build the history payload from the *previous* turns (exclude the new user turn).
+    const historyPayload = chatHistory.map((t) => (
+      t.role === "user"
+        ? { role: "user", content: t.content }
+        : { role: "assistant", content: t.explanation || "" }
+    ));
+    setChatHistory((h) => [...h, userTurn]);
+    try {
+      const r = await fetch(CHAT_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, message, history: historyPayload }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      const turnId = `t_${rid()}`;
+      setChatHistory((h) => [...h, {
+        role: "assistant", _turnId: turnId,
+        explanation: data.explanation || "",
+        suggestions: data.suggestions || [],
+      }]);
+    } catch (e) {
+      setChatError(String(e.message || e));
+    } finally {
+      setChatBusy(false);
+    }
+  }, [scope, chatHistory]);
+
+  const dismissSuggestion = useCallback((turnId, suggestionId) => {
+    setChatHistory((h) => h.map((t) => {
+      if (t._turnId !== turnId) return t;
+      return { ...t, suggestions: (t.suggestions || []).filter((s) => s.id !== suggestionId) };
+    }));
+  }, []);
+
+  const applySuggestion = useCallback(async (turnId, suggestion) => {
+    setApplyingId(suggestion.id);
+    try {
+      const r = await fetch(APPLY_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, suggestion }),
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        setToast(`Uygulanamadı: ${data.error || (data.errors || []).join("; ")}`);
+        return;
+      }
+      setScope(data.scope);
+      setToast(`'${KIND_LABEL[suggestion.kind] || suggestion.kind}' uygulandı.`);
+      dismissSuggestion(turnId, suggestion.id);
+      if ((data.warnings || []).length) {
+        setChatHistory((h) => [...h, {
+          role: "assistant", _turnId: `t_${rid()}`,
+          explanation: `Uygulandı, uyarı: ${data.warnings.join("; ")}`,
+          suggestions: [],
+        }]);
+      }
+    } catch (e) {
+      setToast(`Hata: ${e.message || e}`);
+    } finally {
+      setApplyingId(null);
+    }
+  }, [scope, dismissSuggestion]);
 
   const captureGridState = () => {
     const api = gridApiRef.current;
@@ -539,8 +770,9 @@ function App() {
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
     };
     COLS_BY_ALIAS[alias] = (t.columns || []).map((c) => ({
-      name: c.name || c, type: c.type, concept: null,
-      join_key: !!c.key,   // honour the catalog's explicit `key` flag
+      name: c.name || c, type: c.type,
+      concept: c.concept || null,    // catalog server-side enriches from table-docs
+      join_key: !!c.key,             // honour the catalog's explicit `key` flag
     }));
     CATALOG_BY_ID[t.id] = t;
     setScope((s) => ({ ...s, basket: [...s.basket, item] }));
@@ -706,7 +938,15 @@ function App() {
       {err && <div className="hz-error hz-error--bar">{err}</div>}
 
       <div className="hz-body">
-        <SourcesSidebar scope={scope} onToggleTable={toggleTable} onRemove={removeTable} />
+        <SourcesSidebar
+          scope={scope} onToggleTable={toggleTable} onRemove={removeTable}
+          chat={{
+            history: chatHistory, busy: chatBusy, error: chatError,
+            draft: chatDraft, onDraftChange: setChatDraft,
+            onSend: sendChat, onApply: applySuggestion, onDismiss: dismissSuggestion,
+            applyingId,
+          }}
+        />
         <main className="hz-right">
           <div className="hz-canvas">
             <ReactFlow

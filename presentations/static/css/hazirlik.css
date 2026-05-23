@@ -232,3 +232,30 @@
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 .hz-node-filter svg { color: #94a3b8; flex-shrink: 0; }
+
+/* Stage-2 LLM chat: turn bubbles + suggestion cards (8.f) */
+.chat-turn { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.chat-turn--user .chat-bubble { align-self: flex-end; background: #2563eb; color: #fff; }
+.chat-turn--assistant .chat-bubble { align-self: flex-start; background: #f1f5f9; color: #0f172a; }
+.chat-bubble {
+  max-width: 88%; padding: 6px 9px; border-radius: 10px;
+  font-size: 11.5px; line-height: 1.35; white-space: pre-wrap; word-wrap: break-word;
+}
+
+.hz-sugg {
+  align-self: stretch;
+  border: 1px solid #d6dae0; border-radius: 8px; background: #fff;
+  padding: 7px 9px; margin: 4px 0; display: flex; flex-direction: column; gap: 4px;
+}
+.hz-sugg-head { display: flex; align-items: center; gap: 6px; }
+.hz-sugg-kind {
+  display: inline-block; padding: 1px 7px; border-radius: 10px;
+  background: #ede9fe; color: #6d28d9; font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.hz-sugg-body {
+  font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: #1f2937; word-break: break-all;
+}
+.hz-sugg-rationale { font-size: 11px; color: #475569; line-height: 1.4; }
+.hz-sugg-actions { display: flex; gap: 6px; }
