@@ -219,3 +219,16 @@
 /* Derived (aggregate) tables */
 .hz-node--derived .hz-node-head { background: #7c3aed; }
 .hz-badge--derived { background: rgba(255,255,255,.22); color: #fff; }
+
+/* Active filters footer on the node card */
+.hz-node-filters {
+  padding: 5px 10px; border-top: 1px solid #eef0f3;
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 10px; color: #475569; background: #fafbfc;
+}
+.hz-node-filter {
+  display: flex; align-items: center; gap: 4px; padding: 1px 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-node-filter svg { color: #94a3b8; flex-shrink: 0; }

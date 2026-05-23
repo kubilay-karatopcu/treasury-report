@@ -60,6 +60,21 @@ function makeAlias(name, existing) {
   return alias;
 }
 
+function filtersForAlias(scope, alias) {
+  const pinned = (scope?.filters?.pinned || []).filter((f) => (f.applies_to || []).includes(alias));
+  const raw = (scope?.filters?.raw || []).filter((f) => f.alias === alias);
+  return { pinned, raw };
+}
+function summarizeFilter(f) {
+  if (f.op === "between") return `${f.from}…${f.to}`;
+  if (f.values && f.values.length) return f.values.slice(0, 3).join(", ") + (f.values.length > 3 ? "…" : "");
+  if (f.value != null) return String(f.value);
+  return "";
+}
+function enrichNodeData(item, scope) {
+  return { ...nodeData(item), activeFilters: filtersForAlias(scope, item.alias) };
+}
+
 // ── Modal shell ────────────────────────────────────────────────────────────
 
 function Modal({ title, onClose, children, footer, size = "sm" }) {
@@ -80,8 +95,9 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters } = data;
   const cached = item.routing?.decision === "cached";
+  const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   return (
     <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
       <div className="hz-node-head">
@@ -107,6 +123,22 @@ function TableNode({ data }) {
           <Handle type="source" position={Position.Right} id="__other__" className="hz-handle hz-handle--other" />
         </div>
       </div>
+      {filterCount > 0 && (
+        <div className="hz-node-filters" title={`${filterCount} aktif filtre`}>
+          {activeFilters.pinned.map((f) => (
+            <div key={f.id} className="hz-node-filter">
+              <span className="hz-node-filter-icon" aria-hidden>🔒</span>
+              {f.concept} {f.op} {summarizeFilter(f)}
+            </div>
+          ))}
+          {activeFilters.raw.map((f) => (
+            <div key={f.id} className="hz-node-filter">
+              <span className="hz-node-filter-icon" aria-hidden>⚲</span>
+              {f.column} {f.op} {summarizeFilter(f)}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -267,7 +299,16 @@ function SourcesSidebar({ scope, onToggleTable, onRemove }) {
 
 // ── AG Grid preview drawer (resizable) ───────────────────────────────────────
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState }) {
+  const handleReady = (p) => {
+    if (onGridReady) onGridReady(p);
+    if (savedGridState) {
+      try {
+        if (savedGridState.columnState) p.api.applyColumnState({ state: savedGridState.columnState, applyOrder: true });
+        if (savedGridState.filterModel) p.api.setFilterModel(savedGridState.filterModel);
+      } catch (e) { /* ignore restore errors */ }
+    }
+  };
   const colDefs = useMemo(() => (preview?.data_columns || []).map((c) => ({
     field: c, headerName: c, sortable: true, resizable: true, filter: true, minWidth: 110, flex: 1,
     enableRowGroup: true, enablePivot: true, enableValue: true,
@@ -300,7 +341,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           <div className="ag-theme-alpine" style={{ width: "100%", height: "100%" }}>
             <AgGridReact
               columnDefs={colDefs} rowData={rowData} animateRows
-              onGridReady={onGridReady}
+              onGridReady={handleReady}
               sideBar={{ toolPanels: ["columns", "filters"] }}
               rowGroupPanelShow="always"
               pivotPanelShow="always"
@@ -313,21 +354,33 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
 }
 
 // AG Grid filter model → scope filters (concept if column bound, else raw).
+// Handles AG Grid Enterprise set filter (default for categorical) + community
+// text/number/date filters.
 function agModelToFilters(model, alias, colMeta) {
   const pinned = [], raw = [];
   for (const [col, m] of Object.entries(model || {})) {
     const concept = colMeta[col]?.concept || null;
     const base = concept
-      ? { id: `pf_${concept}_${rid()}`.slice(0, 58), concept, op: "in", applies_to: [alias] }
-      : { id: `rf_${col.toLowerCase()}_${rid()}`.slice(0, 58), alias, column: col, op: "eq" };
-    const val = m.filter ?? m.dateFrom ?? null;
-    if (m.type === "inRange") {
-      base.op = "between"; base.from = m.dateFrom ?? m.filter; base.to = m.dateTo ?? m.filterTo;
-    } else if (concept) {
-      base.op = "in"; base.values = [val];
+      ? { id: `pf_${concept}_${rid()}`.slice(0, 58), concept, applies_to: [alias] }
+      : { id: `rf_${col.toLowerCase()}_${rid()}`.slice(0, 58), alias, column: col };
+
+    if (m.filterType === "set" && Array.isArray(m.values)) {
+      base.op = "in"; base.values = m.values;
+    } else if (m.type === "inRange") {
+      base.op = "between";
+      base.from = m.dateFrom ?? m.filter;
+      base.to = m.dateTo ?? m.filterTo;
+    } else if (m.type === "equals" && (m.filter != null || m.dateFrom != null)) {
+      const v = m.filter ?? m.dateFrom;
+      if (concept) { base.op = "in"; base.values = [v]; }
+      else { base.op = "eq"; base.value = v; }
+    } else if (m.filter != null) {            // text 'contains'/'startsWith'/… etc.
+      if (concept) { base.op = "in"; base.values = [m.filter]; }
+      else { base.op = "eq"; base.value = m.filter; }
     } else {
-      base.op = "eq"; base.value = val;
+      continue;   // unrecognised filter shape (no value) — skip
     }
+
     if (concept) pinned.push(base); else raw.push(base);
   }
   return { pinned, raw };
@@ -344,10 +397,32 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [toast, setToast] = useState(null);
+  const [gridStateByAlias, setGridStateByAlias] = useState({}); // per-alias AG Grid state (filters + columns), restored on re-open
   const gridApiRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesStateCompat(() => initialNodes(DATA.scope));
   const edges = useMemo(() => buildEdges(scope), [scope]);
+
+  // Refresh each node's data (activeFilters, etc.) whenever the scope changes,
+  // preserving position (RF owns positions via setNodes).
+  useEffect(() => {
+    setNodes((nds) => nds.map((n) => {
+      const item = scope.basket.find((b) => b.alias === n.id);
+      return item ? { ...n, data: enrichNodeData(item, scope) } : n;
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
+
+  const captureGridState = () => {
+    const api = gridApiRef.current;
+    if (!api) return null;
+    try {
+      return {
+        columnState: api.getColumnState ? api.getColumnState() : null,
+        filterModel: api.getFilterModel ? api.getFilterModel() : null,
+      };
+    } catch { return null; }
+  };
 
   const addJoin = useCallback((la, lc, ra, rc, kind = "lookup") => {
     setScope((s) => {
@@ -395,7 +470,7 @@ function App() {
     setNodes((nds) => [...nds, {
       id: alias, type: "tableNode",
       position: { x: 80 + (nds.length % 3) * 340, y: 80 + Math.floor(nds.length / 3) * 240 },
-      data: nodeData(item),
+      data: enrichNodeData(item, scope),
     }]);
   };
 
@@ -448,6 +523,8 @@ function App() {
       },
     }));
     setToast(`${pinned.length + raw.length} filtre kaydedildi.`);
+    const snap = captureGridState();
+    if (snap) setGridStateByAlias((s) => ({ ...s, [preview.alias]: snap }));
   };
 
   // Read the grid's row-grouping + value (aggregation) state → derived table.
@@ -484,9 +561,11 @@ function App() {
     setNodes((nds) => [...nds, {
       id: alias, type: "tableNode",
       position: { x: 100 + (nds.length % 3) * 340, y: 100 + Math.floor(nds.length / 3) * 240 },
-      data: nodeData(item),
+      data: enrichNodeData(item, scope),
     }]);
     setToast(`'${alias}' türetilmiş tablo eklendi (${groupBy.length} grup, ${measures.length} measure).`);
+    const snap = captureGridState();
+    if (snap) setGridStateByAlias((s) => ({ ...s, [preview.alias]: snap }));
   };
 
   // Drawer resize (drag the top edge up/down).
@@ -553,9 +632,11 @@ function App() {
           </div>
           {preview && (
             <PreviewDrawer
+              key={preview.alias}
               preview={preview} loading={previewLoading} height={drawerH}
               onResizeStart={startResize} onClose={() => setPreview(null)}
               onSaveFilters={saveFilters} onSaveAsTable={saveAsTable}
+              savedGridState={gridStateByAlias[preview.alias]}
               onGridReady={(p) => { gridApiRef.current = p.api; window.__hzGridApi = p.api; }}
             />
           )}
