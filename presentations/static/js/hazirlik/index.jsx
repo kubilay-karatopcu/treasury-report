@@ -54,6 +54,7 @@ const CHAT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/chat`);
 const APPLY_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/apply-suggestion`);
 const ROUTING_OVERRIDE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/routing-override`);
 const ROUTING_RECOMPUTE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/recompute-routing`);
+const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
@@ -123,13 +124,14 @@ function summarizeFilter(f) {
 // Singleton holder for node-data handlers — App registers once, every
 // enrichNodeData() call reads from here. Avoids threading callbacks through
 // every node-creating site (initialNodes / addTable / saveAsTable / chat-apply).
-const NODE_HANDLERS = { onOverrideRouting: null };
+const NODE_HANDLERS = { onOverrideRouting: null, onOpenProjection: null };
 
 function enrichNodeData(item, scope) {
   return {
     ...nodeData(item),
     activeFilters: filtersForAlias(scope, item.alias),
     onOverrideRouting: NODE_HANDLERS.onOverrideRouting,
+    onOpenProjection: NODE_HANDLERS.onOpenProjection,
   };
 }
 
@@ -153,7 +155,7 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting, onOpenProjection } = data;
   const cached = item.routing?.decision === "cached";
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   const headStyle = !derived && color ? { background: color } : undefined;
@@ -185,6 +187,14 @@ function TableNode({ data }) {
       </div>
       {!derived && (
         <div className="hz-node-routing">
+          <button
+            type="button"
+            className="hz-route-btn"
+            title={`Projection — şu an ${item.projection?.include_all ? "tüm kolonlar" : (item.projection?.columns?.length || 0) + " seçili"}`}
+            onClick={(e) => { e.stopPropagation(); onOpenProjection && onOpenProjection(item.alias); }}
+          >
+            Kolonlar ({item.projection?.include_all ? "tümü" : (item.projection?.columns?.length || 0)}/{colCount})
+          </button>
           <button
             type="button"
             className="hz-route-override"
@@ -261,22 +271,43 @@ function initialNodes(scope) {
   }));
 }
 
+// Concept lookup used when a confirmed join doesn't carry a `concept` field
+// yet (older payloads) — falls back to checking the alias's column.
+function _conceptForJoinSide(alias, column) {
+  const cols = COLS_BY_ALIAS[alias] || [];
+  return cols.find((c) => c.name === column)?.concept || null;
+}
+
 function buildEdges(scope) {
   const confirmed = new Set(scope.joins.map(
     (j) => joinKey(j.left.alias, j.left.column, j.right.alias, j.right.column)));
-  const edges = scope.joins.map((j) => ({
-    id: j.id, source: j.left.alias, target: j.right.alias,
-    label: `${j.kind}: ${j.left.column}=${j.right.column}`,
-    className: "hz-edge hz-edge--confirmed", data: { confirmed: true, join: j },
-  }));
+  const edges = scope.joins.map((j) => {
+    const concept = j.concept
+      || _conceptForJoinSide(j.left.alias, j.left.column)
+      || _conceptForJoinSide(j.right.alias, j.right.column);
+    return {
+      id: j.id, source: j.left.alias, target: j.right.alias,
+      // Confirmed edge label: prefer the concept (shows *why* the join exists)
+      // over the raw kind, then append the column pair for clarity.
+      label: concept ? `${concept} · ${j.left.column}=${j.right.column}` : `${j.kind}: ${j.left.column}=${j.right.column}`,
+      className: "hz-edge hz-edge--confirmed",
+      data: { confirmed: true, join: j, concept },
+    };
+  });
   const aliases = new Set(scope.basket.map((b) => b.alias));
   SUGGESTED.forEach((s, i) => {
     if (!aliases.has(s.left.alias) || !aliases.has(s.right.alias)) return;
     if (confirmed.has(joinKey(s.left.alias, s.left.column, s.right.alias, s.right.column))) return;
+    // Edge label shows the concept that proposed the suggestion (for FK
+    // lookups this is the lookup's display concept; for shared-concept it's
+    // the concept itself). Falls back to "lookup" / "öneri" otherwise.
+    const concept = s.concept || _conceptForJoinSide(s.left.alias, s.left.column);
+    const kindLabel = s.source === "catalog_lookup" ? "lookup" : "öneri";
     edges.push({
       id: `sug_${i}`, source: s.left.alias, target: s.right.alias,
-      label: "öneri", className: "hz-edge hz-edge--suggested",
-      data: { suggested: true, edge: s },
+      label: concept ? `${concept} · ${kindLabel}` : kindLabel,
+      className: "hz-edge hz-edge--suggested",
+      data: { suggested: true, edge: s, concept },
     });
   });
   return edges;
@@ -290,6 +321,17 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
   const [lcol, setLcol] = useState(preLcol || lc[0]?.name || "");
   const [rcol, setRcol] = useState(preRcol || rc[0]?.name || "");
   const [kind, setKind] = useState("lookup");
+
+  // Each side's selected column's concept — render as a chip so the user
+  // sees at a glance whether the pairing makes semantic sense.
+  const lConcept = lc.find((c) => c.name === lcol)?.concept || null;
+  const rConcept = rc.find((c) => c.name === rcol)?.concept || null;
+  const conceptsMatch = lConcept && rConcept && lConcept === rConcept;
+
+  // Format an <option> label that includes the column's concept (if any) so
+  // the dropdown also shows the semantic tag inline.
+  const optLabel = (c) => (c.concept ? `${c.name} · ${c.concept}` : c.name);
+
   return (
     <Modal title={`Join: ${left} → ${right}`} onClose={onClose} footer={
       <>
@@ -302,17 +344,30 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
       <div className="hz-row">
         <label className="hz-field">{left}
           <select value={lcol} onChange={(e) => setLcol(e.target.value)}>
-            {lc.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+            {lc.map((c) => <option key={c.name} value={c.name}>{optLabel(c)}</option>)}
             {lc.length === 0 && <option value="">(kolon yok)</option>}
           </select>
+          {lConcept && (
+            <span className={`hz-col-concept hz-join-concept${conceptsMatch ? " hz-join-concept--match" : ""}`}>{lConcept}</span>
+          )}
         </label>
         <label className="hz-field">{right}
           <select value={rcol} onChange={(e) => setRcol(e.target.value)}>
-            {rc.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+            {rc.map((c) => <option key={c.name} value={c.name}>{optLabel(c)}</option>)}
             {rc.length === 0 && <option value="">(kolon yok)</option>}
           </select>
+          {rConcept && (
+            <span className={`hz-col-concept hz-join-concept${conceptsMatch ? " hz-join-concept--match" : ""}`}>{rConcept}</span>
+          )}
         </label>
       </div>
+      {lConcept && rConcept && (
+        <p className={`hz-join-concept-hint${conceptsMatch ? " is-match" : " is-mismatch"}`}>
+          {conceptsMatch
+            ? `✓ Her iki tarafta da '${lConcept}' concept'i — anlamsal eşleşme.`
+            : `⚠ Concept'ler farklı: '${lConcept}' ↔ '${rConcept}'. Join yine de kurulabilir ama semantik eşleşme yok.`}
+        </p>
+      )}
       <label className="hz-field">Tür
         <select value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="lookup">lookup</option>
@@ -323,6 +378,90 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
     </Modal>
   );
 }
+
+// ── Projection picker (per-table column selector) ─────────────────────────────
+
+function ProjectionModal({ alias, item, onSave, onClose, error }) {
+  // Pull the full catalog column list for the table (not just the keys from
+  // COLS_BY_ALIAS, which is curated for the node card). For raw catalog
+  // entries we look up CATALOG_BY_ID; for table-doc entries we fall back to
+  // COLS_BY_ALIAS itself.
+  const tid = item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : null;
+  const catalogCols = (CATALOG_BY_ID[tid]?.columns || []).map((c) => ({
+    name: c.name || c, type: c.type || null,
+    concept: c.concept || null,
+    key: !!c.key,
+  }));
+  const allCols = catalogCols.length
+    ? catalogCols
+    : (COLS_BY_ALIAS[alias] || []).map((c) => ({ name: c.name, type: c.type, concept: c.concept, key: c.join_key }));
+
+  const initial = item.projection?.include_all
+    ? new Set(allCols.map((c) => c.name))
+    : new Set(item.projection?.columns || []);
+  const [selected, setSelected] = useState(initial);
+
+  const toggle = (name) => setSelected((s) => {
+    const next = new Set(s);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
+  const selectAll = () => setSelected(new Set(allCols.map((c) => c.name)));
+  const selectKeysOnly = () => setSelected(new Set(allCols.filter((c) => c.key).map((c) => c.name)));
+  const clear = () => setSelected(new Set());
+
+  // Sort: keys first, then alphabetical.
+  const sorted = [...allCols].sort((a, b) => {
+    if (a.key !== b.key) return a.key ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const allSelected = selected.size === allCols.length && allCols.length > 0;
+  const count = selected.size;
+  const total = allCols.length;
+
+  return (
+    <Modal title={`Kolonlar: ${alias}`} size="md" onClose={onClose} footer={
+      <>
+        <button className="ts-btn" onClick={onClose}>Vazgeç</button>
+        <button
+          className="ts-btn ts-btn--primary"
+          disabled={count === 0}
+          onClick={() => onSave({
+            columns: Array.from(selected),
+            include_all: allSelected,
+          })}
+        >
+          Kaydet ({count}/{total})
+        </button>
+      </>
+    }>
+      <p className="hz-muted">Bu tablodan fetch'lenecek kolonları seç. Konsept'i olanlar yeşil chip ile işaretli.</p>
+      {error && <div className="hz-error" style={{ margin: "6px 0", padding: "6px 9px" }}>{error}</div>}
+      <div className="hz-proj-actions">
+        <button type="button" className="hz-route-btn" onClick={selectAll}>Tümünü seç</button>
+        <button type="button" className="hz-route-btn" onClick={selectKeysOnly}>Sadece key'ler</button>
+        <button type="button" className="hz-route-btn" onClick={clear}>Hepsini kaldır</button>
+      </div>
+      <div className="hz-proj-list">
+        {sorted.map((c) => (
+          <label key={c.name} className={`hz-proj-row${selected.has(c.name) ? " is-selected" : ""}`}>
+            <input
+              type="checkbox"
+              checked={selected.has(c.name)}
+              onChange={() => toggle(c.name)}
+            />
+            <span className="hz-proj-col-name">{c.name}</span>
+            {c.type && <span className="hz-proj-col-type">{c.type}</span>}
+            {c.key && <span className="hz-proj-key-tag">key</span>}
+            {c.concept && <span className="hz-col-concept">{c.concept}</span>}
+          </label>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 
 // ── Left sidebar (Sunum design: source categories + chat) ────────────────────
 
@@ -772,6 +911,35 @@ function App() {
     }));
   }, []);
 
+  const [projectionAlias, setProjectionAlias] = useState(null);
+  const [projectionError, setProjectionError] = useState(null);
+
+  const saveProjection = useCallback(async ({ columns, include_all }) => {
+    setProjectionError(null);
+    if (!projectionAlias) return;
+    try {
+      const r = await fetch(PROJECTION_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, alias: projectionAlias, columns, include_all }),
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        let msg = data.error || (data.errors || []).join("; ");
+        if (data.blocked_by_joins) {
+          const cols = data.blocked_by_joins.map((b) => b.column).join(", ");
+          msg = `${msg} (etkilenen kolonlar: ${cols})`;
+        }
+        setProjectionError(msg);
+        return;
+      }
+      setScope(data.scope);
+      setToast(`'${projectionAlias}' projection güncellendi (${include_all ? "tümü" : columns.length} kolon).`);
+      setProjectionAlias(null);
+    } catch (e) {
+      setProjectionError(e.message || String(e));
+    }
+  }, [scope, projectionAlias]);
+
   const overrideRouting = useCallback(async (alias, forced) => {
     try {
       const r = await fetch(ROUTING_OVERRIDE_URL, {
@@ -790,13 +958,24 @@ function App() {
     }
   }, [scope]);
 
-  // Register the override handler on the module singleton so every node
-  // re-render (driven by setNodes inside the [scope] effect) sees the latest
-  // reference. NODE_HANDLERS itself is module-level so this is one-shot.
+  // Register the override + projection handlers on the module singleton so
+  // every node re-render (driven by setNodes inside the [scope] effect) sees
+  // the latest reference. NODE_HANDLERS itself is module-level so this is
+  // one-shot per handler.
   useEffect(() => {
     NODE_HANDLERS.onOverrideRouting = overrideRouting;
     return () => { NODE_HANDLERS.onOverrideRouting = null; };
   }, [overrideRouting]);
+
+  const openProjection = useCallback((alias) => {
+    setProjectionError(null);
+    setProjectionAlias(alias);
+  }, []);
+
+  useEffect(() => {
+    NODE_HANDLERS.onOpenProjection = openProjection;
+    return () => { NODE_HANDLERS.onOpenProjection = null; };
+  }, [openProjection]);
 
   const applySuggestion = useCallback(async (turnId, suggestion) => {
     setApplyingId(suggestion.id);
@@ -1106,6 +1285,18 @@ function App() {
           onClose={() => setJoinModal(null)}
           onSave={({ lcol, rcol, kind }) => { addJoin(joinModal.left, lcol, joinModal.right, rcol, kind); setJoinModal(null); }} />
       )}
+      {projectionAlias && (() => {
+        const item = scope.basket.find((b) => b.alias === projectionAlias);
+        if (!item) return null;
+        return (
+          <ProjectionModal
+            alias={projectionAlias} item={item}
+            error={projectionError}
+            onSave={saveProjection}
+            onClose={() => { setProjectionAlias(null); setProjectionError(null); }}
+          />
+        );
+      })()}
       {toast && <div className="hz-toast">{toast}</div>}
     </div>
   );

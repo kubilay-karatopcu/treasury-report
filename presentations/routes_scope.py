@@ -328,30 +328,52 @@ def _columns_by_alias(scope: ScopeContract) -> dict[str, list[dict[str, Any]]]:
 def _suggested_edges(scope: ScopeContract, cols_by_alias: dict[str, list[dict[str, Any]]]):
     """Auto-suggested join edges between basket aliases (§6R.3): FK ``lookup``
     declarations + columns sharing a concept. The frontend draws these
-    (deduped against confirmed scope.joins) and the user can confirm/delete."""
+    (deduped against confirmed scope.joins) and the user can confirm/delete.
+
+    Each edge carries an ``concept`` field — for FK lookups it's the lookup's
+    ``display`` column's concept (when known), for shared-concept edges it's
+    the concept that proposed the join. Used by the UI to render a concept
+    chip on the edge label so the user understands *why* the join is being
+    suggested.
+    """
     edges: list[dict[str, Any]] = []
     seen: set = set()
     by_name: dict[str, str] = {}
     for b in scope.basket:
-        by_name.setdefault(b.table_ref.name, b.alias)
+        if b.table_ref is not None:
+            by_name.setdefault(b.table_ref.name, b.alias)
 
-    def add(la, lc, ra, rc, kind, source):
+    def add(la, lc, ra, rc, kind, source, concept=None):
         if la == ra:
             return
         key = tuple(sorted([(la, lc), (ra, rc)]))
         if key in seen:
             return
         seen.add(key)
-        edges.append({"left": {"alias": la, "column": lc},
-                      "right": {"alias": ra, "column": rc},
-                      "kind": kind, "source": source})
+        edges.append({
+            "left": {"alias": la, "column": lc},
+            "right": {"alias": ra, "column": rc},
+            "kind": kind, "source": source,
+            "concept": concept,
+        })
+
+    def _concept_for(alias, col_name):
+        for c in (cols_by_alias.get(alias) or []):
+            if c.get("name") == col_name:
+                return c.get("concept")
+        return None
 
     # (a) FK lookup → solid suggestion.
     for alias, cols in cols_by_alias.items():
         for col in cols:
             lk = col.get("lookup")
-            if lk and lk["table"] in by_name:
-                add(alias, col["name"], by_name[lk["table"]], lk["key"], "lookup", "catalog_lookup")
+            if not lk or lk["table"] not in by_name:
+                continue
+            # The lookup's "concept" is the source column's concept (if any) —
+            # both sides should share it after the join lands.
+            concept = col.get("concept") or _concept_for(by_name[lk["table"]], lk["key"])
+            add(alias, col["name"], by_name[lk["table"]], lk["key"],
+                "lookup", "catalog_lookup", concept=concept)
 
     # (b) shared concept → softer suggestion.
     concept_cols: dict[str, dict[str, str]] = {}
@@ -365,7 +387,7 @@ def _suggested_edges(scope: ScopeContract, cols_by_alias: dict[str, list[dict[st
         for i in range(len(items)):
             for j in range(i + 1, len(items)):
                 (la, lc), (ra, rc) = items[i], items[j]
-                add(la, lc, ra, rc, "inner", f"shared_concept:{c}")
+                add(la, lc, ra, rc, "inner", f"shared_concept:{c}", concept=c)
     return edges
 
 
@@ -498,6 +520,95 @@ def build_scope(pid: str):
         "lazy_tables": scope.status.lazy_tables,
         "redirect": url_for("presentations.editor", pid=pid),
     })
+
+
+@presentations_bp.route("/<pid>/scope/projection-update", methods=["POST"])
+@login_required
+def scope_projection_update(pid: str):
+    """Update a basket alias's projection (selected columns) — 8.c.
+
+    Request: ``{"scope": <draft>, "alias": "...", "columns": [...], "include_all": false}``
+
+    Validates that:
+      - the alias exists and isn't a derived item (derived projections are
+        computed from the derivation, not user-editable);
+      - every requested column appears in the table's catalog;
+      - no confirmed join references a column being removed (returns 400 with
+        the list of affected join ids so the UI can offer to drop them).
+
+    Response on success: ``{"ok": true, "scope": <mutated>}``.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    columns = body.get("columns")
+    include_all = bool(body.get("include_all", False))
+    if not isinstance(scope_in, dict) or not alias:
+        return _json({"ok": False, "error": "scope ve alias zorunlu"}, status=400)
+    if not include_all and not isinstance(columns, list):
+        return _json({"ok": False, "error": "columns array gerekli (veya include_all=true)"}, status=400)
+
+    import copy
+    s = copy.deepcopy(scope_in)
+    item = next((b for b in (s.get("basket") or []) if b.get("alias") == alias), None)
+    if item is None:
+        return _json({"ok": False, "error": f"alias '{alias}' basket'te yok"}, status=400)
+    if item.get("derivation") is not None or not item.get("table_ref"):
+        return _json({"ok": False,
+                      "error": "türetilmiş tablolar için projection kullanıcı tarafından düzenlenemez"},
+                     status=400)
+
+    # Validate every requested column against the catalog.
+    schema = item["table_ref"]["schema"]
+    name = item["table_ref"]["name"]
+    catalog_cols = {c["name"] for c in (_columns_for(schema, name) or [])}
+    # Fall back to the catalog JSON (table-doc may be absent for raw catalog
+    # entries) so the picker isn't gated on a missing table-doc.
+    if not catalog_cols:
+        full = _catalog_json()
+        for d in (full.get("domains") or []):
+            for t in (d.get("tables") or []):
+                if t.get("id") == f"{schema}.{name}":
+                    catalog_cols = {c.get("name") for c in (t.get("columns") or []) if c.get("name")}
+                    break
+    if not include_all:
+        unknown = [c for c in columns if c not in catalog_cols]
+        if unknown:
+            return _json({"ok": False,
+                          "error": f"Catalog'da olmayan kolon(lar): {', '.join(unknown)}"},
+                         status=400)
+        if not columns:
+            return _json({"ok": False, "error": "Projection en az 1 kolon içermeli"}, status=400)
+
+    # Reject if a confirmed join references a column being dropped.
+    if not include_all:
+        new_set = set(columns)
+        affected: list[dict[str, Any]] = []
+        for j in (s.get("joins") or []):
+            for side in ("left", "right"):
+                p = j.get(side) or {}
+                if p.get("alias") == alias and p.get("column") not in new_set:
+                    affected.append({"join_id": j.get("id"), "side": side, "column": p.get("column")})
+        if affected:
+            return _json({
+                "ok": False,
+                "error": "Bu kolonları kaldıramazsın — kayıtlı bir join'e referans veriyorlar.",
+                "blocked_by_joins": affected,
+            }, status=400)
+
+    item.setdefault("projection", {})
+    item["projection"]["include_all"] = include_all
+    item["projection"]["columns"] = list(columns) if not include_all else []
+
+    # Routing depends on projection (bytes/row estimate) — refresh.
+    try:
+        loaded = load_scope_from_dict({"scope": s})
+        _refresh_routing(loaded, _catalog())
+        s = scope_to_dict(loaded)["scope"]
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    return _json({"ok": True, "scope": s})
 
 
 @presentations_bp.route("/<pid>/scope/recompute-routing", methods=["POST"])
