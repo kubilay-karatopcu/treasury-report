@@ -12,12 +12,16 @@ Two seams that Sunum's block-execution layer gains when a dashboard carries a
    ``BindingResolver`` callback that ``resolve_variables`` already consults.
 
 2. **Routing.** Before executing a block, :func:`check_block_routing` looks at
-   which basket aliases the block references. Aliases marked ``lazy`` in the
-   scope status would need the Oracle rewrite path, which lands in 8.d — so for
-   now they raise :class:`NotImplementedError`. Cached aliases keep working via
-   their DuckDB views (no behaviour change beyond this guard).
+   which basket aliases the block references. For cached aliases the existing
+   DuckDB view (materialised by ``fetch_cached_tables``) is used as-is. For
+   ``lazy`` aliases the block-execution path pulls the table on demand via
+   :func:`ensure_lazy_alias_loaded` (8.d): a parameterised Oracle SELECT —
+   shrunk by the same pinned-filter pushdown that cached tables get — runs and
+   the result is registered as a DuckDB view for the rest of the session.
 
-The actual lazy Oracle path is **not** implemented here (that's 8.d).
+The lazy fetch is memoised per ``(scope_version, alias)`` on the DuckDB
+connection so a single Sunum render that references the same lazy alias from
+multiple blocks pulls Oracle exactly once.
 """
 from __future__ import annotations
 
@@ -159,8 +163,124 @@ def routing_for_alias(scope: ScopeContract, alias: str) -> str | None:
 
 
 def check_block_routing(scope: ScopeContract, aliases) -> None:
-    """Guard before executing a block: any referenced lazy alias would need the
-    Oracle rewrite path (8.d), so raise until then. Cached aliases pass."""
+    """Guard before executing a block.
+
+    Lazy aliases must be materialised first via :func:`ensure_lazy_alias_loaded`.
+    This helper raises only when the block references a lazy alias that has
+    not yet been loaded into the connection — i.e. the caller forgot to call
+    ``ensure_lazy_alias_loaded`` before executing the block.
+
+    Cached aliases (and lazy aliases that have already been loaded) pass
+    silently. Aliases unknown to the scope pass through (might be a DuckDB
+    block view that doesn't correspond to a scope alias at all).
+    """
     for alias in aliases:
         if scope.is_lazy_alias(alias):
-            raise NotImplementedError("Lazy execution lands in 8.d")
+            raise NotImplementedError(
+                f"Lazy alias {alias!r} not materialised. Call "
+                f"ensure_lazy_alias_loaded(scope, conn, dc, alias=...) first."
+            )
+
+
+# Per-connection cache of materialised lazy aliases. Keyed by ``id(conn)``
+# because the DuckDB connection rejects arbitrary attributes. The
+# SessionRegistry owns connection lifetime, so leaks are bounded by session
+# count and a stale id collision only affects an already-evicted session.
+_LAZY_CACHE: dict[int, set[str]] = {}
+
+
+def _lazy_cache_for(conn) -> set[str]:
+    key = id(conn)
+    cache = _LAZY_CACHE.get(key)
+    if cache is None:
+        cache = set()
+        _LAZY_CACHE[key] = cache
+    return cache
+
+
+def ensure_lazy_alias_loaded(
+    scope: ScopeContract,
+    conn,
+    dc,
+    alias: str,
+    *,
+    catalog=None,
+    concept_registry=None,
+    binding_catalog=None,
+) -> bool:
+    """Materialise a lazy basket alias into a DuckDB view for this connection
+    (spec §3.3, 8.d).
+
+    The fetch is identical to the cached path (same pinned filter pushdown via
+    the Phase 7 compiler, same projection) — the only difference is *when* it
+    runs. Cached fetch happens at scope-build time; lazy fetch happens at
+    block-execution time, on demand, the first time any block references the
+    alias.
+
+    Once loaded, the alias is recorded in :data:`_LAZY_CACHE` (keyed by the
+    connection's ``id()``) so subsequent block runs in the same session reuse
+    the DuckDB view. The session lifetime owns this cache;
+    :func:`invalidate_lazy_cache` trims it when the scope version changes.
+
+    Returns ``True`` when a fetch happened, ``False`` when the alias was
+    already loaded (or isn't actually lazy / doesn't exist).
+    """
+    # Bail fast for non-lazy or unknown aliases — keep the call site cheap.
+    item = scope.basket_item(alias)
+    if item is None or item.table_ref is None or item.routing.decision != "lazy":
+        return False
+
+    cache = _lazy_cache_for(conn)
+    if alias in cache:
+        return False
+
+    # Re-use the cached-fetch SQL composer so the pushdown logic stays in one
+    # place. Lazy block-level interactive filters get layered in at block-SQL
+    # rewrite time (existing variable-resolver path); the lazy fetch SQL only
+    # carries the pinned filters.
+    from presentations.scope.fetch import compose_cached_sql
+    from presentations.duck import register_dataframe
+    import pandas as pd
+
+    sql, binds = compose_cached_sql(
+        scope, item, catalog,
+        concept_registry=concept_registry,
+        binding_catalog=binding_catalog,
+    )
+    df = dc.get_data(
+        base_prefix=None,
+        dataset=f"scope-lazy::{scope.presentation_id}/{alias}",
+        query=sql, query_params=binds,
+    )
+    if df is None:
+        df = pd.DataFrame()
+    if len(df.columns) > 0:
+        register_dataframe(conn, alias, df)
+    cache.add(alias)
+    return True
+
+
+def invalidate_lazy_cache(conn, aliases=None) -> None:
+    """Drop one or more lazy alias views from the connection cache so the next
+    block reference re-fetches from Oracle. ``aliases=None`` drops them all
+    (used when a new scope version supersedes the current one)."""
+    cache = _LAZY_CACHE.get(id(conn))
+    if not cache:
+        return
+    if aliases is None:
+        targets = list(cache)
+    else:
+        targets = [a for a in aliases if a in cache]
+    for a in targets:
+        # DuckDB views registered from a DataFrame are TABLES of the catalog;
+        # `register_dataframe` uses `conn.register(name, df)`. Unregister first
+        # (clears the binding) then drop the view for safety.
+        try:
+            conn.unregister(a)
+        except Exception:
+            pass
+        try:
+            conn.execute(f"DROP VIEW IF EXISTS {a}")
+        except Exception:
+            pass
+        cache.discard(a)

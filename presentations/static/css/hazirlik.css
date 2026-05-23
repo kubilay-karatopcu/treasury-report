@@ -157,7 +157,21 @@
 .hz-node { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; min-width: 210px; font-size: 12px; box-shadow: 0 1px 4px rgba(15,23,42,.1); overflow: hidden; }
 .hz-node-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #206bc4; color: #fff; font-weight: 600; }
 .hz-node-alias { display: flex; align-items: center; gap: 5px; }
-.hz-node-head .hz-badge { font-size: 10px; padding: 1px 7px; background: rgba(255,255,255,.22); color: #fff; }
+.hz-node-head .hz-badge { font-size: 10px; padding: 1px 7px; background: rgba(255,255,255,.22); color: #fff; cursor: help; }
+.hz-badge-user-mark { font-size: 9px; opacity: 0.85; margin-left: 2px; }
+
+/* Routing override (lazy/cached toggle) */
+.hz-node-routing {
+  display: flex; justify-content: flex-end; padding: 2px 8px 0;
+  border-bottom: 1px solid #eef0f3; background: #fafbfc;
+}
+.hz-route-override {
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  background: transparent; color: #475569; border: 1px solid #cbd5e1;
+  cursor: pointer; font-family: inherit;
+}
+.hz-route-override:hover:not(:disabled) { background: #f1f5f9; color: #1f2937; }
+.hz-route-override:disabled { color: #cbd5e1; cursor: not-allowed; border-color: #e5e7eb; }
 .hz-node-sub { padding: 3px 10px; font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace; border-bottom: 1px solid #eef0f3; }
 .hz-node-col { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-bottom: 1px solid #f5f7fa; cursor: pointer; position: relative; }
 .hz-node-col:last-child { border-bottom: none; }

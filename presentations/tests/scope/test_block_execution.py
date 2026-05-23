@@ -107,9 +107,11 @@ class TestRouting:
         # sample status.cached_tables = [positions, branch_dim], lazy = [].
         check_block_routing(sample_scope, ["positions", "branch_dim"])  # no raise
 
-    def test_lazy_alias_raises_not_implemented(self, sample_scope):
+    def test_lazy_alias_raises_when_not_materialised(self, sample_scope):
         sample_scope.status.lazy_tables = ["positions"]
-        with pytest.raises(NotImplementedError, match="8.d"):
+        # The guard now points the caller at ``ensure_lazy_alias_loaded`` —
+        # this is the contract for the block-execution layer.
+        with pytest.raises(NotImplementedError, match="ensure_lazy_alias_loaded"):
             check_block_routing(sample_scope, ["positions"])
 
     def test_routing_for_alias(self, sample_scope):
