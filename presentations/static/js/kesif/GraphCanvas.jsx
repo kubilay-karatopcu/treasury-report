@@ -114,7 +114,14 @@ export default function GraphCanvas({
       }
     }
 
-    const points = graph.nodes.map((n) => ({
+    // Cosmograph 2.x requires BOTH a string id (pointIdBy) AND a sequential
+    // numeric index (pointIndexBy) on every point. The runtime errors with
+    // "Missing required properties: pointIndexBy" if the index column is
+    // absent. Links similarly need numeric source/target indices for the
+    // GPU adjacency lookups — id-only links forced a slow string-resolution
+    // path in earlier 2.x versions.
+    const points = graph.nodes.map((n, i) => ({
+      index: i,
       id: n.id,
       label: n.label,
       department: n.department,
@@ -123,21 +130,28 @@ export default function GraphCanvas({
       color: colorForNode(n, deptIndex),
       size: sizeForNode(n),
     }));
-    const idToIndex = new Map(points.map((p, i) => [p.id, i]));
+    const idToIndex = new Map(points.map((p) => [p.id, p.index]));
 
-    // Cosmograph 2.x expects links with whatever source/target column names
-    // we pass; we keep ours as `source`/`target` for clarity. Kind drives
-    // styling (lookup = full opacity, shared_concept = dimmer + thinner).
-    const links = (graph.edges || []).map((e) => ({
-      source: e.source,
-      target: e.target,
-      kind: e.kind,
-      label: e.label,
-      strength: e.strength,
-      width: e.kind === "lookup" ? 1.4 : 0.8,
-      opacity: e.kind === "lookup" ? 0.85 : 0.35,
-      color: e.kind === "lookup" ? "#475569" : "#94a3b8",
-    }));
+    // Drop edges that reference nodes the catalog didn't return (defensive —
+    // shouldn't happen post-9.a edge-compute but cheap insurance).
+    const links = (graph.edges || []).reduce((acc, e) => {
+      const sIdx = idToIndex.get(e.source);
+      const tIdx = idToIndex.get(e.target);
+      if (sIdx === undefined || tIdx === undefined) return acc;
+      acc.push({
+        source: e.source,
+        target: e.target,
+        sourceIndex: sIdx,
+        targetIndex: tIdx,
+        kind: e.kind,
+        label: e.label,
+        strength: e.strength,
+        width: e.kind === "lookup" ? 1.4 : 0.8,
+        opacity: e.kind === "lookup" ? 0.85 : 0.35,
+        color: e.kind === "lookup" ? "#475569" : "#94a3b8",
+      });
+      return acc;
+    }, []);
 
     // Build undirected neighbor map for hover-dim. We keep id-keyed sets
     // because callbacks deliver INDEX and we resolve via idToIndex/points.
@@ -292,11 +306,14 @@ export default function GraphCanvas({
           points={points}
           links={links}
           pointIdBy="id"
+          pointIndexBy="index"
           pointLabelBy="label"
           pointColorBy="color"
           pointSizeBy="size"
           linkSourceBy="source"
+          linkSourceIndexBy="sourceIndex"
           linkTargetBy="target"
+          linkTargetIndexBy="targetIndex"
           linkColorBy="color"
           linkWidthBy="width"
           linkOpacityBy="opacity"
@@ -308,6 +325,13 @@ export default function GraphCanvas({
           simulationLinkDistance={6}
           simulationLinkSpring={1.2}
           simulationFriction={0.85}
+          // Fit the graph to the viewport once the simulation settles —
+          // otherwise small catalogs (6-20 nodes) get pushed offscreen by
+          // the force repulsion. fitViewDelay gives the sim time to converge.
+          fitViewOnInit
+          fitViewDelay={1500}
+          fitViewPadding={0.3}
+          fitViewDuration={400}
           // Hover dim — Cosmograph greys out non-selected on selectPoints.
           pointGreyoutOpacity={0.15}
           linkGreyoutOpacity={0.05}
@@ -323,6 +347,12 @@ export default function GraphCanvas({
           onPointMouseOver={handlePointMouseOver}
           onPointMouseOut={handlePointMouseOut}
           onPointContextMenu={handleContextMenu}
+          onSimulationEnd={() => {
+            // The fitViewOnInit prop fires before convergence; for small
+            // catalogs that leaves nodes pushed offscreen. Refit after the
+            // sim settles so the graph actually fills the viewport.
+            try { cosmoRef.current?.fitView?.(400); } catch { /* noop */ }
+          }}
           style={{ width: "100%", height: "100%" }}
         />
       </CosmographProvider>
