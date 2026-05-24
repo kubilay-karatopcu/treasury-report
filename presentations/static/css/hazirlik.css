@@ -312,12 +312,35 @@
   background: #eff6ff; color: #1d4ed8; border-left-color: #cbd5e1;
 }
 
-/* Table docs modal */
-.hz-docs-meta {
-  margin: 0 0 12px; padding: 8px 10px;
-  background: #f8fafc; border-radius: 5px; border: 1px solid #e2e8f0;
-  font-size: 12px; color: #475569; line-height: 1.45;
+/* Table docs side panel — slides in to the right of the sidebar when the
+   user clicks the eye on a sources-table row. Click outside or hit ESC to
+   close. Sits inside .hz-body so the rest of the layout flexes around it. */
+.hz-docs-panel {
+  flex: 0 0 360px; min-width: 0; height: 100%;
+  background: #fff; border-right: 1px solid #e5e7eb;
+  display: flex; flex-direction: column;
+  box-shadow: 2px 0 12px rgba(15, 23, 42, .06);
+  animation: hz-docs-slide-in 160ms ease-out;
 }
+@keyframes hz-docs-slide-in {
+  from { transform: translateX(-12px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+.hz-docs-panel-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb; background: #f8fafc;
+}
+.hz-docs-panel-title {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: #1f2937;
+  word-break: break-all;
+}
+.hz-docs-panel-sub {
+  font-size: 11px; color: #64748b; line-height: 1.4; margin-top: 2px;
+}
+.hz-docs-panel-body { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; }
+
 .hz-docs-section { margin-bottom: 14px; }
 .hz-docs-section-title {
   display: flex; align-items: center; gap: 6px;
