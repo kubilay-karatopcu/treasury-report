@@ -194,11 +194,17 @@
   padding: 1px 6px; align-self: center;
 }
 
-/* AG Grid custom header — column name + concept chip on a single line so the
-   header reads "DATE  as_of_time" like the ER node card rows do. */
+/* AG Grid custom header — column name + concept chip on a single line PLUS
+   a sort indicator and a filter menu button (we replaced the default header
+   so we have to re-render these ourselves). */
 .hz-grid-header {
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: 4px;
   min-width: 0; width: 100%;
+}
+.hz-grid-header-label {
+  display: flex; align-items: center; gap: 5px;
+  min-width: 0; flex: 1 1 auto;
+  cursor: pointer; user-select: none;
 }
 .hz-grid-header-name {
   font-weight: 600; color: #1f2937;
@@ -208,6 +214,17 @@
   font-size: 9px; padding: 0 4px; line-height: 1.5;
   flex-shrink: 0;
 }
+.hz-grid-header-sort {
+  font-size: 9px; color: #64748b; flex-shrink: 0;
+}
+.hz-grid-header-menu {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 3px;
+  cursor: pointer; color: #94a3b8; font-size: 14px;
+  flex-shrink: 0;
+}
+.hz-grid-header-menu:hover { background: #e2e8f0; color: #1f2937; }
+.hz-grid-header-menu.is-active { color: #2563eb; background: #dbeafe; }
 .hz-node-sub { padding: 3px 10px; font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace; border-bottom: 1px solid #eef0f3; }
 .hz-node-col { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-bottom: 1px solid #f5f7fa; cursor: pointer; position: relative; }
 .hz-node-col:last-child { border-bottom: none; }
@@ -465,9 +482,16 @@
 .chat-turn--user .chat-bubble { align-self: flex-end; background: #2563eb; color: #fff; }
 .chat-turn--assistant .chat-bubble { align-self: flex-start; background: #f1f5f9; color: #0f172a; }
 .chat-bubble {
-  max-width: 88%; padding: 6px 9px; border-radius: 10px;
-  font-size: 11.5px; line-height: 1.35; white-space: pre-wrap; word-wrap: break-word;
+  /* max-width 85% (was 88%) + box-sizing on the parent keeps the bubble
+     from kissing the sidebar's right edge — the user reported the gray
+     bubble looked clipped against the panel border. */
+  max-width: 85%; padding: 7px 10px; border-radius: 10px;
+  font-size: 11.5px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word;
+  box-sizing: border-box;
 }
+/* Slight horizontal breathing room inside the chat-messages scroll area so
+   neither side's bubble can touch the panel edge. */
+.editor-sidebar .chat-box .chat-messages { padding-right: 4px; padding-left: 2px; }
 
 .hz-sugg {
   align-self: stretch;

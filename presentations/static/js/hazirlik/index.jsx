@@ -789,12 +789,61 @@ function SuggestionCard({ suggestion, onApply, onDismiss, busy }) {
 // AG Grid custom header: column name + small concept chip when the column
 // is concept-bound (same green chip as the ER node card). Falls back to the
 // plain column name when there's no concept.
+// Custom AG Grid header: column name + concept chip + the sort arrow and
+// filter-menu icon that the default header normally provides. We replace
+// the default header (to inject the chip) so we have to re-implement the
+// sort/menu affordances ourselves via IHeaderParams.
 function ConceptHeader(props) {
-  const { displayName, concept } = props;
+  const {
+    displayName, concept,
+    column, showColumnMenu,
+    enableSorting, enableMenu, progressSort,
+  } = props;
+
+  // Track sort + filter active state so we can render the right indicators
+  // and the menu icon highlight.
+  const [sort, setSort] = useState(column?.getSort?.() || null);
+  const [filterActive, setFilterActive] = useState(!!column?.isFilterActive?.());
+  useEffect(() => {
+    if (!column) return;
+    const onSort = () => setSort(column.getSort());
+    const onFilter = () => setFilterActive(column.isFilterActive());
+    column.addEventListener("sortChanged", onSort);
+    column.addEventListener("filterChanged", onFilter);
+    return () => {
+      column.removeEventListener("sortChanged", onSort);
+      column.removeEventListener("filterChanged", onFilter);
+    };
+  }, [column]);
+
+  const onLabelClick = (e) => {
+    if (!enableSorting || !progressSort) return;
+    progressSort(e.shiftKey);
+  };
+  const menuRef = useRef(null);
+  const onMenuClick = (e) => {
+    e.stopPropagation();
+    if (showColumnMenu && menuRef.current) showColumnMenu(menuRef.current);
+  };
+
   return (
     <div className="hz-grid-header">
-      <span className="hz-grid-header-name">{displayName}</span>
-      {concept && <span className="hz-col-concept hz-grid-header-concept">{concept}</span>}
+      <div className="hz-grid-header-label" onClick={onLabelClick}>
+        <span className="hz-grid-header-name">{displayName}</span>
+        {concept && <span className="hz-col-concept hz-grid-header-concept">{concept}</span>}
+        {sort === "asc"  && <span className="hz-grid-header-sort">▲</span>}
+        {sort === "desc" && <span className="hz-grid-header-sort">▼</span>}
+      </div>
+      {enableMenu && (
+        <span
+          ref={menuRef}
+          className={`hz-grid-header-menu${filterActive ? " is-active" : ""}`}
+          onClick={onMenuClick}
+          title={filterActive ? "Aktif filtre — düzenle" : "Filtre / kolon menüsü"}
+        >
+          ☰
+        </span>
+      )}
     </div>
   );
 }

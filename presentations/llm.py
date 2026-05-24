@@ -846,6 +846,44 @@ class FakeLLM:
         def _has_words(*ws: str) -> bool:
             return any(w in msg for w in ws)
 
+        # Bilgi soruları — kataloglu tablolar hakkında soru (no suggestion,
+        # just an answer). "Mevduat tabloları neler?", "Hangi tablolar var?",
+        # "NII verileri" gibi pattern'lar.
+        is_info_query = re.search(
+            r"\b(ne|neler|hangi|nedir|var\s*m[ıi])\b.*\btablo|\btablo\w*\b.*\b(ne|neler|hangi|nedir|var\s*m[ıi])\b|tablolar\w*\s*$",
+            msg,
+        )
+        if is_info_query and catalog_excerpt:
+            # Topic keywords narrow the listing. Without a topic, list
+            # everything (up to a cap).
+            topic_keys = {
+                "mevduat": ("mevduat", "deposit"),
+                "nii":     ("nii", "faiz", "interest", "rate"),
+                "sektor":  ("rakip", "competitor", "sekt", "market"),
+            }
+            matched_keys = [k for k, kws in topic_keys.items() if any(w in msg for w in kws)]
+            lines = []
+            for t in catalog_excerpt:
+                tid = t.get("id") or ""
+                desc = (t.get("desc") or "").strip()
+                hay = (tid + " " + desc).lower()
+                if matched_keys and not any(w in hay for k in matched_keys for w in topic_keys[k]):
+                    continue
+                lines.append(f"- **{tid}**: {desc}")
+            if lines:
+                header = ("Mevduatla ilgili tablolar:" if "mevduat" in matched_keys
+                          else "NII / Faiz tabloları:" if "nii" in matched_keys
+                          else "Sektör / Rakip tabloları:" if "sektor" in matched_keys
+                          else "Katalogda mevcut tablolar:")
+                return {
+                    "explanation": header + "\n" + "\n".join(lines[:10]),
+                    "suggestions": [],
+                }
+            return {
+                "explanation": "Aradığın kriterlerde tablo bulamadım. Sol panelden kategorileri açıp inceleyebilirsin.",
+                "suggestions": [],
+            }
+
         # Tablo eklemek (reject — Stage 1's job). Match a broad "table … add"
         # / "add … table" pattern so common phrasings ("loans tablosunu da
         # ekle", "yeni tablo ekle") all land here.
