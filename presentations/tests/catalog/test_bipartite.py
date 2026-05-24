@@ -69,10 +69,11 @@ def test_bind_edges_table_to_concept_one_per_binding():
     ]
 
 
-def test_lookup_edges_kept_table_to_table():
-    """Bipartite swap doesn't touch FK lookup edges — those stay
-    table→table because they represent join semantics, not concept
-    binding."""
+def test_no_table_to_table_edges_in_hub_view():
+    """In the hub-and-spoke view, table-to-table edges (lookup, manual)
+    are dropped — a join relationship is implied when both tables bind
+    the same concept hub. Legacy compute_edges still emits them for
+    consumers that need the FK semantics directly."""
     entries = [
         _entry("EDW", "T1", concepts=["branch"], lookups=[
             LookupSummary(from_column="BRANCH_CODE", to_table="T2", to_key="BRANCH_CODE"),
@@ -80,10 +81,8 @@ def test_lookup_edges_kept_table_to_table():
         _entry("EDW", "T2", concepts=["branch"]),
     ]
     g = compute_bipartite_graph(entries)
-    lookup_edges = [e for e in g["edges"] if e["kind"] == "lookup"]
-    assert len(lookup_edges) == 1
-    assert lookup_edges[0]["source"] == "EDW.T1"
-    assert lookup_edges[0]["target"] == "EDW.T2"
+    kinds = {e["kind"] for e in g["edges"]}
+    assert kinds == {"binds"}
 
 
 def test_no_shared_concept_edges_emitted():

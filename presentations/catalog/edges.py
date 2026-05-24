@@ -343,7 +343,13 @@ def compute_bipartite_graph(entries: Iterable[TableEntry]) -> dict:
             "usage_score": 0.0,
         })
 
-    # ── Bind edges (table → concept) ─────────────────────────────────
+    # ── Bind edges (table → concept) — the ONLY edge type in the
+    # bipartite emit. Table-to-table edges (lookup, manual) are
+    # intentionally omitted: in the hub-and-spoke view they add visual
+    # noise without changing the topology — a join relationship is
+    # already implied when two tables both bind the same concept hub.
+    # The legacy compute_edges() function still emits them for any
+    # consumer that needs FK semantics directly.
     bind_edges = []
     for entry in entries:
         for concept in entry.concepts_bound:
@@ -355,24 +361,7 @@ def compute_bipartite_graph(entries: Iterable[TableEntry]) -> dict:
                 "concepts": [concept],
                 "strength": 0.7,
             })
-
-    # ── Lookup + manual table→table edges (reuse existing helpers) ───
-    table_to_table_raw = []
-    table_to_table_raw.extend(_lookup_edges(entries, name_to_id))
-    table_to_table_raw.extend(_manual_edges(entries, name_to_id))
-    table_to_table = _collapse(table_to_table_raw)
-
-    edges_payload = bind_edges + [
-        {
-            "source": e.source,
-            "target": e.target,
-            "kind": e.kind,
-            "label": e.label,
-            "concepts": list(e.concepts),
-            "strength": e.strength,
-        }
-        for e in table_to_table
-    ]
+    edges_payload = bind_edges
 
     # Clusters cover table nodes only — concept hubs are orthogonal.
     clusters = compute_clusters(entries)
