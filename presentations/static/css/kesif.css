@@ -1,0 +1,490 @@
+/* Phase 9.a — Keşif (Atölye / Discover) styles.
+ *
+ * The screen has four primary regions:
+ *   - top bar     (Atölye umbrella + sub-tabs + new-sunum button)
+ *   - left rail   (filters + tree)
+ *   - canvas      (placeholder for the network graph — 9.b lives here)
+ *   - right rail  (detail card + basket panel)
+ *
+ * Tabler tokens reused throughout; component-specific spacing/sizing
+ * stays inline so the file is a thin layout layer.
+ */
+
+/* ── Top bar ─────────────────────────────────────────────────────────── */
+
+.kesif-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 24px;
+  background: #fff;
+  border-bottom: 1px solid #e6e7e9;
+  flex-shrink: 0;
+}
+.kesif-topbar__brand {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: -0.01em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.kesif-topbar__brand .kesif-topbar__crumb {
+  color: #94a3b8;
+  font-weight: 500;
+}
+.kesif-topbar__tabs {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.kesif-topbar__tab {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  border-radius: 6px;
+  font-family: inherit;
+}
+.kesif-topbar__tab:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.kesif-topbar__tab.is-active {
+  background: #e0e7ff;
+  color: #1e3a8a;
+}
+.kesif-topbar__tab.is-disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+.kesif-topbar__tab.is-disabled:hover { background: transparent; color: #cbd5e1; }
+.kesif-topbar__spacer { flex: 1; }
+.kesif-topbar__home {
+  font-size: 12px;
+  color: #64748b;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.kesif-topbar__home:hover { color: #1e3a8a; }
+
+/* ── Layout grid ─────────────────────────────────────────────────────── */
+
+.kesif-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 280px 1fr 340px;
+  gap: 0;
+  min-height: 0;
+}
+@media (max-width: 1100px) {
+  .kesif-body { grid-template-columns: 240px 1fr 280px; }
+}
+
+.kesif-left,
+.kesif-canvas,
+.kesif-right {
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ── Left rail ───────────────────────────────────────────────────────── */
+
+.kesif-left {
+  background: #fff;
+  border-right: 1px solid #e6e7e9;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.kesif-left__heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: #94a3b8;
+  margin: 4px 0 6px;
+}
+
+.kesif-search input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #f8fafc;
+}
+.kesif-search input:focus {
+  outline: none;
+  border-color: #2563eb;
+  background: #fff;
+}
+
+.kesif-filter-group { display: flex; flex-direction: column; gap: 4px; }
+.kesif-filter-option {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: #475569;
+  padding: 3px 4px; cursor: pointer;
+  border-radius: 4px;
+}
+.kesif-filter-option:hover { background: #f1f5f9; }
+.kesif-filter-option input[type="checkbox"] { margin: 0; }
+.kesif-filter-option__count {
+  margin-left: auto;
+  font-size: 10px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.kesif-tree {
+  border-top: 1px solid #e6e7e9;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kesif-tree__section {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: #64748b;
+  margin: 0 0 4px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.kesif-tree__empty {
+  font-size: 11px;
+  color: #94a3b8;
+  padding: 4px 8px;
+  font-style: italic;
+}
+
+.kesif-tree__dept {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  display: flex; align-items: center; gap: 4px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.kesif-tree__dept:hover { background: #f1f5f9; }
+.kesif-tree__dept-caret { color: #94a3b8; font-size: 9px; }
+
+.kesif-tree__tables {
+  padding-left: 14px;
+  display: flex; flex-direction: column; gap: 2px;
+  margin-top: 2px;
+}
+.kesif-tree__table {
+  font-size: 12px;
+  color: #475569;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  border: 1px solid transparent;
+}
+.kesif-tree__table:hover { background: #eff6ff; color: #1e3a8a; }
+.kesif-tree__table.is-selected {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border-color: #93c5fd;
+}
+.kesif-tree__table-source {
+  font-size: 9px;
+  background: #f1f5f9;
+  color: #64748b;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: auto;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.kesif-tree__table.is-user .kesif-tree__table-source {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* ── Canvas / center ─────────────────────────────────────────────────── */
+
+.kesif-canvas {
+  background: #f6f7f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+.kesif-canvas__placeholder {
+  max-width: 540px;
+  text-align: center;
+  color: #64748b;
+}
+.kesif-canvas__placeholder h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 16px 0 6px;
+}
+.kesif-canvas__placeholder p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+.kesif-canvas__placeholder-art {
+  width: 96px; height: 96px;
+  border-radius: 50%;
+  background: #e0e7ff;
+  color: #1e3a8a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+/* ── Right rail ──────────────────────────────────────────────────────── */
+
+.kesif-right {
+  background: #fff;
+  border-left: 1px solid #e6e7e9;
+  padding: 16px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.kesif-card,
+.kesif-basket {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kesif-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.kesif-card__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  word-break: break-word;
+}
+.kesif-card__schema {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.kesif-card__source-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #64748b;
+  flex-shrink: 0;
+}
+.kesif-card__source-badge.is-user {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.kesif-card__metaline {
+  font-size: 11px;
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.kesif-card__metaline span { display: inline-flex; align-items: center; gap: 4px; }
+
+.kesif-card__section {
+  border-top: 1px solid #e6e7e9;
+  padding-top: 10px;
+}
+.kesif-card__section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: #94a3b8;
+  margin: 0 0 6px;
+}
+.kesif-card__description {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #475569;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.kesif-concepts { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.kesif-concept {
+  display: flex; align-items: center; gap: 6px;
+  color: #475569;
+}
+.kesif-concept__icon {
+  width: 14px; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700;
+}
+.kesif-concept.is-bound .kesif-concept__icon { color: #16a34a; }
+.kesif-concept.is-unbound .kesif-concept__icon { color: #cbd5e1; }
+.kesif-concept.is-unbound { color: #94a3b8; }
+
+.kesif-lookups { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #475569; }
+.kesif-lookup__from { color: #94a3b8; }
+
+.kesif-columns {
+  font-size: 11px;
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.kesif-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.kesif-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #1e293b;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.kesif-btn:hover { border-color: #94a3b8; }
+.kesif-btn--primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.kesif-btn--primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
+.kesif-btn--primary:disabled,
+.kesif-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.kesif-btn--ghost { background: #f8fafc; }
+
+.kesif-card__empty {
+  font-size: 12px;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 16px 0;
+  text-align: center;
+}
+
+/* ── Basket panel ────────────────────────────────────────────────────── */
+
+.kesif-basket {
+  border-top: 1px solid #e6e7e9;
+  padding-top: 16px;
+}
+.kesif-basket__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex; align-items: center; gap: 6px;
+}
+.kesif-basket__count {
+  font-size: 11px;
+  background: #2563eb;
+  color: #fff;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.kesif-basket__items { display: flex; flex-direction: column; gap: 4px; }
+.kesif-basket__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.kesif-basket__item-name {
+  font-size: 12px;
+  color: #1e293b;
+  font-weight: 500;
+  flex: 1;
+  word-break: break-word;
+}
+.kesif-basket__item-schema {
+  font-size: 10px;
+  color: #94a3b8;
+}
+.kesif-basket__remove {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.kesif-basket__remove:hover { background: #fee2e2; color: #b91c1c; }
+
+.kesif-basket__concepts {
+  font-size: 11px;
+  color: #475569;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.kesif-basket__concept-chip {
+  background: #eef2ff;
+  color: #4338ca;
+  padding: 2px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.kesif-basket__cta {
+  margin-top: 4px;
+}
+.kesif-basket__cta button {
+  width: 100%;
+  justify-content: center;
+}
+
+/* ── Upload zone (placeholder for 9.d) ───────────────────────────────── */
+
+.kesif-upload-zone {
+  margin-top: auto;
+  padding: 12px;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+  background: #f8fafc;
+}

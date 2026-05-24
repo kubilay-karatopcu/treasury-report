@@ -311,14 +311,26 @@
       <h1 class="pres-list-title">Rapor Şablonları</h1>
       <div class="pres-list-subtitle">Sunumlar ve bloklar tek yerde</div>
     </div>
-    <button id="new-presentation-btn" class="pres-create-btn">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor" stroke-width="2.5"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 5v14M5 12h14"/>
-      </svg>
-      <span id="new-create-label">Yeni Sunum</span>
-    </button>
+    <div class="pres-list-actions" style="display:flex; gap:8px; align-items:center;">
+      <a href="{{ url_for('presentations.atolye_kesif') }}" class="pres-create-btn pres-create-btn--ghost"
+         style="background:#fff; color:#1e3a8a; border:1.5px solid #c7d2fe;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/>
+          <path d="m21 21-4.3-4.3"/>
+        </svg>
+        Atölye
+      </a>
+      <button id="new-presentation-btn" class="pres-create-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        <span id="new-create-label">Yeni Sunum</span>
+      </button>
+    </div>
   </div>
 
   <div class="pres-tabs" role="tablist">

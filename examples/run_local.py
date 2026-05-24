@@ -68,6 +68,14 @@ def make_fake_data_client():
     SAMPLE_DATA = Path(__file__).parent / "sample_data"
     SAMPLE_DATA.mkdir(exist_ok=True)
 
+    # Filesystem-backed S3 stub so SessionRegistry.set_manifest /
+    # list_user_presentations actually persist in dev. Without these methods
+    # the prod-only S3 calls silently no-op, manifests are never written,
+    # and the redirect-to-recent + draft auto-save features look broken
+    # because there's nothing to read back.
+    FAKE_S3_ROOT = Path(__file__).parent / "fake_s3"
+    FAKE_S3_ROOT.mkdir(parents=True, exist_ok=True)
+
     class FakeDataClient:
         def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
             """Pretend to run SQL but read from CSVs. Match by table name in query."""
@@ -80,6 +88,40 @@ def make_fake_data_client():
                     return df
             print(f"  [FakeDataClient] no match for query: {(query or '')[:80]}...")
             return pd.DataFrame()
+
+        # ── S3-like ops (filesystem-backed; mirror the prod DataClient
+        #     surface that SessionRegistry / scope store call into). ──
+
+        def _path(self, key: str) -> Path:
+            p = FAKE_S3_ROOT / key.lstrip("/")
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return p
+
+        def _upload_bytes(self, key: str, body: bytes, content_type: str = None):
+            self._path(key).write_bytes(body)
+
+        def read_json(self, key: str):
+            import json as _json
+            p = self._path(key)
+            if not p.exists():
+                raise FileNotFoundError(key)
+            return _json.loads(p.read_text(encoding="utf-8"))
+
+        def list_prefix(self, prefix: str) -> list[str]:
+            base = FAKE_S3_ROOT / prefix.lstrip("/")
+            if not base.exists():
+                return []
+            out = []
+            for f in base.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(FAKE_S3_ROOT).as_posix()
+                    out.append(rel)
+            return out
+
+        def delete_file(self, key: str):
+            p = self._path(key)
+            if p.exists():
+                p.unlink()
 
     return FakeDataClient()
 
@@ -122,7 +164,8 @@ def create_app():
     # SessionRegistry — Phase 4. Holds per-(user, presentation) DuckDB sessions.
     from presentations.session import SessionRegistry
     app.config["SESSION_REGISTRY"] = SessionRegistry(
-        base_dir=app.config["PRESENTATIONS_SESSION_DIR"],
+        dc=app.config["DATA_CLIENT"],
+        duck_base_dir=app.config["PRESENTATIONS_SESSION_DIR"],
         idle_timeout=app.config["PRESENTATIONS_SESSION_IDLE_TIMEOUT"],
     )
 
@@ -143,6 +186,16 @@ def create_app():
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
         LocalTableDocStore(base_dir=Path(__file__).parent / "table_docs"),
     )
+
+    # ScopeStore — Phase 8.a. Needed so the Hazırlık page (which the Phase
+    # 9.a Keşif "Hazırlık'a geç" redirects into) can save / load contracts.
+    try:
+        from presentations.scope.store import LocalScopeStore
+        app.config["SCOPE_STORE"] = LocalScopeStore(
+            base_dir=Path(__file__).parent / "scopes",
+        )
+    except Exception as exc:
+        print(f"⚠ SCOPE_STORE setup skipped: {exc}")
 
     # Inject LLM client. Provider precedence:
     #   1. OPENAI_API_KEY in env     → OpenAI (paid, best JSON discipline)
