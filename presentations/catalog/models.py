@@ -18,7 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 CatalogSource = Literal["corporate", "user_upload"]
-EdgeKind = Literal["lookup", "shared_concept", "manual"]
+EdgeKind = Literal["lookup", "shared_concept", "manual", "binds"]
+GraphNodeType = Literal["table", "concept"]
 
 
 class ColumnSummary(BaseModel):
@@ -99,13 +100,24 @@ class Edge(BaseModel):
 
 
 class GraphNode(BaseModel):
+    """Two flavours under one shape — `type` discriminates.
+
+    - ``type: "table"`` carries the existing per-table metadata
+      (department, source, concepts bound by this table).
+    - ``type: "concept"`` represents a concept hub; ``usage_count`` is
+      the number of tables that bind this concept. ``department`` and
+      ``source`` are null for concept hubs.
+    """
+
     model_config = ConfigDict(extra="ignore")
 
-    id: str  # "<schema>.<table>"
+    id: str  # "<schema>.<table>" for tables, "concept:<name>" for concepts
+    type: GraphNodeType = "table"
     label: str
-    department: str | None
-    source: CatalogSource
-    concepts: list[str] = Field(default_factory=list)
+    department: str | None = None
+    source: CatalogSource | None = None
+    concepts: list[str] = Field(default_factory=list)  # table → its bindings
+    usage_count: int = 0  # concept → how many tables bind it
     usage_score: float = 0.0
 
 

@@ -28,26 +28,36 @@ const DEPT_PALETTE = [
   "#2563eb", // blue
   "#0891b2", // cyan
   "#16a34a", // green
-  "#ca8a04", // amber
+  "#3730a3", // indigo
   "#dc2626", // red
   "#9333ea", // purple
-  "#db2777", // pink
   "#475569", // slate (fallback)
 ];
-const UPLOAD_COLOR = "#f59e0b";   // amber — user-uploaded tables stand out
-const DEFAULT_COLOR = "#94a3b8";  // neutral grey
+// Concept hubs use a distinct amber so they read as a different *kind*
+// of thing, not just another department.
+const CONCEPT_COLOR = "#f59e0b";   // amber
+// User uploads moved to pink — would otherwise collide with concept amber.
+const UPLOAD_COLOR = "#db2777";    // pink
+const DEFAULT_COLOR = "#94a3b8";   // neutral grey
 
 function colorForNode(node, deptIndex) {
+  if (node.type === "concept") return CONCEPT_COLOR;
   if (node.source === "user_upload") return UPLOAD_COLOR;
   if (!node.department) return DEFAULT_COLOR;
   const idx = deptIndex.get(node.department) ?? 0;
   return DEPT_PALETTE[idx % DEPT_PALETTE.length];
 }
 
-// Per-node weight (concept count, 0..6+). Cosmograph re-maps this signal
-// into the pointSizeRange we pass on the component — the absolute pixel
-// size lives in the component config, not here. Higher = bigger node.
+// Per-node weight that Cosmograph remaps into pointSizeRange.
+//   - Tables: concept-binding count (0..6+). More-bound tables read heavier.
+//   - Concepts: how many tables bind it (usage_count). Popular concepts
+//     become large hubs that anchor a galaxy of satellites.
+// Concept weights run on a richer scale so a well-used concept visibly
+// out-sizes even the heaviest table.
 function sizeWeightForNode(node) {
+  if (node.type === "concept") {
+    return Math.min(node.usage_count || 0, 12);
+  }
   return Math.min((node.concepts || []).length, 6);
 }
 
@@ -106,6 +116,7 @@ export default function GraphCanvas({
     const deptIndex = new Map();
     const orderedDepts = [];
     for (const n of graph.nodes) {
+      if (n.type === "concept") continue;
       const d = n.department;
       if (d && !deptIndex.has(d)) {
         deptIndex.set(d, orderedDepts.length);
@@ -117,26 +128,42 @@ export default function GraphCanvas({
     // numeric index (pointIndexBy) on every point. The runtime errors with
     // "Missing required properties: pointIndexBy" if the index column is
     // absent. Links similarly need numeric source/target indices for the
-    // GPU adjacency lookups — id-only links forced a slow string-resolution
-    // path in earlier 2.x versions.
+    // GPU adjacency lookups.
     const points = graph.nodes.map((n, i) => ({
       index: i,
       id: n.id,
+      type: n.type || "table",   // 9.b.1 — bipartite: "table" | "concept"
       label: n.label,
       department: n.department,
       source: n.source,
+      usage_count: n.usage_count || 0,
       conceptCount: (n.concepts || []).length,
       color: colorForNode(n, deptIndex),
       sizeWeight: sizeWeightForNode(n),
     }));
     const idToIndex = new Map(points.map((p) => [p.id, p.index]));
 
-    // Drop edges that reference nodes the catalog didn't return (defensive —
-    // shouldn't happen post-9.a edge-compute but cheap insurance).
+    // Edge styling per kind. Three kinds now:
+    //   - lookup (table→table): solid, darkest. Real join semantics.
+    //   - binds  (table→concept): hub spoke. Thin + soft so popular hubs
+    //     don't drown in a sea of lines; the eye reads them as orbital
+    //     attachments, not "this table is just like that table".
+    //   - manual (table→table): catalog-declared related_tables. Slightly
+    //     stronger than binds, weaker than lookup.
+    const EDGE_STYLE = {
+      lookup:  { width: 1.6, opacity: 0.85, color: "#334155" },
+      binds:   { width: 0.6, opacity: 0.22, color: "#cbd5e1" },
+      manual:  { width: 1.0, opacity: 0.55, color: "#64748b" },
+    };
+    const defaultStyle = { width: 0.8, opacity: 0.4, color: "#94a3b8" };
+
+    // Drop edges that reference nodes the catalog didn't return (defensive
+    // — shouldn't happen post-bipartite emit but cheap insurance).
     const links = (graph.edges || []).reduce((acc, e) => {
       const sIdx = idToIndex.get(e.source);
       const tIdx = idToIndex.get(e.target);
       if (sIdx === undefined || tIdx === undefined) return acc;
+      const style = EDGE_STYLE[e.kind] || defaultStyle;
       acc.push({
         source: e.source,
         target: e.target,
@@ -145,9 +172,9 @@ export default function GraphCanvas({
         kind: e.kind,
         label: e.label,
         strength: e.strength,
-        width: e.kind === "lookup" ? 1.4 : 0.8,
-        opacity: e.kind === "lookup" ? 0.85 : 0.35,
-        color: e.kind === "lookup" ? "#475569" : "#94a3b8",
+        width: style.width,
+        opacity: style.opacity,
+        color: style.color,
       });
       return acc;
     }, []);
@@ -193,37 +220,49 @@ export default function GraphCanvas({
       setMenu(null);
       return;
     }
-    const id = idForIndex(index);
-    if (!id) return;
+    const point = points[index];
+    if (!point) return;
+
+    // Concept hub click: select all orbital tables in one go. The detail
+    // card stays untouched (concepts aren't in /catalog/<schema>/<table>).
+    if (point.type === "concept") {
+      const orbital = neighborMap.get(point.id);
+      if (orbital && orbital.size) {
+        setMultiSelectIds(new Set(orbital));
+      }
+      setMenu(null);
+      return;
+    }
 
     if (event?.shiftKey) {
       // Multi-select: toggle id membership; leave single-selection alone.
       setMultiSelectIds((prev) => {
         const next = new Set(prev);
-        if (next.has(id)) next.delete(id); else next.add(id);
+        if (next.has(point.id)) next.delete(point.id); else next.add(point.id);
         return next;
       });
     } else {
       // Single selection clears multi.
       setMultiSelectIds(new Set());
-      onSelect?.(id);
+      onSelect?.(point.id);
     }
     setMenu(null);
-  }, [idForIndex, onSelect]);
+  }, [points, neighborMap, onSelect]);
 
   const handleContextMenu = useCallback((index, position, event) => {
     event?.preventDefault?.();
-    const id = idForIndex(index);
-    if (!id) {
+    const point = points[index];
+    if (!point) {
       setMenu(null);
       return;
     }
     setMenu({
       x: event.clientX,
       y: event.clientY,
-      nodeId: id,
+      nodeId: point.id,
+      nodeType: point.type,
     });
-  }, [idForIndex]);
+  }, [points]);
 
   const handlePointMouseOver = useCallback((index) => {
     if (!cosmoRef.current) return;
@@ -324,20 +363,23 @@ export default function GraphCanvas({
           linkColorBy="color"
           linkWidthBy="width"
           linkOpacityBy="opacity"
-          // Force-sim params: tuned for ~200-1k node range. With 10k tables
-          // we'll probably raise simulationFriction + drop simulationRepulsion
-          // to converge faster — leave that tuning to live testing.
-          simulationGravity={0.3}
-          simulationRepulsion={0.6}
+          // Force-sim params: bipartite topology needs slightly tighter
+          // gravity so orbital tables stay close to their concept hub.
+          simulationGravity={0.4}
+          simulationRepulsion={0.5}
           simulationLinkDistance={6}
-          simulationLinkSpring={1.2}
-          simulationFriction={0.85}
-          // Fit the graph to the viewport once the simulation settles —
-          // otherwise small catalogs (6-20 nodes) get pushed offscreen by
-          // the force repulsion. fitViewDelay gives the sim time to converge.
+          simulationLinkSpring={1.4}
+          simulationFriction={0.88}
+          // simulationDecay default 5000 — sim runs for a long time and
+          // keeps applying micro-velocities that look like jitter to the
+          // user. 1000 = settles in ~2-3s on small graphs.
+          simulationDecay={1000}
+          // Fit the graph to the viewport once the simulation settles.
+          // 0.1 padding leaves only a thin margin so we don't start zoomed
+          // out from a great distance.
           fitViewOnInit
-          fitViewDelay={1500}
-          fitViewPadding={0.3}
+          fitViewDelay={1200}
+          fitViewPadding={0.1}
           fitViewDuration={400}
           // Hover dim — Cosmograph greys out non-selected on selectPoints.
           pointGreyoutOpacity={0.15}
@@ -355,10 +397,16 @@ export default function GraphCanvas({
           onPointMouseOut={handlePointMouseOut}
           onPointContextMenu={handleContextMenu}
           onSimulationEnd={() => {
-            // The fitViewOnInit prop fires before convergence; for small
-            // catalogs that leaves nodes pushed offscreen. Refit after the
-            // sim settles so the graph actually fills the viewport.
-            try { cosmoRef.current?.fitView?.(400); } catch { /* noop */ }
+            const ref = cosmoRef.current;
+            if (!ref) return;
+            // (1) Refit — fitViewOnInit fires before convergence on small
+            // catalogs, so we redo it once nodes have settled.
+            try { ref.fitView?.(400); } catch { /* noop */ }
+            // (2) Hard-pause the sim. Without this, Cosmograph keeps
+            // ticking after "end" — invisible velocities re-render and
+            // jiggle nodes pixel-by-pixel, which reads as "tık tık" jitter
+            // to the user. pause() locks them in place.
+            try { ref.pause?.(); } catch { /* noop */ }
           }}
           style={{ width: "100%", height: "100%" }}
         />
@@ -386,6 +434,7 @@ export default function GraphCanvas({
           x={menu.x}
           y={menu.y}
           nodeId={menu.nodeId}
+          nodeType={menu.nodeType}
           inBasket={basketTableIds.has(menu.nodeId)}
           onClose={() => setMenu(null)}
           onAdd={() => {
@@ -394,6 +443,14 @@ export default function GraphCanvas({
           }}
           onOpenDetail={() => {
             onSelect?.(menu.nodeId);
+            setMenu(null);
+          }}
+          onAddOrbitalTables={() => {
+            const orbital = neighborMap.get(menu.nodeId);
+            if (orbital) {
+              const toAdd = [...orbital].filter((id) => !basketTableIds.has(id));
+              if (toAdd.length) onBulkAddToBasket?.(toAdd);
+            }
             setMenu(null);
           }}
         />
@@ -407,11 +464,14 @@ export default function GraphCanvas({
 
 
 function Legend({ deptIndex }) {
-  if (!deptIndex || deptIndex.size === 0) return null;
-  const entries = [...deptIndex.entries()].sort((a, b) => a[1] - b[1]);
+  const entries = deptIndex ? [...deptIndex.entries()].sort((a, b) => a[1] - b[1]) : [];
   return (
     <div className="kesif-graph__legend">
-      <div className="kesif-graph__legend-title">Renkler</div>
+      <div className="kesif-graph__legend-title">Düğümler</div>
+      <div className="kesif-graph__legend-item">
+        <span className="kesif-graph__legend-swatch" style={{ background: CONCEPT_COLOR }} />
+        Kavram (hub)
+      </div>
       {entries.map(([dept, idx]) => (
         <div key={dept} className="kesif-graph__legend-item">
           <span
@@ -426,13 +486,14 @@ function Legend({ deptIndex }) {
         Yüklemelerim
       </div>
       <div className="kesif-graph__legend-divider" />
+      <div className="kesif-graph__legend-title">Bağlantılar</div>
       <div className="kesif-graph__legend-item kesif-graph__legend-edge">
-        <span className="kesif-graph__legend-line" style={{ background: "#475569", height: 2 }} />
+        <span className="kesif-graph__legend-line" style={{ background: "#334155", height: 2 }} />
         Lookup
       </div>
       <div className="kesif-graph__legend-item kesif-graph__legend-edge">
-        <span className="kesif-graph__legend-line" style={{ background: "#94a3b8", opacity: 0.5 }} />
-        Ortak kavram
+        <span className="kesif-graph__legend-line" style={{ background: "#cbd5e1" }} />
+        Kavram bağı
       </div>
     </div>
   );
@@ -464,12 +525,39 @@ function MultiSelectBar({ ids, basketTableIds, onClear, onAdd }) {
 }
 
 
-function ContextMenu({ x, y, nodeId, inBasket, onClose, onAdd, onOpenDetail }) {
-  // Position the menu so it doesn't run off the viewport edge.
+function ContextMenu({
+  x, y, nodeId, nodeType, inBasket,
+  onAdd, onOpenDetail, onAddOrbitalTables,
+}) {
   const style = {
     left: Math.min(x, window.innerWidth - 220),
     top: Math.min(y, window.innerHeight - 140),
   };
+
+  if (nodeType === "concept") {
+    // Concept hub menu: no detail card, no direct sepete-ekle. The
+    // primary verb is "add every table bound to this concept".
+    const conceptLabel = nodeId.replace(/^concept:/, "");
+    return (
+      <div className="kesif-graph__menu" style={style}>
+        <div className="kesif-graph__menu-header" title={nodeId}>
+          <strong>{conceptLabel}</strong>
+          <span>Kavram</span>
+        </div>
+        <button
+          type="button"
+          className="kesif-graph__menu-item"
+          onClick={onAddOrbitalTables}
+        >
+          Tüm bağlı tabloları sepete ekle
+        </button>
+        <button type="button" className="kesif-graph__menu-item" disabled title="Yakında — 9.c">
+          Kavram detayı
+        </button>
+      </div>
+    );
+  }
+
   const [schema, name] = nodeId.split(/\.(.+)/);
   return (
     <div className="kesif-graph__menu" style={style}>

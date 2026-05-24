@@ -23,7 +23,7 @@ from flask import Response, current_app, request
 from flask_login import current_user, login_required
 
 from presentations import presentations_bp
-from presentations.catalog.edges import compute_clusters, compute_edges
+from presentations.catalog.edges import compute_bipartite_graph, compute_clusters, compute_edges
 from presentations.catalog.loader import (
     CatalogLoader,
     _is_user_schema,
@@ -220,6 +220,12 @@ def table_detail(schema: str, table: str):
 def _build_graph_payload(loader: CatalogLoader, sicil: str | None) -> GraphPayload:
     """Compute the §2.4 graph payload from the loader's current state.
 
+    Phase 9.b.1 (refined): emits a bipartite topology — concept hubs +
+    table satellites + bind edges. Replaces the previous N×N
+    ``shared_concept`` fan-out. See
+    :func:`presentations.catalog.edges.compute_bipartite_graph` for the
+    rationale.
+
     Split out from the route so the cache layer can call it without going
     through Flask's request context.
     """
@@ -229,33 +235,12 @@ def _build_graph_payload(loader: CatalogLoader, sicil: str | None) -> GraphPaylo
         detail = loader.get(e.schema_name, e.name, user_sicil=sicil)
         detail_entries.append(detail or e)
 
-    edges = compute_edges(detail_entries)
-    clusters_raw = compute_clusters(detail_entries)
-
-    nodes = [
-        GraphNode(
-            id=e.table_id,
-            label=e.name,
-            department=e.department,
-            source=e.source,
-            concepts=e.concepts_bound,
-            usage_score=0.0,  # Phase 11 supersedes; spec §2.4 keeps the field
-        )
-        for e in detail_entries
-    ]
-    graph_edges = [
-        GraphEdge(
-            source=ed.source,
-            target=ed.target,
-            kind=ed.kind,
-            label=ed.label,
-            concepts=ed.concepts,
-            strength=ed.strength,
-        )
-        for ed in edges
-    ]
-    clusters = [GraphCluster(**c) for c in clusters_raw]
-    return GraphPayload(nodes=nodes, edges=graph_edges, clusters=clusters)
+    raw = compute_bipartite_graph(detail_entries)
+    return GraphPayload(
+        nodes=[GraphNode(**n) for n in raw["nodes"]],
+        edges=[GraphEdge(**e) for e in raw["edges"]],
+        clusters=[GraphCluster(**c) for c in raw["clusters"]],
+    )
 
 
 def _catalog_content_hash(loader: CatalogLoader, sicil: str | None) -> str:
