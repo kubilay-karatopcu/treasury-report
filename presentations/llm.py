@@ -981,8 +981,11 @@ class FakeLLM:
                 new_alias = (f"{a}_vs_{b}_calc")[:40].rstrip("_")
                 return {
                     "explanation": (
-                        f"`{a}` ve `{b}` tablolarını `{join_col}` üzerinden join'leyip "
-                        "bir hesaplama kolonu öneriyorum."
+                        f"'{a}' ve '{b}' tablolarını '{join_col}' kolonu üzerinden "
+                        "birleştirip iki kaynaktaki sayısal değerlerin farkını "
+                        "veren bir hesaplama tablosu öneriyorum. Sonuç tabloda "
+                        "tek bir kolon ('DIFF') olacak; gerçek kolon adlarını "
+                        "(AMOUNT/BALANCE_TRY/RATE…) düzeltmek isteyebilirsin."
                     ),
                     "suggestions": [{
                         "kind": "create_calculation",
@@ -997,8 +1000,8 @@ class FakeLLM:
                             "expr": f"{a}.AMOUNT - {b}.AMOUNT",
                         }],
                         "rationale": (
-                            "Örnek expr — gerçek değer kolonlarına göre düzelt "
-                            "(AMOUNT yerine BALANCE_TRY / RATE / INTEREST_RATE…)."
+                            "Örnek expr — AMOUNT yerine BALANCE_TRY / RATE / "
+                            "INTEREST_RATE gibi gerçek değer kolonlarını koy."
                         ),
                     }],
                 }
