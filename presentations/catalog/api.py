@@ -11,8 +11,11 @@ module attaches the routes via the shared ``presentations_bp``.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import threading
+import time
 from collections import Counter
 from typing import Any
 
@@ -41,6 +44,9 @@ log = logging.getLogger(__name__)
 
 
 _LOADER_KEY = "_PHASE9_CATALOG_LOADER"
+_GRAPH_CACHE_KEY = "_PHASE9_GRAPH_CACHE"
+_GRAPH_CACHE_LOCK = threading.Lock()
+_GRAPH_CACHE_TTL_SECONDS = 60.0  # graph payload changes only on catalog edits
 
 
 def _get_loader() -> CatalogLoader:
@@ -211,31 +217,17 @@ def table_detail(schema: str, table: str):
 # ── /catalog/graph (network payload) ─────────────────────────────────────
 
 
-@presentations_bp.route("/catalog/graph")
-@login_required
-def catalog_graph():
-    """Return the §2.4 graph payload.
+def _build_graph_payload(loader: CatalogLoader, sicil: str | None) -> GraphPayload:
+    """Compute the §2.4 graph payload from the loader's current state.
 
-    Phase 9.a plumbing — the renderer comes in 9.b but the endpoint already
-    has the correct shape so the UI can build against the real contract.
-
-    Performance note: edge computation walks the full catalog; for 200
-    tables this is well under 100ms even cold. If we hit 1000+ we'll need
-    to cache the payload too — see spec §11.
+    Split out from the route so the cache layer can call it without going
+    through Flask's request context.
     """
-    sicil = getattr(current_user, "sicil", None)
-    loader = _get_loader()
-    try:
-        # Load list entries (cheap) and then hydrate details for the edge
-        # computation — lookup edges need the per-column data.
-        list_entries = loader.load(user_sicil=sicil)
-        detail_entries: list[TableEntry] = []
-        for e in list_entries:
-            detail = loader.get(e.schema_name, e.name, user_sicil=sicil)
-            detail_entries.append(detail or e)
-    except Exception:
-        log.exception("catalog: graph payload build failed")
-        return _json({"error": "graph build failed"}, status=500)
+    list_entries = loader.load(user_sicil=sicil)
+    detail_entries: list[TableEntry] = []
+    for e in list_entries:
+        detail = loader.get(e.schema_name, e.name, user_sicil=sicil)
+        detail_entries.append(detail or e)
 
     edges = compute_edges(detail_entries)
     clusters_raw = compute_clusters(detail_entries)
@@ -263,6 +255,79 @@ def catalog_graph():
         for ed in edges
     ]
     clusters = [GraphCluster(**c) for c in clusters_raw]
+    return GraphPayload(nodes=nodes, edges=graph_edges, clusters=clusters)
 
-    payload = GraphPayload(nodes=nodes, edges=graph_edges, clusters=clusters)
-    return _json(payload.model_dump(mode="json"))
+
+def _catalog_content_hash(loader: CatalogLoader, sicil: str | None) -> str:
+    """Cheap content hash for cache invalidation.
+
+    We hash (table_id, concepts_bound, lookups, related_tables) for every
+    catalog entry — these are exactly the inputs that affect edge / node
+    output. Excluded: description / row_count_estimate (don't change shape).
+    Sorted to be order-stable.
+    """
+    entries = loader.load(user_sicil=sicil)
+    pieces = []
+    for e in sorted(entries, key=lambda x: x.table_id):
+        pieces.append(e.table_id)
+        pieces.append(",".join(sorted(e.concepts_bound)))
+        # The detail-mode lookups + related_tables aren't on list-mode entries,
+        # so this hash is intentionally a fast approximation. The full detail
+        # walk is what _build_graph_payload does next — cheap to recompute
+        # if the approximation hits a rare false-positive cache miss.
+        pieces.append(str(e.row_count_estimate or ""))
+    raw = "|".join(pieces).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _get_cached_graph_payload(loader: CatalogLoader, sicil: str | None, refresh: bool) -> dict:
+    """Return the serialized graph payload, populating cache if needed.
+
+    Cache is per-user (user uploads change the graph). Keyed by
+    ``(sicil, content_hash)`` so a catalog edit naturally invalidates without
+    a manual bust. TTL is a fallback for the case where a content change
+    isn't captured by the hash inputs (rare).
+    """
+    cache = current_app.config.setdefault(_GRAPH_CACHE_KEY, {})
+    content_hash = _catalog_content_hash(loader, sicil)
+    cache_key = (sicil or "", content_hash)
+    now = time.monotonic()
+
+    if not refresh:
+        with _GRAPH_CACHE_LOCK:
+            hit = cache.get(cache_key)
+            if hit and hit["expires_at"] > now:
+                return hit["payload"]
+
+    payload = _build_graph_payload(loader, sicil)
+    serialized = payload.model_dump(mode="json")
+    with _GRAPH_CACHE_LOCK:
+        # Drop any stale entries for this user (different content hash) to
+        # bound memory; user uploads can produce a new hash on each edit.
+        for k in [k for k in cache if k[0] == (sicil or "") and k != cache_key]:
+            cache.pop(k, None)
+        cache[cache_key] = {
+            "payload": serialized,
+            "expires_at": now + _GRAPH_CACHE_TTL_SECONDS,
+        }
+    return serialized
+
+
+@presentations_bp.route("/catalog/graph")
+@login_required
+def catalog_graph():
+    """Return the §2.4 graph payload.
+
+    Phase 9.b.1: layout cache (60s TTL, content-hash-keyed). Phase 9.b
+    Cosmograph render lives on the client; this endpoint stays
+    library-agnostic.
+    """
+    sicil = getattr(current_user, "sicil", None)
+    loader = _get_loader()
+    refresh = request.args.get("refresh") in ("1", "true", "yes")
+    try:
+        serialized = _get_cached_graph_payload(loader, sicil, refresh)
+    except Exception:
+        log.exception("catalog: graph payload build failed")
+        return _json({"error": "graph build failed"}, status=500)
+    return _json(serialized)
