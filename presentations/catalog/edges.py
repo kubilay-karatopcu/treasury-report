@@ -269,3 +269,116 @@ def compute_clusters(entries: Iterable[TableEntry]) -> list[dict]:
             cid = f"c_{dept}"
         out.append({"id": cid, "label": label, "node_ids": sorted(node_ids)})
     return out
+
+
+# ── Bipartite topology (concept hubs + table satellites) ─────────────────
+
+
+CONCEPT_NODE_PREFIX = "concept:"
+
+
+def concept_node_id(concept: str) -> str:
+    """Stable id for a concept hub node. Matches the front-end's parser."""
+    return f"{CONCEPT_NODE_PREFIX}{concept}"
+
+
+def compute_bipartite_graph(entries: Iterable[TableEntry]) -> dict:
+    """Build the table↔concept bipartite topology served to the renderer.
+
+    Why bipartite: with N tables sharing one concept, the old
+    table-to-table ``shared_concept`` edges fan out as C(N, 2) — 100
+    tables binding ``as_of_time`` would emit 4950 edges. The bipartite
+    form replaces that with N edges to one ``concept:as_of_time`` hub.
+    The hub's degree IS the popularity signal; force layout naturally
+    pulls common-concept tables into one orbital cluster.
+
+    Returns a dict ``{nodes, edges, clusters}`` matching the §2.4 shape
+    (same outer shape as :func:`compute_edges` consumers expect).
+
+    Edge kinds emitted:
+      - ``binds``  table → concept    (the new structural edge)
+      - ``lookup`` table → table      (FK declaration, unchanged)
+      - ``manual`` table → table      (from ``related_tables``, unchanged)
+
+    Notably *not* emitted:
+      - ``shared_concept`` — now expressed structurally via the shared
+        hub a pair of tables connects to. The frontend computes "tables
+        sharing concept X" by reading the hub's neighbours, not from a
+        dedicated edge type.
+    """
+    entries = list(entries)
+    name_to_id = _index_by_name(entries)
+
+    # ── Table nodes ──────────────────────────────────────────────────
+    table_nodes = []
+    for entry in entries:
+        table_nodes.append({
+            "id": entry.table_id,
+            "type": "table",
+            "label": entry.name,
+            "department": entry.department,
+            "source": entry.source,
+            "concepts": list(entry.concepts_bound),
+            "usage_count": 0,
+            "usage_score": 0.0,
+        })
+
+    # ── Concept hubs ─────────────────────────────────────────────────
+    # usage_count = # of tables in this catalog binding this concept.
+    concept_usage: dict[str, int] = defaultdict(int)
+    for entry in entries:
+        for concept in entry.concepts_bound:
+            concept_usage[concept] += 1
+
+    concept_nodes = []
+    for concept, count in sorted(concept_usage.items()):
+        concept_nodes.append({
+            "id": concept_node_id(concept),
+            "type": "concept",
+            "label": concept,
+            "department": None,
+            "source": None,
+            "concepts": [],
+            "usage_count": count,
+            "usage_score": 0.0,
+        })
+
+    # ── Bind edges (table → concept) ─────────────────────────────────
+    bind_edges = []
+    for entry in entries:
+        for concept in entry.concepts_bound:
+            bind_edges.append({
+                "source": entry.table_id,
+                "target": concept_node_id(concept),
+                "kind": "binds",
+                "label": concept,
+                "concepts": [concept],
+                "strength": 0.7,
+            })
+
+    # ── Lookup + manual table→table edges (reuse existing helpers) ───
+    table_to_table_raw = []
+    table_to_table_raw.extend(_lookup_edges(entries, name_to_id))
+    table_to_table_raw.extend(_manual_edges(entries, name_to_id))
+    table_to_table = _collapse(table_to_table_raw)
+
+    edges_payload = bind_edges + [
+        {
+            "source": e.source,
+            "target": e.target,
+            "kind": e.kind,
+            "label": e.label,
+            "concepts": list(e.concepts),
+            "strength": e.strength,
+        }
+        for e in table_to_table
+    ]
+
+    # Clusters cover table nodes only — concept hubs are orthogonal.
+    clusters = compute_clusters(entries)
+
+    return {
+        "nodes": table_nodes + concept_nodes,
+        "edges": edges_payload,
+        "clusters": clusters,
+    }

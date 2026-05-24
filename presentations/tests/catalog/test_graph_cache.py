@@ -28,15 +28,20 @@ def test_graph_cache_invalidates_on_refresh(flask_app, loader):
 
 
 def test_graph_cache_invalidates_on_content_change(flask_app, loader, fixture_store):
-    """Removing a table file changes the content hash → new payload built."""
+    """Removing a table file changes the content hash → new payload built.
+
+    Bipartite payload mixes table + concept nodes; count table nodes
+    specifically to keep this test stable across concept-hub additions.
+    """
     with flask_app.app_context():
         first = _get_cached_graph_payload(loader, sicil="A16438", refresh=False)
-        first_node_count = len(first["nodes"])
+        first_tables = sum(1 for n in first["nodes"] if n["type"] == "table")
         # Mutate the underlying store and invalidate the loader cache.
         (fixture_store.base_dir / "EDW" / "NII_MONTHLY.yaml").unlink()
         loader.invalidate()
         second = _get_cached_graph_payload(loader, sicil="A16438", refresh=False)
-    assert len(second["nodes"]) == first_node_count - 1
+    second_tables = sum(1 for n in second["nodes"] if n["type"] == "table")
+    assert second_tables == first_tables - 1
 
 
 def test_content_hash_stable_for_unchanged_catalog(flask_app, loader):

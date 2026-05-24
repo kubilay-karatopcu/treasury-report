@@ -120,10 +120,36 @@ def test_graph_includes_lookup_edge(client):
     )
 
 
-def test_graph_includes_shared_concept_edges(client):
-    """Tables binding the same concept produce shared_concept edges."""
+def test_graph_emits_concept_hubs(client):
+    """9.b.1 bipartite topology — concept hubs surface as their own
+    nodes; tables connect to them via ``binds`` edges instead of
+    forming N×N ``shared_concept`` mesh."""
     resp = client.get("/presentations/catalog/graph")
     data = resp.get_json()
-    sc = [e for e in data["edges"] if e["kind"] == "shared_concept"]
-    # All fixture tables share at least one concept with at least one other.
-    assert len(sc) >= 1
+
+    concept_nodes = [n for n in data["nodes"] if n["type"] == "concept"]
+    assert len(concept_nodes) >= 1
+    # Each concept hub carries usage_count = how many tables bind it.
+    for c in concept_nodes:
+        assert c["usage_count"] >= 1
+        assert c["id"].startswith("concept:")
+
+    bind_edges = [e for e in data["edges"] if e["kind"] == "binds"]
+    assert len(bind_edges) >= 1
+    # Bind edge targets are always concept-hub ids.
+    for e in bind_edges:
+        assert e["target"].startswith("concept:")
+
+    # And we should NOT emit shared_concept edges anymore — the bipartite
+    # topology expresses the same information structurally.
+    assert not any(e["kind"] == "shared_concept" for e in data["edges"])
+
+
+def test_graph_table_nodes_have_type_field(client):
+    resp = client.get("/presentations/catalog/graph")
+    data = resp.get_json()
+    table_nodes = [n for n in data["nodes"] if n["type"] == "table"]
+    assert len(table_nodes) >= 1
+    # Tables carry department + source; concepts have those as None.
+    for n in table_nodes:
+        assert n["source"] in ("corporate", "user_upload")
