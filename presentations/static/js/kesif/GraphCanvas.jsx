@@ -44,12 +44,11 @@ function colorForNode(node, deptIndex) {
   return DEPT_PALETTE[idx % DEPT_PALETTE.length];
 }
 
-// Bucket node sizes by concept count — well-bound tables look heavier, so
-// the eye is drawn to them as starting points. Range chosen so Cosmograph
-// pointSizeRange:[3,12] doesn't bloom out at 60fps.
-function sizeForNode(node) {
-  const n = (node.concepts || []).length;
-  return 3 + Math.min(n, 6) * 1.5;
+// Per-node weight (concept count, 0..6+). Cosmograph re-maps this signal
+// into the pointSizeRange we pass on the component — the absolute pixel
+// size lives in the component config, not here. Higher = bigger node.
+function sizeWeightForNode(node) {
+  return Math.min((node.concepts || []).length, 6);
 }
 
 
@@ -128,7 +127,7 @@ export default function GraphCanvas({
       source: n.source,
       conceptCount: (n.concepts || []).length,
       color: colorForNode(n, deptIndex),
-      size: sizeForNode(n),
+      sizeWeight: sizeWeightForNode(n),
     }));
     const idToIndex = new Map(points.map((p) => [p.id, p.index]));
 
@@ -309,7 +308,15 @@ export default function GraphCanvas({
           pointIndexBy="index"
           pointLabelBy="label"
           pointColorBy="color"
-          pointSizeBy="size"
+          pointSizeBy="sizeWeight"
+          // Cosmograph auto-remaps pointSizeBy values into pointSizeRange
+          // (default [2, 9] — way too small relative to HTML labels). Bumped
+          // so the dot reads as a node, not a typo of a node. Keep
+          // pointSizeScale at the default 1 and scaling-on-zoom off — the
+          // combination of all three was blowing nodes up after fitView zoomed
+          // in on a small catalog.
+          pointSizeRange={[8, 16]}
+          pointLabelFontSize={10}
           linkSourceBy="source"
           linkSourceIndexBy="sourceIndex"
           linkTargetBy="target"
@@ -338,7 +345,7 @@ export default function GraphCanvas({
           backgroundColor="#f6f7f9"
           // Show labels for the strongest-bound nodes; the rest hide on
           // collision (Cosmograph picks by pointLabelWeightBy under the hood).
-          pointLabelWeightBy="size"
+          pointLabelWeightBy="sizeWeight"
           renderLinks
           curvedLinks={false}
           focusedPointIndex={focusedIndex}
