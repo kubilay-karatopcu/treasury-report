@@ -758,6 +758,7 @@ const KIND_LABEL = {
   add_projection_column: "Kolon ekle",
   confirm_join: "Join onayla",
   create_aggregate: "Agregat tablo",
+  create_calculation: "Hesaplanmış tablo",
 };
 
 function summariseSuggestion(s) {
@@ -773,6 +774,11 @@ function summariseSuggestion(s) {
       const grp = (s.group_by || []).join(", ");
       const mes = (s.measures || []).map((m) => `${m.fn}(${m.column})`).join(", ");
       return `${s.source_alias} → ${s.new_alias} · group_by [${grp}] · ${mes}`;
+    }
+    case "create_calculation": {
+      const srcs = (s.source_aliases || []).join(" ⋈ ");
+      const cols = (s.columns || []).map((c) => `${c.name} = ${c.expr}`).join("; ");
+      return `${srcs} → ${s.new_alias} · ${cols}`;
     }
     default: return JSON.stringify(s).slice(0, 100);
   }
@@ -1085,13 +1091,24 @@ function App() {
       scope.basket.forEach((item, i) => {
         if (known.has(item.alias)) return;
         // Populate COLS_BY_ALIAS for newly-added derived items so the node
-        // can display them in the "Diğer Kolonlar" handle.
+        // can display them in the "Diğer Kolonlar" handle. Two derivation
+        // kinds:
+        //   aggregate  — group_by + measures
+        //   calculated — columns (each with a free-form SQL expr)
         if (item.derivation && !COLS_BY_ALIAS[item.alias]) {
-          const srcCols = Object.fromEntries((COLS_BY_ALIAS[item.derivation.source_alias] || []).map((c) => [c.name, c]));
-          COLS_BY_ALIAS[item.alias] = [
-            ...(item.derivation.group_by || []).map((g) => ({ name: g, concept: srcCols[g]?.concept || null, join_key: true })),
-            ...(item.derivation.measures || []).map((m) => ({ name: m.as, concept: null, join_key: false })),
-          ];
+          const d = item.derivation;
+          if (d.kind === "calculated") {
+            COLS_BY_ALIAS[item.alias] = (d.columns || []).map((c) => ({
+              name: c.name, concept: null, join_key: false,
+              expr: c.expr,
+            }));
+          } else {
+            const srcCols = Object.fromEntries((COLS_BY_ALIAS[d.source_alias] || []).map((c) => [c.name, c]));
+            COLS_BY_ALIAS[item.alias] = [
+              ...(d.group_by || []).map((g) => ({ name: g, concept: srcCols[g]?.concept || null, join_key: true })),
+              ...(d.measures || []).map((m) => ({ name: m.as, concept: null, join_key: false })),
+            ];
+          }
         }
         const seq = kept.length + added.length;
         added.push({

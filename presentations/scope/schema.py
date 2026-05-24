@@ -162,18 +162,120 @@ class Measure(BaseModel):
     as_: str = Field(alias="as", min_length=1, max_length=128)
 
 
-class Derivation(BaseModel):
-    """An aggregate table generated from another basket alias (§6R aggregate
-    tables). The pivot UI and the Stage-2 LLM both emit this *definition*; the
-    compiler (``fetch.compile_aggregate_sql``) emits the GROUP BY SQL — no
-    front-end ever produces SQL directly."""
+class CalculatedColumn(BaseModel):
+    """One computed output column for a ``kind: calculated`` derivation.
+
+    ``expr`` is a DuckDB SQL expression referencing input columns. When the
+    calculated derivation joins multiple source aliases, ambiguous column
+    names must be qualified by alias (e.g. ``deposits_daily.BALANCE_TRY``).
+    The compiler does NOT rewrite the expression — it's emitted verbatim in
+    the SELECT list, so column names must already match the materialised
+    DuckDB views.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["aggregate"] = "aggregate"
-    source_alias: Alias
+    name: str = Field(min_length=1, max_length=128)
+    expr: str = Field(min_length=1, max_length=2000)
+    type_hint: str | None = Field(default=None, max_length=64)
+
+
+class CalculatedJoinKey(BaseModel):
+    """Inner-join across the source aliases of a calculated derivation.
+
+    The compiler chains ``INNER JOIN right_alias ON …`` clauses in order;
+    the first source_alias is the FROM root."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    left_alias: Alias
+    left_column: str = Field(min_length=1, max_length=128)
+    right_alias: Alias
+    right_column: str = Field(min_length=1, max_length=128)
+
+
+class Derivation(BaseModel):
+    """A derived table generated from one or more basket aliases.
+
+    Two kinds (spec §6R aggregate + Polish-5 calculated):
+
+    - ``aggregate`` — single ``source_alias``, ``GROUP BY group_by`` + the
+      ``measures`` (fn(column) AS as) emit a coarser table. Pivot UI / LLM
+      both produce this definition; the compiler is
+      :func:`presentations.scope.fetch.compile_aggregate_sql`.
+
+    - ``calculated`` — multiple ``source_aliases`` joined via ``join_keys``,
+      then a SELECT of arbitrary expressions (``columns``). Use cases:
+      "deposits.INTEREST_RATE - competitor.RATE", "ratio of two measures",
+      "concatenated label". The compiler is
+      :func:`presentations.scope.fetch.compile_calculated_sql`. NO group-by
+      step — for that, build a separate aggregate downstream of the
+      calculated alias.
+
+    The two field sets are mutually exclusive (validator enforces it). The
+    front-end never produces SQL directly — it produces this definition and
+    the server-side compiler emits the SQL.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["aggregate", "calculated"] = "aggregate"
+    # aggregate-only ----------------------------------------------------
+    source_alias: Alias | None = None
     group_by: list[str] = Field(default_factory=list)
     measures: list[Measure] = Field(default_factory=list)
+    # calculated-only ---------------------------------------------------
+    source_aliases: list[Alias] = Field(default_factory=list)
+    join_keys: list[CalculatedJoinKey] = Field(default_factory=list)
+    columns: list[CalculatedColumn] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _kind_shape(self) -> "Derivation":
+        if self.kind == "aggregate":
+            if self.source_alias is None:
+                raise ValueError("aggregate derivation: source_alias zorunlu")
+            if self.source_aliases or self.join_keys or self.columns:
+                raise ValueError(
+                    "aggregate derivation: source_aliases / join_keys / columns "
+                    "alanları sadece kind='calculated' için kullanılır"
+                )
+            if not self.group_by and not self.measures:
+                raise ValueError(
+                    "aggregate derivation: group_by ya da measures'tan en az biri olmalı"
+                )
+        elif self.kind == "calculated":
+            if not self.source_aliases:
+                raise ValueError("calculated derivation: en az bir source_aliases gerekli")
+            if not self.columns:
+                raise ValueError("calculated derivation: en az bir output column gerekli")
+            if self.source_alias is not None or self.group_by or self.measures:
+                raise ValueError(
+                    "calculated derivation: source_alias / group_by / measures "
+                    "alanları sadece kind='aggregate' için kullanılır"
+                )
+            # Multi-source requires explicit join_keys; single-source needs none.
+            if len(self.source_aliases) > 1 and not self.join_keys:
+                raise ValueError(
+                    "calculated derivation: çoklu source_aliases için join_keys gerekli"
+                )
+            # Every join_key's aliases must be in source_aliases.
+            srcset = set(self.source_aliases)
+            for jk in self.join_keys:
+                if jk.left_alias not in srcset:
+                    raise ValueError(
+                        f"calculated join_key: '{jk.left_alias}' source_aliases'ta yok"
+                    )
+                if jk.right_alias not in srcset:
+                    raise ValueError(
+                        f"calculated join_key: '{jk.right_alias}' source_aliases'ta yok"
+                    )
+            # Unique output column names.
+            seen: set[str] = set()
+            for c in self.columns:
+                if c.name in seen:
+                    raise ValueError(f"calculated columns: '{c.name}' iki kez tanımlı")
+                seen.add(c.name)
+        return self
 
 
 class BasketItem(BaseModel):
@@ -477,7 +579,8 @@ class ScopeRef(BaseModel):
 
 __all__ = [
     "TableRef", "Projection", "JoinedColumn", "DerivedColumn", "Routing",
-    "NodePosition", "AggFn", "Measure", "Derivation", "BasketItem",
+    "NodePosition", "AggFn", "Measure", "CalculatedColumn", "CalculatedJoinKey",
+    "Derivation", "BasketItem",
     "JoinSide", "Join",
     "FilterOp", "PinnedFilter", "InteractiveFilter", "RawFilter", "Filters",
     "Status", "ScopeContract", "ScopeDocument", "ScopeRef",

@@ -236,6 +236,48 @@ def compile_aggregate_sql(item: BasketItem) -> str:
     return f"SELECT {sel} FROM {d.source_alias}{group}"
 
 
+def compile_calculated_sql(item: BasketItem) -> str:
+    """Generate the JOIN + SELECT SQL for a derived (calculated) basket item.
+
+    Single source: ``SELECT expr AS name, … FROM src``.
+    Multi-source : ``FROM src0 INNER JOIN src1 ON src0.k = src1.k …`` with
+                   join_keys chained in order. Output columns are emitted
+                   verbatim — the schema layer already ensured the column
+                   names are unique and the expressions are bounded in size.
+
+    Runs against the already-materialised source views (raw or aggregate),
+    so ``fetch_cached_tables`` must process this derivation type *after*
+    its sources are loaded — the dependency ordering is enforced by the
+    fetch pass.
+    """
+    d = item.derivation
+    if len(d.source_aliases) == 1:
+        from_clause = d.source_aliases[0]
+    else:
+        # First alias is the FROM root; subsequent aliases come in via
+        # INNER JOIN clauses. We trust the validator to have rejected
+        # multi-source derivations missing join_keys.
+        from_clause = d.source_aliases[0]
+        joined: set[str] = {d.source_aliases[0]}
+        for jk in d.join_keys:
+            # Pick whichever side is not yet joined — gives a stable order
+            # regardless of how the user expressed the keys.
+            if jk.right_alias in joined and jk.left_alias not in joined:
+                add_alias, left, right = jk.left_alias, jk.right_alias, jk.left_alias
+                left_col, right_col = jk.right_column, jk.left_column
+            else:
+                add_alias = jk.right_alias if jk.right_alias not in joined else jk.left_alias
+                left, right = jk.left_alias, jk.right_alias
+                left_col, right_col = jk.left_column, jk.right_column
+            from_clause += (
+                f' INNER JOIN "{add_alias}" '
+                f'ON "{left}"."{left_col}" = "{right}"."{right_col}"'
+            )
+            joined.add(add_alias)
+    select_list = ", ".join(f"{c.expr} AS \"{c.name}\"" for c in d.columns)
+    return f"SELECT {select_list} FROM {from_clause}"
+
+
 def fetch_cached_tables(
     dc, conn, scope: ScopeContract, *,
     catalog: Catalog | None = None,
@@ -311,13 +353,25 @@ def fetch_cached_tables(
         log.info("scope.fetch_cached_tables: %s ← %s (%d rows)",
                  item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df))
 
-    # Pass 2 — derived (aggregate) tables, computed on DuckDB over the source.
-    # If we're in partial-refresh mode, re-run only when the source alias was
-    # re-fetched (otherwise the cached derived view is still correct).
+    # Pass 2 — derived tables (aggregate + calculated), computed on DuckDB
+    # over already-materialised source views. In partial-refresh mode we only
+    # re-run when any source alias of the derivation was re-fetched.
     for item in scope.derived_items():
-        if refetch_only is not None and item.derivation.source_alias not in refetch_only:
+        d = item.derivation
+        # Set of source aliases this derivation depends on.
+        if d.kind == "aggregate":
+            deps = {d.source_alias} if d.source_alias else set()
+            sql = compile_aggregate_sql(item)
+            kind_label = "aggregate"
+            derived_from_value = d.source_alias
+        else:                         # calculated
+            deps = set(d.source_aliases)
+            sql = compile_calculated_sql(item)
+            kind_label = "calculated"
+            derived_from_value = list(d.source_aliases)
+        # Partial-refresh gate: any source alias touched → re-run.
+        if refetch_only is not None and not (deps & refetch_only):
             continue
-        sql = compile_aggregate_sql(item)
         try:
             df = conn.execute(sql).fetchdf()
         except Exception as exc:
@@ -326,8 +380,8 @@ def fetch_cached_tables(
             ) from exc
         if len(df.columns) > 0:
             register_dataframe(conn, item.alias, df)
-        loaded[item.alias] = {"derived_from": item.derivation.source_alias, "rows": int(len(df))}
-        log.info("scope.fetch_cached_tables: %s ⇐ aggregate of %s (%d rows)",
-                 item.alias, item.derivation.source_alias, len(df))
+        loaded[item.alias] = {"derived_from": derived_from_value, "rows": int(len(df))}
+        log.info("scope.fetch_cached_tables: %s ⇐ %s of %s (%d rows)",
+                 item.alias, kind_label, derived_from_value, len(df))
 
     return loaded

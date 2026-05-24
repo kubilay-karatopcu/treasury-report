@@ -1129,6 +1129,8 @@ def _mutate_scope_with_suggestion(scope: dict, sugg: dict) -> dict:
         return _apply_confirm_join(s, sugg)
     if kind == "create_aggregate":
         return _apply_create_aggregate(s, sugg)
+    if kind == "create_calculation":
+        return _apply_create_calculation(s, sugg)
     raise _ApplyError(f"Bilinmeyen öneri tipi: {kind!r}")
 
 
@@ -1265,6 +1267,73 @@ def _apply_create_aggregate(s: dict, sugg: dict) -> dict:
         },
         "projection": {
             "columns": list(group_by) + [m.get("as") or f"{m['fn'].upper()}_{m['column']}" for m in measures],
+            "include_all": False,
+        },
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
+    })
+    return s
+
+
+def _apply_create_calculation(s: dict, sugg: dict) -> dict:
+    """Apply a `create_calculation` suggestion → add a kind:"calculated"
+    derivation to the basket (Polish-5).
+
+    Suggestion shape:
+      {
+        "kind": "create_calculation",
+        "new_alias": "rate_gap",
+        "source_aliases": ["deposits_daily", "competitor_rates"],
+        "join_keys": [
+          {"left_alias":"deposits_daily","left_column":"BRANCH_CODE",
+           "right_alias":"competitor_rates","right_column":"BRANCH_CODE"}
+        ],
+        "columns": [
+          {"name":"RATE_GAP","expr":"deposits_daily.INTEREST_RATE - competitor_rates.RATE"}
+        ]
+      }
+    """
+    new_alias = sugg.get("new_alias")
+    src_aliases = list(sugg.get("source_aliases") or [])
+    join_keys = list(sugg.get("join_keys") or [])
+    columns = list(sugg.get("columns") or [])
+
+    if not new_alias:
+        raise _ApplyError("create_calculation: new_alias zorunlu")
+    if not src_aliases:
+        raise _ApplyError("create_calculation: en az bir source_aliases gerekli")
+    if not columns:
+        raise _ApplyError("create_calculation: en az bir output column gerekli")
+    aliases_in_basket = {b.get("alias") for b in s["basket"]}
+    if new_alias in aliases_in_basket:
+        raise _ApplyError(f"create_calculation: '{new_alias}' alias'ı zaten mevcut")
+    for src in src_aliases:
+        if src not in aliases_in_basket:
+            raise _ApplyError(
+                f"create_calculation: source_alias '{src}' basket'te yok"
+            )
+    if len(src_aliases) > 1 and not join_keys:
+        raise _ApplyError(
+            "create_calculation: çoklu source_aliases için join_keys gerekli"
+        )
+    # Normalise column shape (verbatim through to the schema layer for validation).
+    norm_cols = [{"name": c["name"], "expr": c["expr"],
+                  **({"type_hint": c["type_hint"]} if c.get("type_hint") else {})}
+                 for c in columns]
+    norm_jks = [{
+        "left_alias": j["left_alias"], "left_column": j["left_column"],
+        "right_alias": j["right_alias"], "right_column": j["right_column"],
+    } for j in join_keys]
+
+    s["basket"].append({
+        "alias": new_alias,
+        "derivation": {
+            "kind": "calculated",
+            "source_aliases": src_aliases,
+            "join_keys": norm_jks,
+            "columns": norm_cols,
+        },
+        "projection": {
+            "columns": [c["name"] for c in norm_cols],
             "include_all": False,
         },
         "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
