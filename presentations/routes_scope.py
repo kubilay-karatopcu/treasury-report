@@ -27,6 +27,8 @@ from pydantic import ValidationError
 from presentations import presentations_bp
 from presentations.scope.catalog import AppCatalog
 from presentations.scope.fetch import fetch_cached_tables
+from presentations.scope.diff import diff_scopes, serialise_diff
+from presentations.scope.impact import compute_affected_blocks, serialise_affected, summarise
 from presentations.scope.routing import (
     DEFAULT_HARD_CEILING_BYTES,
     DEFAULT_THRESHOLD_BYTES,
@@ -449,12 +451,91 @@ def hazirlik(pid: str):
     )
 
 
+def _parent_scope(pid: str):
+    """The most-recently-built scope for ``pid``, used to (a) anchor
+    parent_version and (b) compute a re-entry diff. ``None`` when this is a
+    first-time build."""
+    store = current_app.config.get("SCOPE_STORE")
+    if store is None:
+        return None
+    try:
+        return store.load_latest(pid)
+    except Exception:
+        log.warning("_parent_scope: load_latest failed for %s", pid, exc_info=True)
+        return None
+
+
+@presentations_bp.route("/<pid>/scope/preview-build", methods=["POST"])
+@login_required
+def preview_scope_build(pid: str):
+    """Dry-run for 'Sunum'a geç': validates the proposed scope + computes a
+    diff vs the persisted parent + identifies affected manifest blocks, but
+    does NOT save or fetch. The Hazırlık warning modal calls this before the
+    real build so the user sees what will change (§3.6 step g).
+
+    Response:
+        {
+          "ok": bool,
+          "diff": {...},                     # serialise_diff() output
+          "affected_blocks": [...],          # serialise_affected() output
+          "summary": {breaking, warning, total},
+          "parent_version": int | null,
+          "errors": [...], "warnings": [...] # validator output
+        }
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return _json({"ok": False, "errors": ["body must be a JSON object"]}, status=400)
+    try:
+        scope = load_scope_from_dict(body)
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "phase": "schema", "errors": _flatten(exc)}, status=400)
+
+    scope.presentation_id = pid
+    scope.created_by = getattr(current_user, "sicil", None) or scope.created_by
+
+    catalog = _catalog()
+    _refresh_routing(scope, catalog)
+    vres = validate_scope(scope, catalog)
+
+    parent = _parent_scope(pid)
+    diff = diff_scopes(parent, scope)
+
+    # Manifest impact — pull from the active session's manifest (the
+    # in-progress one) rather than the stored scope. That's what the user
+    # is actually editing in Sunum.
+    manifest = None
+    try:
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        manifest = sess.get_manifest()
+    except Exception:
+        log.warning("preview_scope_build: get_manifest failed", exc_info=True)
+
+    affected = compute_affected_blocks(diff, manifest)
+
+    return _json({
+        "ok": vres.ok,
+        "diff": serialise_diff(diff),
+        "affected_blocks": serialise_affected(affected),
+        "summary": summarise(affected),
+        "parent_version": parent.version if parent is not None else None,
+        "errors": list(vres.errors or []),
+        "warnings": list(vres.warnings or []),
+    })
+
+
 @presentations_bp.route("/<pid>/scope/build", methods=["POST"])
 @login_required
 def build_scope(pid: str):
     """'Sunum'a geç': validate → fetch cached tables into DuckDB → persist scope
     (version bump) → write the manifest's scope_ref → return a redirect URL.
-    Lazy tables are recorded in status but not fetched (8.d)."""
+    Lazy tables are recorded in status but not fetched (8.d).
+
+    Re-entry (§3.6, §8.e): when a previous scope (``parent``) exists, the
+    new scope's ``parent_version`` is set to it. The fetch pass is partial —
+    only aliases that the diff says actually changed get re-pulled from
+    Oracle; unchanged cached aliases keep their existing DuckDB views.
+    """
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return _json({"ok": False, "errors": ["body must be a JSON object"]}, status=400)
@@ -475,11 +556,27 @@ def build_scope(pid: str):
         return _json({"ok": False, "phase": "validation",
                       "errors": result.errors, "warnings": result.warnings}, status=400)
 
+    # ── Re-entry diff against the persisted parent ─────────────────────────
+    parent = _parent_scope(pid)
+    if parent is not None:
+        scope.parent_version = parent.version
+    diff = diff_scopes(parent, scope)
+
     dc = current_app.config.get("DATA_CLIENT")
     session = _registry().get_or_create(current_user.sicil, pid)
     conn = session.get_duck_conn()
     lazy = [b.alias for b in scope.basket
             if b.table_ref is not None and b.routing.decision == "lazy"]
+
+    # Partial refresh planning. First build (no parent) → full fetch.
+    # Otherwise: refetch only aliases the diff flags as added or changed +
+    # any cached alias targeted by a changed pinned filter. Drop views for
+    # aliases the new scope no longer carries.
+    refetch_only = None
+    drop_aliases = None
+    if parent is not None:
+        refetch_only = diff.affected_aliases
+        drop_aliases = set(diff.removed_aliases)
 
     try:
         loaded = fetch_cached_tables(
@@ -487,6 +584,8 @@ def build_scope(pid: str):
             catalog=catalog,
             concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
             binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+            refetch_only=refetch_only,
+            drop_aliases=drop_aliases,
         )
     except Exception as exc:
         scope.status.state = "failed"
@@ -498,7 +597,16 @@ def build_scope(pid: str):
         return _json({"ok": False, "phase": "fetch", "errors": [str(exc)]}, status=502)
 
     scope.status.state = "ready"
-    scope.status.cached_tables = list(loaded.keys())
+    # cached_tables includes every cached alias in the new scope — the ones
+    # we refetched + the ones inherited from the parent. We trust the
+    # session's existing views for the latter.
+    inherited_cached: list[str] = []
+    if parent is not None:
+        new_aliases = {b.alias for b in scope.basket
+                       if b.table_ref is not None and b.routing.decision == "cached"}
+        prev_cached = set(parent.status.cached_tables or [])
+        inherited_cached = sorted(new_aliases & prev_cached - set(loaded))
+    scope.status.cached_tables = sorted(set(loaded.keys()) | set(inherited_cached))
     scope.status.lazy_tables = lazy
     scope.status.fetched_at = datetime.now(timezone.utc)
 
@@ -516,8 +624,11 @@ def build_scope(pid: str):
     return _json({
         "ok": True,
         "scope_version": version,
+        "parent_version": parent.version if parent is not None else None,
         "cached_tables": scope.status.cached_tables,
         "lazy_tables": scope.status.lazy_tables,
+        "refetched": sorted(loaded.keys()),
+        "inherited": inherited_cached,
         "redirect": url_for("presentations.editor", pid=pid),
     })
 

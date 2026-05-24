@@ -240,6 +240,8 @@ def fetch_cached_tables(
     dc, conn, scope: ScopeContract, *,
     catalog: Catalog | None = None,
     concept_registry=None, binding_catalog=None,
+    refetch_only: set[str] | None = None,
+    drop_aliases: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Materialise the scope into DuckDB views named by alias.
 
@@ -248,17 +250,45 @@ def fetch_cached_tables(
     already-materialised source view. Lazy tables are skipped (8.d). Raises on
     Oracle / DuckDB errors so the caller can mark ``status.state = failed``.
 
-    Returns ``{alias: {...}}``.
+    Re-entry partial refresh (Phase 8.e, spec §3.6 step c):
+
+      - ``drop_aliases``: views from the previous scope_v<N> that no longer
+        exist in the new scope (or whose data must be invalidated) — these
+        get ``DROP VIEW`` before the fetch pass.
+      - ``refetch_only``: when supplied, only these aliases are re-fetched
+        from Oracle. Other cached aliases are assumed to already have a
+        DuckDB view registered by a previous build pass; we leave them
+        untouched. Derived aggregate items always re-run if their source
+        alias is in ``refetch_only`` (their result depends on it).
+
+    When both are ``None`` the function behaves like the original first-build
+    flow: every cached basket item is fetched and every derived item runs.
+
+    Returns ``{alias: {...}}`` for the aliases actually touched in this call
+    (does not include aliases that were left intact across re-entry).
     """
     import pandas as pd
 
     loaded: dict[str, dict[str, Any]] = {}
+
+    # Step 0 — drop views for aliases that are gone in the new scope. Failure
+    # is non-fatal: a view may already be gone from a pod restart.
+    for alias in (drop_aliases or ()):
+        try:
+            conn.execute(f'DROP VIEW IF EXISTS "{alias}"')
+            log.info("scope.fetch_cached_tables: dropped stale view '%s'", alias)
+        except Exception:
+            log.warning("scope.fetch_cached_tables: drop of '%s' failed",
+                        alias, exc_info=True)
 
     # Pass 1 — raw cached tables.
     for item in scope.basket:
         if item.derivation is not None or item.table_ref is None:
             continue
         if item.routing.decision != "cached":
+            continue
+        if refetch_only is not None and item.alias not in refetch_only:
+            # Re-entry partial refresh — view from scope_v<N-1> is reused.
             continue
         sql, binds = compose_cached_sql(
             scope, item, catalog,
@@ -282,7 +312,11 @@ def fetch_cached_tables(
                  item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df))
 
     # Pass 2 — derived (aggregate) tables, computed on DuckDB over the source.
+    # If we're in partial-refresh mode, re-run only when the source alias was
+    # re-fetched (otherwise the cached derived view is still correct).
     for item in scope.derived_items():
+        if refetch_only is not None and item.derivation.source_alias not in refetch_only:
+            continue
         sql = compile_aggregate_sql(item)
         try:
             df = conn.execute(sql).fetchdf()
