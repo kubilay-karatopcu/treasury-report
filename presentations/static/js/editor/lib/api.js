@@ -6,7 +6,12 @@
  * SCRIPT_NAME prefixes (e.g. /proxy/8080/...) without backend URL injection.
  */
 
-const API_BASE = window.location.pathname.replace(/\/$/, '');
+// Editor lives at /presentations/{pid}; Hazırlık lives at
+// /presentations/hazirlik/{pid}. Shared API endpoints (/manifest, /uploads,
+// /sources, …) are mounted at the PID root, so when this api.js is imported
+// from the Hazırlık bundle we strip the `hazirlik/` segment so the URLs
+// resolve to the same place. The replace is a no-op for the editor.
+const API_BASE = window.location.pathname.replace(/\/$/, '').replace('/hazirlik/', '/');
 
 // ── Manifest ────────────────────────────────────────────────────────────────
 

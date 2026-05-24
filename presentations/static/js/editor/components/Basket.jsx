@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 import useStore from '../lib/store.js';
 import { fetchSources, updateBasket, uploadDelete } from '../lib/api.js';
-import UploadModal from './UploadModal.jsx';
 
 const DOMAIN_ICONS = {
   building:  Building2,
@@ -40,7 +39,9 @@ export default function Basket() {
   const [error, setError]          = useState(null);
   const [openDomains, setOpen]     = useState({});
   const [busy, setBusy]            = useState(false);
-  const [uploadOpen, setUploadOpen] = useState(false);
+  // Veri Yükle was moved to Hazırlık (Polish-4) — no upload modal state in
+  // Sunum anymore. Already-uploaded sheets are still rendered + deletable
+  // below.
   const setDocsTable = useStore((s) => s.setDocsTable);
 
   async function reloadCatalog() {
@@ -104,16 +105,6 @@ export default function Basket() {
     }
   }
 
-  async function handleUploadCommit() {
-    // After a successful commit, server updated the manifest's `uploads` list
-    // AND its version. Refresh the catalog (which now includes the new sheets
-    // as dom_uploads tables) and the manifest version.
-    await reloadCatalog();
-    // The latest version is in the response — but easier to just fetch the
-    // manifest fresh. For now, bump locally; the next chat turn will sync.
-    // (If you want a hard refresh, expose a refreshManifest() action.)
-  }
-
   async function handleDeleteUpload(uploadId) {
     if (!confirm('Bu yüklü dosyayı silmek istediğinden emin misin?')) return;
     setBusy(true);
@@ -137,15 +128,9 @@ export default function Basket() {
 
   return (
     <>
-      <button
-        type="button"
-        className="sources-upload-cta"
-        onClick={() => setUploadOpen(true)}
-        title="Excel dosyası yükle veya bir tablo yapıştır"
-      >
-        <Upload size={12} strokeWidth={2} />
-        <span>Veri Yükle</span>
-      </button>
+      {/* Veri Yükle CTA moved to Hazırlık (Polish-4): users prepare data
+          there. The Yüklenenler domain is still rendered below so already-
+          uploaded sheets remain discoverable in Sunum. */}
 
       <div className="sources-list">
         {catalog.domains.map((domain) => (
@@ -161,12 +146,6 @@ export default function Basket() {
           />
         ))}
       </div>
-
-      <UploadModal
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        onCommit={handleUploadCommit}
-      />
     </>
   );
 }
