@@ -383,77 +383,108 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
   );
 }
 
-// ── Table docs modal (eye icon → schema reference) ─────────────────────────
+// ── Table docs panel (eye icon → slide-in side dock) ───────────────────────
 
-function TableDocsModal({ table, onClose }) {
+function TableDocsPanel({ table, onClose }) {
+  const ref = useRef(null);
   const cols = table.columns || [];
   const filters = table.common_filters || [];
+
+  // ESC closes, click outside also closes — but ignore clicks on a
+  // sources-table-eye button (the same eye that opened this panel — that
+  // click toggles via the parent handler).
+  useEffect(() => {
+    function onKey(e) { if (e.key === "Escape") onClose(); }
+    function onDown(e) {
+      if (!ref.current) return;
+      if (ref.current.contains(e.target)) return;
+      if (e.target.closest && e.target.closest(".sources-table-eye")) return;
+      onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+    };
+  }, [onClose]);
+
   return (
-    <Modal title={table.id || "Tablo"} size="md" onClose={onClose}>
-      {(table.desc || table.rows) && (
-        <p className="hz-docs-meta">
-          {table.desc}{table.rows ? ` · ${table.rows} satır` : ""}
-        </p>
-      )}
-
-      <div className="hz-docs-section">
-        <div className="hz-docs-section-title">
-          <Database size={12} strokeWidth={2} />
-          <span>Kolonlar ({cols.length})</span>
-        </div>
-        {cols.length === 0
-          ? <p className="hz-muted">(kolon bilgisi yok)</p>
-          : (
-            <table className="hz-docs-cols">
-              <thead>
-                <tr>
-                  <th>İsim</th><th>Tip</th><th>Null</th><th>İşaretler</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cols.map((c) => (
-                  <tr key={c.name}>
-                    <td className="hz-docs-col-name">{c.name}</td>
-                    <td className="hz-docs-col-type">{c.type || "—"}</td>
-                    <td>
-                      {c.nullable === false
-                        ? <span className="hz-docs-pill hz-docs-pill--req">NOT NULL</span>
-                        : <span className="hz-docs-pill">NULL</span>}
-                    </td>
-                    <td className="hz-docs-col-marks">
-                      {c.key && <span className="hz-docs-pill hz-docs-pill--key">key</span>}
-                      {c.concept && <span className="hz-col-concept">{c.concept}</span>}
-                      {c.common_values && c.common_values.length > 0 && (
-                        <span className="hz-docs-vals" title={c.common_values.join(", ")}>
-                          {c.common_values.slice(0, 4).join(", ")}
-                          {c.common_values.length > 4 ? "…" : ""}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+    <aside className="hz-docs-panel" ref={ref}>
+      <header className="hz-docs-panel-head">
+        <div>
+          <div className="hz-docs-panel-title">{table.id}</div>
+          {(table.desc || table.rows) && (
+            <div className="hz-docs-panel-sub">
+              {table.desc}{table.rows ? ` · ${table.rows} satır` : ""}
+            </div>
           )}
-      </div>
+        </div>
+        <button type="button" className="hz-icon-btn" onClick={onClose} title="Kapat (ESC)">
+          <X size={15} />
+        </button>
+      </header>
 
-      {filters.length > 0 && (
+      <div className="hz-docs-panel-body ts-scroll">
         <div className="hz-docs-section">
           <div className="hz-docs-section-title">
-            <Tag size={12} strokeWidth={2} />
-            <span>Sık Kullanılan Filtreler ({filters.length})</span>
+            <Database size={12} strokeWidth={2} />
+            <span>Kolonlar ({cols.length})</span>
           </div>
-          <div className="hz-docs-filters">
-            {filters.map((f, i) => (
-              <div className="hz-docs-filter" key={i}>
-                <div className="hz-docs-filter-label">{f.label}</div>
-                <code className="hz-docs-filter-expr">{f.expression}</code>
-              </div>
-            ))}
-          </div>
+          {cols.length === 0
+            ? <p className="hz-muted">(kolon bilgisi yok)</p>
+            : (
+              <table className="hz-docs-cols">
+                <thead>
+                  <tr>
+                    <th>İsim</th><th>Tip</th><th>Null</th><th>İşaretler</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cols.map((c) => (
+                    <tr key={c.name}>
+                      <td className="hz-docs-col-name">{c.name}</td>
+                      <td className="hz-docs-col-type">{c.type || "—"}</td>
+                      <td>
+                        {c.nullable === false
+                          ? <span className="hz-docs-pill hz-docs-pill--req">NOT NULL</span>
+                          : <span className="hz-docs-pill">NULL</span>}
+                      </td>
+                      <td className="hz-docs-col-marks">
+                        {c.key && <span className="hz-docs-pill hz-docs-pill--key">key</span>}
+                        {c.concept && <span className="hz-col-concept">{c.concept}</span>}
+                        {c.common_values && c.common_values.length > 0 && (
+                          <span className="hz-docs-vals" title={c.common_values.join(", ")}>
+                            {c.common_values.slice(0, 4).join(", ")}
+                            {c.common_values.length > 4 ? "…" : ""}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
         </div>
-      )}
-    </Modal>
+
+        {filters.length > 0 && (
+          <div className="hz-docs-section">
+            <div className="hz-docs-section-title">
+              <Tag size={12} strokeWidth={2} />
+              <span>Sık Kullanılan Filtreler ({filters.length})</span>
+            </div>
+            <div className="hz-docs-filters">
+              {filters.map((f, i) => (
+                <div className="hz-docs-filter" key={i}>
+                  <div className="hz-docs-filter-label">{f.label}</div>
+                  <code className="hz-docs-filter-expr">{f.expression}</code>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -497,11 +528,13 @@ function SourcesSidebar({ scope, onToggleTable, onRemove, onOpenDocs, chat }) {
                                   {t.desc}{t.rows ? ` · ${t.rows}` : ""}
                                 </div>
                               </div>
-                              <span className="sources-table-toggle" title={active ? "Sepetten çıkar" : "Sepete ekle"}>
-                                {active
-                                  ? <Trash2 size={12} strokeWidth={1.8} />
-                                  : <Plus size={12} strokeWidth={1.8} />}
-                              </span>
+                              {/* Only show the Trash icon when the table is already in
+                                  the basket — Plus is implicit (clicking the row adds). */}
+                              {active && (
+                                <span className="sources-table-toggle" title="Sepetten çıkar">
+                                  <Trash2 size={12} strokeWidth={1.8} />
+                                </span>
+                              )}
                             </button>
                             <button
                               type="button"
@@ -1317,7 +1350,7 @@ function App() {
       <div className="hz-body">
         <SourcesSidebar
           scope={scope} onToggleTable={toggleTable} onRemove={removeTable}
-          onOpenDocs={setDocsTable}
+          onOpenDocs={(t) => setDocsTable((cur) => (cur && cur.id === t.id ? null : t))}
           chat={{
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
@@ -1325,6 +1358,9 @@ function App() {
             applyingId,
           }}
         />
+        {docsTable && (
+          <TableDocsPanel table={docsTable} onClose={() => setDocsTable(null)} />
+        )}
         <main className="hz-right">
           <div className="hz-canvas">
             <ReactFlow
@@ -1362,9 +1398,6 @@ function App() {
         <JoinKeyModal left={joinModal.left} right={joinModal.right}
           onClose={() => setJoinModal(null)}
           onSave={({ lcol, rcol, kind }) => { addJoin(joinModal.left, lcol, joinModal.right, rcol, kind); setJoinModal(null); }} />
-      )}
-      {docsTable && (
-        <TableDocsModal table={docsTable} onClose={() => setDocsTable(null)} />
       )}
       {toast && <div className="hz-toast">{toast}</div>}
     </div>
