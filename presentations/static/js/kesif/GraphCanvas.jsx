@@ -76,6 +76,7 @@ export default function GraphCanvas({
   licenseKey,
   selectedId,
   basketTableIds,
+  highlightIds,        // 9.c — pulse these nodes ~3s when ChatDrawer fires
   onSelect,
   onAddToBasket,
   onBulkAddToBasket,
@@ -214,6 +215,26 @@ export default function GraphCanvas({
       cosmoRef.current.focusPoint?.(idx);
     } catch { /* method varies by version — soft-fail */ }
   }, [selectedId, idToIndex]);
+
+  // ── Highlight pulse from ChatDrawer (9.c) ────────────────────────────
+  // When the LLM returns proposals, the parent passes their ids here.
+  // We selectPoints (Cosmograph's selection greys out everyone else) for
+  // ~3s, then unselect. Reuses the same dimming pathway the hover uses,
+  // so the "lock onto these tables" cue is consistent across surfaces.
+  useEffect(() => {
+    if (!cosmoRef.current || !highlightIds || highlightIds.length === 0) return;
+    const indices = highlightIds
+      .map((id) => idToIndex.get(id))
+      .filter((i) => i !== undefined);
+    if (indices.length === 0) return;
+    try {
+      cosmoRef.current.selectPoints?.(indices);
+    } catch { /* soft-fail */ }
+    const t = setTimeout(() => {
+      try { cosmoRef.current?.unselectPoints?.(); } catch { /* noop */ }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [highlightIds, idToIndex]);
 
   // ── Event handlers ──────────────────────────────────────────────────
 

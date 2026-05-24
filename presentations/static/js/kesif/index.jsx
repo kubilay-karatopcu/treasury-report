@@ -19,6 +19,7 @@ import {
   MessageCircle, ArrowRight, Loader2, Tag, Building2,
 } from "lucide-react";
 import GraphCanvas from "./GraphCanvas.jsx";
+import ChatDrawer from "./ChatDrawer.jsx";
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ const ENDPOINTS = DATA.endpoints || {};
 const USER = DATA.user || {};
 const SEED_DRAFT = DATA.draft || {};
 const SEED_BASKET = DATA.basket || [];
+const SEED_CHAT_HISTORY = (DATA.chat && DATA.chat.history) || [];
 const COSMOGRAPH_CONFIG = DATA.cosmograph || {};
 
 // Helpers
@@ -71,6 +73,19 @@ function App() {
   const [basket, setBasket] = useState(SEED_BASKET);
   const [basketBusy, setBasketBusy] = useState(false);
   const [promoting, setPromoting] = useState(false);
+
+  // ── Chat highlight bridge (9.c) ──────────────────────────────────────
+  // When ChatDrawer receives proposals, it pushes the table ids here so
+  // GraphCanvas can pulse those nodes. We bump a counter alongside so
+  // repeated highlights re-trigger the effect even if the id list is
+  // identical (useful when the LLM proposes the same tables twice).
+  const [highlightIds, setHighlightIds] = useState([]);
+  const [highlightTick, setHighlightTick] = useState(0);
+  const pushHighlight = useCallback((ids) => {
+    if (!ids || ids.length === 0) return;
+    setHighlightIds(ids);
+    setHighlightTick((n) => n + 1);
+  }, []);
 
   // Debounced search (200ms per spec §4.5/§4.6).
   useEffect(() => {
@@ -339,6 +354,8 @@ function App() {
             licenseKey={COSMOGRAPH_CONFIG.license_key}
             selectedId={selectedId}
             basketTableIds={basketTableIds}
+            highlightIds={highlightIds}
+            highlightTick={highlightTick}
             onSelect={setSelectedId}
             onAddToBasket={addToBasketById}
             onBulkAddToBasket={bulkAddToBasket}
@@ -357,6 +374,14 @@ function App() {
           onPromote={promote}
         />
       </div>
+      <ChatDrawer
+        chatSendUrl={ENDPOINTS.chat_send}
+        chatClearUrl={ENDPOINTS.chat_clear}
+        seedHistory={SEED_CHAT_HISTORY}
+        basketTableIds={basketTableIds}
+        onAddToBasket={addToBasketById}
+        onHighlight={pushHighlight}
+      />
     </>
   );
 }
