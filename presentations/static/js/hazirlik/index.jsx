@@ -284,6 +284,11 @@ function buildEdges(scope) {
       || _conceptForJoinSide(j.right.alias, j.right.column);
     return {
       id: j.id, source: j.left.alias, target: j.right.alias,
+      // Anchor the line to the *correct* column's handle on each side — without
+      // these, React Flow picks the first Handle in the DOM and the line
+      // visually snaps to the top row even though the label is right.
+      sourceHandle: j.left.column,
+      targetHandle: j.right.column,
       // Confirmed edge label: prefer the concept (shows *why* the join exists)
       // over the raw kind, then append the column pair for clarity.
       label: concept ? `${concept} · ${j.left.column}=${j.right.column}` : `${j.kind}: ${j.left.column}=${j.right.column}`,
@@ -302,6 +307,8 @@ function buildEdges(scope) {
     const kindLabel = s.source === "catalog_lookup" ? "lookup" : "öneri";
     edges.push({
       id: `sug_${i}`, source: s.left.alias, target: s.right.alias,
+      sourceHandle: s.left.column,
+      targetHandle: s.right.column,
       label: concept ? `${concept} · ${kindLabel}` : kindLabel,
       className: "hz-edge hz-edge--suggested",
       data: { suggested: true, edge: s, concept },
