@@ -13,6 +13,10 @@ columns:
     filter_role: dimension
     suggested_variable: branch_codes
     suggested_semantic_tag: branch
+    lookup:
+      table: DIM_BRANCH
+      key: BRANCH_CODE
+      display: BRANCH_NAME
 
   BRANCH_NAME:
     type: VARCHAR2(100)
