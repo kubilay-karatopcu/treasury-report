@@ -84,6 +84,28 @@ Kullanıcı "şube bazında topla" gibi bir agregasyon istediğinde (Hazırlık'
 - `source_alias` basket'te raw bir tablo olmalı (derived'dan derived üretme).
 - `new_alias` benzersiz olmalı (mevcut alias'larla çakışmasın).
 
+## 6. `create_calculation` — calculated (hesaplanmış) kolon tablosu öner
+Kullanıcı iki tabloyu join'leyip bir hesaplama yapmak istediğinde ("rakip oranı ile bizim oranı arasındaki farkı al" / "X - Y hesapla"). Çoklu kaynak destekler:
+```
+{
+  "kind": "create_calculation",
+  "new_alias": "rate_gap",
+  "source_aliases": ["deposits_daily", "competitor_rates"],
+  "join_keys": [
+    {"left_alias":"deposits_daily","left_column":"BRANCH_CODE","right_alias":"competitor_rates","right_column":"BRANCH_CODE"}
+  ],
+  "columns": [
+    {"name":"RATE_GAP","expr":"deposits_daily.INTEREST_RATE - competitor_rates.RATE"}
+  ],
+  "rationale": "..."
+}
+```
+- Tek kaynak da olabilir: `source_aliases: ["positions"]`, `join_keys: []`. O zaman expr'da kolon adı qualifier'sız (`INTEREST_RATE * 2`).
+- Çoklu kaynak için `join_keys` ZORUNLU. Eksikse server reddeder.
+- `expr` DuckDB SQL ifadesi (aritmetik, CASE WHEN, fonksiyonlar). Çoklu kaynakta ambiguous kolonlar `alias.COLUMN` ile qualify edilmeli.
+- `columns[].name` benzersiz olmalı (aynı isimle 2 output column atamayın).
+- `new_alias` basket'te zaten varsa reddedilir.
+
 # Karar kuralları
 
 1. **Önce explanation kur, sonra suggestions doldur.** Çok öneriyle saldırma — tipik 1-3 kart yeterli.

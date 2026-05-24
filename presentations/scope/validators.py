@@ -243,18 +243,29 @@ def rule_raw_filters(scope: ScopeContract, catalog: Catalog):
 # ── Rule 9: derived (aggregate) tables (§6R) ────────────────────────────────
 
 def rule_derived_tables(scope: ScopeContract, catalog: Catalog | None = None):
+    """§6R aggregate + Polish-5 calculated: every source alias a derivation
+    references must exist in the basket. Per-kind shape constraints
+    (group_by/measures vs columns/join_keys) are already enforced by the
+    Pydantic model_validator — this rule only checks cross-item references."""
     errors: list[str] = []
     aliases = set(scope.alias_list())
     for item in scope.derived_items():
         d = item.derivation
-        if d.source_alias not in aliases:
-            errors.append(
-                f"Derived table '{item.alias}': source alias '{d.source_alias}' not in basket"
-            )
-        if not d.group_by and not d.measures:
-            errors.append(
-                f"Derived table '{item.alias}': aggregate needs at least one group_by or measure"
-            )
+        if d.kind == "aggregate":
+            if d.source_alias not in aliases:
+                errors.append(
+                    f"Derived table '{item.alias}': source alias '{d.source_alias}' not in basket"
+                )
+            if not d.group_by and not d.measures:
+                errors.append(
+                    f"Derived table '{item.alias}': aggregate needs at least one group_by or measure"
+                )
+        else:  # calculated
+            for src in d.source_aliases:
+                if src not in aliases:
+                    errors.append(
+                        f"Derived table '{item.alias}': source alias '{src}' not in basket"
+                    )
     return errors, []
 
 

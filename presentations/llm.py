@@ -949,11 +949,66 @@ class FakeLLM:
                 }],
             }
 
+        # Calculated column / join + fark hesaplama. Match phrasings like
+        # "iki tabloyu join'le ve fark hesapla", "rakip oranı ile bizim oran
+        # farkını al", "X-Y hesapla". Needs at least 2 raw basket aliases.
+        is_calc_intent = re.search(
+            r"\b(fark|gap|orad?n)\b|\b(hesapla|calc)\w*\b|[a-z_]+\s*-\s*[a-z_]+",
+            msg,
+        )
+        if is_calc_intent and len(raw_aliases) >= 2:
+            a, b = raw_aliases[0], raw_aliases[1]
+            # Pick a column name that appears in BOTH aliases as a join key
+            # candidate. catalog_excerpt holds the per-table column lists.
+            join_col = None
+            try:
+                cols_by_alias = {}
+                aliases_by_tid = {it.get("alias"): (it.get("table_ref") or {}) for it in basket}
+                tid_by_alias = {al: f"{r.get('schema','')}.{r.get('name','')}".strip(".") for al, r in aliases_by_tid.items()}
+                col_sets = {}
+                for t in (catalog_excerpt or []):
+                    cols = [c.get("name") for c in (t.get("columns") or [])]
+                    col_sets[t.get("id")] = set(cols)
+                shared = col_sets.get(tid_by_alias.get(a), set()) & col_sets.get(tid_by_alias.get(b), set())
+                # Prefer a key-flagged column if one's a key in either side.
+                preferred = ["BRANCH_CODE", "DATE", "DAT", "CUSTOMER_NUMBER"]
+                join_col = next((c for c in preferred if c in shared), next(iter(shared), None))
+            except Exception:
+                join_col = None
+            if join_col:
+                # Alias regex caps at 40 chars — truncate when both sources
+                # have long names. Trailing "_calc" is the suffix we keep.
+                new_alias = (f"{a}_vs_{b}_calc")[:40].rstrip("_")
+                return {
+                    "explanation": (
+                        f"`{a}` ve `{b}` tablolarını `{join_col}` üzerinden join'leyip "
+                        "bir hesaplama kolonu öneriyorum."
+                    ),
+                    "suggestions": [{
+                        "kind": "create_calculation",
+                        "new_alias": new_alias,
+                        "source_aliases": [a, b],
+                        "join_keys": [{
+                            "left_alias": a, "left_column": join_col,
+                            "right_alias": b, "right_column": join_col,
+                        }],
+                        "columns": [{
+                            "name": "DIFF",
+                            "expr": f"{a}.AMOUNT - {b}.AMOUNT",
+                        }],
+                        "rationale": (
+                            "Örnek expr — gerçek değer kolonlarına göre düzelt "
+                            "(AMOUNT yerine BALANCE_TRY / RATE / INTEREST_RATE…)."
+                        ),
+                    }],
+                }
+
         # Empty / belirsiz.
         return {
             "explanation": (
                 "(yerel stub) Şu örneklerden birini deneyebilirsin: "
-                "'Q4 2025'e kilitle', 'TL'ye filtrele', 'şube bazında topla', 'yeni tablo ekle'. "
+                "'Q4 2025'e kilitle', 'TL'ye filtrele', 'şube bazında topla', "
+                "'iki tablonun farkını hesapla', 'mevduat tabloları neler'. "
                 "Gerçek model ofis ortamında devreye girer."
             ),
             "suggestions": [],
