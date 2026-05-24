@@ -33,10 +33,11 @@ const DEPT_PALETTE = [
   "#9333ea", // purple
   "#475569", // slate (fallback)
 ];
-// Concept hubs use a distinct amber so they read as a different *kind*
-// of thing, not just another department.
-const CONCEPT_COLOR = "#f59e0b";   // amber
-// User uploads moved to pink — would otherwise collide with concept amber.
+// Concept hubs in saturated yellow — distinct *kind* of thing, not just
+// another department. (Was amber; user wanted a brighter yellow so hubs
+// pop against the table palette.)
+const CONCEPT_COLOR = "#facc15";   // yellow-400
+// User uploads in pink — won't collide with concept yellow or any dept.
 const UPLOAD_COLOR = "#db2777";    // pink
 const DEFAULT_COLOR = "#94a3b8";   // neutral grey
 
@@ -48,17 +49,25 @@ function colorForNode(node, deptIndex) {
   return DEPT_PALETTE[idx % DEPT_PALETTE.length];
 }
 
-// Per-node weight that Cosmograph remaps into pointSizeRange.
-//   - Tables: concept-binding count (0..6+). More-bound tables read heavier.
-//   - Concepts: how many tables bind it (usage_count). Popular concepts
-//     become large hubs that anchor a galaxy of satellites.
-// Concept weights run on a richer scale so a well-used concept visibly
-// out-sizes even the heaviest table.
+// Per-node weight that Cosmograph linearly remaps into pointSizeRange.
+//   - Tables: concept-binding count, capped at TABLE_WEIGHT_MAX.
+//   - Concepts: usage_count + an offset so the *smallest* concept is
+//     larger than the *biggest* table. This makes the hub-and-spoke
+//     hierarchy immediately legible — concepts are always visually
+//     dominant.
+//
+// With pointSizeRange [8, 22] and the weight ranges below:
+//   table  weights 0..6  → ~8..12 px
+//   concept weights 8..16 → ~15..22 px
+const TABLE_WEIGHT_MAX = 6;
+const CONCEPT_WEIGHT_BASE = 8;     // floor — keeps small hubs bigger than tables
+const CONCEPT_WEIGHT_SPAN = 8;     // 8 + 0..8 → 8..16
+
 function sizeWeightForNode(node) {
   if (node.type === "concept") {
-    return Math.min(node.usage_count || 0, 12);
+    return CONCEPT_WEIGHT_BASE + Math.min(node.usage_count || 0, CONCEPT_WEIGHT_SPAN);
   }
-  return Math.min((node.concepts || []).length, 6);
+  return Math.min((node.concepts || []).length, TABLE_WEIGHT_MAX);
 }
 
 
@@ -348,13 +357,12 @@ export default function GraphCanvas({
           pointLabelBy="label"
           pointColorBy="color"
           pointSizeBy="sizeWeight"
-          // Cosmograph auto-remaps pointSizeBy values into pointSizeRange
-          // (default [2, 9] — way too small relative to HTML labels). Bumped
-          // so the dot reads as a node, not a typo of a node. Keep
-          // pointSizeScale at the default 1 and scaling-on-zoom off — the
-          // combination of all three was blowing nodes up after fitView zoomed
-          // in on a small catalog.
-          pointSizeRange={[8, 16]}
+          // Cosmograph linearly remaps the weight range into this px range.
+          // Combined with sizeWeightForNode's asymmetric weights (tables
+          // 0..6, concepts 8..16), the floor on concepts is ~15 px and
+          // tables max ~12 px — so a concept hub is always visibly
+          // dominant over its orbital tables.
+          pointSizeRange={[8, 22]}
           pointLabelFontSize={10}
           linkSourceBy="source"
           linkSourceIndexBy="sourceIndex"
@@ -467,10 +475,9 @@ function Legend({ deptIndex }) {
   const entries = deptIndex ? [...deptIndex.entries()].sort((a, b) => a[1] - b[1]) : [];
   return (
     <div className="kesif-graph__legend">
-      <div className="kesif-graph__legend-title">Düğümler</div>
       <div className="kesif-graph__legend-item">
         <span className="kesif-graph__legend-swatch" style={{ background: CONCEPT_COLOR }} />
-        Kavram (hub)
+        Kavram
       </div>
       {entries.map(([dept, idx]) => (
         <div key={dept} className="kesif-graph__legend-item">
@@ -484,16 +491,6 @@ function Legend({ deptIndex }) {
       <div className="kesif-graph__legend-item">
         <span className="kesif-graph__legend-swatch" style={{ background: UPLOAD_COLOR }} />
         Yüklemelerim
-      </div>
-      <div className="kesif-graph__legend-divider" />
-      <div className="kesif-graph__legend-title">Bağlantılar</div>
-      <div className="kesif-graph__legend-item kesif-graph__legend-edge">
-        <span className="kesif-graph__legend-line" style={{ background: "#334155", height: 2 }} />
-        Lookup
-      </div>
-      <div className="kesif-graph__legend-item kesif-graph__legend-edge">
-        <span className="kesif-graph__legend-line" style={{ background: "#cbd5e1" }} />
-        Kavram bağı
       </div>
     </div>
   );

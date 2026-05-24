@@ -109,15 +109,16 @@ def test_graph_payload_shape(client):
     assert all("id" in n and "label" in n for n in data["nodes"])
 
 
-def test_graph_includes_lookup_edge(client):
-    """DEPOSITS_DAILY.BRANCH_CODE lookups to DIM_BRANCH — must appear."""
+def test_graph_payload_is_pure_bipartite(client):
+    """The /catalog/graph emit is hub-and-spoke only — every edge is a
+    table→concept ``binds``. Table-to-table edges (lookup, manual) are
+    dropped from this surface because they'd just add noise; consumers
+    that need FK semantics call the lower-level compute_edges directly.
+    """
     resp = client.get("/presentations/catalog/graph")
     data = resp.get_json()
-    lookups = [e for e in data["edges"] if e["kind"] == "lookup"]
-    assert any(
-        e["source"] == "EDW.DEPOSITS_DAILY" and e["target"] == "EDW.DIM_BRANCH"
-        for e in lookups
-    )
+    kinds = {e["kind"] for e in data["edges"]}
+    assert kinds == {"binds"}
 
 
 def test_graph_emits_concept_hubs(client):
