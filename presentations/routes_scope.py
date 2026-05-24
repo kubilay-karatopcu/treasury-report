@@ -275,11 +275,51 @@ def _catalog_json() -> dict[str, Any]:
         return {"domains": []}
 
 
-def _catalog_json_enriched() -> dict[str, Any]:
+def _uploads_domain_from_session(pid: str) -> dict[str, Any] | None:
+    """Build the synthetic ``dom_uploads`` domain from the session manifest's
+    uploads (mirrors the shape ``GET /<pid>/sources`` produces). Returns
+    ``None`` when the user has no uploads on this presentation."""
+    try:
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        manifest = sess.get_manifest() or {}
+    except Exception:
+        return None
+    uploads = manifest.get("uploads") or []
+    if not uploads:
+        return None
+    tables: list[dict[str, Any]] = []
+    for u in uploads:
+        for sheet in u.get("sheets") or []:
+            table_id = f"upload__{u['id']}__{sheet['name']}"
+            tables.append({
+                "id": table_id,
+                "desc": f"{u.get('filename', '')} — {sheet.get('display_name', sheet['name'])}",
+                "rows": f"{sheet.get('row_count', 0):,}".replace(",", "."),
+                "engine": "duckdb",
+                "columns": [
+                    {"name": c["name"], "type": c["type"], "nullable": c.get("nullable", True)}
+                    for c in sheet.get("columns", [])
+                ],
+                "common_filters": [],
+                "_upload_id": u["id"],
+                "_sheet_name": sheet.get("display_name", sheet["name"]),
+            })
+    return {
+        "id": "dom_uploads", "label": "Yüklenenler",
+        "icon": "upload", "engine": "duckdb", "tables": tables,
+    }
+
+
+def _catalog_json_enriched(pid: str | None = None) -> dict[str, Any]:
     """Catalog JSON enriched with per-column ``concept`` from the table-doc
     store. The frontend's ``addTableFromCatalog`` reads this so concept
     information survives the catalog → basket transition (without which the
-    LLM's ``applies_to: []`` filter footers can't be rendered on the node)."""
+    LLM's ``applies_to: []`` filter footers can't be rendered on the node).
+
+    When ``pid`` is given, the synthetic ``dom_uploads`` domain (built from
+    the session manifest's uploads) is appended so Hazırlık picks up
+    user-uploaded sheets without a separate /sources round-trip.
+    """
     cat = _catalog_json()
     for d in (cat.get("domains") or []):
         for t in (d.get("tables") or []):
@@ -291,6 +331,10 @@ def _catalog_json_enriched() -> dict[str, Any]:
             for col in (t.get("columns") or []):
                 if col.get("name") in concept_by_col and concept_by_col[col["name"]]:
                     col["concept"] = concept_by_col[col["name"]]
+    if pid:
+        uploads = _uploads_domain_from_session(pid)
+        if uploads:
+            cat.setdefault("domains", []).append(uploads)
     return cat
 
 
@@ -433,7 +477,7 @@ def hazirlik(pid: str):
         "presentation_id": pid,
         "title": title,
         "scope": scope_to_dict(scope)["scope"],
-        "catalog": _catalog_json_enriched(),
+        "catalog": _catalog_json_enriched(pid),
         "concepts": _concepts_payload(),
         "distributions": _distributions_payload(scope),
         "columns_by_alias": cols_by_alias,

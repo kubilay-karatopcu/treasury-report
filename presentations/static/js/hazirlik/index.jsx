@@ -21,6 +21,9 @@ import "ag-grid-enterprise";   // demo (unlicensed → watermark) — pivot/row-
 import "@xyflow/react/dist/style.css";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-alpine.css";
+// Veri Yükle: reuse Sunum's modal — editor/lib/api.js has the upload routes,
+// and api.js's API_BASE is hazirlik-aware (strips /hazirlik/ from the path).
+import UploadModal from "../editor/components/UploadModal.jsx";
 import {
   X, Plus, Trash2, Database, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2,
@@ -583,7 +586,7 @@ function TableDocsPanel({ table, onClose }) {
 
 // ── Left sidebar (Sunum design: source categories + chat) ────────────────────
 
-function SourcesSidebar({ scope, onToggleTable, onRemove, onOpenDocs, chat }) {
+function SourcesSidebar({ scope, onToggleTable, onRemove, onOpenDocs, onOpenUpload, chat }) {
   const [open, setOpen] = useState({});
   const inBasket = new Set(scope.basket.map((b) => tableId(b.table_ref)));
   return (
@@ -591,6 +594,15 @@ function SourcesSidebar({ scope, onToggleTable, onRemove, onOpenDocs, chat }) {
       <div className="sidebar-inner">
         <div className="sidebar-section sidebar-section--sources ts-scroll">
           <div className="sidebar-label"><span className="sidebar-label-icon"><Database size={12} /></span><span>Veri Kaynakları</span></div>
+          <button
+            type="button"
+            className="sources-upload-cta"
+            onClick={onOpenUpload}
+            title="Excel / yapıştırma ile veri ekle"
+          >
+            <Upload size={12} strokeWidth={2} />
+            <span>Veri Yükle</span>
+          </button>
           <div className="sources-list">
             {DOMAINS.map((d) => {
               const isOpen = !!open[d.id];
@@ -1040,6 +1052,7 @@ function App() {
   const [scope, setScope] = useState(DATA.scope);
   const [joinModal, setJoinModal] = useState(null);
   const [docsTable, setDocsTable] = useState(null);   // 8.c — Eye icon → schema modal
+  const [uploadOpen, setUploadOpen] = useState(false); // Polish-4 — Veri Yükle
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [drawerH, setDrawerH] = useState(260);
@@ -1549,6 +1562,7 @@ function App() {
         <SourcesSidebar
           scope={scope} onToggleTable={toggleTable} onRemove={removeTable}
           onOpenDocs={(t) => setDocsTable((cur) => (cur && cur.id === t.id ? null : t))}
+          onOpenUpload={() => setUploadOpen(true)}
           chat={{
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
@@ -1600,6 +1614,17 @@ function App() {
       {buildPreview && (
         <BuildConfirmModal preview={buildPreview} onConfirm={confirmBuild} onCancel={cancelBuild} />
       )}
+      <UploadModal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onCommit={() => {
+          // After a successful commit the new sheets are now under the
+          // manifest's `uploads`; reload to pick them up in DATA.catalog
+          // (dom_uploads is injected server-side at page load).
+          setUploadOpen(false);
+          window.location.reload();
+        }}
+      />
       {toast && <div className="hz-toast">{toast}</div>}
     </div>
   );
