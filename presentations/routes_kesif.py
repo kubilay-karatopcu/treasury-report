@@ -19,16 +19,32 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from flask import Response, current_app, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from presentations import presentations_bp
+from presentations.catalog.loader import make_loader_from_app
+from presentations.discovery import (
+    DEFAULT_TOKEN_BUDGET,
+    DiscoveryError,
+    propose_tables,
+)
 from presentations.drafts.manager import DraftManager, is_draft_pid
 
 
 log = logging.getLogger(__name__)
+
+
+# Max chat-history messages we keep on the draft manifest. Spec §5.2:
+# the LLM only sees the last 10 turns, but we keep ~30 stored so the user
+# can scroll back through their prior session.
+_CHAT_HISTORY_CAP = 30
+# Pinned-loader cache key shared with catalog.api so chat reuses the
+# loader instance + its catalog TTL cache instead of building a fresh one.
+_CATALOG_LOADER_KEY = "_PHASE9_CATALOG_LOADER"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -114,7 +130,15 @@ def atolye_kesif():
             "catalog_graph": url_for("presentations.catalog_graph"),
             "basket_update": f"/presentations/{draft.pid}/basket",
             "draft_promote": url_for("presentations.kesif_draft_promote"),
+            "chat_send": url_for("presentations.kesif_chat_send"),
+            "chat_clear": url_for("presentations.kesif_chat_clear"),
             "hazirlik_template": "/presentations/hazirlik/{pid}",
+        },
+        # Phase 9.c — chat history seed so the drawer hydrates without an
+        # extra round-trip on first paint. Bound to the draft manifest so it
+        # persists across reloads but resets when the user promotes.
+        "chat": {
+            "history": _chat_history_for_draft(sicil, draft.pid),
         },
     }
 
@@ -182,3 +206,164 @@ def kesif_draft_promote():
         "presentation_id": new_pid,
         "hazirlik_url": hazirlik_url,
     })
+
+
+# ── Phase 9.c — Discovery chat ───────────────────────────────────────────
+
+
+def _chat_history_for_draft(sicil: str, pid: str) -> list[dict]:
+    """Read the persisted chat history off the draft manifest. Returns
+    an empty list on any failure — chat is best-effort."""
+    try:
+        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, pid)
+        manifest = sess.get_manifest() or {}
+        return list(manifest.get("kesif_chat_history") or [])
+    except Exception:
+        log.warning("kesif: chat history read failed", exc_info=True)
+        return []
+
+
+def _persist_chat_history(sicil: str, pid: str, history: list[dict]) -> None:
+    """Write chat history back onto the draft manifest. Capped at
+    ``_CHAT_HISTORY_CAP`` messages so the manifest can't grow unbounded."""
+    try:
+        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, pid)
+        manifest = sess.get_manifest() or {}
+        capped = list(history[-_CHAT_HISTORY_CAP:])
+        manifest["kesif_chat_history"] = capped
+        manifest["version"] = manifest.get("version", 0) + 1
+        sess.set_manifest(manifest)
+    except Exception:
+        log.warning("kesif: chat history persist failed", exc_info=True)
+
+
+@presentations_bp.route("/atolye/kesif/chat", methods=["POST"])
+@login_required
+def kesif_chat_send():
+    """Submit a chat message → run discovery LLM → return proposals.
+
+    Body:
+      - ``message``: str  (required)
+
+    Response (200):
+      {
+        "user_message": { role, text, ts },
+        "assistant_message": { role, text, proposals, highlights, ts },
+        "history": [...],   // capped tail for client to render
+      }
+
+    On LLM failure the assistant message carries ``status: "error"`` and a
+    graceful Turkish message; the route still returns 200 so the chat UI
+    can keep going.
+    """
+    body = request.get_json(silent=True) or {}
+    message = (body.get("message") or "").strip()
+    if not message:
+        return _json({"error": "Mesaj boş olamaz."}, status=400)
+    if len(message) > 2000:
+        return _json({"error": "Mesaj çok uzun (max 2000 karakter)."}, status=400)
+
+    sicil = getattr(current_user, "sicil", None) or ""
+    mgr = _draft_manager()
+    draft = mgr.get_or_create_current(sicil)
+
+    # Pull what the LLM needs: the catalog (same loader as /catalog), the
+    # current basket, the chat history.
+    loader = current_app.config.get(_CATALOG_LOADER_KEY)
+    if loader is None:
+        loader = make_loader_from_app(current_app)
+        current_app.config[_CATALOG_LOADER_KEY] = loader
+    try:
+        catalog_entries = loader.load(user_sicil=sicil)
+    except Exception:
+        log.exception("kesif chat: catalog load failed")
+        catalog_entries = []
+
+    try:
+        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, draft.pid)
+        manifest = sess.get_manifest() or {}
+        basket = manifest.get("basket") or []
+        history = list(manifest.get("kesif_chat_history") or [])
+    except Exception:
+        basket = []
+        history = []
+        log.warning("kesif chat: draft read failed", exc_info=True)
+
+    now = datetime.now(timezone.utc).isoformat()
+    user_turn = {"role": "user", "text": message, "ts": now}
+    history.append(user_turn)
+
+    llm_client = current_app.config.get("LLM_CLIENT")
+    token_budget = int(current_app.config.get(
+        "PRESENTATIONS_DISCOVERY_TOKEN_BUDGET", DEFAULT_TOKEN_BUDGET,
+    ))
+
+    if llm_client is None:
+        assistant_turn = {
+            "role": "assistant",
+            "text": "LLM yapılandırılmamış (LLM_CLIENT yok).",
+            "status": "error",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        history.append(assistant_turn)
+        _persist_chat_history(sicil, draft.pid, history)
+        return _json({
+            "user_message": user_turn,
+            "assistant_message": assistant_turn,
+            "history": history[-_CHAT_HISTORY_CAP:],
+        })
+
+    user_department = getattr(current_user, "department", None) or None
+    try:
+        result = propose_tables(
+            llm_client,
+            user_request=message,
+            catalog_entries=catalog_entries,
+            current_basket=basket,
+            chat_history=history[:-1],  # exclude the just-appended user turn
+            user_department=user_department,
+            token_budget=token_budget,
+        )
+    except DiscoveryError as exc:
+        log.warning("kesif chat: discovery error — %s", exc)
+        assistant_turn = {
+            "role": "assistant",
+            "text": str(exc),
+            "status": "error",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        history.append(assistant_turn)
+        _persist_chat_history(sicil, draft.pid, history)
+        return _json({
+            "user_message": user_turn,
+            "assistant_message": assistant_turn,
+            "history": history[-_CHAT_HISTORY_CAP:],
+        })
+
+    assistant_turn = {
+        "role": "assistant",
+        "text": result.explanation or "",
+        "proposals": [p.to_dict() for p in result.proposals],
+        "highlights": list(result.highlight_graph_node_ids),
+        "dropped": list(result.dropped_proposals),
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    history.append(assistant_turn)
+    _persist_chat_history(sicil, draft.pid, history)
+
+    return _json({
+        "user_message": user_turn,
+        "assistant_message": assistant_turn,
+        "history": history[-_CHAT_HISTORY_CAP:],
+    })
+
+
+@presentations_bp.route("/atolye/kesif/chat", methods=["DELETE"])
+@login_required
+def kesif_chat_clear():
+    """Wipe the chat history for the current draft. Returns an empty list."""
+    sicil = getattr(current_user, "sicil", None) or ""
+    mgr = _draft_manager()
+    draft = mgr.get_or_create_current(sicil)
+    _persist_chat_history(sicil, draft.pid, [])
+    return _json({"ok": True, "history": []})
