@@ -24,7 +24,7 @@ import "ag-grid-community/styles/ag-theme-alpine.css";
 import {
   X, Plus, Trash2, Database, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2,
-  Building2, Percent, Network, Calendar, Upload, Send, Loader2,
+  Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, Tag,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -376,9 +376,84 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
   );
 }
 
+// ── Table docs modal (eye icon → schema reference) ─────────────────────────
+
+function TableDocsModal({ table, onClose }) {
+  const cols = table.columns || [];
+  const filters = table.common_filters || [];
+  return (
+    <Modal title={table.id || "Tablo"} size="md" onClose={onClose}>
+      {(table.desc || table.rows) && (
+        <p className="hz-docs-meta">
+          {table.desc}{table.rows ? ` · ${table.rows} satır` : ""}
+        </p>
+      )}
+
+      <div className="hz-docs-section">
+        <div className="hz-docs-section-title">
+          <Database size={12} strokeWidth={2} />
+          <span>Kolonlar ({cols.length})</span>
+        </div>
+        {cols.length === 0
+          ? <p className="hz-muted">(kolon bilgisi yok)</p>
+          : (
+            <table className="hz-docs-cols">
+              <thead>
+                <tr>
+                  <th>İsim</th><th>Tip</th><th>Null</th><th>İşaretler</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cols.map((c) => (
+                  <tr key={c.name}>
+                    <td className="hz-docs-col-name">{c.name}</td>
+                    <td className="hz-docs-col-type">{c.type || "—"}</td>
+                    <td>
+                      {c.nullable === false
+                        ? <span className="hz-docs-pill hz-docs-pill--req">NOT NULL</span>
+                        : <span className="hz-docs-pill">NULL</span>}
+                    </td>
+                    <td className="hz-docs-col-marks">
+                      {c.key && <span className="hz-docs-pill hz-docs-pill--key">key</span>}
+                      {c.concept && <span className="hz-col-concept">{c.concept}</span>}
+                      {c.common_values && c.common_values.length > 0 && (
+                        <span className="hz-docs-vals" title={c.common_values.join(", ")}>
+                          {c.common_values.slice(0, 4).join(", ")}
+                          {c.common_values.length > 4 ? "…" : ""}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </div>
+
+      {filters.length > 0 && (
+        <div className="hz-docs-section">
+          <div className="hz-docs-section-title">
+            <Tag size={12} strokeWidth={2} />
+            <span>Sık Kullanılan Filtreler ({filters.length})</span>
+          </div>
+          <div className="hz-docs-filters">
+            {filters.map((f, i) => (
+              <div className="hz-docs-filter" key={i}>
+                <div className="hz-docs-filter-label">{f.label}</div>
+                <code className="hz-docs-filter-expr">{f.expression}</code>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+
 // ── Left sidebar (Sunum design: source categories + chat) ────────────────────
 
-function SourcesSidebar({ scope, onToggleTable, onRemove, chat }) {
+function SourcesSidebar({ scope, onToggleTable, onRemove, onOpenDocs, chat }) {
   const [open, setOpen] = useState({});
   const inBasket = new Set(scope.basket.map((b) => tableId(b.table_ref)));
   return (
@@ -415,11 +490,19 @@ function SourcesSidebar({ scope, onToggleTable, onRemove, chat }) {
                                   {t.desc}{t.rows ? ` · ${t.rows}` : ""}
                                 </div>
                               </div>
-                              <span className="sources-table-eye-hint" title={active ? "Sepetten çıkar" : "Sepete ekle"}>
+                              <span className="sources-table-toggle" title={active ? "Sepetten çıkar" : "Sepete ekle"}>
                                 {active
                                   ? <Trash2 size={12} strokeWidth={1.8} />
                                   : <Plus size={12} strokeWidth={1.8} />}
                               </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="sources-table-eye"
+                              onClick={(e) => { e.stopPropagation(); onOpenDocs && onOpenDocs(t); }}
+                              title="Tablo dökümanını göster"
+                            >
+                              <Eye size={12} strokeWidth={1.8} />
                             </button>
                           </div>
                         );
@@ -775,6 +858,7 @@ function agModelToFilters(model, alias, colMeta) {
 function App() {
   const [scope, setScope] = useState(DATA.scope);
   const [joinModal, setJoinModal] = useState(null);
+  const [docsTable, setDocsTable] = useState(null);   // 8.c — Eye icon → schema modal
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [drawerH, setDrawerH] = useState(260);
@@ -1226,6 +1310,7 @@ function App() {
       <div className="hz-body">
         <SourcesSidebar
           scope={scope} onToggleTable={toggleTable} onRemove={removeTable}
+          onOpenDocs={setDocsTable}
           chat={{
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
@@ -1270,6 +1355,9 @@ function App() {
         <JoinKeyModal left={joinModal.left} right={joinModal.right}
           onClose={() => setJoinModal(null)}
           onSave={({ lcol, rcol, kind }) => { addJoin(joinModal.left, lcol, joinModal.right, rcol, kind); setJoinModal(null); }} />
+      )}
+      {docsTable && (
+        <TableDocsModal table={docsTable} onClose={() => setDocsTable(null)} />
       )}
       {toast && <div className="hz-toast">{toast}</div>}
     </div>
