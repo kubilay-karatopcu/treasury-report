@@ -462,6 +462,12 @@ class ScopeContract(BaseModel):
     joins: list[Join] = Field(default_factory=list)
     filters: Filters = Field(default_factory=Filters)
     status: Status = Field(default_factory=Status)
+    # Auto-suggested edges the user explicitly dismissed (× on the edge label).
+    # Format: "alias.col—alias.col" sorted lexicographically (the same
+    # joinKey() string the frontend uses to dedup). Persisted with the scope
+    # so the dismissal survives reloads; cleared when one of the aliases is
+    # removed from the basket so re-adding gives a clean slate.
+    dismissed_suggestions: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _parent_below_self(self) -> "ScopeContract":

@@ -366,18 +366,19 @@ function buildEdges(scope) {
     };
   });
   const aliases = new Set(scope.basket.map((b) => b.alias));
+  const dismissed = new Set(scope.dismissed_suggestions || []);
   // Suggested edges are now re-derived from the current basket every render
   // (computeSuggestedEdges reads COLS_BY_ALIAS, which we keep in sync as
   // tables are added / removed / Apply'd). The server-provided SUGGESTED
   // list is used as a fallback so initial page-load wiring (lookup info
   // from the table-doc store) still shows up — duplicates are deduped by
-  // column pair below.
+  // column pair below; dismissed suggestions are filtered out entirely.
   const suggested = [...computeSuggestedEdges(scope.basket), ...SUGGESTED];
   const sugSeen = new Set();
   suggested.forEach((s, i) => {
     if (!aliases.has(s.left.alias) || !aliases.has(s.right.alias)) return;
     const k = joinKey(s.left.alias, s.left.column, s.right.alias, s.right.column);
-    if (confirmed.has(k) || sugSeen.has(k)) return;
+    if (confirmed.has(k) || sugSeen.has(k) || dismissed.has(k)) return;
     sugSeen.add(k);
     const concept = s.concept || _conceptForJoinSide(s.left.alias, s.left.column);
     const kindLabel = s.source === "catalog_lookup" ? "lookup" : "öneri";
@@ -385,9 +386,12 @@ function buildEdges(scope) {
       id: `sug_${i}`, source: s.left.alias, target: s.right.alias,
       sourceHandle: s.left.column,
       targetHandle: s.right.column,
-      label: concept ? `${concept} · ${kindLabel}` : kindLabel,
+      // Edge label hints at the two interactions:
+      //   click       → confirms suggestion as a real join
+      //   shift+click → dismisses (added to scope.dismissed_suggestions)
+      label: `${concept ? `${concept} · ${kindLabel}` : kindLabel}  · ⇧×`,
       className: "hz-edge hz-edge--suggested",
-      data: { suggested: true, edge: s, concept },
+      data: { suggested: true, edge: s, concept, dismissKey: k },
     });
   });
   return edges;
@@ -1435,6 +1439,21 @@ function App() {
 
   const onEdgeClick = useCallback((_e, edge) => {
     if (edge.data?.suggested) {
+      // Shift-click on a suggested edge dismisses it (stored in
+      // scope.dismissed_suggestions so it survives reloads).
+      // Plain click still confirms the suggestion into a real join.
+      if (_e?.shiftKey) {
+        const dk = edge.data.dismissKey;
+        if (!dk) return;
+        setScope((s) => ({
+          ...s,
+          dismissed_suggestions: Array.from(
+            new Set([...(s.dismissed_suggestions || []), dk])
+          ),
+        }));
+        setToast("Öneri reddedildi (tabloyu çıkarıp tekrar eklersen geri gelir).");
+        return;
+      }
       const s = edge.data.edge;
       addJoin(s.left.alias, s.left.column, s.right.alias, s.right.column, s.kind || "lookup");
     } else if (edge.data?.confirmed && window.confirm("Bu join silinsin mi?")) {
@@ -1481,12 +1500,23 @@ function App() {
   };
 
   const removeTable = (alias) => {
-    setScope((s) => ({
-      ...s,
-      basket: s.basket.filter((b) => b.alias !== alias),
-      joins: s.joins.filter((j) => j.left.alias !== alias && j.right.alias !== alias),
-      filters: { ...s.filters, raw: (s.filters.raw || []).filter((f) => f.alias !== alias) },
-    }));
+    setScope((s) => {
+      // Drop any dismissed-suggestion keys that reference this alias.
+      // joinKey shape is "alias.col—alias.col" — a substring search keyed
+      // on `"<alias>."` catches both sides without false positives because
+      // column names can't contain `.`.
+      const aliasPrefix = `${alias}.`;
+      const kept = (s.dismissed_suggestions || []).filter(
+        (k) => !k.includes(aliasPrefix)
+      );
+      return {
+        ...s,
+        basket: s.basket.filter((b) => b.alias !== alias),
+        joins: s.joins.filter((j) => j.left.alias !== alias && j.right.alias !== alias),
+        filters: { ...s.filters, raw: (s.filters.raw || []).filter((f) => f.alias !== alias) },
+        dismissed_suggestions: kept,
+      };
+    });
     setNodes((nds) => nds.filter((n) => n.id !== alias));
   };
 
