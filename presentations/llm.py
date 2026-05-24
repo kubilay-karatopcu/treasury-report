@@ -821,6 +821,88 @@ class FakeLLM:
         so the deterministic stages stand alone offline."""
         return '{"columns": {}}'
 
+    # ── Phase 9.c — discovery proposals (offline keyword matching) ──────────
+    def propose_tables(
+        self,
+        *,
+        user_request: str,
+        catalog_entries,
+        current_basket=None,
+        chat_history=None,
+        user_department=None,
+    ) -> dict:
+        """Offline-only table proposer for the Keşif chat.
+
+        Keyword match against table names + descriptions + bound concepts,
+        with a small same-department bonus. Returns the §5.3 shape so the
+        discovery client's _shape_result can consume it directly.
+        """
+        msg = (user_request or "").lower().strip()
+        if not msg:
+            return {
+                "explanation": "(yerel stub) Ne aradığını birkaç anahtar kelimeyle yazar mısın?",
+                "proposals": [],
+                "highlight_graph_node_ids": [],
+            }
+
+        # Tokens to look for in name + desc + concept list. Greedy split on
+        # whitespace + simple Turkish suffix trimming. Real Qwen will do this
+        # vastly better; this is just enough for dev demos to feel alive.
+        tokens = [t for t in re.split(r"[\s,.\?!]+", msg) if len(t) >= 3]
+        skip = set(current_basket and (b.get("table") for b in current_basket) or [])
+
+        scored = []
+        for entry in catalog_entries:
+            tid = f"{entry.schema_name}.{entry.name}"
+            if tid in skip:
+                continue
+            hay = (
+                f"{entry.name} {entry.description or ''} "
+                f"{' '.join(entry.concepts_bound or [])}"
+            ).lower()
+            score = sum(1 for t in tokens if t in hay)
+            if entry.department and entry.department == user_department:
+                score += 0.5
+            if score > 0:
+                scored.append((score, entry))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = scored[:5]
+
+        proposals = [
+            {
+                "schema": e.schema_name,
+                "name": e.name,
+                "rationale": (
+                    f"İsim ve/veya açıklama '{msg[:60]}' talebine uyuyor."
+                    if score > 0.5 else "Departman eşleşmesi."
+                ),
+                "match_score": min(1.0, 0.5 + score * 0.15),
+                "suggested_companion": None,
+            }
+            for score, e in top
+        ]
+        highlights = [f"{p['schema']}.{p['name']}" for p in proposals]
+
+        if proposals:
+            head = (
+                "(yerel stub) Anahtar kelimelere göre şu tablolar uygun "
+                "görünüyor — sıralama match_score'a göre."
+            )
+            return {
+                "explanation": head,
+                "proposals": proposals,
+                "highlight_graph_node_ids": highlights,
+            }
+        return {
+            "explanation": (
+                "(yerel stub) Bu anahtar kelimelerle eşleşen tablo bulamadım. "
+                "Başka kelimelerle dener misin?"
+            ),
+            "proposals": [],
+            "highlight_graph_node_ids": [],
+        }
+
     # ── Phase 8.f — scope refinement (pattern matched, offline-safe) ────────
     def suggest_scope_refinements(
         self,
