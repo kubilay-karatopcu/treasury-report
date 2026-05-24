@@ -458,11 +458,49 @@ def _suggested_edges(scope: ScopeContract, cols_by_alias: dict[str, list[dict[st
 @presentations_bp.route("/hazirlik")
 @login_required
 def hazirlik_new():
-    """Menu entry point (R › Hazırlık): start a fresh preparation draft. Mints a
-    presentation id and redirects into the per-presentation Hazırlık screen. The
-    manifest + scope are only written on 'Sunum'a geç' (build_scope), so an
-    abandoned draft leaves nothing behind."""
+    """Menu entry point (R › Hazırlık).
+
+    Behaviour:
+      - ``?new=1`` always mints a fresh pid (use it from the menu when the
+        user wants a clean slate).
+      - Otherwise redirect to the user's most recently-touched presentation
+        — including drafts auto-saved into the session manifest. This way
+        every time the user opens "Hazırlık" they land back on what they
+        were working on, with the basket + connections already rendered.
+      - If the user has no presentations at all, fall through to a freshly
+        minted pid.
+    """
     import secrets
+    if request.args.get("new") != "1":
+        try:
+            sicil = getattr(current_user, "sicil", None)
+            recent = _registry().list_user_presentations(sicil) if sicil else []
+            # Find the newest presentation that actually has a non-empty
+            # basket (either a built scope or an auto-saved draft). A pid
+            # with only a placeholder manifest gives the user an empty
+            # canvas, which defeats the redirect's whole purpose.
+            for item in recent:
+                pid = item.get("id")
+                if not pid:
+                    continue
+                try:
+                    sess = _registry().get_or_create(sicil, pid)
+                    manifest = sess.get_manifest() or {}
+                except Exception:
+                    continue
+                draft = manifest.get("draft_scope")
+                if isinstance(draft, dict) and (draft.get("basket") or []):
+                    return redirect(url_for("presentations.hazirlik", pid=pid))
+                # Built scope counts too — check the scope store.
+                try:
+                    store = current_app.config.get("SCOPE_STORE")
+                    sc = store.load_latest(pid) if store else None
+                    if sc is not None and sc.basket:
+                        return redirect(url_for("presentations.hazirlik", pid=pid))
+                except Exception:
+                    pass
+        except Exception:
+            log.warning("hazirlik_new: list_user_presentations failed", exc_info=True)
     pid = "p_" + secrets.token_urlsafe(8)
     return redirect(url_for("presentations.hazirlik", pid=pid))
 

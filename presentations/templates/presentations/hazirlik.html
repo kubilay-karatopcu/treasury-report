@@ -7,8 +7,8 @@
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
   {# React Flow styles, bundled by esbuild from @xyflow/react/dist/style.css #}
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='js/hazirlik.bundle.css') }}?v=2">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/hazirlik.css') }}?v=2">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='js/hazirlik.bundle.css') }}?v=3">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/hazirlik.css') }}?v=3">
   <style>
     html, body {
       margin: 0; padding: 0; height: 100%; overflow: hidden;
@@ -21,6 +21,6 @@
 <body>
   <div id="hazirlik-root" data-presentation-id="{{ presentation_id }}"></div>
   <script id="hazirlik-data" type="application/json">{{ hazirlik_json | safe }}</script>
-  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}"></script>
+  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}?v=3"></script>
 </body>
 </html>
