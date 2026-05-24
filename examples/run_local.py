@@ -197,11 +197,9 @@ def create_app():
     except Exception as exc:
         print(f"⚠ SCOPE_STORE setup skipped: {exc}")
 
-    # Phase 9.b.1 — Cosmograph feature flag. Enable with:
-    #     set KESIF_USE_COSMOGRAPH=1     (Windows)
-    #     export KESIF_USE_COSMOGRAPH=1  (mac/linux)
-    # Off by default while the commercial license is being procured.
-    app.config["KESIF_USE_COSMOGRAPH"] = os.environ.get("KESIF_USE_COSMOGRAPH") in ("1", "true", "yes")
+    # Phase 9.b.1 — Cosmograph license key, fed to the React component at
+    # mount time. None during development; populated once the commercial
+    # license is procured.
     app.config["COSMOGRAPH_LICENSE_KEY"] = os.environ.get("COSMOGRAPH_LICENSE_KEY")
 
     # Inject LLM client. Provider precedence:

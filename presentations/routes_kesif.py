@@ -103,11 +103,6 @@ def atolye_kesif():
             "basket_count": len(basket),
         },
         "basket": basket,
-        "flags": {
-            # Phase 9.b.1 — Cosmograph WebGL graph render. Default off until the
-            # commercial license lands; can be flipped on per-environment.
-            "use_cosmograph": bool(current_app.config.get("KESIF_USE_COSMOGRAPH", False)),
-        },
         "cosmograph": {
             # The license key flows from app config when present (Cosmograph
             # 2.x reads it at component-mount time to unlock commercial use).

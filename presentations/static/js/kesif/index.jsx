@@ -27,7 +27,6 @@ const ENDPOINTS = DATA.endpoints || {};
 const USER = DATA.user || {};
 const SEED_DRAFT = DATA.draft || {};
 const SEED_BASKET = DATA.basket || [];
-const FLAGS = DATA.flags || {};
 const COSMOGRAPH_CONFIG = DATA.cosmograph || {};
 
 // Helpers
@@ -334,25 +333,17 @@ function App() {
           selectedId={selectedId}
           onSelect={setSelectedId}
         />
-        {FLAGS.use_cosmograph ? (
-          <div className="kesif-canvas kesif-canvas--graph">
-            <GraphCanvas
-              catalogGraphUrl={ENDPOINTS.catalog_graph}
-              licenseKey={COSMOGRAPH_CONFIG.license_key}
-              selectedId={selectedId}
-              basketTableIds={basketTableIds}
-              onSelect={setSelectedId}
-              onAddToBasket={addToBasketById}
-              onBulkAddToBasket={bulkAddToBasket}
-            />
-          </div>
-        ) : (
-        <Canvas
-          loading={loadingCatalog}
-          totalTables={tables.length}
-          filteredCount={filteredTables.length}
-        />
-        )}
+        <div className="kesif-canvas kesif-canvas--graph">
+          <GraphCanvas
+            catalogGraphUrl={ENDPOINTS.catalog_graph}
+            licenseKey={COSMOGRAPH_CONFIG.license_key}
+            selectedId={selectedId}
+            basketTableIds={basketTableIds}
+            onSelect={setSelectedId}
+            onAddToBasket={addToBasketById}
+            onBulkAddToBasket={bulkAddToBasket}
+          />
+        </div>
         <RightRail
           detail={detail}
           detailLoading={detailLoading}
@@ -556,27 +547,6 @@ function TableRow({ t, isSelected, onSelect, isUser = false }) {
       </span>
       {isUser && <span className="kesif-tree__table-source">YÜKL</span>}
     </div>
-  );
-}
-
-function Canvas({ loading, totalTables, filteredCount }) {
-  return (
-    <section className="kesif-canvas">
-      <div className="kesif-canvas__placeholder">
-        <div className="kesif-canvas__placeholder-art">
-          <Crosshair size={36} />
-        </div>
-        <h2>Graph yakında geliyor</h2>
-        <p>
-          Sol taraftan tablo seçerek başlayın. Network görünümü Phase 9.b ile gelecek.
-        </p>
-        {!loading && (
-          <p style={{ fontSize: 11, color: "#94a3b8" }}>
-            {filteredCount} / {totalTables} tablo gösteriliyor
-          </p>
-        )}
-      </div>
-    </section>
   );
 }
 
