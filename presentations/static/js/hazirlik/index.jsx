@@ -14,7 +14,7 @@ import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
-  Handle, Position, useNodesState,
+  Handle, Position, useNodesState, useEdgesState,
 } from "@xyflow/react";
 import { AgGridReact } from "ag-grid-react";
 import "ag-grid-enterprise";   // demo (unlicensed → watermark) — pivot/row-grouping/aggregation
@@ -58,6 +58,7 @@ const CHAT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/chat`);
 const APPLY_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/apply-suggestion`);
 const ROUTING_OVERRIDE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/routing-override`);
 const ROUTING_RECOMPUTE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/recompute-routing`);
+const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-draft`);
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
@@ -1191,7 +1192,30 @@ function App() {
   const gridApiRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesStateCompat(() => initialNodes(DATA.scope));
-  const edges = useMemo(() => buildEdges(scope), [scope]);
+  // React Flow v12 needs `useEdgesState` to push edges into its internal
+  // store. Passing a `useMemo`-derived array directly via `edges={…}` skips
+  // the store and the edges silently fail to render. We seed with the
+  // initial scope's edges + re-sync in an effect every time `scope`
+  // changes (auto-suggested + user-confirmed both flow through buildEdges).
+  const [edges, setEdges, onEdgesChange] = useEdgesState(buildEdges(DATA.scope));
+  useEffect(() => { setEdges(buildEdges(scope)); }, [scope, setEdges]);
+
+  // Auto-save the draft scope to the session manifest 500ms after the last
+  // mutation. Lets the user reload Hazırlık and continue where they left off
+  // (without having to "Sunum'a geç" first). Tearing the cleanup down on
+  // re-render cancels in-flight debouncers so we never POST stale state.
+  // Initial DATA.scope mount is skipped to avoid a no-op POST on page load.
+  const isInitialScopeRef = useRef(true);
+  useEffect(() => {
+    if (isInitialScopeRef.current) { isInitialScopeRef.current = false; return; }
+    const t = setTimeout(() => {
+      fetch(SAVE_DRAFT_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope }),
+      }).catch(() => { /* draft save is best-effort */ });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [scope]);
 
   // Reconcile React Flow nodes with the basket:
   //   - update data for nodes that still match a basket alias
@@ -1718,6 +1742,7 @@ function App() {
             <ReactFlow
               nodes={nodes} edges={edges}
               onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
               onConnect={onConnect} onEdgeClick={onEdgeClick} onNodeClick={onNodeClick}
               nodeTypes={NODE_TYPES} fitView proOptions={{ hideAttribution: true }}
             >

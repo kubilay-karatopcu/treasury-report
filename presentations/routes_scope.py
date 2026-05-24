@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -256,6 +257,14 @@ def _default_draft_scope(pid: str) -> ScopeContract:
 
 
 def _load_latest_scope_or_draft(pid: str) -> ScopeContract:
+    """Resolve the scope to render on Hazırlık page load. Priority:
+
+    1. SCOPE_STORE.load_latest(pid) — the user already built once.
+    2. session.manifest.draft_scope — the user added tables / filters
+       in a prior visit but never clicked "Sunum'a geç". Auto-saved by
+       /scope/save-draft as they work.
+    3. Empty default — first visit on this presentation.
+    """
     store = current_app.config.get("SCOPE_STORE")
     if store is not None:
         try:
@@ -264,6 +273,15 @@ def _load_latest_scope_or_draft(pid: str) -> ScopeContract:
                 return sc
         except Exception:
             log.warning("hazirlik: load_latest failed for %s", pid, exc_info=True)
+    # No persisted build — try the session-scoped draft.
+    try:
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        manifest = sess.get_manifest() or {}
+        draft = manifest.get("draft_scope")
+        if isinstance(draft, dict):
+            return load_scope_from_dict({"scope": draft})
+    except Exception:
+        log.warning("hazirlik: draft load failed for %s", pid, exc_info=True)
     return _default_draft_scope(pid)
 
 
@@ -449,13 +467,91 @@ def hazirlik_new():
     return redirect(url_for("presentations.hazirlik", pid=pid))
 
 
+def _seed_basket_from_query(scope: ScopeContract, seed_param: str) -> None:
+    """Append basket items for any catalog table IDs in ``seed_param``
+    that aren't already in the scope. Used by the ``?seed=ID1,ID2``
+    deeplink that lets Phase 9 (Keşif) drop the user into Hazırlık with
+    a starter basket. Unknown IDs are silently skipped (avoids breaking
+    a deeplink when the catalog reshuffles).
+
+    Idempotent: re-loading the same URL doesn't create duplicate basket
+    entries. Skip is by ``table_ref`` identity (schema + name), not by
+    alias — the alias is derived from the name and would otherwise just
+    get a ``_2`` suffix on each reload."""
+    if not seed_param:
+        return
+    ids = [s.strip() for s in seed_param.split(",") if s.strip()]
+    if not ids:
+        return
+    have_aliases = {b.alias for b in scope.basket}
+    have_tables = {
+        f"{b.table_ref.schema_name}.{b.table_ref.name}"
+        for b in scope.basket if b.table_ref is not None
+    }
+    cat = _catalog_json()
+    table_by_id: dict[str, dict] = {}
+    for d in (cat.get("domains") or []):
+        for t in (d.get("tables") or []):
+            tid = t.get("id")
+            if tid:
+                table_by_id[tid] = t
+    for tid in ids:
+        t = table_by_id.get(tid)
+        if t is None or "." not in tid:
+            continue
+        # Idempotency: a table already in the basket is a no-op.
+        if tid in have_tables:
+            continue
+        schema, name = tid.split(".", 1)
+        base = re.sub(r"[^a-z0-9_]", "_", name.lower()).strip("_") or "t"
+        if not re.match(r"^[a-z]", base):
+            base = "t_" + base
+        base = base[:40]
+        alias = base
+        i = 2
+        while alias in have_aliases:
+            alias = f"{base}_{i}"[:40]
+            i += 1
+        have_aliases.add(alias)
+        have_tables.add(tid)
+        from presentations.scope.schema import (
+            BasketItem as _BI, Projection as _P, Routing as _R, TableRef as _TR,
+        )
+        scope.basket.append(_BI(
+            alias=alias,
+            table_ref=_TR(schema=schema, name=name),
+            projection=_P(columns=[c.get("name") for c in (t.get("columns") or [])
+                                   if c.get("name")], include_all=False),
+            routing=_R(decision="cached", decided_by="system", estimated_bytes=0),
+        ))
+
+
 @presentations_bp.route("/hazirlik/<pid>")
 @login_required
 def hazirlik(pid: str):
     """The Hazırlık (Stage 2 / Prepare) screen. Renders the React bundle with
     the current scope contract, the table catalog, available concepts, and
-    concept value distributions embedded as JSON."""
+    concept value distributions embedded as JSON.
+
+    Supports ``?seed=EDW.X,EDW.Y`` so external flows (Phase 9 Keşif, link-
+    shares) can deeplink with a starter basket. Tables already in the
+    persisted scope are skipped.
+    """
     scope = _load_latest_scope_or_draft(pid)
+    seed_param = request.args.get("seed") or ""
+    if seed_param:
+        before = len(scope.basket)
+        _seed_basket_from_query(scope, seed_param)
+        # Persist immediately so a reload (without ?seed) keeps the basket.
+        # The frontend auto-save kicks in for subsequent mutations.
+        if len(scope.basket) > before:
+            try:
+                sess = _registry().get_or_create(current_user.sicil, pid)
+                manifest = sess.get_manifest() or {}
+                manifest["draft_scope"] = scope_to_dict(scope)["scope"]
+                sess.set_manifest(manifest)
+            except Exception:
+                log.warning("hazirlik: seed-draft persist failed", exc_info=True)
     title = pid
     try:
         sess = _registry().get_or_create(current_user.sicil, pid)
@@ -764,6 +860,36 @@ def scope_projection_update(pid: str):
         return _json({"ok": False, "errors": _flatten(exc)}, status=400)
 
     return _json({"ok": True, "scope": s})
+
+
+@presentations_bp.route("/<pid>/scope/save-draft", methods=["POST"])
+@login_required
+def scope_save_draft(pid: str):
+    """Persist an in-progress scope to the session manifest so a page reload
+    doesn't lose the user's basket + filters before they click "Sunum'a geç".
+
+    The draft lives at ``manifest.draft_scope`` and is read by
+    :func:`_load_latest_scope_or_draft` when SCOPE_STORE has no built
+    version yet. Schema is NOT validated here — drafts may be transiently
+    inconsistent while the user is mid-edit; the build endpoint does the
+    real validation.
+
+    Frontend calls this debounced (~500ms after last mutation) so the
+    server doesn't see every keystroke.
+    """
+    body = request.get_json(silent=True) or {}
+    scope = body.get("scope")
+    if not isinstance(scope, dict):
+        return _json({"ok": False, "error": "scope required"}, status=400)
+    try:
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        manifest = sess.get_manifest() or {}
+        manifest["draft_scope"] = scope
+        sess.set_manifest(manifest)
+    except Exception as exc:
+        log.warning("scope_save_draft: persist failed", exc_info=True)
+        return _json({"ok": False, "error": str(exc)}, status=502)
+    return _json({"ok": True})
 
 
 @presentations_bp.route("/<pid>/scope/recompute-routing", methods=["POST"])
