@@ -49,6 +49,7 @@ const DATA = JSON.parse(document.getElementById("hazirlik-data").textContent);
 const PID = DATA.presentation_id;
 const _path = window.location.pathname;
 const BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
+const PREVIEW_BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-build`);
 const PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview`);
 const CHAT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/chat`);
 const APPLY_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/apply-suggestion`);
@@ -382,6 +383,97 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
     </Modal>
   );
 }
+
+// ── Build-confirm modal (re-entry warning, 8.e) ────────────────────────────
+
+function BuildConfirmModal({ preview, onConfirm, onCancel }) {
+  const { diff = {}, affected_blocks = [], summary = {}, parent_version } = preview;
+  const breaking = summary.breaking || 0;
+  const warning = summary.warning || 0;
+  const blocks = affected_blocks;
+
+  // Section-by-section diff summary lines — only the non-empty ones.
+  const lines = [];
+  if (diff.added?.length) lines.push({ label: "Eklenen tablolar", items: diff.added });
+  if (diff.removed?.length) lines.push({ label: "Çıkarılan tablolar", items: diff.removed });
+  if (diff.changed?.length) lines.push({ label: "Değişen tablolar", items: diff.changed });
+  if (diff.filters?.added?.length) lines.push({ label: "Eklenen pinned filter", items: diff.filters.added });
+  if (diff.filters?.removed?.length) lines.push({ label: "Çıkarılan pinned filter", items: diff.filters.removed });
+  if (diff.filters?.modified?.length) lines.push({ label: "Değişen pinned filter", items: diff.filters.modified });
+  if (diff.pin_flips?.length) {
+    lines.push({
+      label: "Pin durumu değişen filter",
+      items: diff.pin_flips.map((p) => `${p.id} (${p.direction})`),
+    });
+  }
+  if (diff.joins?.added?.length) lines.push({ label: "Eklenen join", items: diff.joins.added });
+  if (diff.joins?.removed?.length) lines.push({ label: "Çıkarılan join", items: diff.joins.removed });
+  if (diff.joins?.modified?.length) lines.push({ label: "Değişen join", items: diff.joins.modified });
+
+  return (
+    <Modal
+      title={`Scope güncellemesi · scope_v${parent_version} → yeni sürüm`}
+      size="md"
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="ts-btn" onClick={onCancel}>Vazgeç</button>
+          <button
+            className={`ts-btn ts-btn--primary${breaking > 0 ? " ts-btn--danger" : ""}`}
+            onClick={onConfirm}
+          >
+            {breaking > 0 ? "Yine de devam et" : "Onayla ve geç"}
+          </button>
+        </>
+      }
+    >
+      {lines.length === 0 ? (
+        <p className="hz-muted">Scope'ta görsel bir değişiklik yok ama yeni bir sürüm yazılacak.</p>
+      ) : (
+        <div className="hz-build-diff">
+          {lines.map((l, i) => (
+            <div key={i} className="hz-build-diff-row">
+              <div className="hz-build-diff-label">{l.label}</div>
+              <div className="hz-build-diff-items">
+                {l.items.map((it) => <span key={it} className="hz-build-diff-chip">{it}</span>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {blocks.length > 0 && (
+        <div className="hz-build-affected">
+          <div className="hz-build-affected-head">
+            Etkilenen bloklar{" "}
+            {breaking > 0 && <span className="hz-build-pill hz-build-pill--break">{breaking} kırılan</span>}
+            {warning > 0 && <span className="hz-build-pill hz-build-pill--warn">{warning} uyarı</span>}
+          </div>
+          <ul className="hz-build-affected-list">
+            {blocks.map((b) => (
+              <li key={b.block_id} className={`hz-build-block hz-build-block--${b.severity}`}>
+                <div className="hz-build-block-head">
+                  <span className="hz-build-block-type">{b.block_type}</span>
+                  <span className="hz-build-block-title">{b.block_title}</span>
+                </div>
+                <ul className="hz-build-block-reasons">
+                  {b.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          {breaking > 0 && (
+            <p className="hz-build-affected-note">
+              ⚠ Kırılan bloklar Sunum'da hata durumunda render olacak. İlgili blokların kaynak
+              tablosunu / filtresini güncellemen gerekecek.
+            </p>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 
 // ── Table docs panel (eye icon → slide-in side dock) ───────────────────────
 
@@ -1316,13 +1408,22 @@ function App() {
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2500); return () => clearTimeout(t); } }, [toast]);
 
-  const goToSunum = async () => {
-    setBusy(true); setErr(null);
+  // Build-confirm modal state — populated by /scope/preview-build, cleared
+  // on confirm/cancel. ``pendingScope`` is the layout-embedded scope we will
+  // POST to /scope/build once the user confirms.
+  const [buildPreview, setBuildPreview] = useState(null);
+  const [pendingScope, setPendingScope] = useState(null);
+
+  const _finalisedScope = () => {
     const pos = Object.fromEntries(nodes.map((n) => [n.id, n.position]));
-    const finalScope = {
+    return {
       ...scope,
       basket: scope.basket.map((b) => pos[b.alias] ? { ...b, layout: { x: pos[b.alias].x, y: pos[b.alias].y } } : b),
     };
+  };
+
+  const _commitBuild = async (finalScope) => {
+    setBusy(true); setErr(null);
     try {
       const data = await (await fetch(BUILD_URL, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: finalScope }),
@@ -1330,6 +1431,54 @@ function App() {
       if (!data.ok) { setErr((data.errors || ["Bilinmeyen hata"]).join(" · ")); setBusy(false); return; }
       window.location.href = data.redirect;
     } catch (e) { setErr(String(e)); setBusy(false); }
+  };
+
+  const goToSunum = async () => {
+    setErr(null);
+    setBusy(true);
+    const finalScope = _finalisedScope();
+    try {
+      const r = await fetch(PREVIEW_BUILD_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: finalScope }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        setErr((data.errors || ["Bilinmeyen hata"]).join(" · "));
+        setBusy(false);
+        return;
+      }
+      const diffEmpty = !data.diff || (
+        !data.diff.added && !data.diff.removed && !data.diff.changed
+        && !data.diff.filters && !data.diff.pin_flips && !data.diff.joins
+      );
+      const noBlocks = (data.summary?.total || 0) === 0;
+      // First build (no parent_version) OR nothing has changed AND nothing
+      // would surface — go straight to build. Otherwise pop the confirm
+      // modal so the user can see what's about to happen.
+      if (data.parent_version == null || (diffEmpty && noBlocks)) {
+        await _commitBuild(finalScope);
+        return;
+      }
+      setBusy(false);
+      setPendingScope(finalScope);
+      setBuildPreview(data);
+    } catch (e) {
+      setErr(String(e));
+      setBusy(false);
+    }
+  };
+
+  const confirmBuild = () => {
+    const fs = pendingScope;
+    setBuildPreview(null);
+    setPendingScope(null);
+    if (fs) _commitBuild(fs);
+  };
+
+  const cancelBuild = () => {
+    setBuildPreview(null);
+    setPendingScope(null);
   };
 
   return (
@@ -1398,6 +1547,9 @@ function App() {
         <JoinKeyModal left={joinModal.left} right={joinModal.right}
           onClose={() => setJoinModal(null)}
           onSave={({ lcol, rcol, kind }) => { addJoin(joinModal.left, lcol, joinModal.right, rcol, kind); setJoinModal(null); }} />
+      )}
+      {buildPreview && (
+        <BuildConfirmModal preview={buildPreview} onConfirm={confirmBuild} onCancel={cancelBuild} />
       )}
       {toast && <div className="hz-toast">{toast}</div>}
     </div>

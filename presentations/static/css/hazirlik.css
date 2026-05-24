@@ -393,6 +393,73 @@
   word-break: break-all;
 }
 
+/* Build-confirm modal — re-entry warning (8.e) */
+.hz-build-diff {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 12px;
+}
+.hz-build-diff-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 8px; background: #f8fafc; border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+.hz-build-diff-label {
+  font-size: 11px; font-weight: 600; color: #475569;
+  flex-shrink: 0; min-width: 130px;
+}
+.hz-build-diff-items { display: flex; flex-wrap: wrap; gap: 4px; }
+.hz-build-diff-chip {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10.5px; padding: 1px 6px; border-radius: 3px;
+  background: #e0e7ff; color: #3730a3;
+}
+
+.hz-build-affected {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed #cbd5e1;
+}
+.hz-build-affected-head {
+  font-size: 12px; font-weight: 600; color: #1f2937;
+  margin-bottom: 8px; display: flex; gap: 6px; align-items: center;
+}
+.hz-build-pill {
+  display: inline-block; padding: 1px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 600;
+}
+.hz-build-pill--break { background: #fee2e2; color: #b91c1c; }
+.hz-build-pill--warn  { background: #fef3c7; color: #92400e; }
+.hz-build-affected-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.hz-build-block {
+  padding: 7px 10px; border-radius: 5px;
+  border-left: 3px solid transparent;
+}
+.hz-build-block--breaking { background: #fef2f2; border-left-color: #dc2626; }
+.hz-build-block--warning { background: #fffbeb; border-left-color: #f59e0b; }
+.hz-build-block-head {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; color: #1f2937;
+}
+.hz-build-block-type {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  background: #fff; border: 1px solid #e5e7eb; color: #64748b;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-build-block-title { font-weight: 600; }
+.hz-build-block-reasons {
+  margin: 4px 0 0 0; padding-left: 18px;
+  font-size: 11px; color: #475569; line-height: 1.45;
+}
+.hz-build-affected-note {
+  margin: 10px 0 0; padding: 8px 10px;
+  background: #fef3c7; color: #78350f; border-radius: 4px;
+  font-size: 11.5px; line-height: 1.45;
+}
+.ts-btn--danger { background: #dc2626; color: #fff; }
+.ts-btn--danger:hover { background: #b91c1c; }
+
 /* Stage-2 LLM chat: turn bubbles + suggestion cards (8.f) */
 .chat-turn { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .chat-turn--user .chat-bubble { align-self: flex-end; background: #2563eb; color: #fff; }
