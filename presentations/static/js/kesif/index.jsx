@@ -18,6 +18,7 @@ import {
   Search, X, Plus, ChevronDown, ChevronRight, Database, Upload, Crosshair,
   MessageCircle, ArrowRight, Loader2, Tag, Building2,
 } from "lucide-react";
+import GraphCanvas from "./GraphCanvas.jsx";
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
 
@@ -26,6 +27,8 @@ const ENDPOINTS = DATA.endpoints || {};
 const USER = DATA.user || {};
 const SEED_DRAFT = DATA.draft || {};
 const SEED_BASKET = DATA.basket || [];
+const FLAGS = DATA.flags || {};
+const COSMOGRAPH_CONFIG = DATA.cosmograph || {};
 
 // Helpers
 const tableId = (schemaOrEntry, name) => {
@@ -203,6 +206,64 @@ function App() {
     }
   }, [basket, basketTableIds, draftPid]);
 
+  // Graph context menu only has the node id — fetch the entry on demand.
+  const addToBasketById = useCallback(async (id) => {
+    if (!id || basketTableIds.has(id)) return;
+    const [schema, name] = id.split(/\.(.+)/);
+    try {
+      const r = await fetch(detailUrl(schema, name), { credentials: "include" });
+      if (!r.ok) throw new Error("detail");
+      const entry = await r.json();
+      await addToBasket(entry);
+    } catch (err) {
+      console.warn("Sepete ekleme (id) başarısız:", err);
+    }
+  }, [addToBasket, basketTableIds]);
+
+  const bulkAddToBasket = useCallback(async (tableIds) => {
+    if (!draftPid || !tableIds?.length) return;
+    // We need column lists for each new table — fetch detail for ones we
+    // haven't loaded yet. The detail endpoint is cheap (server-cached) so
+    // doing this in parallel is fine for tens of tables; if 9.b.2 expands
+    // bulk-add to hundreds, we'll want a dedicated /catalog/detail-bulk.
+    const existing = new Set(basket.map((b) => b.table));
+    const toAdd = tableIds.filter((id) => !existing.has(id));
+    if (!toAdd.length) return;
+    setBasketBusy(true);
+    try {
+      const details = await Promise.all(toAdd.map(async (id) => {
+        const [schema, name] = id.split(/\.(.+)/);
+        try {
+          const r = await fetch(detailUrl(schema, name), { credentials: "include" });
+          if (!r.ok) throw new Error("detail");
+          return await r.json();
+        } catch {
+          // Fall back to a minimal entry — Hazırlık will pull columns later.
+          return { schema, name, columns: [] };
+        }
+      }));
+      const newItems = details.map((d) => ({
+        table: `${d.schema}.${d.name}`,
+        columns: (d.columns || []).map((c) => c.name),
+        row_filter: null,
+      }));
+      const nextBasket = [...basket, ...newItems];
+      const resp = await fetch(ENDPOINTS.basket_update, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ basket: nextBasket }),
+      });
+      if (!resp.ok) throw new Error(`basket HTTP ${resp.status}`);
+      const data = await resp.json();
+      setBasket(data.basket || nextBasket);
+    } catch (err) {
+      console.warn("Toplu sepete ekleme başarısız:", err);
+    } finally {
+      setBasketBusy(false);
+    }
+  }, [basket, draftPid]);
+
   const removeFromBasket = useCallback(async (tid) => {
     if (!draftPid) return;
     const nextBasket = basket.filter((b) => b.table !== tid);
@@ -273,11 +334,25 @@ function App() {
           selectedId={selectedId}
           onSelect={setSelectedId}
         />
+        {FLAGS.use_cosmograph ? (
+          <div className="kesif-canvas kesif-canvas--graph">
+            <GraphCanvas
+              catalogGraphUrl={ENDPOINTS.catalog_graph}
+              licenseKey={COSMOGRAPH_CONFIG.license_key}
+              selectedId={selectedId}
+              basketTableIds={basketTableIds}
+              onSelect={setSelectedId}
+              onAddToBasket={addToBasketById}
+              onBulkAddToBasket={bulkAddToBasket}
+            />
+          </div>
+        ) : (
         <Canvas
           loading={loadingCatalog}
           totalTables={tables.length}
           filteredCount={filteredTables.length}
         />
+        )}
         <RightRail
           detail={detail}
           detailLoading={detailLoading}

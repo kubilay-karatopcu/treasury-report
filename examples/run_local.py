@@ -197,6 +197,13 @@ def create_app():
     except Exception as exc:
         print(f"⚠ SCOPE_STORE setup skipped: {exc}")
 
+    # Phase 9.b.1 — Cosmograph feature flag. Enable with:
+    #     set KESIF_USE_COSMOGRAPH=1     (Windows)
+    #     export KESIF_USE_COSMOGRAPH=1  (mac/linux)
+    # Off by default while the commercial license is being procured.
+    app.config["KESIF_USE_COSMOGRAPH"] = os.environ.get("KESIF_USE_COSMOGRAPH") in ("1", "true", "yes")
+    app.config["COSMOGRAPH_LICENSE_KEY"] = os.environ.get("COSMOGRAPH_LICENSE_KEY")
+
     # Inject LLM client. Provider precedence:
     #   1. OPENAI_API_KEY in env     → OpenAI (paid, best JSON discipline)
     #   2. GROQ_API_KEY in env       → Groq (Llama 3.3 70B, free, fast)

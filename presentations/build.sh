@@ -33,14 +33,19 @@ node_modules/.bin/esbuild static/js/hazirlik/index.jsx \
   --outfile=static/js/hazirlik.bundle.js
 
 echo "[build] esbuild keşif bundle oluşturuluyor..."
-# Phase 9.a Atölye / Keşif — no CSS imports inside the JSX (kesif.css is
-# served as a separate stylesheet via the template).
+# Phase 9.b.1 — Cosmograph React pulls in @cosmos.gl/graph (WebGL) +
+# @duckdb/duckdb-wasm. The wasm + worker assets must be emitted as
+# separate files (esbuild can't inline them safely). The runtime resolves
+# them via import.meta.url at the same origin as the bundle.
 node_modules/.bin/esbuild static/js/kesif/index.jsx \
   --bundle \
   --jsx=automatic \
   --minify \
   --target=es2020 \
   --loader:.css=empty \
+  --loader:.wasm=file \
+  --loader:.worker.js=file \
+  --asset-names=kesif-assets/[name]-[hash] \
   --outfile=static/js/kesif.bundle.js
 
 echo "[build] Tamam → static/js/bundle.js + static/js/hazirlik.bundle.js (+ .css) + static/js/kesif.bundle.js"
