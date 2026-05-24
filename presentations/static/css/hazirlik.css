@@ -289,6 +289,87 @@
 }
 .hz-node-filter svg { color: #94a3b8; flex-shrink: 0; }
 
+/* Sidebar table row: split into a main toggle button + a hover-revealed Eye
+   button that opens the docs modal. editor.css already styles
+   .sources-table-wrap as a flex container; we just need the .sources-table
+   inside it not to claim the full width so the Eye fits on the right. */
+.hz-sidebar .sources-table-wrap {
+  display: flex; align-items: stretch;
+}
+.hz-sidebar .sources-table { flex: 1 1 auto; padding-right: 4px; }
+.hz-sidebar .sources-table-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; color: #94a3b8; flex-shrink: 0; margin-left: 4px;
+}
+.hz-sidebar .sources-table-wrap:hover .sources-table-toggle { color: #1f2937; }
+.hz-sidebar .sources-table-eye {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; flex-shrink: 0; padding: 0;
+  background: transparent; border: none; cursor: pointer; color: #94a3b8;
+  border-left: 1px solid transparent;
+}
+.hz-sidebar .sources-table-eye:hover {
+  background: #eff6ff; color: #1d4ed8; border-left-color: #cbd5e1;
+}
+
+/* Table docs modal */
+.hz-docs-meta {
+  margin: 0 0 12px; padding: 8px 10px;
+  background: #f8fafc; border-radius: 5px; border: 1px solid #e2e8f0;
+  font-size: 12px; color: #475569; line-height: 1.45;
+}
+.hz-docs-section { margin-bottom: 14px; }
+.hz-docs-section-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; color: #475569;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.hz-docs-cols {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;
+}
+.hz-docs-cols th {
+  text-align: left; padding: 6px 8px; background: #f8fafc;
+  font-weight: 600; color: #475569; font-size: 10px; letter-spacing: 0.04em;
+  text-transform: uppercase; border-bottom: 1px solid #e5e7eb;
+}
+.hz-docs-cols td {
+  padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top;
+}
+.hz-docs-cols tr:last-child td { border-bottom: none; }
+.hz-docs-col-name {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 600; color: #1f2937;
+}
+.hz-docs-col-type {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px;
+  color: #64748b;
+}
+.hz-docs-col-marks { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.hz-docs-pill {
+  display: inline-block; padding: 0 5px; border-radius: 3px;
+  font-size: 9px; line-height: 1.5; letter-spacing: 0.04em;
+  background: #f1f5f9; color: #64748b; text-transform: uppercase;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-docs-pill--req { background: #fef3c7; color: #92400e; }
+.hz-docs-pill--key { background: #ddd6fe; color: #5b21b6; }
+.hz-docs-vals {
+  font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; max-width: 240px; white-space: nowrap;
+}
+.hz-docs-filters { display: flex; flex-direction: column; gap: 5px; }
+.hz-docs-filter {
+  padding: 6px 9px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 4px;
+}
+.hz-docs-filter-label { font-weight: 600; font-size: 11px; color: #1f2937; margin-bottom: 2px; }
+.hz-docs-filter-expr {
+  display: block; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10.5px; color: #475569; background: transparent; padding: 0;
+  word-break: break-all;
+}
+
 /* Stage-2 LLM chat: turn bubbles + suggestion cards (8.f) */
 .chat-turn { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .chat-turn--user .chat-bubble { align-self: flex-end; background: #2563eb; color: #fff; }
