@@ -14,7 +14,7 @@ import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
-  Handle, Position, useNodesState, useEdgesState,
+  Handle, Position, useNodesState,
 } from "@xyflow/react";
 import { AgGridReact } from "ag-grid-react";
 import "ag-grid-enterprise";   // demo (unlicensed → watermark) — pivot/row-grouping/aggregation
@@ -1192,19 +1192,11 @@ function App() {
   const gridApiRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesStateCompat(() => initialNodes(DATA.scope));
-  // React Flow v12 needs `useEdgesState` to push edges into its internal
-  // store. Passing a `useMemo`-derived array directly via `edges={…}` skips
-  // the store and the edges silently fail to render. We seed with the
-  // initial scope's edges + re-sync in an effect every time `scope`
-  // changes (auto-suggested + user-confirmed both flow through buildEdges).
-  const [edges, setEdges, onEdgesChange] = useEdgesState(buildEdges(DATA.scope));
-  useEffect(() => { setEdges(buildEdges(scope)); }, [scope, setEdges]);
+  const edges = useMemo(() => buildEdges(scope), [scope]);
 
   // Auto-save the draft scope to the session manifest 500ms after the last
-  // mutation. Lets the user reload Hazırlık and continue where they left off
-  // (without having to "Sunum'a geç" first). Tearing the cleanup down on
-  // re-render cancels in-flight debouncers so we never POST stale state.
-  // Initial DATA.scope mount is skipped to avoid a no-op POST on page load.
+  // mutation. Reload picks up where the user left off without going through
+  // "Sunum'a geç". Initial DATA.scope mount is skipped (no-op POST).
   const isInitialScopeRef = useRef(true);
   useEffect(() => {
     if (isInitialScopeRef.current) { isInitialScopeRef.current = false; return; }
@@ -1212,7 +1204,7 @@ function App() {
       fetch(SAVE_DRAFT_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope }),
-      }).catch(() => { /* draft save is best-effort */ });
+      }).catch(() => { /* best effort */ });
     }, 500);
     return () => clearTimeout(t);
   }, [scope]);
@@ -1742,7 +1734,6 @@ function App() {
             <ReactFlow
               nodes={nodes} edges={edges}
               onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
               onConnect={onConnect} onEdgeClick={onEdgeClick} onNodeClick={onNodeClick}
               nodeTypes={NODE_TYPES} fitView proOptions={{ hideAttribution: true }}
             >
