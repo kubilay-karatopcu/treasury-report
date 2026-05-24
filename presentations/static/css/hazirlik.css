@@ -478,20 +478,26 @@
 .ts-btn--danger:hover { background: #b91c1c; }
 
 /* Stage-2 LLM chat: turn bubbles + suggestion cards (8.f) */
-.chat-turn { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.chat-turn { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; min-width: 0; }
 .chat-turn--user .chat-bubble { align-self: flex-end; background: #2563eb; color: #fff; }
 .chat-turn--assistant .chat-bubble { align-self: flex-start; background: #f1f5f9; color: #0f172a; }
 .chat-bubble {
-  /* max-width 85% (was 88%) + box-sizing on the parent keeps the bubble
-     from kissing the sidebar's right edge — the user reported the gray
-     bubble looked clipped against the panel border. */
-  max-width: 85%; padding: 7px 10px; border-radius: 10px;
-  font-size: 11.5px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word;
+  max-width: 88%; padding: 7px 10px; border-radius: 10px;
+  font-size: 11.5px; line-height: 1.4; white-space: pre-wrap;
   box-sizing: border-box;
+  overflow-wrap: anywhere;     /* break long aliases / SQL strings cleanly */
 }
-/* Slight horizontal breathing room inside the chat-messages scroll area so
-   neither side's bubble can touch the panel edge. */
-.editor-sidebar .chat-box .chat-messages { padding-right: 4px; padding-left: 2px; }
+/* Editor's .chat-input / .chat-msg use content-box; their padding then
+   blows out the 100%/85% width and the bubble visually clips against the
+   sidebar's right edge. Force border-box inside the Hazırlık sidebar so
+   100% width *includes* padding. */
+.hz-sidebar .chat-input,
+.hz-sidebar .chat-msg,
+.hz-sidebar .chat-bubble { box-sizing: border-box; max-width: 100%; }
+.hz-sidebar .chat-messages {
+  padding-right: 2px; padding-left: 2px; overflow-x: hidden; min-width: 0;
+}
+.hz-sidebar .chat-box, .hz-sidebar .sidebar-section--chat { min-width: 0; }
 
 .hz-sugg {
   align-self: stretch;

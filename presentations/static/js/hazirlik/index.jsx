@@ -279,6 +279,70 @@ function _conceptForJoinSide(alias, column) {
   return cols.find((c) => c.name === column)?.concept || null;
 }
 
+// Compute suggested join edges for the current basket. We walk every
+// alias pair and emit:
+//   (a) FK lookup hints — a column on the left has `lookup.table` matching
+//       another alias's source table (lookup info comes from the table-doc
+//       store + the initial DATA.columns_by_alias payload).
+//   (b) Shared concept hints — both aliases bind the same concept; the
+//       column on each side is the one that carries it.
+// Dedup by sorted column-pair. Confirmed joins are filtered out by the
+// caller. Pure function of `scope.basket` + COLS_BY_ALIAS (already kept
+// in sync as items are added / removed / Apply'd), so re-runs cheap.
+function computeSuggestedEdges(basket) {
+  const out = [];
+  const seen = new Set();
+  // alias → table_ref.name (for lookup matching)
+  const byTableName = {};
+  basket.forEach((b) => {
+    if (b.table_ref?.name) byTableName[b.table_ref.name] = b.alias;
+  });
+  const aliases = basket.map((b) => b.alias);
+
+  const add = (la, lc, ra, rc, source, concept) => {
+    if (la === ra) return;
+    const key = [la + "." + lc, ra + "." + rc].sort().join("—");
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      left:  { alias: la, column: lc },
+      right: { alias: ra, column: rc },
+      kind:  source === "catalog_lookup" ? "lookup" : "inner",
+      source, concept,
+    });
+  };
+
+  // (a) FK lookup → solid suggestion.
+  aliases.forEach((alias) => {
+    (COLS_BY_ALIAS[alias] || []).forEach((c) => {
+      const lk = c.lookup;
+      if (lk && byTableName[lk.table]) {
+        add(alias, c.name, byTableName[lk.table], lk.key, "catalog_lookup", c.concept || null);
+      }
+    });
+  });
+
+  // (b) shared concept → softer suggestion. concept → alias → column name.
+  const conceptCols = {};
+  aliases.forEach((alias) => {
+    (COLS_BY_ALIAS[alias] || []).forEach((c) => {
+      if (!c.concept) return;
+      if (!conceptCols[c.concept]) conceptCols[c.concept] = {};
+      if (!(alias in conceptCols[c.concept])) conceptCols[c.concept][alias] = c.name;
+    });
+  });
+  Object.entries(conceptCols).forEach(([concept, byAlias]) => {
+    const entries = Object.entries(byAlias);
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const [la, lc] = entries[i], [ra, rc] = entries[j];
+        add(la, lc, ra, rc, "shared_concept:" + concept, concept);
+      }
+    }
+  });
+  return out;
+}
+
 function buildEdges(scope) {
   const confirmed = new Set(scope.joins.map(
     (j) => joinKey(j.left.alias, j.left.column, j.right.alias, j.right.column)));
@@ -301,12 +365,19 @@ function buildEdges(scope) {
     };
   });
   const aliases = new Set(scope.basket.map((b) => b.alias));
-  SUGGESTED.forEach((s, i) => {
+  // Suggested edges are now re-derived from the current basket every render
+  // (computeSuggestedEdges reads COLS_BY_ALIAS, which we keep in sync as
+  // tables are added / removed / Apply'd). The server-provided SUGGESTED
+  // list is used as a fallback so initial page-load wiring (lookup info
+  // from the table-doc store) still shows up — duplicates are deduped by
+  // column pair below.
+  const suggested = [...computeSuggestedEdges(scope.basket), ...SUGGESTED];
+  const sugSeen = new Set();
+  suggested.forEach((s, i) => {
     if (!aliases.has(s.left.alias) || !aliases.has(s.right.alias)) return;
-    if (confirmed.has(joinKey(s.left.alias, s.left.column, s.right.alias, s.right.column))) return;
-    // Edge label shows the concept that proposed the suggestion (for FK
-    // lookups this is the lookup's display concept; for shared-concept it's
-    // the concept itself). Falls back to "lookup" / "öneri" otherwise.
+    const k = joinKey(s.left.alias, s.left.column, s.right.alias, s.right.column);
+    if (confirmed.has(k) || sugSeen.has(k)) return;
+    sugSeen.add(k);
     const concept = s.concept || _conceptForJoinSide(s.left.alias, s.left.column);
     const kindLabel = s.source === "catalog_lookup" ? "lookup" : "öneri";
     edges.push({
@@ -761,26 +832,77 @@ const KIND_LABEL = {
   create_calculation: "Hesaplanmış tablo",
 };
 
+// Human-friendly Turkish description for a suggestion card. Replaces the
+// previous SQL-ish "src ⋈ src2 → alias · COL = expr" format with prose:
+// "İki tablo birleşecek (X ile Y), …. Sonuç tabloda 2 kolon olacak: A, B."
 function summariseSuggestion(s) {
   switch (s.kind) {
-    case "pin_filter": return `interactive filter ${s.filter_id} → pinned`;
+    case "pin_filter":
+      return `'${s.filter_id}' interactive filtresini scope'a sabitle (kullanıcı Sunum'da değiştiremesin).`;
+
     case "add_filter": {
-      const tail = s.from ? `${s.from} – ${s.to}` : (s.values ? s.values.join(", ") : (s.value ?? ""));
-      return `${s.mode || "pinned"} · ${s.concept} ${s.op} ${tail}`;
+      const mode = s.mode === "interactive"
+        ? "kullanıcının değiştirebileceği bir interactive filtre"
+        : "sabitlenmiş bir pinned filtre";
+      const val = s.op === "between"
+        ? `${s.from} – ${s.to} arası`
+        : (s.values ? s.values.join(", ") : String(s.value ?? ""));
+      return `'${s.concept}' alanında ${val} değeriyle ${mode} oluştur.`;
     }
-    case "add_projection_column": return `${s.alias}.${s.column}`;
-    case "confirm_join": return `${s.left_alias}.${s.left_column} ↔ ${s.right_alias}.${s.right_column} (${s.kind_of_join || "inner"})`;
+
+    case "add_projection_column":
+      return `'${s.alias}' tablosuna '${s.column}' kolonunu ekle (projection'a katılsın).`;
+
+    case "confirm_join": {
+      const kind = s.kind_of_join === "lookup" ? "lookup" : (s.kind_of_join || "inner");
+      return `'${s.left_alias}' ve '${s.right_alias}' tablolarını '${s.left_column}' = '${s.right_column}' üzerinden ${kind} join ile birleştir.`;
+    }
+
     case "create_aggregate": {
-      const grp = (s.group_by || []).join(", ");
-      const mes = (s.measures || []).map((m) => `${m.fn}(${m.column})`).join(", ");
-      return `${s.source_alias} → ${s.new_alias} · group_by [${grp}] · ${mes}`;
+      const grp = (s.group_by || []).join(", ") || "(gruplama yok)";
+      const meas = (s.measures || []).map((m) => `${m.fn}(${m.column})`).join(", ") || "(measure yok)";
+      const cols = [
+        ...(s.group_by || []),
+        ...(s.measures || []).map((m) => m.as || `${m.fn.toUpperCase()}_${m.column}`),
+      ];
+      const colsText = cols.length
+        ? ` Sonuç tabloda ${cols.length} kolon olacak: ${cols.join(", ")}.`
+        : "";
+      return (
+        `'${s.source_alias}' tablosunu ${grp} bazında agregatla, ${meas} hesapla → ` +
+        `'${s.new_alias}' adında yeni bir türetilmiş tablo.${colsText}`
+      );
     }
+
     case "create_calculation": {
-      const srcs = (s.source_aliases || []).join(" ⋈ ");
-      const cols = (s.columns || []).map((c) => `${c.name} = ${c.expr}`).join("; ");
-      return `${srcs} → ${s.new_alias} · ${cols}`;
+      const srcs = s.source_aliases || [];
+      const join_keys = s.join_keys || [];
+      const cols = s.columns || [];
+      let head;
+      if (srcs.length === 1) {
+        head = `'${srcs[0]}' tablosu üzerinden hesaplama yapılacak`;
+      } else if (join_keys.length) {
+        const jk = join_keys[0];
+        const extra = join_keys.length > 1 ? ` (+${join_keys.length - 1} join daha)` : "";
+        head = (
+          `'${srcs.join("', '")}' tabloları '${jk.left_alias}.${jk.left_column}' = ` +
+          `'${jk.right_alias}.${jk.right_column}' üzerinden birleşecek${extra}`
+        );
+      } else {
+        head = `'${srcs.join("', '")}' tabloları kullanılacak`;
+      }
+      const colsDesc = cols.map((c, i) => {
+        const ord = ["İlk", "İkinci", "Üçüncü", "Dördüncü", "Beşinci"][i] || `${i + 1}.`;
+        return `${ord} kolon '${c.name}' = ${c.expr}`;
+      }).join("; ");
+      const tail = cols.length
+        ? ` Sonuç '${s.new_alias}' tablosunda ${cols.length} kolon olacak — ${colsDesc}.`
+        : "";
+      return `${head}.${tail} Onaylıyor musun?`;
     }
-    default: return JSON.stringify(s).slice(0, 100);
+
+    default:
+      return JSON.stringify(s).slice(0, 100);
   }
 }
 
@@ -1319,6 +1441,7 @@ function App() {
       name: c.name || c, type: c.type,
       concept: c.concept || null,    // catalog server-side enriches from table-docs
       join_key: !!c.key,             // honour the catalog's explicit `key` flag
+      lookup: c.lookup || null,      // FK lookup hint — fuels computeSuggestedEdges
     }));
     CATALOG_BY_ID[t.id] = t;
     setScope((s) => {
