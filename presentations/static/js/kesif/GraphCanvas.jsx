@@ -181,9 +181,15 @@ export default function GraphCanvas({
     //     attachments, not "this table is just like that table".
     //   - manual (table→table): catalog-declared related_tables. Slightly
     //     stronger than binds, weaker than lookup.
+    // Bind edges intentionally near-invisible (opacity 0.06) — at 30+
+    // tables × ~5 concept hubs the spider-web of bind lines drowns the
+    // node layout. Force clustering already pulls bound tables toward
+    // their concept hubs, so spatial proximity carries the bind signal;
+    // the faint line is a hint, not the primary cue. Lookup / manual
+    // edges stay full-opacity because they're rare and structural.
     const EDGE_STYLE = {
       lookup:  { width: 1.6, opacity: 0.85, color: "#334155" },
-      binds:   { width: 0.6, opacity: 0.22, color: "#cbd5e1" },
+      binds:   { width: 0.4, opacity: 0.06, color: "#e2e8f0" },
       manual:  { width: 1.0, opacity: 0.55, color: "#64748b" },
     };
     const defaultStyle = { width: 0.8, opacity: 0.4, color: "#94a3b8" };
@@ -500,14 +506,15 @@ export default function GraphCanvas({
           linkColorBy="color"
           linkWidthBy="width"
           linkOpacityBy="opacity"
-          // Force-sim params: bipartite topology needs slightly tighter
-          // gravity so orbital tables stay close to their concept hub.
-          // Repulsion bumped from 0.5 → 1.0 — at small catalog scale the
-          // 0.5 setting let tables collide on top of each other.
-          simulationGravity={0.4}
-          simulationRepulsion={1.0}
-          simulationLinkDistance={8}
-          simulationLinkSpring={1.4}
+          // Force-sim params tuned for the 33+ table / 16 concept fixture
+          // density. Earlier (1.0 / 8 / 0.4) packed the layout so tightly
+          // that label boxes overlapped + bind-edge lines crossed in
+          // every direction. Pushing repulsion + link distance up, easing
+          // gravity, gives each concept-orbit room to breathe.
+          simulationGravity={0.25}
+          simulationRepulsion={2.5}
+          simulationLinkDistance={18}
+          simulationLinkSpring={1.2}
           simulationFriction={0.88}
           // simulationDecay default 5000 — sim runs for a long time and
           // keeps applying micro-velocities that look like jitter to the
