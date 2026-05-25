@@ -590,6 +590,114 @@
 }
 .kesif-graph__error { color: #b91c1c; }
 
+/* Sim panel — live tuning overlay, top-left of the canvas. Lets the
+ * user dial in force-sim + visual params and copy the resulting JSON
+ * back into the source. Collapsed-by-default toggle button + expanded
+ * floating card. */
+
+.kesif-sim__toggle {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  z-index: 5;
+}
+.kesif-sim__toggle:hover { background: #fff; color: #1e293b; }
+
+.kesif-sim {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 260px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+  font-size: 11px;
+  color: #1e293b;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 24px);
+}
+.kesif-sim__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 8px 8px 0 0;
+}
+.kesif-sim__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.kesif-sim__close {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1;
+  font-family: inherit;
+}
+.kesif-sim__close:hover { color: #1e293b; }
+.kesif-sim__body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.kesif-sim__field {
+  display: grid;
+  grid-template-columns: 92px 1fr 56px;
+  gap: 6px;
+  align-items: center;
+}
+.kesif-sim__field-label {
+  font-size: 10px;
+  color: #64748b;
+  letter-spacing: 0.02em;
+}
+.kesif-sim__field-slider {
+  width: 100%;
+  accent-color: #2563eb;
+}
+.kesif-sim__field-number {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: right;
+}
+.kesif-sim__footer {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid #e2e8f0;
+}
+.kesif-sim__footer .kesif-btn {
+  flex: 1;
+  justify-content: center;
+  font-size: 11px;
+  padding: 5px 8px;
+}
+
 /* Legend — bottom-left floating chip cluster. */
 .kesif-graph__legend {
   position: absolute;
