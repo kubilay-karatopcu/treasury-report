@@ -179,12 +179,98 @@ def _build_facets(entries: list[TableEntry]) -> CatalogFacets:
             dept_counts[entry.department] += 1
         for c in entry.concepts_bound:
             concept_counts[c] += 1
-        source_counts[entry.source] += 1
+        # Phase 9 UX revision: the "Kaynak" filter now lists schema names
+        # (EDW, HIST, CDM, …) instead of the abstract corporate/user_upload
+        # tag. Users navigate the catalog by schema, not by ingestion source.
+        source_counts[entry.schema_name] += 1
     return CatalogFacets(
         departments=dict(sorted(dept_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
         concepts=dict(sorted(concept_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
         sources=dict(sorted(source_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
     )
+
+
+# ── /catalog/concept/<concept_id> (concept-hub detail) ────────────────
+
+
+@presentations_bp.route("/catalog/concept/<concept_id>")
+@login_required
+def concept_detail(concept_id: str):
+    """Return the concept-hub doc the right panel shows when the user
+    clicks a concept node on the graph (or a chip in a table's detail
+    card). Pulls from the Phase 7 ``CONCEPT_REGISTRY`` if configured;
+    falls back to a synthetic entry (id + bound-tables list) when the
+    registry is empty so the panel still renders something useful.
+    """
+    sicil = getattr(current_user, "sicil", None)
+    loader = _get_loader()
+    try:
+        entries = loader.load(user_sicil=sicil)
+    except Exception:
+        log.exception("concept detail: catalog load failed")
+        entries = []
+
+    bound_tables = [
+        {
+            "schema": e.schema_name,
+            "name": e.name,
+            "description": (e.description or "").split("\n")[0][:140],
+        }
+        for e in entries
+        if concept_id in (e.concepts_bound or [])
+    ]
+    bound_tables.sort(key=lambda t: (t["schema"], t["name"]))
+
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    concept = None
+    if registry is not None:
+        try:
+            concept = registry.get(concept_id)
+        except Exception:
+            log.warning("concept detail: registry.get(%s) failed", concept_id, exc_info=True)
+
+    if concept is None and not bound_tables:
+        return _json({"error": f"Kavram '{concept_id}' bulunamadı."}, status=404)
+
+    if concept is not None:
+        canonical_values = []
+        for cv in getattr(concept, "canonical_values", None) or []:
+            try:
+                canonical_values.append({
+                    "code": getattr(cv, "code", None),
+                    "label": getattr(cv, "label", None) or getattr(cv, "code", None),
+                    "aliases": list(getattr(cv, "aliases", []) or []),
+                })
+            except Exception:
+                continue
+        payload = {
+            "id": concept.id,
+            "name": getattr(concept, "name", None) or concept_id,
+            "type": getattr(concept, "type", "scalar"),
+            "scope": getattr(concept, "scope", None),
+            "description": getattr(concept, "description", None) or "",
+            "canonical_values": canonical_values,
+            "related_concepts": list(getattr(concept, "related_concepts", []) or []),
+            "bound_tables": bound_tables,
+            "usage_count": len(bound_tables),
+        }
+    else:
+        # Registry empty / concept not declared — synthesise from the
+        # binding signal so the panel can still answer "which tables use
+        # this?"
+        payload = {
+            "id": concept_id,
+            "name": concept_id,
+            "type": "unknown",
+            "scope": None,
+            "description": "(Kavram henüz registry'ye tanımlanmamış. Aşağıdaki tablolar bu etiketi "
+                           "Phase 6.5.b suggested_semantic_tag üzerinden taşıyor.)",
+            "canonical_values": [],
+            "related_concepts": [],
+            "bound_tables": bound_tables,
+            "usage_count": len(bound_tables),
+        }
+    return _json(payload)
 
 
 # ── /catalog/<schema>/<table> (detail) ───────────────────────────────────

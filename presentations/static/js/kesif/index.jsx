@@ -15,7 +15,7 @@
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Search, X, Plus, ChevronDown, ChevronRight, Database, Upload, Crosshair,
+  Search, X, Plus, ChevronDown, ChevronRight, Database, Crosshair,
   MessageCircle, ArrowRight, Loader2, Tag, Building2,
 } from "lucide-react";
 import GraphCanvas from "./GraphCanvas.jsx";
@@ -39,6 +39,7 @@ const tableId = (schemaOrEntry, name) => {
   return `${schemaOrEntry}.${name}`;
 };
 const detailUrl = (schema, name) => `/presentations/catalog/${schema}/${name}`;
+const conceptDetailUrl = (id) => `/presentations/catalog/concept/${id.replace(/^concept:/, "")}`;
 const formatNumber = (n) => {
   if (n == null) return null;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -63,10 +64,12 @@ function App() {
   // ── Filters ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedDepts, setSelectedDepts] = useState(new Set());
   const [selectedConcepts, setSelectedConcepts] = useState(new Set());
-  const [selectedSources, setSelectedSources] = useState(new Set());
-  const [collapsedDepts, setCollapsedDepts] = useState(new Set());
+  // Phase 9 UX revision: dropped department filter; "source" is now a
+  // schema-name filter (EDW, HIST, CDM, …). Selected set is keyed by
+  // schema_name.
+  const [selectedSchemas, setSelectedSchemas] = useState(new Set());
+  const [collapsedSchemas, setCollapsedSchemas] = useState(new Set());
 
   // ── Basket / draft state ─────────────────────────────────────────────
   const [draftPid, setDraftPid] = useState(SEED_DRAFT.pid || null);
@@ -86,6 +89,25 @@ function App() {
     setHighlightIds(ids);
     setHighlightTick((n) => n + 1);
   }, []);
+
+  // Imperative handle into the chat panel — lets the detail card open
+  // the chat and prefill the input ("Sohbette göster" button).
+  const chatRef = useRef(null);
+  const showInChat = useCallback((entry) => {
+    if (!entry || !chatRef.current) return;
+    const tid = entry.schema && entry.name
+      ? `${entry.schema}.${entry.name}`
+      : null;
+    if (!tid) return;
+    chatRef.current.openWithPrompt(
+      `${tid} tablosu hakkında sormak istediğim: `
+    );
+  }, []);
+  // Pulse a specific table on the graph (detail card "Grafikte göster").
+  const focusOnGraph = useCallback((entry) => {
+    if (!entry || !entry.schema || !entry.name) return;
+    pushHighlight([`${entry.schema}.${entry.name}`]);
+  }, [pushHighlight]);
 
   // Debounced search (200ms per spec §4.5/§4.6).
   useEffect(() => {
@@ -115,14 +137,22 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load detail when selection changes.
+  // Load detail when selection changes. The selectedId can be either a
+  // table id ("SCHEMA.TABLE") OR a concept hub id ("concept:as_of_time")
+  // — the right rail picks the right card variant; we just route the
+  // fetch through the matching endpoint.
   useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
     const cached = detailCache.current.get(selectedId);
     if (cached) { setDetail(cached); return; }
-    const [schema, name] = selectedId.split(/\.(.+)/);
+    const url = selectedId.startsWith("concept:")
+      ? conceptDetailUrl(selectedId)
+      : (() => {
+          const [schema, name] = selectedId.split(/\.(.+)/);
+          return detailUrl(schema, name);
+        })();
     setDetailLoading(true);
-    fetch(detailUrl(schema, name), { credentials: "include" })
+    fetch(url, { credentials: "include" })
       .then((r) => {
         if (!r.ok) throw new Error(`detail: HTTP ${r.status}`);
         return r.json();
@@ -141,8 +171,7 @@ function App() {
 
   const filteredTables = useMemo(() => {
     return tables.filter((t) => {
-      if (selectedSources.size && !selectedSources.has(t.source)) return false;
-      if (selectedDepts.size && !selectedDepts.has(t.department || "")) return false;
+      if (selectedSchemas.size && !selectedSchemas.has(t.schema)) return false;
       if (selectedConcepts.size) {
         const tableConcepts = new Set(t.concepts_bound || []);
         let any = false;
@@ -155,19 +184,18 @@ function App() {
       }
       return true;
     });
-  }, [tables, selectedDepts, selectedConcepts, selectedSources, debouncedSearch]);
+  }, [tables, selectedConcepts, selectedSchemas, debouncedSearch]);
 
-  // Group by department for the tree.
+  // Group by schema for the "Şemalar" tree section. Uploads section
+  // dropped — upload now lives in Hazırlık (Phase 8).
   const treeGroups = useMemo(() => {
-    const corp = filteredTables.filter((t) => t.source === "corporate");
-    const users = filteredTables.filter((t) => t.source === "user_upload");
-    const byDept = new Map();
-    for (const t of corp) {
-      const k = t.department || "—";
-      if (!byDept.has(k)) byDept.set(k, []);
-      byDept.get(k).push(t);
+    const bySchema = new Map();
+    for (const t of filteredTables) {
+      const k = t.schema || "—";
+      if (!bySchema.has(k)) bySchema.set(k, []);
+      bySchema.get(k).push(t);
     }
-    return { byDept, users };
+    return { bySchema };
   }, [filteredTables]);
 
   // ── Filter toggles ───────────────────────────────────────────────────
@@ -176,12 +204,11 @@ function App() {
     if (next.has(value)) next.delete(value); else next.add(value);
     return next;
   });
-  const toggleDept = toggleSet(setSelectedDepts);
   const toggleConcept = toggleSet(setSelectedConcepts);
-  const toggleSource = toggleSet(setSelectedSources);
-  const toggleDeptCollapsed = (dept) => setCollapsedDepts((prev) => {
+  const toggleSchema = toggleSet(setSelectedSchemas);
+  const toggleSchemaCollapsed = (schema) => setCollapsedSchemas((prev) => {
     const next = new Set(prev);
-    if (next.has(dept)) next.delete(dept); else next.add(dept);
+    if (next.has(schema)) next.delete(schema); else next.add(schema);
     return next;
   });
 
@@ -336,17 +363,24 @@ function App() {
           error={catalogError}
           search={search}
           onSearch={setSearch}
-          selectedDepts={selectedDepts}
           selectedConcepts={selectedConcepts}
-          selectedSources={selectedSources}
-          onToggleDept={toggleDept}
+          selectedSchemas={selectedSchemas}
           onToggleConcept={toggleConcept}
-          onToggleSource={toggleSource}
+          onToggleSchema={toggleSchema}
           treeGroups={treeGroups}
-          collapsedDepts={collapsedDepts}
-          onToggleDeptCollapsed={toggleDeptCollapsed}
+          collapsedSchemas={collapsedSchemas}
+          onToggleSchemaCollapsed={toggleSchemaCollapsed}
           selectedId={selectedId}
           onSelect={setSelectedId}
+          chatProps={{
+            ref: chatRef,
+            chatSendUrl: ENDPOINTS.chat_send,
+            chatClearUrl: ENDPOINTS.chat_clear,
+            seedHistory: SEED_CHAT_HISTORY,
+            basketTableIds,
+            onAddToBasket: addToBasketById,
+            onHighlight: pushHighlight,
+          }}
         />
         <div className="kesif-canvas kesif-canvas--graph">
           <GraphCanvas
@@ -372,16 +406,10 @@ function App() {
           onAdd={addToBasket}
           onRemove={removeFromBasket}
           onPromote={promote}
+          onShowInChat={showInChat}
+          onFocusOnGraph={focusOnGraph}
         />
       </div>
-      <ChatDrawer
-        chatSendUrl={ENDPOINTS.chat_send}
-        chatClearUrl={ENDPOINTS.chat_clear}
-        seedHistory={SEED_CHAT_HISTORY}
-        basketTableIds={basketTableIds}
-        onAddToBasket={addToBasketById}
-        onHighlight={pushHighlight}
-      />
     </>
   );
 }
@@ -420,10 +448,11 @@ function Topbar({ userName, userDept }) {
 function LeftRail({
   facets, loading, error,
   search, onSearch,
-  selectedDepts, selectedConcepts, selectedSources,
-  onToggleDept, onToggleConcept, onToggleSource,
-  treeGroups, collapsedDepts, onToggleDeptCollapsed,
+  selectedConcepts, selectedSchemas,
+  onToggleConcept, onToggleSchema,
+  treeGroups, collapsedSchemas, onToggleSchemaCollapsed,
   selectedId, onSelect,
+  chatProps,
 }) {
   return (
     <aside className="kesif-left">
@@ -438,12 +467,6 @@ function LeftRail({
       </div>
 
       <FilterGroup
-        title="Departman"
-        items={facets.departments}
-        selected={selectedDepts}
-        onToggle={onToggleDept}
-      />
-      <FilterGroup
         title="Kavram"
         items={facets.concepts}
         selected={selectedConcepts}
@@ -452,57 +475,38 @@ function LeftRail({
       <FilterGroup
         title="Kaynak"
         items={facets.sources}
-        selected={selectedSources}
-        onToggle={onToggleSource}
-        labels={{ corporate: "Kurumsal", user_upload: "Yüklemelerim" }}
+        selected={selectedSchemas}
+        onToggle={onToggleSchema}
       />
 
       <div className="kesif-tree">
         <h3 className="kesif-tree__section">
-          Yüklemelerim
-        </h3>
-        {treeGroups.users.length === 0 ? (
-          <div className="kesif-tree__empty">Henüz yükleme yok</div>
-        ) : (
-          <div className="kesif-tree__tables">
-            {treeGroups.users.map((t) => (
-              <TableRow
-                key={tableId(t)} t={t} isSelected={selectedId === tableId(t)}
-                onSelect={onSelect} isUser
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="kesif-tree">
-        <h3 className="kesif-tree__section">
-          Kurumsal
+          Şemalar
           <span className="kesif-filter-option__count" style={{marginLeft:'auto'}}>
-            {Object.values(facets.departments).reduce((a, b) => a + b, 0)}
+            {Object.values(facets.sources).reduce((a, b) => a + b, 0)}
           </span>
         </h3>
         {loading ? (
           <div className="kesif-tree__empty"><Loader2 size={12} className="kesif-spin" /> Yükleniyor…</div>
         ) : error ? (
           <div className="kesif-tree__empty" style={{ color: "#b91c1c" }}>{error}</div>
-        ) : treeGroups.byDept.size === 0 ? (
+        ) : treeGroups.bySchema.size === 0 ? (
           <div className="kesif-tree__empty">Sonuç bulunamadı</div>
         ) : (
-          [...treeGroups.byDept.entries()].sort().map(([dept, items]) => {
-            const collapsed = collapsedDepts.has(dept);
+          [...treeGroups.bySchema.entries()].sort().map(([schema, items]) => {
+            const collapsed = collapsedSchemas.has(schema);
             return (
-              <div key={dept}>
+              <div key={schema}>
                 <div
                   className="kesif-tree__dept"
-                  onClick={() => onToggleDeptCollapsed(dept)}
+                  onClick={() => onToggleSchemaCollapsed(schema)}
                   role="button"
                   tabIndex={0}
                 >
                   <span className="kesif-tree__dept-caret">
                     {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
                   </span>
-                  {dept === "—" ? "Diğer" : dept.charAt(0).toUpperCase() + dept.slice(1)}
+                  {schema === "—" ? "Diğer" : schema}
                   <span className="kesif-filter-option__count" style={{marginLeft:'auto'}}>
                     {items.length}
                   </span>
@@ -523,13 +527,7 @@ function LeftRail({
         )}
       </div>
 
-      <div className="kesif-upload-zone">
-        <Upload size={14} />
-        <div style={{ marginTop: 4 }}>
-          Dosya yükleme yakında<br />
-          <span style={{ color: "#64748b" }}>(Phase 9.d)</span>
-        </div>
-      </div>
+      {chatProps && <ChatDrawer {...chatProps} />}
     </aside>
   );
 }
@@ -579,17 +577,29 @@ function RightRail({
   detail, detailLoading, selectedId,
   basket, basketTableIds, basketBusy, promoting,
   onAdd, onRemove, onPromote,
+  onShowInChat, onFocusOnGraph,
 }) {
+  const isConcept = selectedId && selectedId.startsWith("concept:");
   return (
     <aside className="kesif-right">
-      <DetailCard
-        detail={detail}
-        loading={detailLoading}
-        selectedId={selectedId}
-        inBasket={detail ? basketTableIds.has(tableId(detail)) : false}
-        onAdd={onAdd}
-        busy={basketBusy}
-      />
+      {isConcept ? (
+        <ConceptDetailCard
+          detail={detail}
+          loading={detailLoading}
+          selectedId={selectedId}
+        />
+      ) : (
+        <DetailCard
+          detail={detail}
+          loading={detailLoading}
+          selectedId={selectedId}
+          inBasket={detail ? basketTableIds.has(tableId(detail)) : false}
+          onAdd={onAdd}
+          busy={basketBusy}
+          onShowInChat={onShowInChat}
+          onFocusOnGraph={onFocusOnGraph}
+        />
+      )}
       <BasketPanel
         basket={basket}
         onRemove={onRemove}
@@ -601,7 +611,10 @@ function RightRail({
   );
 }
 
-function DetailCard({ detail, loading, selectedId, inBasket, onAdd, busy }) {
+function DetailCard({
+  detail, loading, selectedId, inBasket, onAdd, busy,
+  onShowInChat, onFocusOnGraph,
+}) {
   if (!selectedId) {
     return (
       <div className="kesif-card">
@@ -670,7 +683,7 @@ function DetailCard({ detail, loading, selectedId, inBasket, onAdd, busy }) {
         </div>
       )}
 
-      <ConceptsBlock bound={detail.concepts_bound} unbound={detail.concepts_unbound} />
+      <ConceptsBlock bound={detail.concepts_bound} />
       <LookupsBlock lookups={detail.lookups} />
       <ColumnsBlock columns={detail.columns} />
 
@@ -688,8 +701,9 @@ function DetailCard({ detail, loading, selectedId, inBasket, onAdd, busy }) {
         <button
           type="button"
           className="kesif-btn"
-          disabled
-          title="Yakında — Phase 9.c"
+          onClick={() => onShowInChat?.(detail)}
+          disabled={!onShowInChat}
+          title="Bu tablo hakkında sohbet kutusuna prefill"
         >
           <MessageCircle size={14} />
           Sohbette göster
@@ -697,21 +711,121 @@ function DetailCard({ detail, loading, selectedId, inBasket, onAdd, busy }) {
         <button
           type="button"
           className="kesif-btn"
-          disabled
-          title="Yakında — Phase 9.b"
+          onClick={() => onFocusOnGraph?.(detail)}
+          disabled={!onFocusOnGraph}
+          title="Grafikte parlat"
         >
           <Crosshair size={14} />
-          Grafikte odaklan
+          Grafikte göster
         </button>
       </div>
     </div>
   );
 }
 
-function ConceptsBlock({ bound, unbound }) {
+// ── Concept detail card (variant for concept-hub clicks) ─────────────
+//
+// Shape comes from /catalog/concept/<id>: id, name, type, scope,
+// description, canonical_values (when registry knows the concept),
+// related_concepts, bound_tables, usage_count. When the registry is
+// empty the endpoint synthesises a minimal record so we still render
+// "which tables bind this concept" — the useful answer for discovery.
+
+function ConceptDetailCard({ detail, loading, selectedId }) {
+  if (!selectedId) return null;
+  if (loading) {
+    return (
+      <div className="kesif-card">
+        <h3 className="kesif-left__heading">Kavram</h3>
+        <div className="kesif-card__empty">
+          <Loader2 size={14} className="kesif-spin" /> Yükleniyor…
+        </div>
+      </div>
+    );
+  }
+  if (!detail) {
+    return (
+      <div className="kesif-card">
+        <h3 className="kesif-left__heading">Kavram</h3>
+        <div className="kesif-card__empty">Kavram yüklenemedi</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="kesif-card">
+      <div className="kesif-card__header">
+        <div>
+          <div className="kesif-card__title">{detail.name || detail.id}</div>
+          <div className="kesif-card__schema">
+            Kavram
+            {detail.type && detail.type !== "unknown" ? ` · ${detail.type}` : ""}
+            {detail.scope ? ` · ${detail.scope}` : ""}
+          </div>
+        </div>
+        <span className="kesif-card__source-badge" style={{ background: "#fee2e2", color: "#991b1b" }}>
+          Kavram
+        </span>
+      </div>
+
+      <div className="kesif-card__metaline">
+        <span>📎 {detail.usage_count} tablo bağlı</span>
+      </div>
+
+      {detail.description && (
+        <div className="kesif-card__section">
+          <div className="kesif-card__section-title">Açıklama</div>
+          <div className="kesif-card__description">{detail.description}</div>
+        </div>
+      )}
+
+      {detail.canonical_values && detail.canonical_values.length > 0 && (
+        <div className="kesif-card__section">
+          <div className="kesif-card__section-title">
+            Kanonik değerler ({detail.canonical_values.length})
+          </div>
+          <div className="kesif-columns">
+            {detail.canonical_values.slice(0, 30).map((v) => v.code).join(", ")}
+            {detail.canonical_values.length > 30 ? "…" : ""}
+          </div>
+        </div>
+      )}
+
+      {detail.related_concepts && detail.related_concepts.length > 0 && (
+        <div className="kesif-card__section">
+          <div className="kesif-card__section-title">İlişkili kavramlar</div>
+          <div className="kesif-card__description">
+            {detail.related_concepts.join(", ")}
+          </div>
+        </div>
+      )}
+
+      {detail.bound_tables && detail.bound_tables.length > 0 && (
+        <div className="kesif-card__section">
+          <div className="kesif-card__section-title">
+            Bağlı tablolar ({detail.bound_tables.length})
+          </div>
+          <div className="kesif-concepts">
+            {detail.bound_tables.map((t) => (
+              <div key={`${t.schema}.${t.name}`} className="kesif-concept is-bound">
+                <span className="kesif-concept__icon">→</span>
+                <span><strong>{t.name}</strong> <span style={{color:"#94a3b8"}}>· {t.schema}</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConceptsBlock({ bound }) {
+  // Phase 9 UX revision: only the concepts the table actually binds
+  // are listed. The "unbound" list was visual noise — every absent
+  // concept is implicitly unbound; calling them out distracted from
+  // the bindings that DO exist.
   const b = bound || [];
-  const u = unbound || [];
-  if (b.length === 0 && u.length === 0) return null;
+  if (b.length === 0) return null;
   return (
     <div className="kesif-card__section">
       <div className="kesif-card__section-title">Kavramlar</div>
@@ -719,12 +833,6 @@ function ConceptsBlock({ bound, unbound }) {
         {b.map((c) => (
           <div key={c} className="kesif-concept is-bound">
             <span className="kesif-concept__icon">✓</span>
-            <span>{c}</span>
-          </div>
-        ))}
-        {u.map((c) => (
-          <div key={c} className="kesif-concept is-unbound">
-            <span className="kesif-concept__icon">✗</span>
             <span>{c}</span>
           </div>
         ))}

@@ -17,12 +17,17 @@ def test_list_catalog_returns_corporate_tables(client):
 
 
 def test_list_catalog_facets_present(client):
+    """Phase 9 UX revision: the 'sources' facet is now keyed by schema
+    name (EDW, HIST, …) so the left rail can render schema-grouped
+    chips. The legacy 'corporate'/'user_upload' tags are gone from the
+    user-facing surface — schemas are the navigation primitive."""
     resp = client.get("/presentations/catalog")
     data = resp.get_json()
     assert "facets" in data
     assert "treasury" in data["facets"]["departments"]
     assert "branch" in data["facets"]["concepts"]
-    assert data["facets"]["sources"]["corporate"] > 0
+    # Source facet keyed by schema_name now.
+    assert data["facets"]["sources"]["EDW"] > 0
 
 
 def test_list_catalog_filter_by_dept(client):
@@ -154,3 +159,31 @@ def test_graph_table_nodes_have_type_field(client):
     # Tables carry department + source; concepts have those as None.
     for n in table_nodes:
         assert n["source"] in ("corporate", "user_upload")
+
+
+# ── Concept-detail endpoint (Phase 9 UX revision) ────────────────────────
+
+
+def test_concept_detail_returns_bound_tables(client):
+    """Clicking a concept hub on the graph fetches its docs + the list
+    of tables binding it. With no CONCEPT_REGISTRY wired in the test
+    app, the endpoint synthesises a minimal record so the right panel
+    still has something to show."""
+    resp = client.get("/presentations/catalog/concept/branch")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["id"] == "branch"
+    assert data["usage_count"] >= 1
+    bound = data["bound_tables"]
+    names = {t["name"] for t in bound}
+    # branch is bound by DEPOSITS_DAILY, DEPOSITS_BY_BRANCH, DIM_BRANCH
+    # in the EDW fixture set.
+    assert names & {"DEPOSITS_DAILY", "DEPOSITS_BY_BRANCH", "DIM_BRANCH"}
+
+
+def test_concept_detail_404_when_unknown_and_unbound(client):
+    """A concept name that's neither in the registry nor bound by any
+    catalog table should 404 — the right rail then shows an error
+    state instead of pretending the concept exists."""
+    resp = client.get("/presentations/catalog/concept/no_such_concept_xyz")
+    assert resp.status_code == 404

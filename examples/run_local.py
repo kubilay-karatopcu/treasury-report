@@ -187,6 +187,19 @@ def create_app():
         LocalTableDocStore(base_dir=Path(__file__).parent / "table_docs"),
     )
 
+    # ConceptRegistry — Phase 7.a. Reads YAML from presentations/catalog/concepts/.
+    # Needed by Keşif (Phase 9.c) for the concept-detail panel served on
+    # GET /catalog/concept/<id>. Empty registry falls back to a graceful
+    # 404; concept hubs still render on the graph regardless.
+    try:
+        from presentations.concepts.registry import ConceptRegistry
+        app.config["CONCEPT_REGISTRY"] = ConceptRegistry.from_dir(
+            Path(__file__).resolve().parent.parent / "presentations" / "catalog" / "concepts",
+        )
+    except Exception as exc:
+        print(f"⚠ CONCEPT_REGISTRY setup skipped: {exc}")
+        app.config["CONCEPT_REGISTRY"] = None
+
     # ScopeStore — Phase 8.a. Needed so the Hazırlık page (which the Phase
     # 9.a Keşif "Hazırlık'a geç" redirects into) can save / load contracts.
     try:
