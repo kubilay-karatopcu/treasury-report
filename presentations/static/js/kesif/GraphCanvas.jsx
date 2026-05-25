@@ -33,10 +33,11 @@ const DEPT_PALETTE = [
   "#9333ea", // purple
   "#475569", // slate (fallback)
 ];
-// Concept hubs in yellow — distinct *kind* of thing, not just another
-// department. (Toggled back from red after live testing — colour vision
-// preference, not a design call.)
-const CONCEPT_COLOR = "#facc15";   // yellow-400
+// Concept hubs in dark red — bumped from yellow which was reading as
+// pink/mauve through the user's colour-vision profile. Dark red has
+// the highest contrast against any blue dept palette + against the
+// off-white background, so the table↔hub distinction stays crisp.
+const CONCEPT_COLOR = "#b91c1c";   // red-700 (dark red)
 // User uploads in pink — won't collide with concept red or any dept.
 const UPLOAD_COLOR = "#db2777";    // pink
 const DEFAULT_COLOR = "#94a3b8";   // neutral grey
@@ -76,11 +77,12 @@ export default function GraphCanvas({
   licenseKey,
   selectedId,
   basketTableIds,
-  highlightIds,        // 9.c — pulse these nodes ~3s when ChatDrawer fires
-  filterMaskIds,       // UX revision — Set<string> of table ids passing the
-                       // left-rail concept/schema filter. When non-empty,
-                       // every other table + concept hub dims out.
-                       // null/undefined = no filter, show everything.
+  highlightIds,           // 9.c — pulse these nodes ~3s when ChatDrawer fires
+  filterMaskIds,          // Set<string> of table ids passing the filter
+  filterConceptIds,       // Set<string> of concept ids the user explicitly
+                          // picked. Only THESE concept hubs survive the
+                          // filter dim — transitive (other concepts a
+                          // filtered table also binds) stay greyed.
   onSelect,
   onAddToBasket,
   onBulkAddToBasket,
@@ -93,6 +95,13 @@ export default function GraphCanvas({
   // is imperative; we keep a React copy so the basket affordance can read
   // it without poking through the ref.
   const [multiSelectIds, setMultiSelectIds] = useState(() => new Set());
+
+  // Click-sticky focus — when the user clicks a node, that node + its
+  // direct neighbours stay lit until they click empty space. Same
+  // dim pathway as the hover effect, just persistent. The filter dim
+  // composes on top: a clicked node that's outside the filter still
+  // wins the focus while filter is active.
+  const [clickedFocusId, setClickedFocusId] = useState(null);
 
   // Right-click menu state.
   const [menu, setMenu] = useState(null); // { x, y, nodeId } | null
@@ -221,28 +230,61 @@ export default function GraphCanvas({
   // Filter dim — derived set of point indices that should remain bright
   // when the user has narrowed the graph via the left-rail filters.
   // Empty/null mask = no filter active (everything bright).
+  //
+  // No transitive concepts: the only concept hubs that survive are the
+  // ones the user explicitly picked (filterConceptIds). The previously
+  // automatic "include any hub a filtered table binds" pulled in every
+  // sibling concept — visually noisy when the user just wants to see
+  // the as_of_time cluster.
   const filterFocusIndices = useMemo(() => {
-    if (!graph || !filterMaskIds || filterMaskIds.size === 0) return null;
-    const visible = new Set(filterMaskIds);
-    // Concept hubs survive if any of their bound tables are in the mask.
-    for (const n of graph.nodes) {
-      if (n.type !== "concept") continue;
-      const stays = (graph.edges || []).some(
-        (e) => (e.target === n.id && filterMaskIds.has(e.source))
-            || (e.source === n.id && filterMaskIds.has(e.target))
-      );
-      if (stays) visible.add(n.id);
+    const hasTableFilter = filterMaskIds && filterMaskIds.size > 0;
+    const hasConceptFilter = filterConceptIds && filterConceptIds.size > 0;
+    if (!graph || (!hasTableFilter && !hasConceptFilter)) return null;
+    const visible = new Set(hasTableFilter ? filterMaskIds : []);
+    if (hasConceptFilter) {
+      for (const c of filterConceptIds) visible.add(`concept:${c}`);
     }
     return [...visible]
       .map((id) => idToIndex.get(id))
       .filter((i) => i !== undefined);
-  }, [graph, filterMaskIds, idToIndex]);
+  }, [graph, filterMaskIds, filterConceptIds, idToIndex]);
+
+  // Click-focus dim — when the user clicked a node, dim everyone except
+  // it + its direct neighbours. Same shape as filterFocusIndices so the
+  // selection effect below can treat both uniformly.
+  const clickFocusIndices = useMemo(() => {
+    if (!clickedFocusId) return null;
+    const idx = idToIndex.get(clickedFocusId);
+    if (idx === undefined) return null;
+    const out = [idx];
+    const neighbours = neighborMap.get(clickedFocusId);
+    if (neighbours) {
+      for (const nid of neighbours) {
+        const ni = idToIndex.get(nid);
+        if (ni !== undefined) out.push(ni);
+      }
+    }
+    return out;
+  }, [clickedFocusId, idToIndex, neighborMap]);
+
+  // Composed dim — click wins over filter when set (so clicking a node
+  // outside the current filter still focuses it). When click is null,
+  // filter alone drives the dim.
+  const activeFocusIndices = clickFocusIndices ?? filterFocusIndices;
 
   // ── Selection bridging ───────────────────────────────────────────────
   // When the parent's selectedId changes (e.g., from the tree), reflect
-  // it in Cosmograph's focus so the graph and the tree stay in sync.
+  // it in Cosmograph's focus AND pin the click-sticky so neighbours
+  // light up too. When the parent clears (right rail closes), drop the
+  // sticky so the graph returns to full brightness (or to the filter
+  // selection if one's active).
   useEffect(() => {
-    if (!cosmoRef.current || selectedId == null) return;
+    if (selectedId == null) {
+      setClickedFocusId(null);
+      return;
+    }
+    setClickedFocusId(selectedId);
+    if (!cosmoRef.current) return;
     const idx = idToIndex.get(selectedId);
     if (idx === undefined) return;
     try {
@@ -250,22 +292,22 @@ export default function GraphCanvas({
     } catch { /* method varies by version — soft-fail */ }
   }, [selectedId, idToIndex]);
 
-  // ── Filter dim (sticky selection) ────────────────────────────────────
-  // When the user narrows via Kavram / Kaynak / Search, we call
-  // selectPoints on the surviving indices — Cosmograph greys out the
-  // rest via pointGreyoutOpacity. This is purely a render-time
-  // selection update; no setData, no force restart, no DuckDB upload.
+  // ── Sticky dim (filter and/or click focus) ───────────────────────────
+  // Cosmograph's selectPoints greys out non-selected via
+  // pointGreyoutOpacity. We point it at whatever focus is active —
+  // click wins over filter when both are set. No setData, no force
+  // restart, no DuckDB upload — constant-time selection update.
   useEffect(() => {
     const ref = cosmoRef.current;
     if (!ref) return;
     try {
-      if (filterFocusIndices && filterFocusIndices.length > 0) {
-        ref.selectPoints?.(filterFocusIndices);
+      if (activeFocusIndices && activeFocusIndices.length > 0) {
+        ref.selectPoints?.(activeFocusIndices);
       } else {
         ref.unselectPoints?.();
       }
     } catch { /* method varies by version — soft-fail */ }
-  }, [filterFocusIndices]);
+  }, [activeFocusIndices]);
 
   // ── Highlight pulse from ChatDrawer (9.c) ────────────────────────────
   // When the LLM returns proposals, the parent passes their ids here.
@@ -295,22 +337,23 @@ export default function GraphCanvas({
   }, [points]);
 
   const handleClick = useCallback((index, _position, event) => {
-    // Background click clears selection state.
+    // Background click clears every sticky state.
     if (index == null) {
       setMultiSelectIds(new Set());
+      setClickedFocusId(null);
+      onSelect?.(null);
       setMenu(null);
       return;
     }
     const point = points[index];
     if (!point) return;
 
-    // Concept hub click: route through the same onSelect channel as
-    // tables — the right rail's ConceptDetailCard variant resolves the
-    // "concept:xxx" prefix and fetches /catalog/concept/<id>. This
-    // replaces the earlier "multi-select orbital tables" behaviour;
-    // bulk-add from a hub is still available via right-click.
+    // Concept hub click: route through onSelect (detail card opens),
+    // and also pin the click-sticky focus so the orbital tables stand
+    // out while the user reads the docs.
     if (point.type === "concept") {
       setMultiSelectIds(new Set());
+      setClickedFocusId(point.id);
       onSelect?.(point.id);
       setMenu(null);
       return;
@@ -324,8 +367,10 @@ export default function GraphCanvas({
         return next;
       });
     } else {
-      // Single selection clears multi.
+      // Single selection clears multi, opens detail, and pins the
+      // click-sticky focus on this node + its neighbours.
       setMultiSelectIds(new Set());
+      setClickedFocusId(point.id);
       onSelect?.(point.id);
     }
     setMenu(null);
@@ -367,15 +412,16 @@ export default function GraphCanvas({
   const handlePointMouseOut = useCallback(() => {
     if (!cosmoRef.current) return;
     try {
-      // Restore the sticky filter selection if one's active; otherwise
-      // clear so every node returns to full brightness.
-      if (filterFocusIndices && filterFocusIndices.length > 0) {
-        cosmoRef.current.selectPoints?.(filterFocusIndices);
+      // Restore whichever sticky focus is active (click wins over
+      // filter); otherwise clear and let every node return to full
+      // brightness.
+      if (activeFocusIndices && activeFocusIndices.length > 0) {
+        cosmoRef.current.selectPoints?.(activeFocusIndices);
       } else {
         cosmoRef.current.unselectPoints?.();
       }
     } catch { /* soft-fail */ }
-  }, [filterFocusIndices]);
+  }, [activeFocusIndices]);
 
   // Esc closes the context menu.
   useEffect(() => {

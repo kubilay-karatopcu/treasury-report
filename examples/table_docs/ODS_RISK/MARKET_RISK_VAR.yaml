@@ -1,0 +1,53 @@
+table: MARKET_RISK_VAR
+schema: ODS_RISK
+description: |
+  Günlük market risk VaR — portföy, ürün, vade kırılımıyla.
+  10 günlük tutma + %99 güven aralığında.
+partition_column: AS_OF_DATE
+
+columns:
+  AS_OF_DATE:
+    type: DATE
+    description: "Hesaplama tarihi"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_date
+    suggested_semantic_tag: as_of_time
+
+  PORTFOLIO:
+    type: VARCHAR2(20)
+    description: "Portföy etiketi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: portfolios
+    suggested_semantic_tag: instrument_type
+    distinct_values_sample: [FX, BOND, EQUITY, REPO, IRS]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z
+
+  CURRENCY:
+    type: CHAR(3)
+    description: "Para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+
+  MATURITY:
+    type: VARCHAR2(8)
+    description: "Vade dilimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: maturities
+    suggested_semantic_tag: maturity
+
+  VAR_1D:
+    type: NUMBER(18,2)
+    description: "1 günlük VaR (%99)"
+    filterable: false
+    aggregatable: true
+
+  VAR_10D:
+    type: NUMBER(18,2)
+    description: "10 günlük VaR (%99)"
+    filterable: false
+    aggregatable: true

@@ -78,9 +78,12 @@ class TestSpecFixtureLoads:
 
 class TestDevMigrations:
     def test_all_dev_docs_load(self, migrated_dev_docs):
-        # Phase 9.a added DIM_BRANCH to the dev fixtures to drive
-        # lookup-edge computation tests; bump the expected count.
-        assert len(migrated_dev_docs) == 6
+        # Phase 9.a added DIM_BRANCH; the UX-revision round added many
+        # more under EDW (+ HIST/LOOKUP/CDM/ODS_*/ALM but this test
+        # only watches the EDW subset that the migration cron sees).
+        # The fixture loader filters to EDW, so the count is just the
+        # EDW directory's table_docs.
+        assert len(migrated_dev_docs) >= 6
         for raw in migrated_dev_docs:
             doc = load_table_doc_from_dict(raw)
             assert doc.schema_name == "EDW"

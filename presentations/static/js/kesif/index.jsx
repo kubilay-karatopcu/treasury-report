@@ -413,10 +413,17 @@ function App() {
 
   // ── Render ───────────────────────────────────────────────────────────
 
+  // Right rail collapsible — defaults closed, opens whenever a node is
+  // selected (table OR concept), closes when the user clears selection
+  // (background click on the graph, Escape, etc.). The body grid swaps
+  // its column template when the rail is collapsed so the left rail +
+  // canvas reclaim the freed width.
+  const isRightOpen = !!selectedId || basket.length > 0;
+
   return (
     <>
       <Topbar userName={USER.name} userDept={USER.department} />
-      <div className="kesif-body">
+      <div className={`kesif-body${isRightOpen ? "" : " kesif-body--right-collapsed"}`}>
         <LeftRail
           facets={facets}
           loading={loadingCatalog}
@@ -455,25 +462,29 @@ function App() {
             highlightIds={highlightIds}
             highlightTick={highlightTick}
             filterMaskIds={filterMaskIds}
+            filterConceptIds={appliedConcepts}
             onSelect={setSelectedId}
             onAddToBasket={addToBasketById}
             onBulkAddToBasket={bulkAddToBasket}
           />
         </div>
-        <RightRail
-          detail={detail}
-          detailLoading={detailLoading}
-          selectedId={selectedId}
-          basket={basket}
-          basketTableIds={basketTableIds}
-          basketBusy={basketBusy}
-          promoting={promoting}
-          onAdd={addToBasket}
-          onRemove={removeFromBasket}
-          onPromote={promote}
-          onShowInChat={showInChat}
-          onFocusOnGraph={focusOnGraph}
-        />
+        {isRightOpen && (
+          <RightRail
+            detail={detail}
+            detailLoading={detailLoading}
+            selectedId={selectedId}
+            basket={basket}
+            basketTableIds={basketTableIds}
+            basketBusy={basketBusy}
+            promoting={promoting}
+            onAdd={addToBasket}
+            onRemove={removeFromBasket}
+            onPromote={promote}
+            onShowInChat={showInChat}
+            onFocusOnGraph={focusOnGraph}
+            onClose={() => setSelectedId(null)}
+          />
+        )}
       </div>
     </>
   );
@@ -481,11 +492,34 @@ function App() {
 
 // ── Components ─────────────────────────────────────────────────────────
 
+// Inline SVG mark — a stylised prism (light entering, splitting into a
+// spectrum). The product name in the topbar reuses this glyph as the
+// left-most affordance on every Atölye screen, replacing the older
+// lucide Building2 placeholder.
+function PrismaLogo() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      {/* Triangular prism body */}
+      <path d="M3 19 L12 5 L21 19 Z" stroke="#2563eb" strokeWidth="1.6" strokeLinejoin="round" fill="#e0e7ff" />
+      {/* Light beam entering */}
+      <path d="M1.5 12 L8 12" stroke="#1e293b" strokeWidth="1.4" strokeLinecap="round" />
+      {/* Refracted spectrum */}
+      <path d="M14 15 L22.5 11" stroke="#dc2626" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M14 16 L22.5 13" stroke="#f59e0b" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M14 17 L22.5 15" stroke="#16a34a" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M14 18 L22.5 17" stroke="#2563eb" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function Topbar({ userName, userDept }) {
   return (
     <header className="kesif-topbar">
+      <a href="/presentations/" className="kesif-topbar__logo" title="PRISMA — Tüm sunumlara dön">
+        <PrismaLogo />
+        <span className="kesif-topbar__logo-text">PRISMA</span>
+      </a>
       <span className="kesif-topbar__brand">
-        <Building2 size={16} />
         Atölye
         <span className="kesif-topbar__crumb">/</span>
         Keşif
@@ -518,16 +552,6 @@ function LeftRail({
 }) {
   return (
     <aside className="kesif-left">
-      <div className="kesif-search">
-        <input
-          type="search"
-          placeholder="🔍 Tablo ara…"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          aria-label="Tablo ara"
-        />
-      </div>
-
       <FilterGroup
         title="Kavram"
         items={facets.concepts}
@@ -572,6 +596,19 @@ function LeftRail({
             {Object.values(facets.sources).reduce((a, b) => a + b, 0)}
           </span>
         </h3>
+        {/* Tablo araması artık ağacın başında — sol panelin en üstüne
+            koymuştuk ama kavram + kaynak filtreleriyle ağacın arasına
+            sıkışıyordu. Şemalar bölgesinin altına aldık, tablo
+            sonuçları aramayı görüş alanında tutuyor. */}
+        <div className="kesif-search kesif-search--inline">
+          <input
+            type="search"
+            placeholder="🔍 Tablo ara…"
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+            aria-label="Tablo ara"
+          />
+        </div>
         {loading ? (
           <div className="kesif-tree__empty"><Loader2 size={12} className="kesif-spin" /> Yükleniyor…</div>
         ) : error ? (
@@ -664,10 +701,22 @@ function RightRail({
   basket, basketTableIds, basketBusy, promoting,
   onAdd, onRemove, onPromote,
   onShowInChat, onFocusOnGraph,
+  onClose,
 }) {
   const isConcept = selectedId && selectedId.startsWith("concept:");
   return (
     <aside className="kesif-right">
+      {onClose && selectedId && (
+        <button
+          type="button"
+          className="kesif-right__close"
+          onClick={onClose}
+          title="Detayı kapat"
+          aria-label="Kapat"
+        >
+          ×
+        </button>
+      )}
       {isConcept ? (
         <ConceptDetailCard
           detail={detail}
