@@ -77,7 +77,15 @@ function sizeWeightForNode(node) {
 // panel side). The same defaults bake back into the bundle once the
 // user copy/pastes their preferred values to me.
 export const GRAPH_DEFAULTS = {
-  // Force-sim
+  // Layout mode — "radial" pins concepts on a fixed orbit and places
+  // tables at the centroid of their bound concepts; force sim is
+  // disabled. "force" runs Cosmograph's normal force-directed sim.
+  layoutMode:               "radial",
+  // Radial-layout knobs (ignored when layoutMode === "force")
+  radialConceptRadius:      380,
+  radialTablePull:          0.55,    // 0 = at center, 1 = at concept ring, >1 = outside
+  radialTableJitter:        45,      // px — random offset around the centroid
+  // Force-sim params (ignored when layoutMode === "radial")
   simulationGravity:        0.25,
   simulationRepulsion:      2.5,
   simulationLinkDistance:   18,
@@ -92,6 +100,85 @@ export const GRAPH_DEFAULTS = {
   // Label
   pointLabelFontSize:       12,
 };
+
+
+// Deterministic positive hash for stable jitter seeding from a table id.
+function _hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+
+// Build a node-id → {x, y} map for the radial layout. Concepts on a
+// circle of `radius`, evenly distributed; tables at the centroid of
+// their bound concepts × `pull` plus stable per-table jitter so
+// siblings don't stack.
+function computeRadialPositions(nodes, edges, { radius, pull, jitter }) {
+  const conceptNodes = nodes.filter((n) => n.type === "concept");
+  const positions = new Map();
+  if (conceptNodes.length === 0) {
+    // No concepts → tables would all sit on top of each other. Spread
+    // them in a circle as a fallback so the canvas isn't a single dot.
+    const tableNodes = nodes.filter((n) => n.type !== "concept");
+    tableNodes.forEach((t, i) => {
+      const angle = (2 * Math.PI * i) / Math.max(1, tableNodes.length) - Math.PI / 2;
+      positions.set(t.id, { x: radius * Math.cos(angle), y: radius * Math.sin(angle) });
+    });
+    return positions;
+  }
+
+  // 1. Concepts on a circle. Start from the top (-π/2) so the first
+  //    concept lands at 12 o'clock; cosmetic only, helps readability.
+  conceptNodes.forEach((c, i) => {
+    const angle = (2 * Math.PI * i) / conceptNodes.length - Math.PI / 2;
+    positions.set(c.id, {
+      x: radius * Math.cos(angle),
+      y: radius * Math.sin(angle),
+    });
+  });
+
+  // 2. Tables → centroid of their bound concept hubs × pull factor.
+  //    Build a table → [conceptIds] map from the bind edges first.
+  const conceptsByTable = new Map();
+  for (const e of edges || []) {
+    if (e.kind !== "binds") continue;
+    if (!conceptsByTable.has(e.source)) conceptsByTable.set(e.source, []);
+    conceptsByTable.get(e.source).push(e.target);
+  }
+
+  const tableNodes = nodes.filter((n) => n.type !== "concept");
+  tableNodes.forEach((t) => {
+    const boundIds = conceptsByTable.get(t.id) || [];
+    const conceptPositions = boundIds
+      .map((cid) => positions.get(cid))
+      .filter(Boolean);
+
+    let x = 0, y = 0;
+    if (conceptPositions.length > 0) {
+      x = conceptPositions.reduce((s, p) => s + p.x, 0) / conceptPositions.length;
+      y = conceptPositions.reduce((s, p) => s + p.y, 0) / conceptPositions.length;
+    }
+    // Pull factor — 0..1 keeps tables between centre and the ring; >1
+    // pushes them outside the concept ring. Default 0.55 sits them
+    // safely in the middle annulus.
+    x *= pull;
+    y *= pull;
+
+    // Stable jitter from a hash of the table id so re-renders don't
+    // teleport nodes. Polar offset so siblings spread along a small
+    // ring around the centroid rather than stacking.
+    const seed = _hashStr(t.id);
+    const jitterAngle = ((seed % 360) * Math.PI) / 180;
+    const jitterRadius = (seed % 100) / 100 * jitter;
+    x += jitterRadius * Math.cos(jitterAngle);
+    y += jitterRadius * Math.sin(jitterAngle);
+
+    positions.set(t.id, { x, y });
+  });
+
+  return positions;
+}
 
 export default function GraphCanvas({
   catalogGraphUrl,
@@ -199,18 +286,36 @@ export default function GraphCanvas({
     // "Missing required properties: pointIndexBy" if the index column is
     // absent. Links similarly need numeric source/target indices for the
     // GPU adjacency lookups.
-    const points = graph.nodes.map((n, i) => ({
-      index: i,
-      id: n.id,
-      type: n.type || "table",   // 9.b.1 — bipartite: "table" | "concept"
-      label: n.label,
-      department: n.department,
-      source: n.source,
-      usage_count: n.usage_count || 0,
-      conceptCount: (n.concepts || []).length,
-      color: colorForNode(n, deptIndex),
-      sizeWeight: sizeWeightForNode(n),
-    }));
+    // When the layout mode is "radial", precompute fixed positions
+    // and attach them to each point. Cosmograph reads them via
+    // pointXBy/pointYBy props (configured below). In "force" mode
+    // we leave x/y as 0 and the sim takes over.
+    const radialPositions =
+      simParams.layoutMode === "radial"
+        ? computeRadialPositions(graph.nodes, graph.edges, {
+            radius: simParams.radialConceptRadius,
+            pull:   simParams.radialTablePull,
+            jitter: simParams.radialTableJitter,
+          })
+        : null;
+
+    const points = graph.nodes.map((n, i) => {
+      const pos = radialPositions?.get(n.id);
+      return {
+        index: i,
+        id: n.id,
+        type: n.type || "table",   // 9.b.1 — bipartite: "table" | "concept"
+        label: n.label,
+        department: n.department,
+        source: n.source,
+        usage_count: n.usage_count || 0,
+        conceptCount: (n.concepts || []).length,
+        color: colorForNode(n, deptIndex),
+        sizeWeight: sizeWeightForNode(n),
+        x: pos ? pos.x : 0,
+        y: pos ? pos.y : 0,
+      };
+    });
     const idToIndex = new Map(points.map((p) => [p.id, p.index]));
 
     // Edge styling per kind. Three kinds now:
@@ -270,7 +375,14 @@ export default function GraphCanvas({
     }
 
     return { points, links, idToIndex, deptIndex, neighborMap };
-  }, [graph, simParams.bindOpacity]);
+  }, [
+    graph,
+    simParams.bindOpacity,
+    simParams.layoutMode,
+    simParams.radialConceptRadius,
+    simParams.radialTablePull,
+    simParams.radialTableJitter,
+  ]);
 
   // Filter dim — derived set of point indices that should remain bright
   // when the user has narrowed the graph via the left-rail filters.
@@ -533,6 +645,13 @@ export default function GraphCanvas({
           // satellite distinction is unmissable.
           pointSizeRange={[simParams.pointSizeMin, simParams.pointSizeMax]}
           pointLabelFontSize={simParams.pointLabelFontSize}
+          // Radial layout: feed pre-computed positions + disable the
+          // force sim. Cosmograph respects (x, y) verbatim per point.
+          // In force mode the props are still passed (Cosmograph
+          // ignores them when enableSimulation is true).
+          {...(simParams.layoutMode === "radial"
+            ? { pointXBy: "x", pointYBy: "y", enableSimulation: false }
+            : { enableSimulation: true })}
           // Soft white labels stay legible against any node color — the
           // default near-black got eaten by the dark colored chips and
           // disappeared on the colored nodes. #f1f5f9 = slate-100, which
@@ -778,13 +897,22 @@ function ContextMenu({
 // localStorage on every change, so a hard refresh keeps the tweak.
 // Reset restores GRAPH_DEFAULTS.
 
-const SIM_FIELDS = [
+const SIM_FIELDS_FORCE = [
   { key: "simulationGravity",      label: "Gravity",        min: 0,    max: 1,    step: 0.05 },
   { key: "simulationRepulsion",    label: "Repulsion",      min: 0,    max: 6,    step: 0.1  },
   { key: "simulationLinkDistance", label: "Link distance",  min: 1,    max: 50,   step: 1    },
   { key: "simulationLinkSpring",   label: "Link spring",    min: 0,    max: 3,    step: 0.1  },
   { key: "simulationFriction",     label: "Friction",       min: 0.5,  max: 1,    step: 0.01 },
   { key: "simulationDecay",        label: "Decay",          min: 100,  max: 10000, step: 100 },
+];
+
+const SIM_FIELDS_RADIAL = [
+  { key: "radialConceptRadius",    label: "Çember yarıçap", min: 100,  max: 800,  step: 10   },
+  { key: "radialTablePull",        label: "Tablo çekim",    min: 0,    max: 1.5,  step: 0.05 },
+  { key: "radialTableJitter",      label: "Tablo dağılım",  min: 0,    max: 200,  step: 5    },
+];
+
+const SIM_FIELDS_VISUAL = [
   { key: "pointSizeMin",           label: "Node size min",  min: 1,    max: 30,   step: 1    },
   { key: "pointSizeMax",           label: "Node size max",  min: 10,   max: 80,   step: 1    },
   { key: "pointLabelFontSize",     label: "Label font",     min: 8,    max: 18,   step: 1    },
@@ -834,7 +962,40 @@ function SimPanel({ params, onChange, onReset }) {
         </button>
       </header>
       <div className="kesif-sim__body">
-        {SIM_FIELDS.map((f) => (
+        <div className="kesif-sim__layout-toggle">
+          <button
+            type="button"
+            className={`kesif-sim__layout-btn${params.layoutMode === "radial" ? " is-active" : ""}`}
+            onClick={() => setField("layoutMode", "radial")}
+          >
+            Radyal
+          </button>
+          <button
+            type="button"
+            className={`kesif-sim__layout-btn${params.layoutMode === "force" ? " is-active" : ""}`}
+            onClick={() => setField("layoutMode", "force")}
+          >
+            Force
+          </button>
+        </div>
+
+        <div className="kesif-sim__group-title">
+          {params.layoutMode === "radial" ? "Radyal düzen" : "Force sim"}
+        </div>
+        {(params.layoutMode === "radial" ? SIM_FIELDS_RADIAL : SIM_FIELDS_FORCE).map((f) => (
+          <SimField
+            key={f.key}
+            label={f.label}
+            value={params[f.key]}
+            min={f.min}
+            max={f.max}
+            step={f.step}
+            onChange={(v) => setField(f.key, v)}
+          />
+        ))}
+
+        <div className="kesif-sim__group-title">Görsel</div>
+        {SIM_FIELDS_VISUAL.map((f) => (
           <SimField
             key={f.key}
             label={f.label}
