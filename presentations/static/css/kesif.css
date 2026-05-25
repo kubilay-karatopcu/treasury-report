@@ -885,141 +885,38 @@
   cursor: default;
 }
 
-/* ── Chat panel (Phase 9.c — inline, at the bottom of the left rail) ── */
+/* ── Chat panel (Phase 9.c — inline, at the bottom of the left rail) ──
+ *
+ * Outer wrapper only — positioning + a border to separate from the
+ * tree above. The visual chrome (header, message bubbles, input,
+ * floating send button) all come from editor.css .chat-box hierarchy
+ * so Atölye chat reads identically to the Sunum "GENEL KOMUT" panel. */
 
 .kesif-chat {
-  /* Chat is now a fixed-height sibling at the bottom of .kesif-left —
-   * always visible, never resized by tree growth. The scroll container
-   * (.kesif-left__scroll) above takes the rest of the rail height.
-   * Height is intentionally chunky so the thread + 2-3 proposal cards
-   * fit without scrolling inside the panel. */
   flex-shrink: 0;
   height: 360px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-top: 1px solid #e6e7e9;
-  background: #ffffff;
+  border-top: 1px solid var(--ts-card-border, #e6e7e9);
+  background: var(--ts-card-bg, #ffffff);
+  padding: 14px;
   margin-left: -14px;
   margin-right: -14px;
-  padding-bottom: 6px;
 }
-.kesif-chat--collapsed {
-  height: auto;
-  flex-shrink: 0;
+.kesif-chat .chat-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
-.kesif-chat--collapsed {
+.kesif-chat .chat-messages {
+  flex: 1;
+  min-height: 0;
   max-height: none;
 }
 
-.kesif-chat__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px;
-  background: #f8fafc;
-  cursor: pointer;
-  user-select: none;
-  border-bottom: 1px solid #e6e7e9;
-}
-.kesif-chat--collapsed .kesif-chat__header {
-  border-bottom: none;
-}
-.kesif-chat__title {
-  font-size: 11px;
-  font-weight: 700;
-  color: #1e293b;
-  letter-spacing: 0.02em;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.kesif-chat__header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-.kesif-chat__icon-btn {
-  background: transparent;
-  border: none;
-  color: #64748b;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  display: inline-flex;
-}
-.kesif-chat__icon-btn:hover:not(:disabled) {
-  background: #e2e8f0;
-  color: #0f172a;
-}
-.kesif-chat__icon-btn:disabled {
-  color: #cbd5e1;
-  cursor: default;
-}
-
-.kesif-chat__thread {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  scrollbar-width: thin;
-  min-height: 0;
-}
-
-.kesif-chat__empty {
-  font-size: 11px;
-  color: #94a3b8;
-  text-align: center;
-  padding: 14px 8px;
-  line-height: 1.5;
-  font-style: italic;
-}
-
-.kesif-chat__bubble {
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 6px 10px;
-  border-radius: 8px;
-  max-width: 92%;
-  word-wrap: break-word;
-}
-.kesif-chat__bubble--user {
-  background: #1e3a8a;
-  color: #fff;
-  align-self: flex-end;
-  border-bottom-right-radius: 4px;
-}
-.kesif-chat__bubble--assistant {
-  background: #f1f5f9;
-  color: #1e293b;
-  align-self: flex-start;
-  border-bottom-left-radius: 4px;
-}
-.kesif-chat__bubble--thinking {
-  color: #64748b;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-style: italic;
-}
-.kesif-chat__bubble--error {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 1px solid #fecaca;
-}
-.kesif-chat__text { white-space: pre-wrap; }
-
-.kesif-chat__error {
-  font-size: 11px;
-  color: #b91c1c;
-  background: #fef2f2;
-  border-radius: 6px;
-  padding: 6px 10px;
-  margin-top: 4px;
-}
-
+/* Proposal cards — Keşif-specific, lives inside .chat-msg--assistant. */
 .kesif-chat__proposals {
   display: flex;
   flex-direction: column;
@@ -1085,44 +982,4 @@
   color: #94a3b8;
   font-style: italic;
   margin-top: 6px;
-}
-
-.kesif-chat__input-row {
-  display: flex;
-  gap: 4px;
-  padding: 6px 10px 4px;
-  border-top: 1px solid #e6e7e9;
-  background: #fafbfc;
-}
-.kesif-chat__input {
-  flex: 1;
-  resize: none;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
-  padding: 4px 7px;
-  font-size: 11px;
-  font-family: inherit;
-  line-height: 1.4;
-  background: #fff;
-  color: #1e293b;
-}
-.kesif-chat__input:focus {
-  outline: none;
-  border-color: #2563eb;
-}
-.kesif-chat__send {
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  padding: 0 9px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  font-family: inherit;
-}
-.kesif-chat__send:hover:not(:disabled) { background: #1d4ed8; }
-.kesif-chat__send:disabled {
-  background: #cbd5e1;
-  cursor: not-allowed;
 }

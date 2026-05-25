@@ -51,22 +51,27 @@ function colorForNode(node, deptIndex) {
 }
 
 // Per-node weight that Cosmograph linearly remaps into pointSizeRange.
-//   - Tables: concept-binding count, capped at TABLE_WEIGHT_MAX.
-//   - Concepts: usage_count + an offset so the *smallest* concept is
-//     larger than the *biggest* table. The floor was bumped per user
-//     feedback — even a one-table concept needs to read as a hub at a
-//     glance, not as a sibling node.
+//   - Tables: concept-binding count, capped at TABLE_WEIGHT_MAX so a
+//     table that happens to bind to 5+ concepts doesn't out-render an
+//     actual concept hub.
+//   - Concepts: floor + sqrt(usage_count) * scale. Uncapped so a hub
+//     with 50 tables visibly dominates one with 3. sqrt compresses the
+//     long tail (50 → 7×scale vs 3 → 1.7×scale) so the smaller hubs
+//     still read at a usable size when a giant hub is present.
 //
-// With pointSizeRange [8, 28] and the weight ranges below:
-//   table   weights 0..6   → ~8..12 px
-//   concept weights 14..22 → ~20..28 px
+// Why sqrt and not linear: linear scaling makes one extreme outlier
+// flatten everyone else into 6px dots. Cosmograph maps the *range*
+// of the weight column into pointSizeRange, so an outlier compresses
+// the rest. sqrt keeps the smallest concepts readable while still
+// giving the biggest one a clearly larger footprint.
 const TABLE_WEIGHT_MAX = 6;
-const CONCEPT_WEIGHT_BASE = 22;    // floor — concepts always visibly dominant
-const CONCEPT_WEIGHT_SPAN = 12;    // 22 + 0..12 → 22..34
+const CONCEPT_WEIGHT_FLOOR = 30;   // floor — smallest concept still > largest table
+const CONCEPT_WEIGHT_SCALE = 18;   // multiplier on sqrt(usage_count)
 
 function sizeWeightForNode(node) {
   if (node.type === "concept") {
-    return CONCEPT_WEIGHT_BASE + Math.min(node.usage_count || 0, CONCEPT_WEIGHT_SPAN);
+    const usage = Math.max(0, node.usage_count || 0);
+    return CONCEPT_WEIGHT_FLOOR + Math.sqrt(usage) * CONCEPT_WEIGHT_SCALE;
   }
   return Math.min((node.concepts || []).length, TABLE_WEIGHT_MAX);
 }
@@ -87,9 +92,13 @@ export const GRAPH_DEFAULTS = {
   // minSpacing forces concepts apart until no pair is closer.
   radialConceptRadius:      380,    // outer reach for the least-used concept
   radialConceptSpacing:     90,     // min px between any two concept hubs
-  radialTablePull:          1.0,    // 1 = at concept centroid; <1 inward, >1 outward
-  radialTableJitter:        45,     // px — random offset to avoid sibling stacking
-  radialTableMinPad:        55,     // px — minimum distance a table sits from its nearest concept hub
+  radialTablePull:          1.0,    // 1 = at weighted centroid; <1 inward, >1 outward
+  radialTableJitter:        38,     // px — random offset to avoid sibling stacking
+  // Tables sit *close to* their dominant concept, not pushed away.
+  // Per user feedback: concepts have gravity → pull tables INWARD.
+  // 0 = no minimum (jitter alone keeps tables off the exact hub).
+  // A small positive value (~15) just nudges them off the dead-centre.
+  radialTableMinPad:        15,
   // Force-sim params (ignored when layoutMode === "radial")
   simulationGravity:        0.25,
   simulationRepulsion:      2.5,
@@ -126,14 +135,22 @@ function _hashStr(s) {
 // layout outward (proportional grow) and re-check. Caps at 10
 // iterations so a pathological case can't loop forever.
 //
-// Tables: same idea as before — centroid of bound concepts × pull
-// factor + stable per-id jitter. Pull defaults to 1.0 (table sits at
-// the centroid); >1 pushes tables outward of their concepts, <1 pulls
-// them inward toward the centre.
+// Tables: weighted centroid of bound concepts × pull factor + stable
+// per-id jitter. The centroid weight is each concept's usage_count
+// (with +1 floor so zero-usage concepts still contribute), so a table
+// bound to one popular + one rare concept drifts toward the popular
+// one — implementing the "concepts have gravity, big concepts pull
+// harder" mental model the user asked for.
+//
+// Pull defaults to 1.0 (table sits at the weighted centroid); >1
+// pushes tables outward of their concepts, <1 pulls them toward (0,0).
+// tableMinPad is a minimum offset from the nearest hub — small enough
+// that tables read as orbiting the concept, not exiled from it.
 function computeRadialPositions(nodes, edges, { radius, minSpacing, pull, jitter, tableMinPad }) {
   const positions = new Map();
   const conceptNodes = nodes.filter((n) => n.type === "concept");
   const tableNodes = nodes.filter((n) => n.type !== "concept");
+  const conceptById = new Map(conceptNodes.map((c) => [c.id, c]));
 
   // Edge case — no concepts to anchor anything. Fall back to a fixed-
   // ring layout for tables so the canvas isn't an empty dot at origin.
@@ -184,7 +201,10 @@ function computeRadialPositions(nodes, edges, { radius, minSpacing, pull, jitter
     placeConcepts(currentScale);
   }
 
-  // ── Table placement: centroid of bound concepts × pull + jitter ──
+  // ── Table placement: weighted centroid of bound concepts ─────────
+  // Weight = concept.usage_count + 1 (floor so all bound concepts
+  // contribute). A table bound to counterparty (usage 6) + region
+  // (usage 3) lands ~67% of the way from region toward counterparty.
   const conceptsByTable = new Map();
   for (const e of edges || []) {
     if (e.kind !== "binds") continue;
@@ -194,12 +214,30 @@ function computeRadialPositions(nodes, edges, { radius, minSpacing, pull, jitter
 
   tableNodes.forEach((t) => {
     const boundIds = conceptsByTable.get(t.id) || [];
-    const cps = boundIds.map((cid) => positions.get(cid)).filter(Boolean);
+    // Build {pos, weight} pairs for the weighted centroid. Skip ids
+    // we don't have a position for (defensive — shouldn't happen post
+    // bipartite emit).
+    const bound = boundIds
+      .map((cid) => {
+        const pos = positions.get(cid);
+        if (!pos) return null;
+        const usage = Math.max(0, conceptById.get(cid)?.usage_count || 0);
+        return { pos, weight: usage + 1 };  // +1 floor — see comment above
+      })
+      .filter(Boolean);
 
     let x = 0, y = 0;
-    if (cps.length > 0) {
-      x = cps.reduce((s, p) => s + p.x, 0) / cps.length;
-      y = cps.reduce((s, p) => s + p.y, 0) / cps.length;
+    let attachedToConcept = false;
+    if (bound.length > 0) {
+      let totalW = 0;
+      for (const b of bound) {
+        x += b.pos.x * b.weight;
+        y += b.pos.y * b.weight;
+        totalW += b.weight;
+      }
+      x /= totalW;
+      y /= totalW;
+      attachedToConcept = true;
     } else {
       // No concept bindings — float on an outer ring so they're visible
       // and not piled at (0,0) on top of the popular hub.
@@ -208,25 +246,29 @@ function computeRadialPositions(nodes, edges, { radius, minSpacing, pull, jitter
       x = currentScale * 0.85 * Math.cos(a);
       y = currentScale * 0.85 * Math.sin(a);
     }
-    // Pull factor: 0 → centre, 1 → at centroid, >1 → beyond centroid.
+    // Pull factor: 0 → centre, 1 → at weighted centroid, >1 → beyond.
     x *= pull;
     y *= pull;
 
-    // Stable jitter so sibling tables don't stack.
+    // Stable jitter so sibling tables (sharing the same dominant
+    // concept) don't stack on top of each other. We scale jitter by a
+    // factor of the bound concept count — a table bound to 3 concepts
+    // gets more wiggle room than one bound to 1, because its centroid
+    // is more "diffuse" anyway.
     const seed = _hashStr(t.id);
     const jitterAngle = ((seed % 360) * Math.PI) / 180;
     const jitterMag = ((seed % 100) / 100) * jitter;
     x += jitterMag * Math.cos(jitterAngle);
     y += jitterMag * Math.sin(jitterAngle);
 
-    // Minimum-distance enforcement: a table can't sit on top of any
-    // concept hub. Without this the popular central hubs disappear
-    // under stacked table labels (the screenshot bug). We push the
-    // table radially away from the nearest concept until clear.
-    if (tableMinPad > 0 && cps.length > 0) {
-      // Use the concept whose hub the table is currently closest to,
-      // not just its bound concepts — a multi-concept table can drift
-      // into an unrelated hub's territory and still cause overlap.
+    // Minimum-distance enforcement: tables that land exactly on a hub
+    // obscure the concept label. We nudge them outward by tableMinPad
+    // (a *small* value — 15 by default — so they still read as
+    // orbiting the hub, not exiled to its periphery). The push uses
+    // the NEAREST concept regardless of binding, so a multi-bound
+    // table that drifts into an unrelated hub's territory still gets
+    // shoved off it.
+    if (tableMinPad > 0 && attachedToConcept) {
       let nearestC = null;
       let nearestD = Infinity;
       for (const c of conceptNodes) {
