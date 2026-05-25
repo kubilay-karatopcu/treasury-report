@@ -61,8 +61,8 @@ function colorForNode(node, deptIndex) {
 //   table   weights 0..6   → ~8..12 px
 //   concept weights 14..22 → ~20..28 px
 const TABLE_WEIGHT_MAX = 6;
-const CONCEPT_WEIGHT_BASE = 14;    // floor — small hubs already obviously larger
-const CONCEPT_WEIGHT_SPAN = 8;     // 14 + 0..8 → 14..22
+const CONCEPT_WEIGHT_BASE = 22;    // floor — concepts always visibly dominant
+const CONCEPT_WEIGHT_SPAN = 12;    // 22 + 0..12 → 22..34
 
 function sizeWeightForNode(node) {
   if (node.type === "concept") {
@@ -71,6 +71,27 @@ function sizeWeightForNode(node) {
   return Math.min((node.concepts || []).length, TABLE_WEIGHT_MAX);
 }
 
+
+// Default sim + visual params. SimPanel below seeds its initial state
+// from here; user tweaks override (persisted via localStorage on the
+// panel side). The same defaults bake back into the bundle once the
+// user copy/pastes their preferred values to me.
+export const GRAPH_DEFAULTS = {
+  // Force-sim
+  simulationGravity:        0.25,
+  simulationRepulsion:      2.5,
+  simulationLinkDistance:   18,
+  simulationLinkSpring:     1.2,
+  simulationFriction:       0.88,
+  simulationDecay:          1000,
+  // Node sizing
+  pointSizeMin:             6,
+  pointSizeMax:             44,
+  // Edge styling
+  bindOpacity:              0.06,
+  // Label
+  pointLabelFontSize:       12,
+};
 
 export default function GraphCanvas({
   catalogGraphUrl,
@@ -83,6 +104,7 @@ export default function GraphCanvas({
                           // picked. Only THESE concept hubs survive the
                           // filter dim — transitive (other concepts a
                           // filtered table also binds) stay greyed.
+  simParams: initialSimParams = GRAPH_DEFAULTS,
   onSelect,
   onAddToBasket,
   onBulkAddToBasket,
@@ -102,6 +124,23 @@ export default function GraphCanvas({
   // composes on top: a clicked node that's outside the filter still
   // wins the focus while filter is active.
   const [clickedFocusId, setClickedFocusId] = useState(null);
+
+  // Live sim/visual params — persisted to localStorage so a tweak
+  // survives a hard refresh. SimPanel below reads + writes through
+  // setSimParams; everything else in this component reads simParams
+  // as plain state.
+  const [simParams, setSimParams] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem("kesif.simParams");
+      if (stored) return { ...initialSimParams, ...JSON.parse(stored) };
+    } catch { /* localStorage may be blocked — fall back to defaults */ }
+    return initialSimParams;
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("kesif.simParams", JSON.stringify(simParams));
+    } catch { /* noop */ }
+  }, [simParams]);
 
   // Right-click menu state.
   const [menu, setMenu] = useState(null); // { x, y, nodeId } | null
@@ -188,9 +227,9 @@ export default function GraphCanvas({
     // the faint line is a hint, not the primary cue. Lookup / manual
     // edges stay full-opacity because they're rare and structural.
     const EDGE_STYLE = {
-      lookup:  { width: 1.6, opacity: 0.85, color: "#334155" },
-      binds:   { width: 0.4, opacity: 0.06, color: "#e2e8f0" },
-      manual:  { width: 1.0, opacity: 0.55, color: "#64748b" },
+      lookup:  { width: 1.6, opacity: 0.85,                       color: "#334155" },
+      binds:   { width: 0.4, opacity: simParams.bindOpacity ?? 0.06, color: "#e2e8f0" },
+      manual:  { width: 1.0, opacity: 0.55,                       color: "#64748b" },
     };
     const defaultStyle = { width: 0.8, opacity: 0.4, color: "#94a3b8" };
 
@@ -231,7 +270,7 @@ export default function GraphCanvas({
     }
 
     return { points, links, idToIndex, deptIndex, neighborMap };
-  }, [graph]);
+  }, [graph, simParams.bindOpacity]);
 
   // Filter dim — derived set of point indices that should remain bright
   // when the user has narrowed the graph via the left-rail filters.
@@ -488,11 +527,12 @@ export default function GraphCanvas({
           pointLabelBy="label"
           pointColorBy="color"
           pointSizeBy="sizeWeight"
-          // Cosmograph linearly remaps the weight range into this px range.
-          // Bumped to [8, 28] so concept hubs (weight 14+) clearly read as
-          // hubs even when their usage_count is low.
-          pointSizeRange={[8, 28]}
-          pointLabelFontSize={10}
+          // pointSizeRange now driven by simParams so the live panel can
+          // tune it without a rebuild. Defaults [6, 44]: tables collapse
+          // to 6-12 px, concepts spread from ~28 → 44 px so the hub vs
+          // satellite distinction is unmissable.
+          pointSizeRange={[simParams.pointSizeMin, simParams.pointSizeMax]}
+          pointLabelFontSize={simParams.pointLabelFontSize}
           // Soft white labels stay legible against any node color — the
           // default near-black got eaten by the dark colored chips and
           // disappeared on the colored nodes. #f1f5f9 = slate-100, which
@@ -506,20 +546,18 @@ export default function GraphCanvas({
           linkColorBy="color"
           linkWidthBy="width"
           linkOpacityBy="opacity"
-          // Force-sim params tuned for the 33+ table / 16 concept fixture
-          // density. Earlier (1.0 / 8 / 0.4) packed the layout so tightly
-          // that label boxes overlapped + bind-edge lines crossed in
-          // every direction. Pushing repulsion + link distance up, easing
-          // gravity, gives each concept-orbit room to breathe.
-          simulationGravity={0.25}
-          simulationRepulsion={2.5}
-          simulationLinkDistance={18}
-          simulationLinkSpring={1.2}
-          simulationFriction={0.88}
+          // Force-sim params live-driven by the floating SimPanel — the
+          // user tunes them in real time and copies the JSON back here
+          // once happy. Defaults in GRAPH_DEFAULTS above.
+          simulationGravity={simParams.simulationGravity}
+          simulationRepulsion={simParams.simulationRepulsion}
+          simulationLinkDistance={simParams.simulationLinkDistance}
+          simulationLinkSpring={simParams.simulationLinkSpring}
+          simulationFriction={simParams.simulationFriction}
           // simulationDecay default 5000 — sim runs for a long time and
           // keeps applying micro-velocities that look like jitter to the
           // user. 1000 = settles in ~2-3s on small graphs.
-          simulationDecay={1000}
+          simulationDecay={simParams.simulationDecay}
           // Filter changes re-emit the points array with new colors;
           // without this flag Cosmograph would re-run the force sim and
           // jitter every node. Holding positions keeps the dim
@@ -564,6 +602,12 @@ export default function GraphCanvas({
       </CosmographProvider>
 
       <Legend deptIndex={deptIndex} />
+
+      <SimPanel
+        params={simParams}
+        onChange={setSimParams}
+        onReset={() => setSimParams(initialSimParams)}
+      />
 
       <MultiSelectBar
         ids={multiSelectIds}
@@ -720,5 +764,127 @@ function ContextMenu({
         Cluster'a odaklan
       </button>
     </div>
+  );
+}
+
+
+// ── SimPanel — live tuning overlay (top-left of the graph) ───────────
+//
+// Mutable controls for the force-sim + visual params. Used to let a
+// human eyeball the best values; the chosen JSON gets copy/pasted back
+// into GRAPH_DEFAULTS once happy.
+//
+// Persistence: parent (GraphCanvas) saves the current params to
+// localStorage on every change, so a hard refresh keeps the tweak.
+// Reset restores GRAPH_DEFAULTS.
+
+const SIM_FIELDS = [
+  { key: "simulationGravity",      label: "Gravity",        min: 0,    max: 1,    step: 0.05 },
+  { key: "simulationRepulsion",    label: "Repulsion",      min: 0,    max: 6,    step: 0.1  },
+  { key: "simulationLinkDistance", label: "Link distance",  min: 1,    max: 50,   step: 1    },
+  { key: "simulationLinkSpring",   label: "Link spring",    min: 0,    max: 3,    step: 0.1  },
+  { key: "simulationFriction",     label: "Friction",       min: 0.5,  max: 1,    step: 0.01 },
+  { key: "simulationDecay",        label: "Decay",          min: 100,  max: 10000, step: 100 },
+  { key: "pointSizeMin",           label: "Node size min",  min: 1,    max: 30,   step: 1    },
+  { key: "pointSizeMax",           label: "Node size max",  min: 10,   max: 80,   step: 1    },
+  { key: "pointLabelFontSize",     label: "Label font",     min: 8,    max: 18,   step: 1    },
+  { key: "bindOpacity",            label: "Bind opacity",   min: 0,    max: 1,    step: 0.02 },
+];
+
+function SimPanel({ params, onChange, onReset }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const setField = useCallback((key, value) => {
+    onChange({ ...params, [key]: value });
+  }, [params, onChange]);
+
+  const copyJson = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(params, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* clipboard may be denied — silent */ }
+  }, [params]);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="kesif-sim__toggle"
+        onClick={() => setOpen(true)}
+        title="Sim ayarları"
+      >
+        ⚙ Sim
+      </button>
+    );
+  }
+
+  return (
+    <div className="kesif-sim" role="dialog" aria-label="Sim ayarları">
+      <header className="kesif-sim__header">
+        <span className="kesif-sim__title">Sim ayarları</span>
+        <button
+          type="button"
+          className="kesif-sim__close"
+          onClick={() => setOpen(false)}
+          title="Kapat"
+        >
+          ×
+        </button>
+      </header>
+      <div className="kesif-sim__body">
+        {SIM_FIELDS.map((f) => (
+          <SimField
+            key={f.key}
+            label={f.label}
+            value={params[f.key]}
+            min={f.min}
+            max={f.max}
+            step={f.step}
+            onChange={(v) => setField(f.key, v)}
+          />
+        ))}
+      </div>
+      <footer className="kesif-sim__footer">
+        <button type="button" className="kesif-btn" onClick={onReset} title="Varsayılana dön">
+          Reset
+        </button>
+        <button type="button" className="kesif-btn kesif-btn--primary" onClick={copyJson} title="JSON'u panoya kopyala">
+          {copied ? "Kopyalandı ✓" : "Kopyala (JSON)"}
+        </button>
+      </footer>
+    </div>
+  );
+}
+
+
+function SimField({ label, value, min, max, step, onChange }) {
+  const num = Number(value);
+  return (
+    <label className="kesif-sim__field">
+      <span className="kesif-sim__field-label">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={num}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="kesif-sim__field-slider"
+      />
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={num}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          if (!Number.isNaN(v)) onChange(v);
+        }}
+        className="kesif-sim__field-number"
+      />
+    </label>
   );
 }
