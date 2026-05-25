@@ -4895,6 +4895,14 @@ body.theme-dark .props-sql-helper__table td code {
   border: 1px solid rgba(220, 38, 38, 0.2);
 }
 
+/* Phase 10D — expert chip group inside the snapshot save form. */
+.save-expert-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .save-success {
   text-align: left;
 }

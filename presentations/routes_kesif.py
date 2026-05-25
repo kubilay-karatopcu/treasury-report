@@ -193,6 +193,83 @@ def atolye_surecler():
     )
 
 
+# ── Phase 11.lib — Tablolar / Şablonlar pages ─────────────────────────────
+
+@presentations_bp.route("/atolye/tablolar")
+@login_required
+def atolye_tablolar():
+    """Server-rendered catalog browser. Reads the same unified catalog the
+    Keşif graph uses (Phase 9.a CatalogLoader) and groups tables by
+    schema for a dark-themed flat browser.
+
+    For deep dive on a single table the row link hands off to the existing
+    ``/presentations/catalog/<schema>/<table>`` JSON endpoint — that's all
+    Keşif itself uses so we get the same data contract.
+    """
+    from presentations.catalog.api import _get_loader
+
+    sicil = getattr(current_user, "sicil", None) or ""
+    try:
+        entries = _get_loader().load(user_sicil=sicil)
+    except Exception:
+        log.exception("atolye_tablolar: catalog loader failed")
+        entries = []
+
+    # Group by schema, sort by name within each group. Schemas with the
+    # most tables come first so EDW is naturally on top.
+    by_schema: dict[str, list] = {}
+    for e in entries:
+        by_schema.setdefault(e.schema_name, []).append(e)
+    grouped = sorted(
+        ((s, sorted(ts, key=lambda x: x.name)) for s, ts in by_schema.items()),
+        key=lambda kv: (-len(kv[1]), kv[0]),
+    )
+
+    return render_template(
+        "presentations/atolye/tablolar.html",
+        groups=grouped,
+        total=sum(len(ts) for _, ts in grouped),
+    )
+
+
+@presentations_bp.route("/atolye/sablonlar")
+@login_required
+def atolye_sablonlar():
+    """Atölye / Şablonlar — curated starter presentations.
+
+    For now: any snapshot bound to ≥1 expert serves as a "template" the
+    user can clone. Phase 12 will introduce a first-class template
+    contract (immutable, versioned, separate from snapshots); for now we
+    surface what the user already has so the page isn't a dead stub.
+    """
+    snapshot_store = current_app.config.get("SNAPSHOT_STORE")
+    expert_store = current_app.config.get("EXPERT_STORE")
+    try:
+        all_meta = snapshot_store.list_all_meta() if snapshot_store else []
+    except Exception:
+        log.exception("atolye_sablonlar: snapshot list_all_meta failed")
+        all_meta = []
+
+    # Only snapshots bound to an expert qualify as templates — gives the
+    # page a coherent shape (otherwise every ad-hoc snapshot leaks in).
+    templates = [m for m in all_meta if m.get("bound_experts")]
+    templates.sort(key=lambda m: m.get("created_at", ""), reverse=True)
+    templates = templates[:24]  # keep it tight
+
+    # Lookup expert metadata (code + accent color) for the badge column.
+    expert_index = {}
+    if expert_store is not None:
+        for e in expert_store.list_all():
+            expert_index[e.id] = {"code": e.code, "color": e.ui.get("accent_color", "#6B8AFD")}
+
+    return render_template(
+        "presentations/atolye/sablonlar.html",
+        templates=templates,
+        expert_index=expert_index,
+        total=len(templates),
+    )
+
+
 @presentations_bp.route("/atolye/kesif/draft", methods=["GET"])
 @login_required
 def kesif_draft_info():

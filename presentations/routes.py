@@ -408,7 +408,14 @@ def _dedupe_filters(manifest: dict) -> int:
 @presentations_bp.route("/<pid>/snapshot", methods=["POST"])
 @login_required
 def create_snapshot(pid: str):
-    """Freeze the current manifest into a shareable snapshot."""
+    """Freeze the current manifest into a shareable snapshot.
+
+    Body (Phase 10D — all optional, missing body keeps prior behaviour):
+      - title         : str  — override meta.title for this snapshot only
+      - description   : str  — short description, persists in snapshot meta
+      - bound_experts : list[str] — expert IDs this snapshot is bound to;
+                                    appears under each expert's citation grid
+    """
     session = _get_session(pid)
     manifest = session.get_manifest(fallback=_seed_manifest(pid))
     if manifest is None:
@@ -417,8 +424,41 @@ def create_snapshot(pid: str):
             status=404, mimetype="application/json",
         )
 
+    body = request.get_json(silent=True) or {}
+    title = body.get("title")
+    description = body.get("description") or ""
+    bound_experts = body.get("bound_experts")
+
+    # Validate bound_experts against the live ExpertStore — reject unknown
+    # ids early so the snapshot isn't published with a stale reference.
+    if bound_experts is not None:
+        if not isinstance(bound_experts, list):
+            return Response(
+                json.dumps({"error": "bound_experts bir liste olmalı."}, ensure_ascii=False),
+                status=400, mimetype="application/json",
+            )
+        expert_store = current_app.config.get("EXPERT_STORE")
+        if expert_store is not None:
+            unknown = [
+                eid for eid in bound_experts
+                if not isinstance(eid, str) or not expert_store.exists(eid)
+            ]
+            if unknown:
+                return Response(
+                    json.dumps({
+                        "error": f"Bilinmeyen uzman id'leri: {unknown}",
+                    }, ensure_ascii=False),
+                    status=400, mimetype="application/json",
+                )
+
     store = current_app.config["SNAPSHOT_STORE"]
-    meta = store.save(manifest, owner_id=current_user.sicil)
+    meta = store.save(
+        manifest,
+        owner_id=current_user.sicil,
+        title_override=title,
+        description=description,
+        bound_experts=bound_experts,
+    )
 
     # Return the meta + the URL the user can share. We compute the URL relative
     # to /presentations/ so reverse-proxy SCRIPT_NAME prefixes are honored.

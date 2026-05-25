@@ -401,6 +401,34 @@ def validate_manifest(manifest: dict) -> list[str]:
         except Exception as exc:
             errors.append(f"scope_ref: {exc}")
 
+    # ── Phase 10B: optional bound_experts ─────────────────────────────────
+    # Migration always defaults to [] so this field is present on every
+    # manifest after load; the typecheck still has to work for raw input
+    # from the API (snapshot save body, direct PATCH, etc.).
+    bound = manifest.get("bound_experts")
+    if bound is not None:
+        if not isinstance(bound, list):
+            errors.append("manifest.bound_experts must be a list of expert IDs")
+        else:
+            for i, x in enumerate(bound):
+                if not isinstance(x, str):
+                    errors.append(f"bound_experts[{i}] must be a string")
+                    continue
+            # Existence check is done against the live ExpertStore when one
+            # is reachable via current_app.config. Keep the import lazy so
+            # this module stays importable in tests that build a bare app.
+            try:
+                from flask import current_app
+                store = current_app.config.get("EXPERT_STORE") if current_app else None
+            except RuntimeError:
+                store = None
+            if store is not None:
+                for i, eid in enumerate(bound):
+                    if isinstance(eid, str) and not store.exists(eid):
+                        errors.append(
+                            f"bound_experts[{i}]: unknown expert id {eid!r}"
+                        )
+
     return errors
 
 

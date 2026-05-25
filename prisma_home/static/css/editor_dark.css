@@ -1,0 +1,409 @@
+/* ═════════════════════════════════════════════════════════════════════════
+   Editor dark theme — Phase 11.dark-editor
+
+   Override layer that paints the producer surfaces (editor, list,
+   snapshot, library page chrome) with the PRISMA dark palette. Sits ON
+   TOP OF editor.css so we don't have to touch the 6300+ line legacy CSS;
+   light theme later just stops loading this sheet.
+
+   Token discipline: every color here is a `var(--editor-*)` so the
+   future Phase 11.light override block in prisma.css can flip all of
+   them in one place.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Body + root surfaces ─────────────────────────────────────────────── */
+body.prisma .editor-root,
+body.prisma .editor-body,
+body.prisma.canvas-bleed .canvas-bleed-mount {
+  background: var(--editor-surface);
+  color: var(--editor-ink-soft);
+}
+
+/* ── Header / topbar — black with the gold edge already in PRISMA ───── */
+body.prisma .editor-header {
+  background: var(--editor-surface);
+  border-bottom: 1px solid var(--editor-border);
+  color: var(--editor-ink);
+}
+body.prisma .header-breadcrumb-current,
+body.prisma .header-title-input {
+  color: var(--editor-ink) !important;
+  background: transparent !important;
+}
+body.prisma .header-title-input { border-color: var(--editor-border) !important; }
+body.prisma .header-breadcrumb-current.is-editable:hover {
+  background: var(--editor-surface-2) !important;
+}
+body.prisma .header-meta { color: var(--editor-ink-faint); }
+body.prisma .header-snapshot-pill {
+  background: var(--editor-surface-2);
+  color: var(--editor-accent);
+  border-color: var(--editor-border-strong);
+}
+body.prisma .header-mode-pill {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink-mute);
+  border-color: var(--editor-border-strong);
+}
+body.prisma .header-sidebar-toggle,
+body.prisma .header-home-link {
+  color: var(--editor-ink-mute);
+}
+body.prisma .header-sidebar-toggle:hover {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink);
+}
+
+/* ── Button family — used across editor + modals ───────────────────── */
+body.prisma .btn-primary {
+  background: var(--editor-accent);
+  color: var(--editor-surface);
+  border: 1px solid var(--editor-accent);
+}
+body.prisma .btn-primary:hover:not(:disabled) {
+  background: var(--gold-soft);
+  border-color: var(--gold-soft);
+}
+body.prisma .btn-secondary,
+body.prisma .btn-ghost {
+  background: transparent;
+  color: var(--editor-ink-mute);
+  border: 1px solid var(--editor-border-strong);
+}
+body.prisma .btn-secondary:hover:not(:disabled),
+body.prisma .btn-ghost:hover:not(:disabled) {
+  color: var(--editor-ink);
+  border-color: var(--editor-ink-faint);
+  background: var(--editor-surface-2);
+}
+body.prisma .btn-secondary.is-active {
+  color: var(--editor-accent);
+  border-color: var(--editor-accent);
+}
+
+/* ── Left sidebar (basket / data sources tree) ───────────────────── */
+body.prisma .editor-sidebar,
+body.prisma .editor-side-panel,
+body.prisma .basket-panel,
+body.prisma .data-sources-panel,
+body.prisma .chat-panel {
+  background: var(--editor-surface);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .sidebar-section-title,
+body.prisma .basket-section-title,
+body.prisma .panel-eyebrow {
+  color: var(--editor-ink-faint);
+}
+body.prisma .basket-item,
+body.prisma .data-source-item,
+body.prisma .tree-item {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .basket-item:hover,
+body.prisma .data-source-item:hover,
+body.prisma .tree-item:hover {
+  background: var(--editor-surface-2);
+  border-color: var(--editor-border-strong);
+}
+
+/* ── Chat box (left-bottom) ─────────────────────────────────────── */
+body.prisma .chat-input,
+body.prisma .chat-message-input,
+body.prisma .chat-textarea {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink);
+  border-color: var(--editor-border);
+}
+body.prisma .chat-input::placeholder,
+body.prisma .chat-textarea::placeholder {
+  color: var(--editor-ink-faint);
+}
+body.prisma .chat-bubble--user {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink);
+}
+body.prisma .chat-bubble--assistant {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink-soft);
+  border-color: var(--editor-border);
+}
+
+/* ── Center canvas + scope banner ───────────────────────────────── */
+body.prisma .editor-content,
+body.prisma .editor-canvas,
+body.prisma .blocks-canvas,
+body.prisma .editor-blocks-container {
+  background: var(--editor-surface);
+  color: var(--editor-ink-soft);
+}
+body.prisma .scope-banner {
+  background: var(--editor-accent-soft) !important;
+  border-bottom-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .scope-banner .sb-edit { color: var(--editor-accent) !important; }
+
+/* ── Block cards (KPI, narrative, chart wrappers) ───────────────── */
+body.prisma .block-card,
+body.prisma .editor-block,
+body.prisma .block-body,
+body.prisma .section-header-card {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .block-card:hover,
+body.prisma .editor-block:hover {
+  border-color: var(--editor-border-strong);
+}
+body.prisma .block-card.is-selected,
+body.prisma .editor-block.is-selected {
+  border-color: var(--editor-accent);
+  box-shadow: 0 0 0 1px var(--editor-accent);
+}
+body.prisma .block-card h3,
+body.prisma .block-card h4,
+body.prisma .block-card .block-title,
+body.prisma .section-header-card h2 {
+  color: var(--editor-ink);
+}
+body.prisma .block-footer,
+body.prisma .block-footer-text { color: var(--editor-ink-faint); }
+body.prisma .block-footer { border-top-color: var(--editor-border); }
+body.prisma .block-strip {
+  background: var(--editor-surface-2);
+  border-color: var(--editor-border);
+}
+body.prisma .block-strip-btn { color: var(--editor-ink-mute); }
+body.prisma .block-strip-btn:hover {
+  background: var(--editor-surface-3);
+  color: var(--editor-ink);
+}
+body.prisma .block-locked-pill,
+body.prisma .block-stale-pill,
+body.prisma .block-blind-pill,
+body.prisma .block-concept-pill {
+  background: var(--editor-surface-3);
+  color: var(--editor-ink-mute);
+  border-color: var(--editor-border);
+}
+
+/* ── KPI block — large numeric tile ─────────────────────────────── */
+body.prisma .kpi-block,
+body.prisma .kpi-value {
+  color: var(--editor-ink);
+}
+body.prisma .kpi-label,
+body.prisma .kpi-period,
+body.prisma .kpi-delta-label {
+  color: var(--editor-ink-mute);
+}
+body.prisma .kpi-delta--pos { color: var(--editor-success); }
+body.prisma .kpi-delta--neg { color: var(--red-soft); }
+
+/* ── Narrative block ───────────────────────────────────────────── */
+body.prisma .narrative-block,
+body.prisma .narrative-text {
+  color: var(--editor-ink-soft);
+}
+body.prisma .narrative-block strong { color: var(--editor-ink); }
+
+/* ── Properties / right panel ──────────────────────────────────── */
+body.prisma .properties-panel,
+body.prisma .properties-section {
+  background: var(--editor-surface);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .properties-field-label { color: var(--editor-ink-mute); }
+body.prisma .properties-input,
+body.prisma .properties-select,
+body.prisma .properties-textarea {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink);
+  border-color: var(--editor-border);
+}
+body.prisma .properties-input:focus,
+body.prisma .properties-select:focus,
+body.prisma .properties-textarea:focus {
+  border-color: var(--editor-accent);
+  outline: none;
+}
+
+/* ── Modals (SaveModal + ShareModal) ───────────────────────────── */
+body.prisma .save-modal,
+body.prisma .share-modal {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink-soft);
+  border-color: var(--editor-border-strong);
+}
+body.prisma .save-modal-header,
+body.prisma .share-modal-header {
+  border-bottom-color: var(--editor-border);
+}
+body.prisma .save-modal-header h3,
+body.prisma .share-modal-header h3 {
+  color: var(--editor-ink);
+}
+body.prisma .save-modal-close { color: var(--editor-ink-mute); }
+body.prisma .save-modal-close:hover {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink);
+}
+body.prisma .save-modal-tab {
+  color: var(--editor-ink-mute);
+  background: transparent;
+}
+body.prisma .save-modal-tab:hover {
+  color: var(--editor-ink);
+  background: var(--editor-surface-2);
+}
+body.prisma .save-modal-tab.is-active {
+  color: var(--editor-accent);
+  border-bottom-color: var(--editor-accent);
+}
+body.prisma .save-field-label { color: var(--editor-ink-mute); }
+body.prisma .save-field-input,
+body.prisma .save-field-textarea {
+  background: var(--editor-surface);
+  color: var(--editor-ink);
+  border-color: var(--editor-border);
+}
+body.prisma .save-field-input:focus,
+body.prisma .save-field-textarea:focus {
+  border-color: var(--editor-accent);
+}
+body.prisma .save-btn--ghost {
+  color: var(--editor-ink-mute);
+  border-color: var(--editor-border-strong);
+  background: transparent;
+}
+body.prisma .save-btn--ghost:hover:not(:disabled) {
+  color: var(--editor-ink);
+  border-color: var(--editor-ink-faint);
+  background: var(--editor-surface-2);
+}
+body.prisma .save-btn--primary {
+  background: var(--editor-accent);
+  color: var(--editor-surface);
+  border-color: var(--editor-accent);
+}
+body.prisma .save-btn--primary:hover:not(:disabled) {
+  background: var(--gold-soft);
+  border-color: var(--gold-soft);
+}
+body.prisma .save-tab-desc { color: var(--editor-ink-mute); }
+body.prisma .save-success-title { color: var(--editor-success); }
+body.prisma .save-success-desc { color: var(--editor-ink-soft); }
+body.prisma .save-error {
+  background: var(--editor-danger-soft);
+  border-color: var(--editor-danger);
+  color: var(--red-soft);
+}
+
+/* ── Snapshot view (consumer mode, fullscreen mount) ────────────── */
+body.prisma .snapshot-toc,
+body.prisma .snapshot-sidebar {
+  background: var(--editor-surface);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-mute);
+}
+body.prisma .toc-item { color: var(--editor-ink-mute); }
+body.prisma .toc-item.is-active {
+  color: var(--editor-accent);
+  border-left-color: var(--editor-accent);
+}
+
+/* ── Presentations list page (Sunum library cards) ──────────────── */
+body.prisma .pres-list-title,
+body.prisma .pres-list-subtitle,
+body.prisma .pres-tab,
+body.prisma .pres-card,
+body.prisma .pres-card-title,
+body.prisma .pres-card-meta,
+body.prisma .pres-tabpanel { color: var(--editor-ink-soft); }
+body.prisma .pres-list-page { background: var(--editor-surface); color: var(--editor-ink-soft); }
+body.prisma .pres-list-title { color: var(--editor-ink); }
+body.prisma .pres-list-subtitle { color: var(--editor-ink-mute); }
+body.prisma .pres-tabs { border-bottom-color: var(--editor-border); }
+body.prisma .pres-tab { color: var(--editor-ink-mute); }
+body.prisma .pres-tab:hover { color: var(--editor-ink); }
+body.prisma .pres-tab.is-active {
+  color: var(--editor-accent);
+  border-bottom-color: var(--editor-accent);
+}
+body.prisma .pres-tab-count {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink-mute);
+}
+body.prisma .pres-card {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+}
+body.prisma .pres-card:hover {
+  border-color: var(--editor-accent);
+  box-shadow: 0 4px 14px rgba(212, 166, 86, 0.10);
+}
+body.prisma .pres-card-title { color: var(--editor-ink); }
+body.prisma .pres-card-meta-item { color: var(--editor-ink-faint); }
+body.prisma .pres-card-eyebrow { color: var(--editor-ink-mute); }
+body.prisma .pres-card-eyebrow.is-demo { color: var(--editor-accent); }
+body.prisma .pres-card-btn--primary {
+  background: var(--editor-accent);
+  color: var(--editor-surface);
+}
+body.prisma .pres-card-btn--primary:hover {
+  background: var(--gold-soft);
+}
+body.prisma .pres-card-btn--danger {
+  background: transparent;
+  color: var(--editor-danger);
+  border-color: var(--editor-danger);
+}
+body.prisma .pres-empty,
+body.prisma .pres-empty-title { color: var(--editor-ink-soft); }
+body.prisma .pres-empty-subtitle { color: var(--editor-ink-mute); }
+body.prisma .pres-create-btn {
+  background: var(--editor-accent);
+  color: var(--editor-surface);
+}
+body.prisma .pres-create-btn--ghost {
+  background: transparent !important;
+  color: var(--editor-ink-mute) !important;
+  border-color: var(--editor-border-strong) !important;
+}
+body.prisma .pres-create-btn--ghost:hover {
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-ink-faint) !important;
+}
+
+/* Bloklar tab inputs */
+body.prisma .pres-blocks-filters__search,
+body.prisma .pres-blocks-filters input,
+body.prisma .pres-blocks-filters select {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink);
+  border-color: var(--editor-border);
+}
+body.prisma .pres-blocks-filters input::placeholder { color: var(--editor-ink-faint); }
+body.prisma .pres-loading { color: var(--editor-ink-mute); }
+
+/* ── AG Grid — dark surface tint (works alongside alpine-dark theme) ── */
+body.prisma .ag-theme-alpine,
+body.prisma .ag-theme-alpine-dark {
+  --ag-background-color: var(--editor-surface-1);
+  --ag-odd-row-background-color: var(--editor-surface);
+  --ag-header-background-color: var(--editor-surface-2);
+  --ag-header-foreground-color: var(--editor-ink-mute);
+  --ag-foreground-color: var(--editor-ink-soft);
+  --ag-row-hover-color: var(--editor-surface-2);
+  --ag-selected-row-background-color: var(--editor-accent-soft);
+  --ag-border-color: var(--editor-border);
+  --ag-secondary-border-color: var(--editor-border);
+}
+
+/* ── Login + helper messages already dark via login.html — no overrides ── */

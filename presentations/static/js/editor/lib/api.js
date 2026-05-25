@@ -91,16 +91,55 @@ export async function submitPatches(patches) {
 
 // ── Snapshot ────────────────────────────────────────────────────────────────
 
-export async function createSnapshot() {
-  const resp = await fetch(`${API_BASE}/snapshot`, {
+/**
+ * Create a snapshot. Phase 10D body fields are all optional — calling
+ * createSnapshot() with no arg keeps the pre-10D behaviour.
+ *
+ * @param {object} [body]
+ * @param {string} [body.title]          override for snapshot meta.title
+ * @param {string} [body.description]    short description, persisted in meta
+ * @param {string[]} [body.bound_experts] expert ids this snapshot is bound to
+ */
+export async function createSnapshot(body = undefined) {
+  const init = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-  });
+  };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  const resp = await fetch(`${API_BASE}/snapshot`, init);
   if (!resp.ok) {
     const txt = await resp.text();
     throw new Error(`Snapshot oluşturulamadı (${resp.status}): ${txt}`);
   }
   return resp.json();
+}
+
+// ── Experts (Phase 10B/C/D) ─────────────────────────────────────────────────
+
+/** List all experts visible to the current user. */
+export async function listExperts() {
+  const resp = await fetch(`/api/experts/`, { headers: { Accept: 'application/json' } });
+  if (!resp.ok) throw new Error(`Uzman listesi alınamadı: ${resp.status}`);
+  const payload = await resp.json();
+  return payload.experts || [];
+}
+
+/**
+ * Get LLM-backed suggestions for which experts a snapshot should be bound to.
+ * Always returns an array (server falls back to keyword scoring when LLM is offline).
+ */
+export async function suggestExperts({ manifest, title, description }) {
+  const resp = await fetch(`/api/experts/suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manifest, title: title || '', description: description || '' }),
+  });
+  if (!resp.ok) {
+    // Suggestions are a nice-to-have; silently degrade so the user can still pick manually.
+    return [];
+  }
+  const payload = await resp.json();
+  return payload.suggestions || [];
 }
 
 // ── User info + Dashboard publish ───────────────────────────────────────────
