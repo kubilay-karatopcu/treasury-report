@@ -181,6 +181,24 @@ def create_app():
         base_dir=Path(__file__).parent / "v2_blocks",
     )
 
+    # LibraryStore — older block-library (separate from Phase 6.5.a
+    # BlockStore). Needed by /presentations/library which Atölye/Bloklar
+    # (Phase 9.e) consumes. Local filesystem stub in dev.
+    from presentations.store import LocalLibraryStore
+    app.config["LIBRARY_STORE"] = LocalLibraryStore(
+        base_dir=Path(__file__).parent / "library",
+    )
+
+    # DashboardStore — published reports. Atölye routes don't need it
+    # directly but other endpoints expect it in the config.
+    try:
+        from presentations.store import LocalDashboardStore
+        app.config["DASHBOARD_STORE"] = LocalDashboardStore(
+            base_dir=Path(__file__).parent / "dashboards",
+        )
+    except Exception as exc:
+        print(f"⚠ DASHBOARD_STORE setup skipped: {exc}")
+
     # TableDocStore — Phase 6.5.b. Reads from examples/table_docs/<SCHEMA>/<TABLE>.yaml.
     from presentations.table_docs.store import LocalTableDocStore, CachedTableDocStore
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(

@@ -149,6 +149,50 @@ def atolye_kesif():
     )
 
 
+@presentations_bp.route("/atolye/bloklar")
+@login_required
+def atolye_bloklar():
+    """Atölye / Bloklar — Hybrid C: left rail (filters + tree + chat),
+    center grid of saved block cards, right rail detail card. Reuses
+    Phase 6.5.a's /presentations/library JSON for the underlying data.
+
+    Phase 9.e — current sub-phase. Chat backend (propose_blocks) lands
+    in Phase 10 with the marketplace MVP; for now the chat panel
+    renders but proposals are placeholder-only.
+    """
+    sicil = getattr(current_user, "sicil", None) or ""
+    payload = {
+        "user": {
+            "sicil": sicil,
+            "name": getattr(current_user, "name", "") or "",
+            "department": getattr(current_user, "department", "") or "",
+        },
+        "endpoints": {
+            "library_list": url_for("presentations.list_library"),
+            "library_detail_template": "/presentations/library/{bid}",
+            "library_preview_template": "/presentations/library/{bid}/preview",
+        },
+    }
+    return render_template(
+        "presentations/atolye/bloklar.html",
+        bloklar_json=json.dumps(payload, ensure_ascii=False, default=str),
+        title="Bloklar",
+    )
+
+
+@presentations_bp.route("/atolye/surecler")
+@login_required
+def atolye_surecler():
+    """Atölye / Süreçler — Phase 13 placeholder. Renders the shared
+    top-nav with an empty body so the umbrella feels complete; real
+    process discovery (catalog/processes/*.yaml + tree render) comes
+    in a later phase."""
+    return render_template(
+        "presentations/atolye/surecler.html",
+        title="Süreçler",
+    )
+
+
 @presentations_bp.route("/atolye/kesif/draft", methods=["GET"])
 @login_required
 def kesif_draft_info():

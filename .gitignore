@@ -33,6 +33,8 @@ presentations/static/js/hazirlik.bundle.css.map
 presentations/static/js/kesif.bundle.js
 presentations/static/js/kesif.bundle.js.map
 presentations/static/js/kesif-assets/
+presentations/static/js/bloklar.bundle.js
+presentations/static/js/bloklar.bundle.js.map
 
 # DEV-only — local stub, sample data, reference dumps. PROD'da kullanılmaz.
 fake_db.py
