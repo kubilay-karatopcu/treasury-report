@@ -34,6 +34,13 @@
   flex-shrink: 0;
 }
 .kesif-topbar__logo:hover { background: #f1f5f9; }
+.kesif-topbar__logo-img {
+  height: 24px;
+  width: auto;
+  display: block;
+}
+/* Legacy fallback — when bundles pre-PNG land, the text-mode logo
+ * still renders. New bundles use the img tag above. */
 .kesif-topbar__logo-text {
   font-size: 13px;
   font-weight: 700;
@@ -130,7 +137,20 @@
 .kesif-left {
   background: #fff;
   border-right: 1px solid #e6e7e9;
-  padding: 16px 14px;
+  padding: 16px 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+/* Scrollable container that holds the filters + tree above the chat.
+ * Chat sits as a fixed-height sibling below; the scroll area takes
+ * whatever vertical space is left after chat's fixed allocation. */
+.kesif-left__scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 12px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -187,6 +207,17 @@
   padding: 1px 6px;
   border-radius: 8px;
 }
+.kesif-filter-group__more {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 4px 4px 4px 22px;
+  text-align: left;
+  font-family: inherit;
+}
+.kesif-filter-group__more:hover { color: #1e3a8a; text-decoration: underline; }
 
 /* Filter Apply row: appears under the filter checkboxes whenever
  * pending filters differ from applied (or applied is non-empty). The
@@ -857,20 +888,25 @@
 /* ── Chat panel (Phase 9.c — inline, at the bottom of the left rail) ── */
 
 .kesif-chat {
-  margin-top: auto;            /* push to the bottom of the left rail */
+  /* Chat is now a fixed-height sibling at the bottom of .kesif-left —
+   * always visible, never resized by tree growth. The scroll container
+   * (.kesif-left__scroll) above takes the rest of the rail height.
+   * Height is intentionally chunky so the thread + 2-3 proposal cards
+   * fit without scrolling inside the panel. */
+  flex-shrink: 0;
+  height: 360px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* Chat is the primary discovery affordance after the tree — give it
-   * room to breathe. Bumped from 56% → 72% per user feedback ("chat
-   * kısmını yukarı doğru genişletelim"). */
-  max-height: 72%;
   border-top: 1px solid #e6e7e9;
   background: #ffffff;
   margin-left: -14px;
   margin-right: -14px;
-  margin-bottom: -16px;
   padding-bottom: 6px;
+}
+.kesif-chat--collapsed {
+  height: auto;
+  flex-shrink: 0;
 }
 .kesif-chat--collapsed {
   max-height: none;

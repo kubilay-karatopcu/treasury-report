@@ -59,7 +59,9 @@ function App() {
   const [selectedTeams, setSelectedTeams] = useState(new Set());
   const [selectedVizTypes, setSelectedVizTypes] = useState(new Set());
   const [selectedTags, setSelectedTags] = useState(new Set());
-  const [collapsedTeams, setCollapsedTeams] = useState(new Set());
+  // Team groups start fully collapsed (mirror Keşif's Şemalar rework).
+  // expandedTeams holds the open ones; absent = closed.
+  const [expandedTeams, setExpandedTeams] = useState(new Set());
 
   const [selectedBid, setSelectedBid] = useState(null);
 
@@ -163,7 +165,7 @@ function App() {
   const toggleTeam = toggleSet(setSelectedTeams);
   const toggleViz = toggleSet(setSelectedVizTypes);
   const toggleTag = toggleSet(setSelectedTags);
-  const toggleTeamCollapsed = (team) => setCollapsedTeams((prev) => {
+  const toggleTeamExpanded = (team) => setExpandedTeams((prev) => {
     const next = new Set(prev);
     if (next.has(team)) next.delete(team); else next.add(team);
     return next;
@@ -180,42 +182,51 @@ function App() {
     selectedTags.size > 0 ||
     !!debouncedSearch;
 
+  // Selected → open the bottom panel. Closing the panel clears the
+  // selection so the next click reopens.
+  const isBottomOpen = !!selectedBlock;
+
   return (
     <>
       <Topbar userName={USER.name} userDept={USER.department} />
-      <div className="kesif-body">
-        <LeftRail
-          facets={facets}
-          loading={loading}
-          error={error}
-          search={search}
-          onSearch={setSearch}
-          selectedTeams={selectedTeams}
-          selectedVizTypes={selectedVizTypes}
-          selectedTags={selectedTags}
-          onToggleTeam={toggleTeam}
-          onToggleViz={toggleViz}
-          onToggleTag={toggleTag}
-          filtersActive={filtersActive}
-          onResetFilters={resetFilters}
-          treeGroups={treeGroups}
-          collapsedTeams={collapsedTeams}
-          onToggleTeamCollapsed={toggleTeamCollapsed}
-          selectedBid={selectedBid}
-          onSelect={setSelectedBid}
-          totalCount={blocks.length}
-        />
-        <BlockGrid
-          loading={loading}
-          error={error}
-          blocks={filteredBlocks}
-          totalCount={blocks.length}
-          selectedBid={selectedBid}
-          onSelect={setSelectedBid}
-        />
-        <DetailRail
-          block={selectedBlock}
-        />
+      <div className={`bloklar-shell${isBottomOpen ? " has-bottom" : ""}`}>
+        <div className="kesif-body kesif-body--right-collapsed">
+          <LeftRail
+            facets={facets}
+            loading={loading}
+            error={error}
+            search={search}
+            onSearch={setSearch}
+            selectedTeams={selectedTeams}
+            selectedVizTypes={selectedVizTypes}
+            selectedTags={selectedTags}
+            onToggleTeam={toggleTeam}
+            onToggleViz={toggleViz}
+            onToggleTag={toggleTag}
+            filtersActive={filtersActive}
+            onResetFilters={resetFilters}
+            treeGroups={treeGroups}
+            expandedTeams={expandedTeams}
+            onToggleTeamExpanded={toggleTeamExpanded}
+            selectedBid={selectedBid}
+            onSelect={setSelectedBid}
+            totalCount={blocks.length}
+          />
+          <BlockGrid
+            loading={loading}
+            error={error}
+            blocks={filteredBlocks}
+            totalCount={blocks.length}
+            selectedBid={selectedBid}
+            onSelect={setSelectedBid}
+          />
+        </div>
+        {isBottomOpen && (
+          <BottomPanel
+            block={selectedBlock}
+            onClose={() => setSelectedBid(null)}
+          />
+        )}
       </div>
     </>
   );
@@ -225,11 +236,15 @@ function App() {
 // ── Topbar (shared shape with Keşif) ─────────────────────────────────
 
 
+const PRISMA_LOGO_URL = "/presentations/static/img/prisma_logo.png";
+
 function Topbar({ userName, userDept }) {
   return (
     <header className="kesif-topbar">
+      <a href="/presentations/" className="kesif-topbar__logo" title="PRISMA — Tüm sunumlara dön">
+        <img src={PRISMA_LOGO_URL} alt="PRISMA" className="kesif-topbar__logo-img" />
+      </a>
       <span className="kesif-topbar__brand">
-        <Layers size={16} />
         Atölye
         <span className="kesif-topbar__crumb">/</span>
         Bloklar
@@ -260,112 +275,116 @@ function LeftRail({
   selectedTeams, selectedVizTypes, selectedTags,
   onToggleTeam, onToggleViz, onToggleTag,
   filtersActive, onResetFilters,
-  treeGroups, collapsedTeams, onToggleTeamCollapsed,
+  treeGroups, expandedTeams, onToggleTeamExpanded,
   selectedBid, onSelect,
   totalCount,
 }) {
   return (
     <aside className="kesif-left">
-      <div className="kesif-search">
-        <input
-          type="search"
-          placeholder="🔍 Blok ara…"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          aria-label="Blok ara"
+      <div className="kesif-left__scroll">
+        <FilterGroup
+          title="Ekip"
+          items={facets.teams}
+          selected={selectedTeams}
+          onToggle={onToggleTeam}
         />
-      </div>
-
-      <FilterGroup
-        title="Ekip"
-        items={facets.teams}
-        selected={selectedTeams}
-        onToggle={onToggleTeam}
-      />
-      <FilterGroup
-        title="Görsel tipi"
-        items={facets.viz}
-        selected={selectedVizTypes}
-        onToggle={onToggleViz}
-        labelFor={vizLabel}
-      />
-      <FilterGroup
-        title="Etiket"
-        items={facets.tags}
-        selected={selectedTags}
-        onToggle={onToggleTag}
-      />
-      {filtersActive && (
-        <div className="kesif-filter-apply">
-          <button
-            type="button"
-            className="kesif-btn kesif-filter-apply__btn"
-            onClick={onResetFilters}
-            title="Filtreleri sıfırla"
-          >
-            Sıfırla
-          </button>
-        </div>
-      )}
-
-      <div className="kesif-tree">
-        <h3 className="kesif-tree__section">
-          Bloklar
-          <span className="kesif-filter-option__count" style={{marginLeft:'auto'}}>
-            {totalCount}
-          </span>
-        </h3>
-        {loading ? (
-          <div className="kesif-tree__empty"><Loader2 size={12} className="kesif-spin" /> Yükleniyor…</div>
-        ) : error ? (
-          <div className="kesif-tree__empty" style={{ color: "#b91c1c" }}>{error}</div>
-        ) : treeGroups.byTeam.size === 0 ? (
-          <div className="kesif-tree__empty">Sonuç bulunamadı</div>
-        ) : (
-          [...treeGroups.byTeam.entries()].sort().map(([team, items]) => {
-            const collapsed = collapsedTeams.has(team);
-            return (
-              <div key={team}>
-                <div
-                  className="kesif-tree__dept"
-                  onClick={() => onToggleTeamCollapsed(team)}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <span className="kesif-tree__dept-caret">
-                    {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
-                  </span>
-                  {team === "—" ? "Diğer" : team}
-                  <span className="kesif-filter-option__count" style={{marginLeft:'auto'}}>
-                    {items.length}
-                  </span>
-                </div>
-                {!collapsed && (
-                  <div className="kesif-tree__tables">
-                    {items.map((b) => {
-                      const bid = b.library_id || b.id;
-                      return (
-                        <div
-                          key={bid}
-                          className={`kesif-tree__table${selectedBid === bid ? " is-selected" : ""}`}
-                          onClick={() => onSelect(bid)}
-                          role="button"
-                          tabIndex={0}
-                          title={b.name || bid}
-                        >
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {b.name || "(adsız)"}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })
+        <FilterGroup
+          title="Görsel tipi"
+          items={facets.viz}
+          selected={selectedVizTypes}
+          onToggle={onToggleViz}
+          labelFor={vizLabel}
+        />
+        <FilterGroup
+          title="Etiket"
+          items={facets.tags}
+          selected={selectedTags}
+          onToggle={onToggleTag}
+        />
+        {filtersActive && (
+          <div className="kesif-filter-apply">
+            <button
+              type="button"
+              className="kesif-btn kesif-filter-apply__btn"
+              onClick={onResetFilters}
+              title="Filtreleri sıfırla"
+            >
+              Sıfırla
+            </button>
+          </div>
         )}
-      </div>
+
+        <div className="kesif-tree">
+          <h3 className="kesif-tree__section">
+            Bloklar
+            <span className="kesif-filter-option__count" style={{marginLeft:'auto'}}>
+              {totalCount}
+            </span>
+          </h3>
+          {/* Block search lives inside the Bloklar tree section — mirrors
+             Keşif's tablo araması inside Şemalar so the two screens read
+             as siblings. */}
+          <div className="kesif-search kesif-search--inline">
+            <input
+              type="search"
+              placeholder="🔍 Blok ara…"
+              value={search}
+              onChange={(e) => onSearch(e.target.value)}
+              aria-label="Blok ara"
+            />
+          </div>
+          {loading ? (
+            <div className="kesif-tree__empty"><Loader2 size={12} className="kesif-spin" /> Yükleniyor…</div>
+          ) : error ? (
+            <div className="kesif-tree__empty" style={{ color: "#b91c1c" }}>{error}</div>
+          ) : treeGroups.byTeam.size === 0 ? (
+            <div className="kesif-tree__empty">Sonuç bulunamadı</div>
+          ) : (
+            [...treeGroups.byTeam.entries()].sort().map(([team, items]) => {
+              const expanded = expandedTeams.has(team);
+              return (
+                <div key={team}>
+                  <div
+                    className="kesif-tree__dept"
+                    onClick={() => onToggleTeamExpanded(team)}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <span className="kesif-tree__dept-caret">
+                      {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                    </span>
+                    {team === "—" ? "Diğer" : team}
+                    <span className="kesif-filter-option__count" style={{marginLeft:'auto'}}>
+                      {items.length}
+                    </span>
+                  </div>
+                  {expanded && (
+                    <div className="kesif-tree__tables">
+                      {items.map((b) => {
+                        const bid = b.library_id || b.id;
+                        return (
+                          <div
+                            key={bid}
+                            className={`kesif-tree__table${selectedBid === bid ? " is-selected" : ""}`}
+                            onClick={() => onSelect(bid)}
+                            role="button"
+                            tabIndex={0}
+                            title={b.name || bid}
+                          >
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {b.name || "(adsız)"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>{/* /.kesif-left__scroll */}
 
       {/* Chat panel placeholder for 9.e — propose_blocks LLM lands in
          Phase 10 (marketplace MVP). The visual slot is reserved so the
@@ -383,14 +402,17 @@ function LeftRail({
 }
 
 
-function FilterGroup({ title, items, selected, onToggle, labelFor }) {
+function FilterGroup({ title, items, selected, onToggle, labelFor, defaultLimit = 5 }) {
   const entries = Object.entries(items || {});
+  const [showAll, setShowAll] = useState(false);
   if (entries.length === 0) return null;
+  const visible = showAll ? entries : entries.slice(0, defaultLimit);
+  const hiddenCount = entries.length - visible.length;
   return (
     <div>
       <h4 className="kesif-left__heading">{title}</h4>
       <div className="kesif-filter-group">
-        {entries.map(([k, count]) => (
+        {visible.map(([k, count]) => (
           <label key={k} className="kesif-filter-option">
             <input
               type="checkbox"
@@ -401,6 +423,24 @@ function FilterGroup({ title, items, selected, onToggle, labelFor }) {
             <span className="kesif-filter-option__count">{count}</span>
           </label>
         ))}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            className="kesif-filter-group__more"
+            onClick={() => setShowAll(true)}
+          >
+            +{hiddenCount} daha göster
+          </button>
+        )}
+        {showAll && entries.length > defaultLimit && (
+          <button
+            type="button"
+            className="kesif-filter-group__more"
+            onClick={() => setShowAll(false)}
+          >
+            Daha az göster
+          </button>
+        )}
       </div>
     </div>
   );
@@ -497,20 +537,14 @@ function BlockCard({ block, isSelected, onSelect }) {
 }
 
 
-// ── Right rail: detail card ──────────────────────────────────────────
+// ── Bottom panel (replaces the right rail) ──────────────────────────
+//
+// Mirrors Hazırlık's bottom-drawer pattern. Slides up from below when
+// a block is selected. Two halves: left = full preview iframe, right
+// = metadata + actions. Closing the panel clears the selection.
 
-
-function DetailRail({ block }) {
-  if (!block) {
-    return (
-      <aside className="kesif-right">
-        <div className="kesif-card">
-          <h3 className="kesif-left__heading">Detay</h3>
-          <div className="kesif-card__empty">Soldan bir blok seç</div>
-        </div>
-      </aside>
-    );
-  }
+function BottomPanel({ block, onClose }) {
+  if (!block) return null;
   const bid = block.library_id || block.id;
   const viz = block.block_type || block.viz_type;
   const team = block.owner_department || block.team || "—";
@@ -518,87 +552,95 @@ function DetailRail({ block }) {
   const tables = block.used_tables || [];
 
   return (
-    <aside className="kesif-right">
-      <div className="kesif-card">
-        <div className="kesif-card__header">
-          <div>
-            <div className="kesif-card__title">{block.name || "(adsız)"}</div>
-            <div className="kesif-card__schema">
-              {team}
-              {viz ? ` · ${vizLabel(viz)}` : ""}
-            </div>
+    <section className="bloklar-bottom" role="region" aria-label="Blok detayı">
+      <header className="bloklar-bottom__header">
+        <div className="bloklar-bottom__title-block">
+          <div className="bloklar-bottom__title">{block.name || "(adsız)"}</div>
+          <div className="bloklar-bottom__subtitle">
+            {team}{viz ? ` · ${vizLabel(viz)}` : ""}
           </div>
-          {viz && (
-            <span className="kesif-card__source-badge">
-              {vizLabel(viz)}
-            </span>
-          )}
         </div>
+        <button
+          type="button"
+          className="bloklar-bottom__close"
+          onClick={onClose}
+          title="Kapat"
+          aria-label="Kapat"
+        >
+          ×
+        </button>
+      </header>
 
-        <div className="kesif-card__metaline">
-          {block.owner_id && <span>👤 {block.owner_id}</span>}
-          {tables.length > 0 && <span>📊 {tables.length} tablo</span>}
-        </div>
-
-        {block.description && (
-          <div className="kesif-card__section">
-            <div className="kesif-card__section-title">Açıklama</div>
-            <div className="kesif-card__description">{block.description}</div>
-          </div>
-        )}
-
-        {tags.length > 0 && (
-          <div className="kesif-card__section">
-            <div className="kesif-card__section-title">Etiketler</div>
-            <div className="bloklar-card__tags" style={{ marginTop: 4 }}>
-              {tags.map((t) => (
-                <span key={t} className="bloklar-card__tag"><Tag size={9} /> {t}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {tables.length > 0 && (
-          <div className="kesif-card__section">
-            <div className="kesif-card__section-title">Kullanılan tablolar</div>
-            <div className="kesif-columns">
-              {tables.join(", ")}
-            </div>
-          </div>
-        )}
-
-        <div className="kesif-card__section">
-          <div className="kesif-card__section-title">Önizleme</div>
+      <div className="bloklar-bottom__body">
+        {/* Left half — preview iframe */}
+        <div className="bloklar-bottom__preview">
           <iframe
-            className="bloklar-preview-iframe"
+            className="bloklar-bottom__iframe"
             src={previewUrl(bid)}
             title={`${block.name} önizleme`}
           />
         </div>
 
-        <div className="kesif-actions">
-          <button
-            type="button"
-            className="kesif-btn kesif-btn--primary"
-            disabled
-            title="Yakında — Phase 10"
-          >
-            <PlusCircle size={14} />
-            Sunumuma ekle
-          </button>
-          <a
-            href={previewUrl(bid)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="kesif-btn"
-            title="Yeni sekmede aç"
-          >
-            <Eye size={14} />
-            Tam ekran
-          </a>
+        {/* Right half — metadata + actions */}
+        <div className="bloklar-bottom__meta">
+          {block.description && (
+            <div className="kesif-card__section">
+              <div className="kesif-card__section-title">Açıklama</div>
+              <div className="kesif-card__description">{block.description}</div>
+            </div>
+          )}
+
+          {tags.length > 0 && (
+            <div className="kesif-card__section">
+              <div className="kesif-card__section-title">Etiketler</div>
+              <div className="bloklar-card__tags" style={{ marginTop: 4 }}>
+                {tags.map((t) => (
+                  <span key={t} className="bloklar-card__tag"><Tag size={9} /> {t}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tables.length > 0 && (
+            <div className="kesif-card__section">
+              <div className="kesif-card__section-title">Kullanılan tablolar</div>
+              <div className="kesif-columns">
+                {tables.join(", ")}
+              </div>
+            </div>
+          )}
+
+          {block.owner_id && (
+            <div className="kesif-card__section">
+              <div className="kesif-card__section-title">Sahip</div>
+              <div className="kesif-card__description">{block.owner_id}</div>
+            </div>
+          )}
+
+          <div className="kesif-actions" style={{ marginTop: "auto" }}>
+            <button
+              type="button"
+              className="kesif-btn kesif-btn--primary"
+              disabled
+              title="Yakında — Phase 10"
+            >
+              <PlusCircle size={14} />
+              Sunumuma ekle
+            </button>
+            <a
+              href={previewUrl(bid)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="kesif-btn"
+              title="Yeni sekmede aç"
+            >
+              <Eye size={14} />
+              Tam ekran
+            </a>
+          </div>
         </div>
       </div>
-    </aside>
+    </section>
   );
 }
 

@@ -95,6 +95,42 @@ CATEGORIES = {
                     "series": [{"name": "Dağılım", "values": [260, 188, 53]}],
                 },
             },
+            {
+                "title": "Vadeli / vadesiz mevduat oranı",
+                "type": "kpi",
+                "description": "Vadeli mevduat bakiyesinin toplam mevduata oranı.",
+                "tags": ["mevduat", "vade"],
+                "used_tables": ["EDW.DEPOSITS_DAILY", "LOOKUP.DIM_PRODUCT"],
+                "data_source": {
+                    "original_sql": "SELECT SUM(CASE WHEN p.CATEGORY = 'MEVDUAT' AND PRODUCT_CODE LIKE 'VD%' THEN BALANCE_TRY ELSE 0 END) / SUM(BALANCE_TRY) AS value FROM EDW.DEPOSITS_DAILY d JOIN LOOKUP.DIM_PRODUCT p ON d.PRODUCT_CODE = p.PRODUCT_CODE WHERE DATE = (SELECT MAX(DATE) FROM EDW.DEPOSITS_DAILY)",
+                },
+                "config": {"value": 67.4, "unit": "%", "delta": 1.2, "delta_label": "vs geçen ay", "period": "Q4 2025"},
+            },
+            {
+                "title": "En çok büyüyen 10 şube",
+                "type": "bar_chart",
+                "description": "Son 30 günde mevduat büyümesi en yüksek 10 şube.",
+                "tags": ["mevduat", "şube", "trend"],
+                "used_tables": ["EDW.DEPOSITS_DAILY", "EDW.DIM_BRANCH"],
+                "data_source": {
+                    "original_sql": "SELECT b.BRANCH_NAME, (SUM(CASE WHEN d.DATE = (SELECT MAX(DATE) FROM EDW.DEPOSITS_DAILY) THEN d.BALANCE_TRY END) - SUM(CASE WHEN d.DATE = (SELECT MAX(DATE) - 30 FROM EDW.DEPOSITS_DAILY) THEN d.BALANCE_TRY END)) AS delta FROM EDW.DEPOSITS_DAILY d JOIN EDW.DIM_BRANCH b ON d.BRANCH_CODE = b.BRANCH_CODE GROUP BY b.BRANCH_NAME ORDER BY delta DESC FETCH FIRST 10 ROWS ONLY",
+                },
+                "config": {
+                    "categories": ["Maslak", "Beylikdüzü", "Ümraniye", "Bursa", "Tepe Prime"],
+                    "series": [{"name": "Δ Mevduat (M TL)", "values": [340, 285, 220, 180, 155]}],
+                },
+            },
+            {
+                "title": "Müşteri segment × ürün matrisi",
+                "type": "heatmap",
+                "description": "Segment ve ürün kategorisi bazında mevduat hacim haritası.",
+                "tags": ["mevduat", "segment", "ürün"],
+                "used_tables": ["EDW.DEPOSITS_DAILY", "LOOKUP.DIM_PRODUCT"],
+                "data_source": {
+                    "original_sql": "SELECT d.SEGMENT, p.CATEGORY, SUM(d.BALANCE_TRY) AS bakiye FROM EDW.DEPOSITS_DAILY d JOIN LOOKUP.DIM_PRODUCT p ON d.PRODUCT_CODE = p.PRODUCT_CODE WHERE d.DATE = (SELECT MAX(DATE) FROM EDW.DEPOSITS_DAILY) GROUP BY d.SEGMENT, p.CATEGORY",
+                },
+                "config": {"categories": ["Retail", "Corporate", "SME"], "series": [{"name": "TR", "values": [120, 80, 22]}]},
+            },
         ],
     },
     "likidite": {
@@ -165,6 +201,42 @@ CATEGORIES = {
                     ],
                 },
             },
+            {
+                "title": "Para birimi bazında likidite payı",
+                "type": "pie_chart",
+                "description": "Toplam likidite varlıklarının para birimi dağılımı.",
+                "tags": ["likidite", "ccy"],
+                "used_tables": ["EDW.LIQUIDITY_RATIOS"],
+                "data_source": {
+                    "original_sql": "SELECT CURRENCY, AVG(LCR) AS lcr FROM EDW.LIQUIDITY_RATIOS WHERE DATE = (SELECT MAX(DATE) FROM EDW.LIQUIDITY_RATIOS) AND CURRENCY <> 'ALL' GROUP BY CURRENCY",
+                },
+                "config": {"categories": ["TRY", "USD", "EUR"], "series": [{"name": "LCR (%)", "values": [148, 135, 128]}]},
+            },
+            {
+                "title": "Encumbered varlık oranı",
+                "type": "line_chart",
+                "description": "Teminata bağlanmış varlıkların toplam aktife oranı (12 ay).",
+                "tags": ["likidite", "encumbrance"],
+                "used_tables": ["EDW.LIQUIDITY_RATIOS"],
+                "data_source": {
+                    "original_sql": "SELECT TO_CHAR(DATE,'YYYY-MM') AS ay, AVG(ENCUMBRANCE_PCT) AS enc FROM EDW.LIQUIDITY_RATIOS WHERE DATE >= ADD_MONTHS(SYSDATE, -12) GROUP BY TO_CHAR(DATE,'YYYY-MM') ORDER BY 1",
+                },
+                "config": {
+                    "x_axis": ["Oca", "Mar", "May", "Tem", "Eyl", "Kas"],
+                    "series": [{"name": "Encumbrance (%)", "values": [18.4, 19.1, 18.8, 17.9, 18.3, 17.6]}],
+                },
+            },
+            {
+                "title": "ON likidite rezervi",
+                "type": "kpi",
+                "description": "Gecelik nakit + merkez bankası rezervi.",
+                "tags": ["likidite", "rezerv"],
+                "used_tables": ["ODS_RISK.LIQUIDITY_RISK_BUCKETS"],
+                "data_source": {
+                    "original_sql": "SELECT SUM(CASH_INFLOW) AS value FROM ODS_RISK.LIQUIDITY_RISK_BUCKETS WHERE TENOR = 'ON' AND CURRENCY = 'TRY' AND AS_OF_DATE = (SELECT MAX(AS_OF_DATE) FROM ODS_RISK.LIQUIDITY_RISK_BUCKETS)",
+                },
+                "config": {"value": 12.8, "unit": "B TRY", "delta": -2.1, "delta_label": "vs dün", "period": "Bugün"},
+            },
         ],
     },
     "piyasa": {
@@ -230,6 +302,48 @@ CATEGORIES = {
                 "config": {
                     "x_axis": ["Eyl", "Eki", "Kas", "Ara"],
                     "series": [{"name": "USD/TRY", "values": [33.8, 34.5, 35.1, 35.7]}],
+                },
+            },
+            {
+                "title": "FX 30 günlük volatilite",
+                "type": "kpi",
+                "description": "USD/TRY 30 günlük günlük getiri standart sapma.",
+                "tags": ["piyasa", "fx", "volatilite"],
+                "used_tables": ["HIST.FX_HIST"],
+                "data_source": {
+                    "original_sql": "SELECT STDDEV(LN(RATE_MARKET / LAG(RATE_MARKET) OVER (ORDER BY DATE))) * SQRT(252) AS value FROM HIST.FX_HIST WHERE CCY_PAIR = 'USD_TRY' AND DATE >= SYSDATE - 30",
+                },
+                "config": {"value": 18.4, "unit": "%", "delta": -1.6, "delta_label": "vs geçen ay", "period": "Aralık"},
+            },
+            {
+                "title": "Eurobond getiri eğrisi",
+                "type": "line_chart",
+                "description": "TR Eurobond ana ihraçlarının YTM'leri.",
+                "tags": ["piyasa", "eurobond"],
+                "used_tables": ["EDW.TREASURY_BONDS"],
+                "data_source": {
+                    "original_sql": "SELECT MATURITY, AVG(COUPON) AS coupon, AVG(MARK_TO_MARKET / NOMINAL_USD * 100) AS price FROM EDW.TREASURY_BONDS WHERE ISSUER_TYPE = 'DEVLET' AND CURRENCY = 'USD' AND DATE = (SELECT MAX(DATE) FROM EDW.TREASURY_BONDS) GROUP BY MATURITY ORDER BY 1",
+                },
+                "config": {
+                    "x_axis": ["2Y", "5Y", "10Y", "30Y"],
+                    "series": [{"name": "YTM (%)", "values": [6.4, 7.2, 8.1, 8.6]}],
+                },
+            },
+            {
+                "title": "Rakip - bizim TL faiz farkı",
+                "type": "bar_chart",
+                "description": "3 ay TL mevduat faizinde bizim oranımız vs piyasa ortalaması.",
+                "tags": ["piyasa", "rekabet"],
+                "used_tables": ["EDW.COMPETITOR_RATES"],
+                "data_source": {
+                    "original_sql": "SELECT TUTAR_RANGE, AVG(RATE) AS market_avg FROM EDW.COMPETITOR_RATES WHERE VADE = '3M' AND DATE >= SYSDATE - 7 GROUP BY TUTAR_RANGE",
+                },
+                "config": {
+                    "categories": ["0-50K", "50K-100K", "100K-250K", "250K-1M", "1M+"],
+                    "series": [
+                        {"name": "Piyasa ort.", "values": [42.5, 43.2, 43.8, 44.3, 45.1]},
+                        {"name": "Bizim", "values": [42.0, 43.0, 43.5, 44.0, 44.8]},
+                    ],
                 },
             },
         ],
@@ -302,6 +416,42 @@ CATEGORIES = {
                     "delta_label": "vs geçen çeyrek",
                     "period": "Q4 2025",
                 },
+            },
+            {
+                "title": "Pasif vadesi dağılımı",
+                "type": "bar_chart",
+                "description": "Pasif tarafının vade dilimlerine göre tutar dağılımı.",
+                "tags": ["alm", "vade", "pasif"],
+                "used_tables": ["ALM.GAP_ANALYSIS"],
+                "data_source": {
+                    "original_sql": "SELECT TENOR, SUM(LIABILITIES) AS pasif FROM ALM.GAP_ANALYSIS WHERE AS_OF_DATE = (SELECT MAX(AS_OF_DATE) FROM ALM.GAP_ANALYSIS) AND CURRENCY = 'TRY' GROUP BY TENOR ORDER BY (CASE TENOR WHEN 'ON' THEN 1 WHEN '1W' THEN 2 WHEN '1M' THEN 3 WHEN '3M' THEN 4 WHEN '6M' THEN 5 WHEN '1Y' THEN 6 WHEN '5Y' THEN 7 END)",
+                },
+                "config": {
+                    "categories": ["ON", "1W", "1M", "3M", "6M", "1Y", "5Y+"],
+                    "series": [{"name": "Pasif (B TL)", "values": [220, 180, 140, 80, 60, 40, 20]}],
+                },
+            },
+            {
+                "title": "Convexity matrisi",
+                "type": "heatmap",
+                "description": "Para birimi × portföy tarafı convexity ısı haritası.",
+                "tags": ["alm", "convexity"],
+                "used_tables": ["ALM.DURATION_REPORT"],
+                "data_source": {
+                    "original_sql": "SELECT CURRENCY, PORTFOLIO_SIDE, AVG(CONVEXITY) AS conv FROM ALM.DURATION_REPORT WHERE AS_OF_DATE = (SELECT MAX(AS_OF_DATE) FROM ALM.DURATION_REPORT) GROUP BY CURRENCY, PORTFOLIO_SIDE",
+                },
+                "config": {"categories": ["TRY", "USD", "EUR"], "series": [{"name": "Convexity", "values": [4.2, 6.1, 5.4]}]},
+            },
+            {
+                "title": "Faiz duyarlılığı (PV01)",
+                "type": "kpi",
+                "description": "1 baz puanlık faiz hareketinin portföy değeri etkisi.",
+                "tags": ["alm", "duyarlılık"],
+                "used_tables": ["ALM.DURATION_REPORT"],
+                "data_source": {
+                    "original_sql": "SELECT SUM(MODIFIED_DURATION) AS value FROM ALM.DURATION_REPORT WHERE AS_OF_DATE = (SELECT MAX(AS_OF_DATE) FROM ALM.DURATION_REPORT)",
+                },
+                "config": {"value": 3.18, "unit": "M TRY/bp", "delta": 0.12, "delta_label": "vs geçen ay", "period": "Aralık"},
             },
         ],
     },
