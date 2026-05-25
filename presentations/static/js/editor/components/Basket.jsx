@@ -27,6 +27,35 @@ function pickDomainIcon(domain) {
   return Database;
 }
 
+// Re-group catalog domains by SCHEMA (prefix before "." in each table
+// id). Sunum + Hazırlık both use this so the sidebar reads like Keşif's
+// schema tree. The curated domain labels (Mevduat / NII & Faiz / ...)
+// only fit a small hand-picked catalog; the real fixture has 30+
+// tables across many schemas, so we group by schema instead.
+// `dom_uploads` is preserved verbatim because uploads are grouped per
+// file, not by schema.
+function regroupBySchema(domains) {
+  const result = [];
+  const bySchema = new Map();
+  for (const d of (domains || [])) {
+    if (d.id === 'dom_uploads') {
+      result.push(d);
+      continue;
+    }
+    for (const t of (d.tables || [])) {
+      const tid = t.id || '';
+      const schema = tid.includes('.') ? tid.split('.')[0] : 'Diğer';
+      if (!bySchema.has(schema)) {
+        const group = { id: `schema_${schema}`, label: schema, tables: [] };
+        bySchema.set(schema, group);
+        result.push(group);
+      }
+      bySchema.get(schema).tables.push(t);
+    }
+  }
+  return result;
+}
+
 function basketHas(basket, tableId) {
   return basket.some((b) => b.table === tableId);
 }
@@ -133,7 +162,7 @@ export default function Basket() {
           uploaded sheets remain discoverable in Sunum. */}
 
       <div className="sources-list">
-        {catalog.domains.map((domain) => (
+        {regroupBySchema(catalog.domains).map((domain) => (
           <DomainAccordion
             key={domain.id}
             domain={domain}

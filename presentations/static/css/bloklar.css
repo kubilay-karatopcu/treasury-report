@@ -140,10 +140,11 @@
   display: block;
 }
 
-/* ── Bloklar shell + bottom drawer ──────────────────────────────────
- * Bottom panel slides up under the body when a block is selected.
- * Replaces the right-rail detail card per user feedback ("Hazırlık
- * ekranında node'a tıklayınca aşağıda açılıyor gibi"). */
+/* ── Bloklar shell + center column + bottom drawer ──────────────────
+ * The shell is a column: kesif-topbar above, kesif-body below. The
+ * kesif-body is a row: left rail | center column. The bottom panel
+ * lives *inside* the center column so it spans only the grid's
+ * width — never under the left rail. */
 
 .bloklar-shell {
   flex: 1;
@@ -155,8 +156,18 @@
   flex: 1;
   min-height: 0;
 }
-.bloklar-shell.has-bottom .kesif-body {
-  /* Yield room for the bottom panel — flex layout handles the rest. */
+
+/* Center column wrapping the grid + (optional) bottom panel. */
+.bloklar-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.bloklar-center .bloklar-canvas {
+  flex: 1;
+  min-height: 0;
 }
 
 .bloklar-bottom {

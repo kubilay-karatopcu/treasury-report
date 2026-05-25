@@ -64,7 +64,34 @@ const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
 const SUGGESTED = DATA.suggested_edges || [];
-const DOMAINS = DATA.catalog?.domains || [];
+// Re-group catalog domains by SCHEMA (the prefix before "." in each
+// table id). Keşif/Atölye uses schema names; we keep Hazırlık + Sunum
+// in sync — domain labels like "Mevduat Verileri" / "NII & Faiz" only
+// fit a curated catalog, not the real 30+ table fixture set.
+// `dom_uploads` (synthetic user-upload domain) is preserved verbatim
+// because it's grouped by upload file, not by schema.
+function regroupBySchema(domains) {
+  const result = [];
+  const bySchema = new Map();
+  for (const d of (domains || [])) {
+    if (d.id === "dom_uploads") {
+      result.push(d);
+      continue;
+    }
+    for (const t of (d.tables || [])) {
+      const tid = t.id || "";
+      const schema = tid.includes(".") ? tid.split(".")[0] : "Diğer";
+      if (!bySchema.has(schema)) {
+        const group = { id: `schema_${schema}`, label: schema, tables: [] };
+        bySchema.set(schema, group);
+        result.push(group);
+      }
+      bySchema.get(schema).tables.push(t);
+    }
+  }
+  return result;
+}
+const DOMAINS = regroupBySchema(DATA.catalog?.domains || []);
 const ROUTING_CONFIG = DATA.routing_config || { threshold_bytes: 500_000_000, hard_ceiling_bytes: 10_000_000_000 };
 
 // Compact byte formatter — "320 MB", "4.2 GB", "—" for unknown.

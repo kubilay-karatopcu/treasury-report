@@ -1,9 +1,10 @@
 /* Phase 9.c — Keşif chat panel.
  *
- * Lives at the bottom of the left rail (same vertical position as the
- * Hazırlık + Sunum chat affordances, same Inter font stack, same row
- * heights). Always visible but collapsible to a single header bar so a
- * busy user can free up space.
+ * Visual style matches the Sunum (presentation view) "GENEL KOMUT"
+ * chat-box: same .chat-box / .chat-messages / .chat-msg / .chat-input
+ * hierarchy from editor.css. The outer .kesif-chat element only handles
+ * positioning inside the left rail; everything inside uses the shared
+ * Sunum classes so the two screens read identically.
  *
  * The LLM's job is narrow (spec §5.4): propose tables. Each proposal
  * renders as an inline card with a "Sepete ekle" CTA. When proposals
@@ -12,13 +13,13 @@
  *
  * Exposes an imperative `chatHandle` ref the parent uses for two
  * cross-component actions:
- *   - openWithPrompt(text)  → expand + prefill the input + focus.
+ *   - openWithPrompt(text)  → focus + prefill the input.
  *     Wired from the table detail card's "Sohbette göster" button.
  *   - clear()               → wipe history (also triggers the DELETE).
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
-  MessageCircle, Send, Trash2, Plus, Loader2, ChevronDown, ChevronUp,
+  MessageSquare, Send, Trash2, Plus, Loader2,
 } from "lucide-react";
 
 
@@ -29,8 +30,12 @@ const ChatDrawer = forwardRef(function ChatDrawer({
   basketTableIds,
   onAddToBasket,
   onHighlight,
+  title = "Sohbet",
+  placeholder = "Aradığın veri… (Ctrl/Cmd+Enter)",
+  emptyHint = "Ne aradığını birkaç kelimeyle yaz; sana uygun tabloları öneririm.",
+  readOnly = false,
+  readOnlyHint = null,
 }, ref) {
-  const [open, setOpen] = useState(true);
   const [history, setHistory] = useState(() => seedHistory || []);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -42,9 +47,10 @@ const ChatDrawer = forwardRef(function ChatDrawer({
   useEffect(() => {
     if (!threadRef.current) return;
     threadRef.current.scrollTop = threadRef.current.scrollHeight;
-  }, [history, open]);
+  }, [history, sending]);
 
   const send = useCallback(async (overrideText) => {
+    if (readOnly) return;
     const text = (overrideText !== undefined ? overrideText : input).trim();
     if (!text || sending) return;
     setSending(true);
@@ -77,7 +83,7 @@ const ChatDrawer = forwardRef(function ChatDrawer({
     } finally {
       setSending(false);
     }
-  }, [input, sending, chatSendUrl, onHighlight]);
+  }, [input, sending, chatSendUrl, onHighlight, readOnly]);
 
   const onKeyDown = useCallback((e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -101,13 +107,10 @@ const ChatDrawer = forwardRef(function ChatDrawer({
     }
   }, [chatClearUrl, sending]);
 
-  // Imperative handle for parent components to open + prefill the chat
-  // (e.g., the detail card's "Sohbette göster" button).
+  // Imperative handle for parent components to prefill + focus.
   useImperativeHandle(ref, () => ({
     openWithPrompt(text) {
-      setOpen(true);
       setInput(text);
-      // Focus + caret at end so the user can keep typing immediately.
       setTimeout(() => {
         const el = inputRef.current;
         if (!el) return;
@@ -120,84 +123,77 @@ const ChatDrawer = forwardRef(function ChatDrawer({
   }), [clearChat]);
 
   return (
-    <section className={`kesif-chat${open ? "" : " kesif-chat--collapsed"}`} aria-label="Keşif sohbeti">
-      <header className="kesif-chat__header" onClick={() => setOpen((v) => !v)}>
-        <span className="kesif-chat__title">
-          <MessageCircle size={12} />
-          Sohbet
-        </span>
-        <span className="kesif-chat__header-actions" onClick={(e) => e.stopPropagation()}>
-          {history.length > 0 && open && (
+    <section className="kesif-chat" aria-label={title}>
+      <div className="chat-box">
+        <div className="chat-box-header">
+          <MessageSquare size={11} strokeWidth={2} />
+          <span>{title}</span>
+          {history.length > 0 && !readOnly && (
             <button
               type="button"
-              className="kesif-chat__icon-btn"
+              className="chat-box-target-clear"
               onClick={clearChat}
               title="Geçmişi sil"
+              style={{ marginLeft: "auto" }}
             >
-              <Trash2 size={11} />
+              <Trash2 size={12} />
             </button>
           )}
-          <button
-            type="button"
-            className="kesif-chat__icon-btn"
-            onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-            title={open ? "Daralt" : "Aç"}
-            aria-expanded={open}
-          >
-            {open ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-          </button>
-        </span>
-      </header>
+        </div>
 
-      {open && (
-        <>
-          <div className="kesif-chat__thread" ref={threadRef}>
-            {history.length === 0 && (
-              <div className="kesif-chat__empty">
-                Ne aradığını birkaç kelimeyle yaz; sana uygun tabloları öneririm.
-              </div>
-            )}
-            {history.map((turn, i) => (
-              <ChatTurn
-                key={i}
-                turn={turn}
-                basketTableIds={basketTableIds}
-                onAddToBasket={onAddToBasket}
-                onHighlight={onHighlight}
-              />
-            ))}
-            {sending && (
-              <div className="kesif-chat__bubble kesif-chat__bubble--assistant kesif-chat__bubble--thinking">
-                <Loader2 size={10} className="kesif-spin" /> Düşünüyor…
-              </div>
-            )}
-            {error && <div className="kesif-chat__error">{error}</div>}
+        <div className="chat-messages ts-scroll" ref={threadRef}>
+          {history.length === 0 && !sending && (
+            <div className="chat-empty">{emptyHint}</div>
+          )}
+          {history.map((turn, i) => (
+            <ChatTurn
+              key={i}
+              turn={turn}
+              basketTableIds={basketTableIds}
+              onAddToBasket={onAddToBasket}
+              onHighlight={onHighlight}
+            />
+          ))}
+          {sending && <div className="chat-msg chat-msg--loading">Düşünüyor…</div>}
+          {error && <div className="chat-msg chat-msg--error">{error}</div>}
+        </div>
+
+        {readOnly ? (
+          <div className="chat-box-locked-warn" style={{ marginTop: 8, marginBottom: 0 }}>
+            {readOnlyHint || "Bu sohbet şu an aktif değil."}
           </div>
-
-          <footer className="kesif-chat__input-row">
+        ) : (
+          <>
+            {/* Non-compact Sunum sidebar layout: textarea has a real
+                border, footer below with hint + primary "Gönder" button.
+                Matches editor/components/ChatBox.jsx exactly. */}
             <textarea
               ref={inputRef}
-              className="kesif-chat__input"
-              placeholder="Aradığın veri… (Ctrl/Cmd+Enter)"
+              className="chat-input"
+              placeholder={placeholder}
               value={input}
-              rows={2}
+              rows={3}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               disabled={sending}
               aria-label="Mesaj"
             />
-            <button
-              type="button"
-              className="kesif-chat__send"
-              onClick={() => send()}
-              disabled={!input.trim() || sending}
-              title="Gönder (Ctrl/Cmd+Enter)"
-            >
-              {sending ? <Loader2 size={12} className="kesif-spin" /> : <Send size={12} />}
-            </button>
-          </footer>
-        </>
-      )}
+            <div className="chat-footer">
+              <span className="chat-footer-hint">⌘/Ctrl + Enter ile gönder</span>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => send()}
+                disabled={!input.trim() || sending}
+              >
+                {sending
+                  ? <><Loader2 size={12} className="ts-spin" /><span>İşleniyor…</span></>
+                  : <><Send size={12} strokeWidth={2} /><span>Gönder</span></>}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </section>
   );
 });
@@ -208,19 +204,17 @@ export default ChatDrawer;
 function ChatTurn({ turn, basketTableIds, onAddToBasket, onHighlight }) {
   const isUser = turn.role === "user";
   const isError = turn.status === "error";
+  const hasProposals = turn.proposals && turn.proposals.length > 0;
+  const hasDropped = turn.dropped && turn.dropped.length > 0;
 
   if (isUser) {
-    return (
-      <div className="kesif-chat__bubble kesif-chat__bubble--user">
-        {turn.text}
-      </div>
-    );
+    return <div className="chat-msg chat-msg--user">{turn.text}</div>;
   }
 
   return (
-    <div className={`kesif-chat__bubble kesif-chat__bubble--assistant${isError ? " kesif-chat__bubble--error" : ""}`}>
-      {turn.text && <div className="kesif-chat__text">{turn.text}</div>}
-      {turn.proposals && turn.proposals.length > 0 && (
+    <div className={`chat-msg chat-msg--assistant${isError ? " chat-msg--error" : ""}`}>
+      {turn.text && <div>{turn.text}</div>}
+      {hasProposals && (
         <div className="kesif-chat__proposals">
           {turn.proposals.map((p, i) => (
             <ProposalCard
@@ -233,7 +227,7 @@ function ChatTurn({ turn, basketTableIds, onAddToBasket, onHighlight }) {
           ))}
         </div>
       )}
-      {turn.dropped && turn.dropped.length > 0 && (
+      {hasDropped && (
         <div className="kesif-chat__dropped" title="Bu öneriler katalogda bulunmadığı için listelenmedi.">
           {turn.dropped.length} öneri katalog dışı (atlandı)
         </div>

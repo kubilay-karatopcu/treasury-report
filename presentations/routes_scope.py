@@ -286,11 +286,91 @@ def _load_latest_scope_or_draft(pid: str) -> ScopeContract:
 
 
 def _catalog_json() -> dict[str, Any]:
+    """Return the catalog as ``{domains: [...]}``.
+
+    Source priority:
+      1. ``CatalogLoader`` (Phase 9 / Atölye source of truth — reads
+         ``examples/table_docs/<SCHEMA>/<TABLE>.yaml``). Tables are
+         bucketed by schema so domain labels match Keşif's tree.
+      2. Legacy curated ``catalog.json`` — fallback for environments
+         that don't have a TableDocStore configured.
+
+    This unification lets Atölye → Keşif → Hazırlık → Sunum share the
+    same table universe: the basket items the user picks in Keşif
+    actually resolve in Hazırlık.
+    """
+    # Try the CatalogLoader first.
+    try:
+        from presentations.catalog.api import _get_loader
+        loader = _get_loader()
+        sicil = getattr(current_user, "sicil", None)
+        entries = loader.load(user_sicil=sicil)
+        if entries:
+            return _domains_from_catalog_entries(entries)
+    except Exception:
+        log.warning("_catalog_json: CatalogLoader path failed, falling back to catalog.json",
+                    exc_info=True)
+    # Fallback to the static catalog.json.
     from presentations.routes import _catalog_path
     try:
         return json.loads(_catalog_path().read_text(encoding="utf-8"))
     except Exception:
         return {"domains": []}
+
+
+def _domains_from_catalog_entries(entries) -> dict[str, Any]:
+    """Build ``{domains: [...]}`` from a list of CatalogLoader ``TableEntry``
+    records, bucketing by schema name. Frontend re-groups by schema
+    anyway, but emitting them already-grouped means the per-domain
+    counts are accurate without a second pass.
+    """
+    by_schema: dict[str, list[dict[str, Any]]] = {}
+    for e in entries:
+        d = e.model_dump(by_alias=True, mode="json", exclude_none=True)
+        schema = d.get("schema") or "Diğer"
+        name = d.get("name") or ""
+        if not name:
+            continue
+        tid = f"{schema}.{name}"
+        # Translate column shape — TableEntry uses {name, type, concept?}.
+        # The Hazırlık frontend expects the same {name, type} pair.
+        cols = []
+        for c in (d.get("columns") or []):
+            col = {
+                "name": c.get("name"),
+                "type": c.get("type") or c.get("data_type") or "",
+            }
+            if "concept" in c and c["concept"]:
+                col["concept"] = c["concept"]
+            if "description" in c and c["description"]:
+                col["description"] = c["description"]
+            if "nullable" in c:
+                col["nullable"] = c["nullable"]
+            cols.append(col)
+        table_record = {
+            "id": tid,
+            "desc": d.get("description") or "",
+            "engine": d.get("engine") or "oracle",
+            "columns": cols,
+            "common_filters": d.get("common_filters") or [],
+        }
+        # Row-count hint, if the YAML provided one.
+        row_count = d.get("row_count") or d.get("rows")
+        if row_count:
+            table_record["rows"] = (
+                f"{row_count:,}".replace(",", ".")
+                if isinstance(row_count, (int, float))
+                else str(row_count)
+            )
+        by_schema.setdefault(schema, []).append(table_record)
+    domains = []
+    for schema in sorted(by_schema.keys()):
+        domains.append({
+            "id": f"schema_{schema}",
+            "label": schema,
+            "tables": by_schema[schema],
+        })
+    return {"domains": domains}
 
 
 def _uploads_domain_from_session(pid: str) -> dict[str, Any] | None:
@@ -334,6 +414,12 @@ def _catalog_json_enriched(pid: str | None = None) -> dict[str, Any]:
     information survives the catalog → basket transition (without which the
     LLM's ``applies_to: []`` filter footers can't be rendered on the node).
 
+    When the underlying catalog source is the new CatalogLoader path (which
+    strips ``columns`` from list-level entries for compactness), we
+    populate columns here from the TABLE_DOC_STORE directly. This keeps
+    Hazırlık's sidebar functional regardless of which catalog backend is
+    used.
+
     When ``pid`` is given, the synthetic ``dom_uploads`` domain (built from
     the session manifest's uploads) is appended so Hazırlık picks up
     user-uploaded sheets without a separate /sources round-trip.
@@ -345,10 +431,25 @@ def _catalog_json_enriched(pid: str | None = None) -> dict[str, Any]:
             if "." not in tid:
                 continue
             schema, name = tid.split(".", 1)
-            concept_by_col = {c["name"]: c.get("concept") for c in _columns_for(schema, name)}
-            for col in (t.get("columns") or []):
-                if col.get("name") in concept_by_col and concept_by_col[col["name"]]:
-                    col["concept"] = concept_by_col[col["name"]]
+            cols_meta = _columns_for(schema, name)
+            existing_cols = t.get("columns") or []
+            if not existing_cols and cols_meta:
+                # Catalog source skipped columns — backfill from table-doc.
+                t["columns"] = [
+                    {
+                        "name": c["name"],
+                        "type": c.get("type") or "",
+                        "concept": c.get("concept"),
+                        "filter_role": c.get("filter_role"),
+                    }
+                    for c in cols_meta
+                ]
+            else:
+                # Columns already present — only patch in concept tags.
+                concept_by_col = {c["name"]: c.get("concept") for c in cols_meta}
+                for col in existing_cols:
+                    if col.get("name") in concept_by_col and concept_by_col[col["name"]]:
+                        col["concept"] = concept_by_col[col["name"]]
     if pid:
         uploads = _uploads_domain_from_session(pid)
         if uploads:
@@ -541,6 +642,12 @@ def _seed_basket_from_query(scope: ScopeContract, seed_param: str) -> None:
         if tid in have_tables:
             continue
         schema, name = tid.split(".", 1)
+        # Columns may be empty on the catalog list payload (CatalogLoader
+        # strips them for compactness). Fall back to the TableDocStore
+        # directly so the seeded basket has all known columns by default.
+        cat_cols = [c.get("name") for c in (t.get("columns") or []) if c.get("name")]
+        if not cat_cols:
+            cat_cols = [c["name"] for c in _columns_for(schema, name) if c.get("name")]
         base = re.sub(r"[^a-z0-9_]", "_", name.lower()).strip("_") or "t"
         if not re.match(r"^[a-z]", base):
             base = "t_" + base
@@ -558,8 +665,7 @@ def _seed_basket_from_query(scope: ScopeContract, seed_param: str) -> None:
         scope.basket.append(_BI(
             alias=alias,
             table_ref=_TR(schema=schema, name=name),
-            projection=_P(columns=[c.get("name") for c in (t.get("columns") or [])
-                                   if c.get("name")], include_all=False),
+            projection=_P(columns=cat_cols, include_all=False),
             routing=_R(decision="cached", decided_by="system", estimated_bytes=0),
         ))
 

@@ -3,8 +3,10 @@
  * Layout mirrors Keşif:
  *   left rail  — search + filters (team / viz_type / tag) + tree of saved
  *                blocks grouped by team + chat panel at the bottom
- *   center     — responsive card grid of block summaries
- *   right rail — selected block's detail card + actions
+ *   center     — responsive card grid of block summaries; when a block
+ *                is selected, a bottom panel slides up *inside* the
+ *                center column (does NOT extend under the left rail)
+ *   right rail — collapsed (the bottom panel replaces it)
  *
  * Backend: reuses Phase 6.5.a's existing /presentations/library JSON.
  * No new server-side schema introduced here — just a new way to browse
@@ -14,14 +16,17 @@
  *
  * Chat is wired but the real "propose_blocks" LLM contract lands in
  * Phase 10 with the marketplace MVP. For 9.e the panel surfaces a
- * "Yakında" hint instead of a live send button.
+ * "Yakında" hint instead of a live send button — uses the same
+ * Sunum-style .chat-box markup so the visual reads identically to
+ * Keşif's chat.
  */
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Search, X, Filter, ChevronDown, ChevronRight, Loader2, MessageCircle,
-  PlusCircle, Eye, Tag, Users, Layers,
+  ChevronDown, ChevronRight, Loader2,
+  PlusCircle, Eye, Tag, Users,
 } from "lucide-react";
+import ChatDrawer from "../kesif/ChatDrawer.jsx";
 
 
 const DATA = JSON.parse(document.getElementById("bloklar-data").textContent);
@@ -185,6 +190,7 @@ function App() {
   // Selected → open the bottom panel. Closing the panel clears the
   // selection so the next click reopens.
   const isBottomOpen = !!selectedBlock;
+  const closeBottom = useCallback(() => setSelectedBid(null), []);
 
   return (
     <>
@@ -212,21 +218,26 @@ function App() {
             onSelect={setSelectedBid}
             totalCount={blocks.length}
           />
-          <BlockGrid
-            loading={loading}
-            error={error}
-            blocks={filteredBlocks}
-            totalCount={blocks.length}
-            selectedBid={selectedBid}
-            onSelect={setSelectedBid}
-          />
+          {/* Center column wraps the grid + bottom panel so the panel
+              only spans this column's width — never under the left rail. */}
+          <div className="bloklar-center">
+            <BlockGrid
+              loading={loading}
+              error={error}
+              blocks={filteredBlocks}
+              totalCount={blocks.length}
+              selectedBid={selectedBid}
+              onSelect={setSelectedBid}
+              onEmptyClick={isBottomOpen ? closeBottom : undefined}
+            />
+            {isBottomOpen && (
+              <BottomPanel
+                block={selectedBlock}
+                onClose={closeBottom}
+              />
+            )}
+          </div>
         </div>
-        {isBottomOpen && (
-          <BottomPanel
-            block={selectedBlock}
-            onClose={() => setSelectedBid(null)}
-          />
-        )}
       </div>
     </>
   );
@@ -386,17 +397,16 @@ function LeftRail({
         </div>
       </div>{/* /.kesif-left__scroll */}
 
-      {/* Chat panel placeholder for 9.e — propose_blocks LLM lands in
-         Phase 10 (marketplace MVP). The visual slot is reserved so the
-         layout stays consistent with Keşif. */}
-      <section className="kesif-chat kesif-chat--collapsed">
-        <header className="kesif-chat__header" title="Yakında — Phase 10">
-          <span className="kesif-chat__title">
-            <MessageCircle size={12} />
-            Sohbet (yakında)
-          </span>
-        </header>
-      </section>
+      {/* Chat panel — same Sunum-style markup as Keşif so the two screens
+         read identically. propose_blocks LLM lands in Phase 10 (marketplace
+         MVP), so this is read-only for now. */}
+      <ChatDrawer
+        title="Sohbet"
+        readOnly
+        readOnlyHint="Blok önerisi sohbeti Phase 10 ile geliyor."
+        seedHistory={[]}
+        basketTableIds={new Set()}
+      />
     </aside>
   );
 }
@@ -450,7 +460,15 @@ function FilterGroup({ title, items, selected, onToggle, labelFor, defaultLimit 
 // ── Center: card grid ────────────────────────────────────────────────
 
 
-function BlockGrid({ loading, error, blocks, totalCount, selectedBid, onSelect }) {
+function BlockGrid({ loading, error, blocks, totalCount, selectedBid, onSelect, onEmptyClick }) {
+  // Click anywhere on the canvas background (not a card) → close the
+  // bottom panel. We test e.target === e.currentTarget so card clicks
+  // (which bubble) don't accidentally dismiss.
+  const onCanvasClick = (e) => {
+    if (!onEmptyClick) return;
+    if (e.target === e.currentTarget) onEmptyClick();
+  };
+
   if (loading) {
     return (
       <section className="bloklar-canvas">
@@ -469,7 +487,7 @@ function BlockGrid({ loading, error, blocks, totalCount, selectedBid, onSelect }
   }
   if (blocks.length === 0) {
     return (
-      <section className="bloklar-canvas">
+      <section className="bloklar-canvas" onClick={onCanvasClick}>
         <div className="bloklar-canvas__empty">
           {totalCount === 0
             ? "Henüz library'de blok yok. Bir Sunum'da blok kaydedince burada görüneceksin."
@@ -480,8 +498,8 @@ function BlockGrid({ loading, error, blocks, totalCount, selectedBid, onSelect }
   }
 
   return (
-    <section className="bloklar-canvas">
-      <div className="bloklar-grid">
+    <section className="bloklar-canvas" onClick={onCanvasClick}>
+      <div className="bloklar-grid" onClick={onCanvasClick}>
         {blocks.map((b) => {
           const bid = b.library_id || b.id;
           return (
@@ -504,10 +522,16 @@ function BlockCard({ block, isSelected, onSelect }) {
   const viz = block.block_type || block.viz_type;
   const team = block.owner_department || block.team || "—";
   const tags = block.tags || [];
+  // stopPropagation so the canvas-level "click outside" handler doesn't
+  // immediately re-close the panel after a card click toggles it open.
+  const onCardClick = (e) => {
+    e.stopPropagation();
+    onSelect(bid);
+  };
   return (
     <article
       className={`bloklar-card${isSelected ? " is-selected" : ""}`}
-      onClick={() => onSelect(bid)}
+      onClick={onCardClick}
       role="button"
       tabIndex={0}
     >
@@ -542,6 +566,9 @@ function BlockCard({ block, isSelected, onSelect }) {
 // Mirrors Hazırlık's bottom-drawer pattern. Slides up from below when
 // a block is selected. Two halves: left = full preview iframe, right
 // = metadata + actions. Closing the panel clears the selection.
+//
+// Now lives inside .bloklar-center, so it spans the center column only
+// (never extends under the left rail).
 
 function BottomPanel({ block, onClose }) {
   if (!block) return null;
@@ -551,8 +578,17 @@ function BottomPanel({ block, onClose }) {
   const tags = block.tags || [];
   const tables = block.used_tables || [];
 
+  // stopPropagation so clicks inside the panel don't bubble to the
+  // canvas-level click-outside handler.
+  const onPanelClick = (e) => e.stopPropagation();
+
   return (
-    <section className="bloklar-bottom" role="region" aria-label="Blok detayı">
+    <section
+      className="bloklar-bottom"
+      role="region"
+      aria-label="Blok detayı"
+      onClick={onPanelClick}
+    >
       <header className="bloklar-bottom__header">
         <div className="bloklar-bottom__title-block">
           <div className="bloklar-bottom__title">{block.name || "(adsız)"}</div>

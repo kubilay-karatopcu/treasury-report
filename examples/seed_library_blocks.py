@@ -1,20 +1,30 @@
 """Seed sample library blocks for the Atölye / Bloklar grid.
 
 Run from repo root:
-    python examples/seed_library_blocks.py
+    python examples/seed_library_blocks.py              # default: examples/library/
+    python examples/seed_library_blocks.py --app        # ALSO seed app.py's temp dir
+    python examples/seed_library_blocks.py --target X   # custom dir
 
-Idempotent — wipes examples/library/ first, then writes 16 blocks
-across 4 categories so the user can browse the grid against realistic
-content. Uses Phase 9.e fixture data: tables in EDW/HIST/ODS_TREASURY/
-ODS_RISK/ALM/CDM.
+Two different runners read library from two different directories:
+  - examples/run_local.py  → ./examples/library/
+  - app.py (DEV_MODE)      → <tempdir>/prisma-treasury-duck/library/
+
+Pass --app to seed the latter too — needed when you run the app via
+`python app.py` instead of run_local.py.
+
+Idempotent — wipes the target dir first, then writes 28 blocks across
+4 categories. Uses Phase 9.e fixture data: tables in EDW/HIST/
+ODS_TREASURY/ODS_RISK/ALM/CDM.
 
 NOT a runtime artifact — call once after pulling new fixtures.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,7 +32,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-LIBRARY_DIR = Path(__file__).parent / "library"
+# Default target — matches what examples/run_local.py reads from.
+EXAMPLES_LIBRARY_DIR = Path(__file__).parent / "library"
+# app.py (DEV_MODE) reads from this temp dir — see app.py:_DUCK_BASE_DIR.
+APP_LIBRARY_DIR = Path(tempfile.gettempdir()) / "prisma-treasury-duck" / "library"
 
 # Category-keyed catalogue of demo blocks. Each entry becomes a full
 # library record (block.json + meta.json). The `block` shape is the
@@ -465,10 +478,11 @@ def _gen_id(category: str, idx: int) -> str:
     return f"lib_{category}_{idx:02d}"
 
 
-def main():
-    if LIBRARY_DIR.exists():
-        shutil.rmtree(LIBRARY_DIR)
-    LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+def _seed_into(library_dir: Path) -> int:
+    """Wipe + reseed a single library directory. Returns block count."""
+    if library_dir.exists():
+        shutil.rmtree(library_dir)
+    library_dir.mkdir(parents=True, exist_ok=True)
 
     saved = 0
     for category, payload in CATEGORIES.items():
@@ -498,7 +512,7 @@ def main():
                 "audience_sicils": [],
                 "audience_departments": [USER_DEPT],
             }
-            d = LIBRARY_DIR / lid
+            d = library_dir / lid
             d.mkdir(parents=True, exist_ok=True)
             (d / "block.json").write_text(
                 json.dumps(block_full, ensure_ascii=False, indent=2),
@@ -509,8 +523,41 @@ def main():
                 encoding="utf-8",
             )
             saved += 1
+    return saved
 
-    print(f"Wrote {saved} library blocks under {LIBRARY_DIR}")
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--app",
+        action="store_true",
+        help="ALSO seed app.py's temp dir (needed if you run via `python app.py`).",
+    )
+    parser.add_argument(
+        "--app-only",
+        action="store_true",
+        help="ONLY seed app.py's temp dir, skip examples/library.",
+    )
+    parser.add_argument(
+        "--target",
+        type=Path,
+        default=None,
+        help="Custom target directory (overrides defaults).",
+    )
+    args = parser.parse_args()
+
+    targets: list[Path] = []
+    if args.target is not None:
+        targets.append(args.target)
+    else:
+        if not args.app_only:
+            targets.append(EXAMPLES_LIBRARY_DIR)
+        if args.app or args.app_only:
+            targets.append(APP_LIBRARY_DIR)
+
+    for target in targets:
+        count = _seed_into(target)
+        print(f"Wrote {count} library blocks under {target}")
 
 
 if __name__ == "__main__":

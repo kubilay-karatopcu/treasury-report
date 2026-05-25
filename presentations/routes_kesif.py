@@ -221,6 +221,12 @@ def kesif_draft_promote():
     """Promote the user's current draft pid into a real presentation,
     return the Hazırlık URL. The frontend hard-navigates after the response.
 
+    The draft's basket table IDs are forwarded to Hazırlık via the
+    existing ``?seed=ID1,ID2,...`` deeplink mechanism — see
+    ``routes_scope.hazirlik`` + ``_seed_basket_from_query``. Only the
+    items the user actually basketed flow through; everything else they
+    browsed in Keşif is dropped.
+
     Body (optional):
       - ``pid``   — explicit draft pid (defaults to the user's current)
       - ``title`` — initial meta.title for the promoted presentation
@@ -238,17 +244,39 @@ def kesif_draft_promote():
     if not is_draft_pid(draft_pid):
         return _json({"error": "Geçersiz taslak."}, status=400)
 
+    # Snapshot the draft's basket BEFORE promotion — promote() deletes
+    # the draft manifest, so we have to capture the table IDs first.
+    basket_ids: list[str] = []
+    try:
+        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, draft_pid)
+        manifest = sess.get_manifest() or {}
+        for item in (manifest.get("basket") or []):
+            tid = (item.get("table") or "").strip()
+            if tid:
+                basket_ids.append(tid)
+    except Exception:
+        log.warning("kesif promote: basket snapshot failed", exc_info=True)
+
     try:
         new_pid = mgr.promote(sicil, draft_pid, title=title)
     except Exception as exc:
         log.exception("kesif: draft promote failed")
         return _json({"error": str(exc)}, status=400)
 
-    hazirlik_url = url_for("presentations.hazirlik", pid=new_pid)
+    if basket_ids:
+        # de-dup while preserving order, then encode as ?seed=…
+        seen: set[str] = set()
+        unique = [t for t in basket_ids if not (t in seen or seen.add(t))]
+        hazirlik_url = url_for(
+            "presentations.hazirlik", pid=new_pid, seed=",".join(unique)
+        )
+    else:
+        hazirlik_url = url_for("presentations.hazirlik", pid=new_pid)
     return _json({
         "ok": True,
         "presentation_id": new_pid,
         "hazirlik_url": hazirlik_url,
+        "seeded_basket_count": len(basket_ids),
     })
 
 

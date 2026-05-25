@@ -184,8 +184,14 @@ def get_manifest(pid: str):
 @login_required
 def get_sources(pid: str):
     """Return the catalog of available tables grouped by domain.
-    Includes a synthetic 'Yüklenenler' domain if the manifest has uploads."""
-    catalog = json.loads(_catalog_path().read_text(encoding="utf-8"))
+    Includes a synthetic 'Yüklenenler' domain if the manifest has uploads.
+
+    Uses the same unified catalog source as Hazırlık (CatalogLoader →
+    TableDocStore, falls back to catalog.json) so Sunum's basket reads
+    the same 30+ tables Keşif sees.
+    """
+    from presentations.routes_scope import _catalog_json
+    catalog = _catalog_json()
  
     session = _get_session(pid)
     manifest = session.get_manifest() or {}
