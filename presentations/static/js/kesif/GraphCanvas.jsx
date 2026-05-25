@@ -33,11 +33,10 @@ const DEPT_PALETTE = [
   "#9333ea", // purple
   "#475569", // slate (fallback)
 ];
-// Concept hubs in saturated yellow — distinct *kind* of thing, not just
-// another department. (Was amber; user wanted a brighter yellow so hubs
-// pop against the table palette.)
-const CONCEPT_COLOR = "#facc15";   // yellow-400
-// User uploads in pink — won't collide with concept yellow or any dept.
+// Concept hubs in a soft red — they need to read as a different *kind*
+// of thing without screaming. Tailwind red-400 strikes the balance.
+const CONCEPT_COLOR = "#f87171";   // red-400 (soft red)
+// User uploads in pink — won't collide with concept red or any dept.
 const UPLOAD_COLOR = "#db2777";    // pink
 const DEFAULT_COLOR = "#94a3b8";   // neutral grey
 
@@ -52,16 +51,16 @@ function colorForNode(node, deptIndex) {
 // Per-node weight that Cosmograph linearly remaps into pointSizeRange.
 //   - Tables: concept-binding count, capped at TABLE_WEIGHT_MAX.
 //   - Concepts: usage_count + an offset so the *smallest* concept is
-//     larger than the *biggest* table. This makes the hub-and-spoke
-//     hierarchy immediately legible — concepts are always visually
-//     dominant.
+//     larger than the *biggest* table. The floor was bumped per user
+//     feedback — even a one-table concept needs to read as a hub at a
+//     glance, not as a sibling node.
 //
-// With pointSizeRange [8, 22] and the weight ranges below:
-//   table  weights 0..6  → ~8..12 px
-//   concept weights 8..16 → ~15..22 px
+// With pointSizeRange [8, 28] and the weight ranges below:
+//   table   weights 0..6   → ~8..12 px
+//   concept weights 14..22 → ~20..28 px
 const TABLE_WEIGHT_MAX = 6;
-const CONCEPT_WEIGHT_BASE = 8;     // floor — keeps small hubs bigger than tables
-const CONCEPT_WEIGHT_SPAN = 8;     // 8 + 0..8 → 8..16
+const CONCEPT_WEIGHT_BASE = 14;    // floor — small hubs already obviously larger
+const CONCEPT_WEIGHT_SPAN = 8;     // 14 + 0..8 → 14..22
 
 function sizeWeightForNode(node) {
   if (node.type === "concept") {
@@ -253,13 +252,14 @@ export default function GraphCanvas({
     const point = points[index];
     if (!point) return;
 
-    // Concept hub click: select all orbital tables in one go. The detail
-    // card stays untouched (concepts aren't in /catalog/<schema>/<table>).
+    // Concept hub click: route through the same onSelect channel as
+    // tables — the right rail's ConceptDetailCard variant resolves the
+    // "concept:xxx" prefix and fetches /catalog/concept/<id>. This
+    // replaces the earlier "multi-select orbital tables" behaviour;
+    // bulk-add from a hub is still available via right-click.
     if (point.type === "concept") {
-      const orbital = neighborMap.get(point.id);
-      if (orbital && orbital.size) {
-        setMultiSelectIds(new Set(orbital));
-      }
+      setMultiSelectIds(new Set());
+      onSelect?.(point.id);
       setMenu(null);
       return;
     }
@@ -379,12 +379,16 @@ export default function GraphCanvas({
           pointColorBy="color"
           pointSizeBy="sizeWeight"
           // Cosmograph linearly remaps the weight range into this px range.
-          // Combined with sizeWeightForNode's asymmetric weights (tables
-          // 0..6, concepts 8..16), the floor on concepts is ~15 px and
-          // tables max ~12 px — so a concept hub is always visibly
-          // dominant over its orbital tables.
-          pointSizeRange={[8, 22]}
+          // Bumped to [8, 28] so concept hubs (weight 14+) clearly read as
+          // hubs even when their usage_count is low.
+          pointSizeRange={[8, 28]}
           pointLabelFontSize={10}
+          // Soft white labels stay legible against any node color — the
+          // default near-black got eaten by the dark colored chips and
+          // disappeared on the colored nodes. #f1f5f9 = slate-100, which
+          // has just enough warmth to not look harsh on the f6f7f9
+          // background.
+          pointLabelColor="#f1f5f9"
           linkSourceBy="source"
           linkSourceIndexBy="sourceIndex"
           linkTargetBy="target"

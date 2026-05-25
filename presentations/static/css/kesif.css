@@ -476,18 +476,10 @@
   justify-content: center;
 }
 
-/* ── Upload zone (placeholder for 9.d) ───────────────────────────────── */
-
-.kesif-upload-zone {
-  margin-top: auto;
-  padding: 12px;
-  border: 1.5px dashed #cbd5e1;
-  border-radius: 8px;
-  font-size: 11px;
-  color: #94a3b8;
-  text-align: center;
-  background: #f8fafc;
-}
+/* Upload zone removed in Phase 9 UX revision — uploads now live in
+ * Hazırlık (Atölye → Hazırlık), so the Keşif left rail no longer
+ * advertises the placeholder. The chat panel takes the bottom slot
+ * instead (see .kesif-chat below). */
 
 /* ── Cosmograph graph canvas (Phase 9.b.1) ───────────────────────────── */
 
@@ -637,71 +629,49 @@
   cursor: default;
 }
 
-/* ── Chat drawer (Phase 9.c) ────────────────────────────────────────── */
+/* ── Chat panel (Phase 9.c — inline, at the bottom of the left rail) ── */
 
-.kesif-chat__fab {
-  position: fixed;
-  bottom: 18px;
-  right: 18px;
-  background: #1e3a8a;
-  color: #fff;
-  border: none;
-  border-radius: 22px;
-  padding: 10px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
-  font-family: inherit;
-  z-index: 30;
-}
-.kesif-chat__fab:hover { background: #1d4ed8; }
-.kesif-chat__fab-badge {
-  background: #fbbf24;
-  color: #0f172a;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
-}
-
-.kesif-chat__drawer {
-  position: fixed;
-  bottom: 0;
-  right: 18px;
-  width: 380px;
-  max-width: calc(100vw - 36px);
-  height: 480px;
-  max-height: calc(100vh - 120px);
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-bottom: none;
-  border-radius: 12px 12px 0 0;
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.22);
+.kesif-chat {
+  margin-top: auto;            /* push to the bottom of the left rail */
   display: flex;
   flex-direction: column;
-  z-index: 30;
+  min-height: 0;
+  /* Cap so a long thread doesn't squeeze out the tree above. The rail
+   * itself is scrollable, but capping the panel keeps the input row
+   * visible when the user scrolls the tree. */
+  max-height: 56%;
+  border-top: 1px solid #e6e7e9;
+  background: #ffffff;
+  margin-left: -14px;
+  margin-right: -14px;
+  margin-bottom: -16px;
+  padding-bottom: 6px;
+}
+.kesif-chat--collapsed {
+  max-height: none;
 }
 
 .kesif-chat__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid #e2e8f0;
+  padding: 8px 14px;
   background: #f8fafc;
-  border-radius: 12px 12px 0 0;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #e6e7e9;
+}
+.kesif-chat--collapsed .kesif-chat__header {
+  border-bottom: none;
 }
 .kesif-chat__title {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   color: #1e293b;
+  letter-spacing: 0.02em;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .kesif-chat__header-actions {
   display: inline-flex;
@@ -713,7 +683,7 @@
   border: none;
   color: #64748b;
   cursor: pointer;
-  padding: 5px;
+  padding: 4px;
   border-radius: 4px;
   display: inline-flex;
 }
@@ -729,29 +699,29 @@
 .kesif-chat__thread {
   flex: 1;
   overflow-y: auto;
-  padding: 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   scrollbar-width: thin;
+  min-height: 0;
 }
 
 .kesif-chat__empty {
-  font-size: 12px;
+  font-size: 11px;
   color: #94a3b8;
   text-align: center;
-  padding: 24px 12px;
+  padding: 14px 8px;
   line-height: 1.5;
+  font-style: italic;
 }
-.kesif-chat__empty p { margin: 4px 0; }
-.kesif-chat__empty-hint { font-style: italic; color: #cbd5e1; }
 
 .kesif-chat__bubble {
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
-  padding: 8px 12px;
-  border-radius: 10px;
-  max-width: 86%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  max-width: 92%;
   word-wrap: break-word;
 }
 .kesif-chat__bubble--user {
@@ -858,21 +828,22 @@
 
 .kesif-chat__input-row {
   display: flex;
-  gap: 6px;
-  padding: 8px 10px 10px;
-  border-top: 1px solid #e2e8f0;
+  gap: 4px;
+  padding: 6px 10px 4px;
+  border-top: 1px solid #e6e7e9;
   background: #fafbfc;
 }
 .kesif-chat__input {
   flex: 1;
   resize: none;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 12px;
+  border-radius: 5px;
+  padding: 4px 7px;
+  font-size: 11px;
   font-family: inherit;
   line-height: 1.4;
   background: #fff;
+  color: #1e293b;
 }
 .kesif-chat__input:focus {
   outline: none;
@@ -882,8 +853,8 @@
   background: #2563eb;
   color: #fff;
   border: none;
-  border-radius: 6px;
-  padding: 0 12px;
+  border-radius: 5px;
+  padding: 0 9px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;

@@ -1,31 +1,42 @@
-/* Phase 9.c — Keşif chat drawer.
+/* Phase 9.c — Keşif chat panel.
  *
- * Bottom-edge collapsible drawer. The LLM's job is *narrow*: it proposes
- * tables. Every proposal renders as an inline card the user can click to
- * add to the basket — the LLM never mutates the basket directly (spec
- * §5.4). When proposals arrive, their ids flow up to the parent so
- * GraphCanvas can pulse the matching nodes for ~3 seconds.
+ * Lives at the bottom of the left rail (same vertical position as the
+ * Hazırlık + Sunum chat affordances, same Inter font stack, same row
+ * heights). Always visible but collapsible to a single header bar so a
+ * busy user can free up space.
+ *
+ * The LLM's job is narrow (spec §5.4): propose tables. Each proposal
+ * renders as an inline card with a "Sepete ekle" CTA. When proposals
+ * arrive, their ids flow up to the parent (`onHighlight`) so
+ * GraphCanvas pulses the matching nodes for ~3 seconds.
+ *
+ * Exposes an imperative `chatHandle` ref the parent uses for two
+ * cross-component actions:
+ *   - openWithPrompt(text)  → expand + prefill the input + focus.
+ *     Wired from the table detail card's "Sohbette göster" button.
+ *   - clear()               → wipe history (also triggers the DELETE).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
-  MessageCircle, Send, X, Trash2, Plus, Loader2, ChevronDown,
+  MessageCircle, Send, Trash2, Plus, Loader2, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 
-export default function ChatDrawer({
+const ChatDrawer = forwardRef(function ChatDrawer({
   chatSendUrl,
   chatClearUrl,
   seedHistory,
   basketTableIds,
   onAddToBasket,
   onHighlight,
-}) {
-  const [open, setOpen] = useState(false);
+}, ref) {
+  const [open, setOpen] = useState(true);
   const [history, setHistory] = useState(() => seedHistory || []);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const threadRef = useRef(null);
+  const inputRef = useRef(null);
 
   // Auto-scroll the thread to the latest message on each append.
   useEffect(() => {
@@ -33,13 +44,11 @@ export default function ChatDrawer({
     threadRef.current.scrollTop = threadRef.current.scrollHeight;
   }, [history, open]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  const send = useCallback(async (overrideText) => {
+    const text = (overrideText !== undefined ? overrideText : input).trim();
     if (!text || sending) return;
     setSending(true);
     setError(null);
-    // Optimistic: drop the user turn immediately so the input clears
-    // and the user sees their own message reflected.
     const optimisticUser = {
       role: "user",
       text,
@@ -58,15 +67,12 @@ export default function ChatDrawer({
       });
       if (!resp.ok) throw new Error(`chat HTTP ${resp.status}`);
       const data = await resp.json();
-      // Server returns the canonical history — replace ours wholesale.
       setHistory(data.history || []);
-      // Fire the pulse signal so GraphCanvas highlights the proposals.
       const ids = data.assistant_message?.highlights || [];
       if (ids.length && onHighlight) onHighlight(ids);
     } catch (err) {
       console.warn("Keşif chat:", err);
       setError("Bir sorun oldu, tekrar dener misiniz?");
-      // Roll back the optimistic user turn so the user can retry.
       setHistory((prev) => prev.filter((t) => t !== optimisticUser));
     } finally {
       setSending(false);
@@ -74,7 +80,6 @@ export default function ChatDrawer({
   }, [input, sending, chatSendUrl, onHighlight]);
 
   const onKeyDown = useCallback((e) => {
-    // Cmd/Ctrl+Enter → send. Plain Enter inserts a newline.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       send();
@@ -96,68 +101,60 @@ export default function ChatDrawer({
     }
   }, [chatClearUrl, sending]);
 
-  // Quick visual signal on the toggle: unread assistant messages since
-  // the user last opened the drawer.
-  const lastSeenRef = useRef(history.length);
-  const unread = useMemo(() => {
-    if (open) return 0;
-    return Math.max(0, history.length - lastSeenRef.current);
-  }, [history.length, open]);
-  useEffect(() => {
-    if (open) lastSeenRef.current = history.length;
-  }, [open, history.length]);
+  // Imperative handle for parent components to open + prefill the chat
+  // (e.g., the detail card's "Sohbette göster" button).
+  useImperativeHandle(ref, () => ({
+    openWithPrompt(text) {
+      setOpen(true);
+      setInput(text);
+      // Focus + caret at end so the user can keep typing immediately.
+      setTimeout(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        const len = el.value.length;
+        try { el.setSelectionRange(len, len); } catch { /* IE shim — no-op */ }
+      }, 50);
+    },
+    clear: clearChat,
+  }), [clearChat]);
 
   return (
-    <>
-      {!open && (
-        <button
-          type="button"
-          className="kesif-chat__fab"
-          onClick={() => setOpen(true)}
-          title="Keşif sohbeti — bana ne aradığını söyle"
-        >
-          <MessageCircle size={16} />
-          <span>Sohbet</span>
-          {unread > 0 && <span className="kesif-chat__fab-badge">{unread}</span>}
-        </button>
-      )}
+    <section className={`kesif-chat${open ? "" : " kesif-chat--collapsed"}`} aria-label="Keşif sohbeti">
+      <header className="kesif-chat__header" onClick={() => setOpen((v) => !v)}>
+        <span className="kesif-chat__title">
+          <MessageCircle size={12} />
+          Sohbet
+        </span>
+        <span className="kesif-chat__header-actions" onClick={(e) => e.stopPropagation()}>
+          {history.length > 0 && open && (
+            <button
+              type="button"
+              className="kesif-chat__icon-btn"
+              onClick={clearChat}
+              title="Geçmişi sil"
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="kesif-chat__icon-btn"
+            onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+            title={open ? "Daralt" : "Aç"}
+            aria-expanded={open}
+          >
+            {open ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+          </button>
+        </span>
+      </header>
 
       {open && (
-        <div className="kesif-chat__drawer" role="dialog" aria-label="Keşif sohbeti">
-          <header className="kesif-chat__header">
-            <div className="kesif-chat__title">
-              <MessageCircle size={14} />
-              Keşif sohbeti
-            </div>
-            <div className="kesif-chat__header-actions">
-              <button
-                type="button"
-                className="kesif-chat__icon-btn"
-                onClick={clearChat}
-                title="Geçmişi sil"
-                disabled={history.length === 0}
-              >
-                <Trash2 size={13} />
-              </button>
-              <button
-                type="button"
-                className="kesif-chat__icon-btn"
-                onClick={() => setOpen(false)}
-                title="Daralt"
-              >
-                <ChevronDown size={14} />
-              </button>
-            </div>
-          </header>
-
+        <>
           <div className="kesif-chat__thread" ref={threadRef}>
             {history.length === 0 && (
               <div className="kesif-chat__empty">
-                <p>Ne aradığını birkaç kelimeyle yaz; sana uygun tabloları öneririm.</p>
-                <p className="kesif-chat__empty-hint">
-                  Örnek: "şube performansı", "Q4 mevduat hareketi", "rakip
-                  faiz oranları"
-                </p>
+                Ne aradığını birkaç kelimeyle yaz; sana uygun tabloları öneririm.
               </div>
             )}
             {history.map((turn, i) => (
@@ -171,7 +168,7 @@ export default function ChatDrawer({
             ))}
             {sending && (
               <div className="kesif-chat__bubble kesif-chat__bubble--assistant kesif-chat__bubble--thinking">
-                <Loader2 size={12} className="kesif-spin" /> Düşünüyor…
+                <Loader2 size={10} className="kesif-spin" /> Düşünüyor…
               </div>
             )}
             {error && <div className="kesif-chat__error">{error}</div>}
@@ -179,8 +176,9 @@ export default function ChatDrawer({
 
           <footer className="kesif-chat__input-row">
             <textarea
+              ref={inputRef}
               className="kesif-chat__input"
-              placeholder="Aradığın veriyi yaz… (Ctrl/Cmd+Enter ile gönder)"
+              placeholder="Aradığın veri… (Ctrl/Cmd+Enter)"
               value={input}
               rows={2}
               onChange={(e) => setInput(e.target.value)}
@@ -191,18 +189,20 @@ export default function ChatDrawer({
             <button
               type="button"
               className="kesif-chat__send"
-              onClick={send}
+              onClick={() => send()}
               disabled={!input.trim() || sending}
               title="Gönder (Ctrl/Cmd+Enter)"
             >
-              {sending ? <Loader2 size={14} className="kesif-spin" /> : <Send size={14} />}
+              {sending ? <Loader2 size={12} className="kesif-spin" /> : <Send size={12} />}
             </button>
           </footer>
-        </div>
+        </>
       )}
-    </>
+    </section>
   );
-}
+});
+
+export default ChatDrawer;
 
 
 function ChatTurn({ turn, basketTableIds, onAddToBasket, onHighlight }) {
@@ -272,7 +272,7 @@ function ProposalCard({ proposal, inBasket, onAddToBasket, onHighlight }) {
         onClick={() => onAddToBasket?.(tid)}
         disabled={inBasket}
       >
-        <Plus size={11} />
+        <Plus size={10} />
         {inBasket ? "Sepette" : "Sepete ekle"}
       </button>
     </div>
