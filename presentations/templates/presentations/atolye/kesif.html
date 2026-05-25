@@ -6,7 +6,7 @@
   <title>Atölye / Keşif — Treasury Studio</title>
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=7">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=8">
   <style>
     html, body {
       margin: 0; padding: 0; height: 100%; overflow: hidden;
@@ -19,6 +19,6 @@
 <body>
   <div id="kesif-root"></div>
   <script id="kesif-data" type="application/json">{{ kesif_json | safe }}</script>
-  <script src="{{ url_for('presentations.static', filename='js/kesif.bundle.js') }}?v=18"></script>
+  <script src="{{ url_for('presentations.static', filename='js/kesif.bundle.js') }}?v=19"></script>
 </body>
 </html>

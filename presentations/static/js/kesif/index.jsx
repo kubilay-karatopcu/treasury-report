@@ -72,7 +72,10 @@ function App() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedConcepts, setSelectedConcepts] = useState(new Set());
   const [selectedSchemas, setSelectedSchemas] = useState(new Set());
-  const [collapsedSchemas, setCollapsedSchemas] = useState(new Set());
+  // Schema tree starts fully collapsed — at 7+ schemas the all-expanded
+  // default drowned the rail. Tracked as "expanded set" (default empty)
+  // so adding a schema name to the set opens it; absence = collapsed.
+  const [expandedSchemas, setExpandedSchemas] = useState(new Set());
 
   // Applied state — only what's currently committed to the graph dim.
   const [appliedConcepts, setAppliedConcepts] = useState(new Set());
@@ -266,7 +269,7 @@ function App() {
   });
   const toggleConcept = toggleSet(setSelectedConcepts);
   const toggleSchema = toggleSet(setSelectedSchemas);
-  const toggleSchemaCollapsed = (schema) => setCollapsedSchemas((prev) => {
+  const toggleSchemaExpanded = (schema) => setExpandedSchemas((prev) => {
     const next = new Set(prev);
     if (next.has(schema)) next.delete(schema); else next.add(schema);
     return next;
@@ -439,8 +442,8 @@ function App() {
           onApplyFilters={applyFilters}
           onResetFilters={resetFilters}
           treeGroups={treeGroups}
-          collapsedSchemas={collapsedSchemas}
-          onToggleSchemaCollapsed={toggleSchemaCollapsed}
+          expandedSchemas={expandedSchemas}
+          onToggleSchemaExpanded={toggleSchemaExpanded}
           selectedId={selectedId}
           onSelect={setSelectedId}
           chatProps={{
@@ -492,32 +495,17 @@ function App() {
 
 // ── Components ─────────────────────────────────────────────────────────
 
-// Inline SVG mark — a stylised prism (light entering, splitting into a
-// spectrum). The product name in the topbar reuses this glyph as the
-// left-most affordance on every Atölye screen, replacing the older
-// lucide Building2 placeholder.
-function PrismaLogo() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      {/* Triangular prism body */}
-      <path d="M3 19 L12 5 L21 19 Z" stroke="#2563eb" strokeWidth="1.6" strokeLinejoin="round" fill="#e0e7ff" />
-      {/* Light beam entering */}
-      <path d="M1.5 12 L8 12" stroke="#1e293b" strokeWidth="1.4" strokeLinecap="round" />
-      {/* Refracted spectrum */}
-      <path d="M14 15 L22.5 11" stroke="#dc2626" strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M14 16 L22.5 13" stroke="#f59e0b" strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M14 17 L22.5 15" stroke="#16a34a" strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M14 18 L22.5 17" stroke="#2563eb" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
+// Real PRISMA brand asset lives at presentations/static/img/. Topbar
+// renders an <img> so the source-of-truth stays the PNG the design
+// team owns, not an approximated SVG. Falls back gracefully if the
+// file is missing (broken image icon, but layout stays intact).
+const PRISMA_LOGO_URL = "/presentations/static/img/prisma_logo.png";
 
 function Topbar({ userName, userDept }) {
   return (
     <header className="kesif-topbar">
       <a href="/presentations/" className="kesif-topbar__logo" title="PRISMA — Tüm sunumlara dön">
-        <PrismaLogo />
-        <span className="kesif-topbar__logo-text">PRISMA</span>
+        <img src={PRISMA_LOGO_URL} alt="PRISMA" className="kesif-topbar__logo-img" />
       </a>
       <span className="kesif-topbar__brand">
         Atölye
@@ -546,12 +534,13 @@ function LeftRail({
   selectedConcepts, selectedSchemas,
   onToggleConcept, onToggleSchema,
   filtersDirty, filtersActive, onApplyFilters, onResetFilters,
-  treeGroups, collapsedSchemas, onToggleSchemaCollapsed,
+  treeGroups, expandedSchemas, onToggleSchemaExpanded,
   selectedId, onSelect,
   chatProps,
 }) {
   return (
     <aside className="kesif-left">
+      <div className="kesif-left__scroll">
       <FilterGroup
         title="Kavram"
         items={facets.concepts}
@@ -617,24 +606,24 @@ function LeftRail({
           <div className="kesif-tree__empty">Sonuç bulunamadı</div>
         ) : (
           [...treeGroups.bySchema.entries()].sort().map(([schema, items]) => {
-            const collapsed = collapsedSchemas.has(schema);
+            const expanded = expandedSchemas.has(schema);
             return (
               <div key={schema}>
                 <div
                   className="kesif-tree__dept"
-                  onClick={() => onToggleSchemaCollapsed(schema)}
+                  onClick={() => onToggleSchemaExpanded(schema)}
                   role="button"
                   tabIndex={0}
                 >
                   <span className="kesif-tree__dept-caret">
-                    {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                    {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                   </span>
                   {schema === "—" ? "Diğer" : schema}
                   <span className="kesif-filter-option__count" style={{marginLeft:'auto'}}>
                     {items.length}
                   </span>
                 </div>
-                {!collapsed && (
+                {expanded && (
                   <div className="kesif-tree__tables">
                     {items.map((t) => (
                       <TableRow
@@ -649,20 +638,27 @@ function LeftRail({
           })
         )}
       </div>
+      </div>{/* /.kesif-left__scroll */}
 
       {chatProps && <ChatDrawer {...chatProps} />}
     </aside>
   );
 }
 
-function FilterGroup({ title, items, selected, onToggle, labels = {} }) {
+function FilterGroup({ title, items, selected, onToggle, labels = {}, defaultLimit = 5 }) {
   const entries = Object.entries(items || {});
+  const [showAll, setShowAll] = useState(false);
   if (entries.length === 0) return null;
+  // Show top-N facet rows by default; "Daha fazla göster" reveals the
+  // rest. Keeps the rail tidy at 16+ concept catalogs without hiding
+  // anything — every row is one click away.
+  const visible = showAll ? entries : entries.slice(0, defaultLimit);
+  const hiddenCount = entries.length - visible.length;
   return (
     <div>
       <h4 className="kesif-left__heading">{title}</h4>
       <div className="kesif-filter-group">
-        {entries.map(([k, count]) => (
+        {visible.map(([k, count]) => (
           <label key={k} className="kesif-filter-option">
             <input
               type="checkbox"
@@ -673,6 +669,24 @@ function FilterGroup({ title, items, selected, onToggle, labels = {} }) {
             <span className="kesif-filter-option__count">{count}</span>
           </label>
         ))}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            className="kesif-filter-group__more"
+            onClick={() => setShowAll(true)}
+          >
+            +{hiddenCount} daha göster
+          </button>
+        )}
+        {showAll && entries.length > defaultLimit && (
+          <button
+            type="button"
+            className="kesif-filter-group__more"
+            onClick={() => setShowAll(false)}
+          >
+            Daha az göster
+          </button>
+        )}
       </div>
     </div>
   );
