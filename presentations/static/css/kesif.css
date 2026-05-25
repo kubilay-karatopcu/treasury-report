@@ -16,10 +16,29 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px 24px;
+  padding: 10px 18px 10px 14px;
   background: #fff;
   border-bottom: 1px solid #e6e7e9;
   flex-shrink: 0;
+}
+/* PRISMA logo block — leftmost element on every Atölye screen. Clicks
+ * back to the presentations list. */
+.kesif-topbar__logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.kesif-topbar__logo:hover { background: #f1f5f9; }
+.kesif-topbar__logo-text {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #1e293b;
 }
 .kesif-topbar__brand {
   font-size: 14px;
@@ -89,8 +108,14 @@
   gap: 0;
   min-height: 0;
 }
+/* Right rail collapses to zero when nothing is selected — the left
+ * rail widens so the chat panel + tree feel more breathable. */
+.kesif-body--right-collapsed {
+  grid-template-columns: 340px 1fr;
+}
 @media (max-width: 1100px) {
   .kesif-body { grid-template-columns: 240px 1fr 280px; }
+  .kesif-body--right-collapsed { grid-template-columns: 300px 1fr; }
 }
 
 .kesif-left,
@@ -133,6 +158,16 @@
   outline: none;
   border-color: #2563eb;
   background: #fff;
+}
+/* Inline variant: sits inside the Şemalar tree section. Smaller font
+ * + tighter padding so it doesn't dominate the rail. */
+.kesif-search--inline {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.kesif-search--inline input {
+  padding: 5px 9px;
+  font-size: 12px;
 }
 
 .kesif-filter-group { display: flex; flex-direction: column; gap: 4px; }
@@ -285,6 +320,27 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  position: relative;
+}
+/* Close button — top-right corner of the detail rail. Only renders
+ * when a node is selected (i.e. the rail is open at all). */
+.kesif-right__close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+}
+.kesif-right__close:hover {
+  background: #f1f5f9;
+  color: #1e293b;
 }
 
 .kesif-card,
@@ -658,10 +714,10 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* Cap so a long thread doesn't squeeze out the tree above. The rail
-   * itself is scrollable, but capping the panel keeps the input row
-   * visible when the user scrolls the tree. */
-  max-height: 56%;
+  /* Chat is the primary discovery affordance after the tree — give it
+   * room to breathe. Bumped from 56% → 72% per user feedback ("chat
+   * kısmını yukarı doğru genişletelim"). */
+  max-height: 72%;
   border-top: 1px solid #e6e7e9;
   background: #ffffff;
   margin-left: -14px;
