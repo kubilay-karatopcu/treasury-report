@@ -1,0 +1,33 @@
+<header class="topbar">
+  <div class="brand">
+    <a class="brand-link" href="{{ url_for('prisma_home.landing') }}">
+      <img class="brand-icon" src="{{ url_for('static', filename='prisma_icon.png') }}" alt="">
+      <div class="brand-mark">PRISMA</div>
+      <div class="brand-tag">{% if mode == 'atolye' %}Atölye · Üretim{% else %}Hazine · Mayıs 2026{% endif %}</div>
+    </a>
+  </div>
+
+  <div class="crumb" id="centerCrumb">{{ crumb|default('', true)|safe }}</div>
+
+  <div class="topbar-right">
+    <div class="mode-toggle">
+      <a href="{{ url_for('prisma_home.landing') }}"
+         id="modeConsumer"
+         class="{% if mode != 'atolye' %}on{% endif %}"
+         style="padding: 6px 14px; color: var(--ink-faint); transition: all 0.2s; display:inline-block;">Tüketici</a>
+      <a href="{{ url_for('prisma_home.atolye_home') }}"
+         id="modeProducer"
+         class="{% if mode == 'atolye' %}on{% endif %}"
+         style="padding: 6px 14px; color: var(--ink-faint); transition: all 0.2s; display:inline-block;">Atölye</a>
+    </div>
+    {% if current_user.is_authenticated %}
+    <div class="user-chip">
+      <div class="avatar">{{ (current_user.name or '?')[:1] }}{% if current_user.name and ' ' in current_user.name %}{{ current_user.name.split(' ',1)[1][:1] }}{% endif %}</div>
+      <div class="meta">
+        <div>{{ current_user.name }}</div>
+        <div class="role">{{ current_user.department }} · {{ current_user.sicil }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</header>

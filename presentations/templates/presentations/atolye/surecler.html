@@ -1,26 +1,24 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Atölye / Süreçler — Treasury Studio</title>
-  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Meta · Süreç İzleme" %}
+{% set sidebar_active = "surec" %}
+{% set canvas_bleed = True %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}Atölye / Süreçler — PRISMA{% endblock %}
+
+{% block head %}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=4">
   <style>
-    html, body {
-      margin: 0; padding: 0; height: 100%; overflow: hidden;
-      background: #f6f7f9; color: #1e293b;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-    .surecler-shell { height: 100vh; display: flex; flex-direction: column; }
-    .surecler-placeholder {
-      flex: 1;
-      display: flex;
+    body.prisma.canvas-bleed .canvas-bleed-mount {
+      background: #f6f7f9;
+      color: #1e293b;
       align-items: center;
       justify-content: center;
-      text-align: center;
       padding: 32px;
     }
+    .surecler-placeholder { text-align: center; max-width: 520px; }
     .surecler-placeholder__art {
       width: 96px; height: 96px;
       border-radius: 50%;
@@ -33,39 +31,20 @@
       font-size: 36px;
     }
     .surecler-placeholder h2 { font-size: 18px; font-weight: 600; color: #1e293b; margin: 0 0 6px; }
-    .surecler-placeholder p { font-size: 13px; color: #64748b; max-width: 480px; margin: 0 auto; line-height: 1.5; }
+    .surecler-placeholder p { font-size: 13px; color: #64748b; line-height: 1.5; }
   </style>
-</head>
-<body>
-  <div class="surecler-shell">
-    <header class="kesif-topbar">
-      <a href="/presentations/" class="kesif-topbar__logo" title="PRISMA — Tüm sunumlara dön">
-        <img src="{{ url_for('presentations.static', filename='img/prisma_logo.png') }}" alt="PRISMA" class="kesif-topbar__logo-img" />
-      </a>
-      <span class="kesif-topbar__brand">
-        <span style="font-weight:700">Atölye</span>
-        <span class="kesif-topbar__crumb">/</span>
-        Süreçler
-      </span>
-      <nav class="kesif-topbar__tabs">
-        <a href="/presentations/atolye/kesif" class="kesif-topbar__tab">Tables</a>
-        <a href="/presentations/atolye/bloklar" class="kesif-topbar__tab">Blocks</a>
-        <a href="/presentations/atolye/surecler" class="kesif-topbar__tab is-active">Processes</a>
-      </nav>
-      <span class="kesif-topbar__spacer" style="flex:1"></span>
-      <a href="/presentations/" class="kesif-topbar__home">← Tüm Sunumlar</a>
-    </header>
-    <main class="surecler-placeholder">
-      <div>
-        <div class="surecler-placeholder__art">⚙</div>
-        <h2>Süreçler yakında</h2>
-        <p>
-          Bu sekme, bankanın iş süreçlerini (günlük NII raporlaması, Q4 kapanış,
-          rakip oranı izleme gibi) ve her sürecin kullandığı tabloları + ürettiği
-          blokları gösterecek. Phase 13 ile birlikte gelir.
-        </p>
-      </div>
-    </main>
+{% endblock %}
+
+{% block content %}
+  <div class="canvas-bleed-mount">
+    <div class="surecler-placeholder">
+      <div class="surecler-placeholder__art">⚙</div>
+      <h2>Süreçler yakında</h2>
+      <p>
+        Bu sekme, bankanın iş süreçlerini (günlük NII raporlaması, Q4 kapanış,
+        rakip oranı izleme gibi) ve her sürecin kullandığı tabloları + ürettiği
+        blokları gösterecek. Phase 13 ile birlikte gelir.
+      </p>
+    </div>
   </div>
-</body>
-</html>
+{% endblock %}

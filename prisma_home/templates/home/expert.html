@@ -1,0 +1,230 @@
+{% extends "home/_base_prisma.html" %}
+{% block title %}{{ expert.name }} — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  /* Expert detail uses the accent color tied to the expert's domain. */
+  .expert-glyph-big { color: {{ expert.ui.accent_color }} !important; }
+  .briefing-empty {
+    padding: 16px 0;
+    color: var(--ink-faint);
+    font-family: var(--serif);
+    font-style: italic;
+  }
+
+  /* ── Phase 10E — recipe-driven section blocks ─────────────────────── */
+  .briefing-section { margin-bottom: 40px; }
+  .briefing-section + .briefing-section {
+    padding-top: 32px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .briefing-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .briefing-section-title {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 200;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+    margin: 0;
+  }
+  .briefing-section-flag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+  }
+  .briefing-section-flag.from-llm   { color: var(--gold); }
+  .briefing-section-flag.from-cache { color: var(--ink-mute); }
+
+  .briefing-section-body p {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+    font-weight: 300;
+    margin-bottom: 14px;
+  }
+  .briefing-section-body p:last-child { margin-bottom: 0; }
+  .briefing-section-body sup {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold);
+    margin-left: 2px;
+    cursor: pointer;
+  }
+  .briefing-section-body strong { color: var(--ink); font-weight: 500; }
+
+  .briefing-raw-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .briefing-raw-list li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .briefing-raw-list li:last-child { border-bottom: none; }
+  .briefing-li-date {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+    margin-left: auto;
+  }
+
+  .briefing-section-citations {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .briefing-section-citations .cite-label {
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-right: 4px;
+  }
+
+  .engine-meta {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .engine-meta .source { color: var(--gold); }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="expert-id">
+    <div class="expert-glyph-big">{{ expert.code }}</div>
+    <div class="meta">
+      <div class="domain-label">
+        {% if briefing.sidebar_eyebrow %}{{ briefing.sidebar_eyebrow }}{% else %}Uzman · {{ expert.domain_label }}{% endif %}
+      </div>
+      <h2>{{ expert.name }}</h2>
+      <div class="subtitle">
+        {% if briefing.sidebar_subtitle %}{{ briefing.sidebar_subtitle }}
+        {% else %}{{ expert.short_description }}{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="expert-hero">
+
+    <div class="briefing-prose">
+      {% set has_sections = briefing.sections|default([]) and briefing.sections|length > 0 %}
+
+      {% if has_sections %}
+        {# ── Phase 10E recipe sections ───────────────────────────────── #}
+        {% for sec in briefing.sections %}
+          <div class="briefing-section">
+            <div class="briefing-section-head">
+              <h3 class="briefing-section-title">{{ sec.title }}</h3>
+              {% if sec.llm_paraphrase %}
+                <span class="briefing-section-flag from-llm">{{ expert.code }} · uzman dilinden</span>
+              {% else %}
+                <span class="briefing-section-flag">veri listesi</span>
+              {% endif %}
+            </div>
+            <div class="briefing-section-body">
+              {{ sec.content_html | safe }}
+            </div>
+            {% if sec.citations %}
+              <div class="briefing-section-citations">
+                <span class="cite-label">Kaynak</span>
+                {% for c in sec.citations %}
+                  <a class="cite" href="{{ url_for('presentations.view_snapshot', sid=c.ref) }}">
+                    [{{ loop.index }}] {{ c.title[:32] }}
+                  </a>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        {# ── 10E meta strip ────────────────────────────────────────────── #}
+        <div class="engine-meta">
+          <span>
+            {% if briefing.from_cache %}
+              ⓘ cache (TTL geçince yenilenecek)
+            {% else %}
+              <span class="source">⟳ taze render</span>
+            {% endif %}
+          </span>
+          <span>{{ (briefing.rendered_at or '')[:19] }}</span>
+        </div>
+
+      {% elif briefing.prose_html %}
+        {# ── Fallback: Phase 10C static prose ─────────────────────────── #}
+        {{ briefing.prose_html | safe }}
+      {% else %}
+        <p class="briefing-empty">Brifing henüz hazır değil.</p>
+      {% endif %}
+    </div>
+
+    <aside class="expert-sidebar">
+      {% if briefing.metrics %}
+      <div class="panel">
+        <div class="panel-title">Anahtar Göstergeler</div>
+        {% for m in briefing.metrics %}
+        <div class="metric-row">
+          <span class="k">{{ m.k }}</span>
+          <span class="v {% if m.tone == 'neg' %}neg{% elif m.tone == 'pos' %}pos{% endif %}">
+            {{ m.v }}{% if m.delta %} <span class="delta">{{ m.delta }}</span>{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if briefing.related %}
+      <div class="panel">
+        <div class="panel-title">İlişkili Uzmanlar</div>
+        {% for r in briefing.related %}
+        <div class="metric-row">
+          <span class="k">{{ r.code }} — {{ r.name }}</span>
+          <span class="v" style="color: var(--gold);">{{ r.relation }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </aside>
+  </div>
+
+  <div class="section-head">
+    <span class="section-num">03</span>
+    <span class="section-title">Tüm Kaynakça · Dayanak Snapshot'lar</span>
+    <span class="section-tail"></span>
+  </div>
+
+  {% include "home/partials/citation_grid.html" %}
+
+  <div class="expert-question">
+    <span class="label">{{ expert.code }}'ye sor</span>
+    <input type="text"
+           placeholder="örneğin: bu çıkışlar haftalık ortalamayla kıyaslayınca neredeyiz?"
+           disabled
+           title="Phase 10E sonrasında aktif olacak">
+  </div>
+{% endblock %}

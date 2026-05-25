@@ -1,4 +1,9 @@
-{% extends "base.html" %}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set crumb = "Snapshot · " ~ manifest.meta.title %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
 {% block title %}{{ manifest.meta.title }} — Snapshot — Treasury Studio{% endblock %}
 
 {# Snapshots have no filter panel and no sidebar — pure read-only render. #}
@@ -7,15 +12,23 @@
 {% block head %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine-dark.css">
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=31">
+  {# Phase 11.dark-editor — override layer; must load AFTER editor.css. #}
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
   <style>
     .dev-banner { display: none !important; }
     html, body { margin: 0 !important; overflow: hidden !important; }
     .presentations-editor-mount {
+      /* Phase 10A polish — leave room for the 56px PRISMA topbar (consumer
+         mode → no sidebar, so the mount can span the full width). */
       position: fixed !important;
-      inset: 0 !important;
+      top: 56px !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
       width: 100vw !important;
-      height: 100vh !important;
+      height: calc(100vh - 56px) !important;
       z-index: 10 !important;
       overflow: hidden !important;
       background: #ffffff;

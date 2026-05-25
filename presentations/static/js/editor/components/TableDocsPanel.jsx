@@ -260,7 +260,7 @@ function DataPreviewGrid({ data }) {
         </span>
         <span>{data.columns?.length || 0} kolon</span>
       </div>
-      <div className="ag-theme-alpine docs-preview-grid">
+      <div className="ag-theme-alpine-dark docs-preview-grid">
         <AgGridReact
           columnDefs={columnDefs}
           rowData={rowData}

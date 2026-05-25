@@ -9,6 +9,7 @@ from flask import Flask
 from flask_login import LoginManager, UserMixin, login_user
 
 from presentations import presentations_bp
+from prisma_home import prisma_home_bp  # Phase 10A: editor.html extends home/_base_prisma.html
 from presentations.concepts.registry import ConceptRegistry
 from presentations.session import SessionRegistry
 from presentations.scope.store import LocalScopeStore
@@ -71,6 +72,10 @@ def app(tmp_path):
         if not getattr(current_user, "is_authenticated", False):
             login_user(_FakeUser())
     app.register_blueprint(presentations_bp, url_prefix="/presentations")
+    # Phase 10A: editor.html extends home/_base_prisma.html (lives under
+    # prisma_home_bp's template folder). Register the shell blueprint so the
+    # Jinja loader can resolve the new base.
+    app.register_blueprint(prisma_home_bp, url_prefix="")
     return app
 
 

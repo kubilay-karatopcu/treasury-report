@@ -1,0 +1,44 @@
+{% extends "home/_base_prisma.html" %}
+{% block title %}Atölye — PRISMA{% endblock %}
+
+{% block content %}
+  <div class="atolye-intro">
+    <div class="eyebrow">Atölye · Ana</div>
+    <h2>Üretim akışı</h2>
+    <p class="sub">
+      Keşif veriyi soruşturur, Hazırlık tabloları olgunlaştırır, Sunum bunu uzmanlara bağlar.
+      Phase 10A için yalnızca kabuğu görüyorsun — gerçek pipeline kartları 10C'de geliyor.
+    </p>
+  </div>
+
+  <div class="pipeline">
+    <a class="stage" href="{{ url_for('presentations.atolye_kesif') }}" style="text-decoration: none; color: inherit;">
+      <div class="stage-num">A · 1</div>
+      <div class="stage-name">Keşif</div>
+      <div class="stage-tag">Discovery</div>
+      <div class="stage-desc">
+        Tablo grafı, doc inceleme, ad-hoc soruşturma. Phase 9 modülü.
+      </div>
+    </a>
+    <a class="stage" href="{{ url_for('presentations.hazirlik_new') }}" style="text-decoration: none; color: inherit;">
+      <div class="stage-num">A · 2</div>
+      <div class="stage-name">Hazırlık</div>
+      <div class="stage-tag">Curation</div>
+      <div class="stage-desc">
+        Scope tanımla, blok şablonu yaz, doc bağla. Phase 8 modülü.
+      </div>
+    </a>
+    <a class="stage current" href="{{ url_for('presentations.list_presentations') }}" style="text-decoration: none; color: inherit;">
+      <div class="stage-num">A · 3</div>
+      <div class="stage-name">Sunum</div>
+      <div class="stage-tag">Composition</div>
+      <div class="stage-desc">
+        Bloklardan bir araya getir, yayınla, uzmana bağla. Mevcut modül.
+      </div>
+    </a>
+  </div>
+
+  <p style="font-size: 11px; letter-spacing: 0.22em; color: var(--ink-faint); text-transform: uppercase; text-align: center; margin-top: 56px;">
+    Phase 10C — gerçek aşama kartları (son aktivite + sayaçlar) buraya gelecek.
+  </p>
+{% endblock %}

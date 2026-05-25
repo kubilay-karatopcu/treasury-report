@@ -1,4 +1,12 @@
-{% extends "base.html" %}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Pipeline · 03 Sunum" %}
+{% set sidebar_active = "sunum" %}
+{# Phase 11.dark-editor: list page is now fully dark via editor_dark.css —
+   light_content opt-in dropped. #}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
 {% block title %}Rapor Şablonları — Treasury Studio{% endblock %}
 
 {% block filter_panel %}{% endblock %}
@@ -302,6 +310,9 @@
   }
   .pres-card-eye:hover { border-color: #206bc4; color: #206bc4; }
 </style>
+{# Phase 11.dark-editor — dark override layer; loaded LAST so its rules
+   win over the inline <style> block's hardcoded light colors above. #}
+<link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
 {% endblock %}
 
 {% block content %}

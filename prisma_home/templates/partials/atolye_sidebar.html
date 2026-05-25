@@ -1,0 +1,25 @@
+{# Phase 11.wrap: callers either pass a fully-built `sidebar` (the original
+   prisma_home routes do) OR set just `sidebar_active` and let the helper
+   build it (producer pages from the presentations blueprint do this). #}
+{% if (not sidebar or sidebar|length == 0) and sidebar_active is defined %}
+  {% set sidebar = build_sidebar(sidebar_active) %}
+{% endif %}
+<aside class="atolye-sidebar" id="atolyeSidebar">
+  {% for group in sidebar %}
+    <div class="sidebar-group">
+      <div class="sidebar-label">{{ group.label }}</div>
+      {% for item in group['items'] %}
+        <a class="sidebar-item {% if item.active %}on{% endif %}"
+           href="{{ url_for(item.route) }}"
+           data-target="{{ item.key }}">
+          <span class="num">{{ item.num }}</span>
+          <span class="label-text">{{ item.label }}</span>
+          {% if item.badge is not none %}
+            <span class="badge">{{ item.badge }}</span>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  <a class="sidebar-back" href="{{ url_for('prisma_home.landing') }}">← Ana Ekran</a>
+</aside>

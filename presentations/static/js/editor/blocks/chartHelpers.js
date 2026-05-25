@@ -44,6 +44,23 @@ const COMMON_GRID = {
   padding: { left: 8, right: 8, top: 0, bottom: 0 },
 };
 
+// Phase 11.dark-editor — shared chart-level config. `theme.mode: 'dark'`
+// makes Apex's auto-derived colors (tooltips, dataLabels bg, etc.) match
+// the dark palette. `foreColor` sets the default text color for legends
+// and other global text bits.
+const CHART_BASE = {
+  toolbar:     { show: false },
+  fontFamily:  'inherit',
+  background:  'transparent',
+  foreColor:   theme.chart.foreColor,
+  animations:  { enabled: true, speed: 250 },
+};
+const CHART_THEME = { theme: { mode: 'dark' } };
+const COMMON_TOOLTIP = {
+  theme: 'dark',
+  style: { fontSize: '12px' },
+};
+
 export function barChartOptions({
   categories, series, height = 260,
   stacked = false, horizontal = false,
@@ -55,10 +72,9 @@ export function barChartOptions({
       type: 'bar',
       height,
       stacked,
-      toolbar: { show: false },
-      fontFamily: 'inherit',
-      animations: { enabled: true, speed: 250 },
+      ...CHART_BASE,
     },
+    ...CHART_THEME,
     plotOptions: {
       bar: {
         horizontal,
@@ -101,11 +117,10 @@ export function lineChartOptions({
     chart: {
       type: 'line',
       height,
-      toolbar: { show: false },
       zoom: { enabled: false },
-      fontFamily: 'inherit',
-      animations: { enabled: true, speed: 250 },
+      ...CHART_BASE,
     },
+    ...CHART_THEME,
     stroke: { width: strokeWidth, curve },
     dataLabels: { enabled: false },
     markers: { size: showMarkers ? 4 : 0, hover: { size: 6 } },
@@ -155,9 +170,9 @@ export function pieChartOptions({
     chart: {
       type: donut ? 'donut' : 'pie',
       height,
-      fontFamily: 'inherit',
-      animations: { enabled: true, speed: 250 },
+      ...CHART_BASE,
     },
+    ...CHART_THEME,
     labels,
     colors: theme.chart.palette,
     legend: { position: legendPosition, fontSize: '12px' },
@@ -170,7 +185,7 @@ export function pieChartOptions({
     plotOptions: donut
       ? { pie: { donut: { size: '60%', labels: { show: true, total: { show: true, label: 'Toplam', formatter: formatNumber } } } } }
       : {},
-    stroke: { width: 1, colors: ['#ffffff'] },
+    stroke: { width: 1, colors: [theme.colors.bgCard] },
     noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
 }
@@ -180,10 +195,9 @@ export function heatmapOptions({ categories, series, height = 280, showValues = 
     chart: {
       type: 'heatmap',
       height,
-      toolbar: { show: false },
-      fontFamily: 'inherit',
-      animations: { enabled: true, speed: 250 },
+      ...CHART_BASE,
     },
+    ...CHART_THEME,
     dataLabels: { enabled: showValues, style: { fontSize: '10px' } },
     colors: [theme.chart.palette[0]],
     xaxis: {
@@ -214,9 +228,9 @@ export function radialBarOptions({ value, max = 100, label = '', height = 260 })
     chart: {
       type: 'radialBar',
       height,
-      fontFamily: 'inherit',
-      animations: { enabled: true, speed: 250 },
+      ...CHART_BASE,
     },
+    ...CHART_THEME,
     series: [pct],
     plotOptions: {
       radialBar: {
