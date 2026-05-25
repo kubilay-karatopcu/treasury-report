@@ -33,9 +33,10 @@ const DEPT_PALETTE = [
   "#9333ea", // purple
   "#475569", // slate (fallback)
 ];
-// Concept hubs in a soft red — they need to read as a different *kind*
-// of thing without screaming. Tailwind red-400 strikes the balance.
-const CONCEPT_COLOR = "#f87171";   // red-400 (soft red)
+// Concept hubs in yellow — distinct *kind* of thing, not just another
+// department. (Toggled back from red after live testing — colour vision
+// preference, not a design call.)
+const CONCEPT_COLOR = "#facc15";   // yellow-400
 // User uploads in pink — won't collide with concept red or any dept.
 const UPLOAD_COLOR = "#db2777";    // pink
 const DEFAULT_COLOR = "#94a3b8";   // neutral grey
@@ -76,6 +77,10 @@ export default function GraphCanvas({
   selectedId,
   basketTableIds,
   highlightIds,        // 9.c — pulse these nodes ~3s when ChatDrawer fires
+  filterMaskIds,       // UX revision — Set<string> of table ids passing the
+                       // left-rail concept/schema filter. When non-empty,
+                       // every other table + concept hub dims out.
+                       // null/undefined = no filter, show everything.
   onSelect,
   onAddToBasket,
   onBulkAddToBasket,
@@ -118,6 +123,14 @@ export default function GraphCanvas({
 
   // Stable index → id mapping. Cosmograph's callbacks return point INDEX
   // (the position in our `points` array); we need a quick way to map back.
+  //
+  // Filter dim is *not* baked into the points array anymore. We let
+  // Cosmograph's selectPoints() do the work — it's a constant-time
+  // selection update that doesn't touch the DuckDB buffer, vs. swapping
+  // colors on the data which forced a multi-second re-upload + force
+  // restart every time the filter changed. The "visible set"
+  // computation now lives in a separate effect (search below for
+  // "filter dim effect").
   const { points, links, idToIndex, deptIndex, neighborMap } = useMemo(() => {
     if (!graph) {
       return { points: [], links: [], idToIndex: new Map(), deptIndex: new Map(), neighborMap: new Map() };
@@ -168,6 +181,8 @@ export default function GraphCanvas({
 
     // Drop edges that reference nodes the catalog didn't return (defensive
     // — shouldn't happen post-bipartite emit but cheap insurance).
+    // Edge dim under filter is handled by Cosmograph's link greyout
+    // (driven by selectPoints), not by per-edge color mutation.
     const links = (graph.edges || []).reduce((acc, e) => {
       const sIdx = idToIndex.get(e.source);
       const tIdx = idToIndex.get(e.target);
@@ -203,6 +218,26 @@ export default function GraphCanvas({
     return { points, links, idToIndex, deptIndex, neighborMap };
   }, [graph]);
 
+  // Filter dim — derived set of point indices that should remain bright
+  // when the user has narrowed the graph via the left-rail filters.
+  // Empty/null mask = no filter active (everything bright).
+  const filterFocusIndices = useMemo(() => {
+    if (!graph || !filterMaskIds || filterMaskIds.size === 0) return null;
+    const visible = new Set(filterMaskIds);
+    // Concept hubs survive if any of their bound tables are in the mask.
+    for (const n of graph.nodes) {
+      if (n.type !== "concept") continue;
+      const stays = (graph.edges || []).some(
+        (e) => (e.target === n.id && filterMaskIds.has(e.source))
+            || (e.source === n.id && filterMaskIds.has(e.target))
+      );
+      if (stays) visible.add(n.id);
+    }
+    return [...visible]
+      .map((id) => idToIndex.get(id))
+      .filter((i) => i !== undefined);
+  }, [graph, filterMaskIds, idToIndex]);
+
   // ── Selection bridging ───────────────────────────────────────────────
   // When the parent's selectedId changes (e.g., from the tree), reflect
   // it in Cosmograph's focus so the graph and the tree stay in sync.
@@ -214,6 +249,23 @@ export default function GraphCanvas({
       cosmoRef.current.focusPoint?.(idx);
     } catch { /* method varies by version — soft-fail */ }
   }, [selectedId, idToIndex]);
+
+  // ── Filter dim (sticky selection) ────────────────────────────────────
+  // When the user narrows via Kavram / Kaynak / Search, we call
+  // selectPoints on the surviving indices — Cosmograph greys out the
+  // rest via pointGreyoutOpacity. This is purely a render-time
+  // selection update; no setData, no force restart, no DuckDB upload.
+  useEffect(() => {
+    const ref = cosmoRef.current;
+    if (!ref) return;
+    try {
+      if (filterFocusIndices && filterFocusIndices.length > 0) {
+        ref.selectPoints?.(filterFocusIndices);
+      } else {
+        ref.unselectPoints?.();
+      }
+    } catch { /* method varies by version — soft-fail */ }
+  }, [filterFocusIndices]);
 
   // ── Highlight pulse from ChatDrawer (9.c) ────────────────────────────
   // When the LLM returns proposals, the parent passes their ids here.
@@ -315,9 +367,15 @@ export default function GraphCanvas({
   const handlePointMouseOut = useCallback(() => {
     if (!cosmoRef.current) return;
     try {
-      cosmoRef.current.unselectPoints?.();
+      // Restore the sticky filter selection if one's active; otherwise
+      // clear so every node returns to full brightness.
+      if (filterFocusIndices && filterFocusIndices.length > 0) {
+        cosmoRef.current.selectPoints?.(filterFocusIndices);
+      } else {
+        cosmoRef.current.unselectPoints?.();
+      }
     } catch { /* soft-fail */ }
-  }, []);
+  }, [filterFocusIndices]);
 
   // Esc closes the context menu.
   useEffect(() => {
@@ -398,15 +456,22 @@ export default function GraphCanvas({
           linkOpacityBy="opacity"
           // Force-sim params: bipartite topology needs slightly tighter
           // gravity so orbital tables stay close to their concept hub.
+          // Repulsion bumped from 0.5 → 1.0 — at small catalog scale the
+          // 0.5 setting let tables collide on top of each other.
           simulationGravity={0.4}
-          simulationRepulsion={0.5}
-          simulationLinkDistance={6}
+          simulationRepulsion={1.0}
+          simulationLinkDistance={8}
           simulationLinkSpring={1.4}
           simulationFriction={0.88}
           // simulationDecay default 5000 — sim runs for a long time and
           // keeps applying micro-velocities that look like jitter to the
           // user. 1000 = settles in ~2-3s on small graphs.
           simulationDecay={1000}
+          // Filter changes re-emit the points array with new colors;
+          // without this flag Cosmograph would re-run the force sim and
+          // jitter every node. Holding positions keeps the dim
+          // transition feel like a fade, not a teleport.
+          preservePointPositionsOnDataUpdate
           // Fit the graph to the viewport once the simulation settles.
           // 0.1 padding leaves only a thin margin so we don't start zoomed
           // out from a great distance.

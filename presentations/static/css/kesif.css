@@ -49,7 +49,13 @@
   cursor: pointer;
   border-radius: 6px;
   font-family: inherit;
+  /* Anchor reset — the tabs are real navigation links now, not buttons,
+   * so they can be middle-clicked, opened in new tab, and bookmarked. */
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
+.kesif-topbar__tab:visited { color: #64748b; }
 .kesif-topbar__tab:hover {
   background: #f1f5f9;
   color: #0f172a;
@@ -145,6 +151,22 @@
   background: #f1f5f9;
   padding: 1px 6px;
   border-radius: 8px;
+}
+
+/* Filter Apply row: appears under the filter checkboxes whenever
+ * pending filters differ from applied (or applied is non-empty). The
+ * graph dim is now committed on click — toggling a checkbox alone
+ * doesn't trigger a Cosmograph re-render. */
+.kesif-filter-apply {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+.kesif-filter-apply__btn {
+  flex: 1;
+  justify-content: center;
+  font-size: 11px;
+  padding: 5px 10px;
 }
 
 .kesif-tree {

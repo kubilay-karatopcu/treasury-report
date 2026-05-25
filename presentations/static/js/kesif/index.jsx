@@ -62,14 +62,49 @@ function App() {
   const detailCache = useRef(new Map());
 
   // ── Filters ──────────────────────────────────────────────────────────
+  // Two-stage filter state: as the user toggles checkboxes, only the
+  // `pending` sets update — the left-rail tree filters live (cheap DOM
+  // re-render). The graph-side selection only updates when the user
+  // clicks "Uygula" (or resets) — without this, each toggle would
+  // re-trigger Cosmograph's data pipeline, which on the 2.x DuckDB-WASM
+  // build is multi-second slow.
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedConcepts, setSelectedConcepts] = useState(new Set());
-  // Phase 9 UX revision: dropped department filter; "source" is now a
-  // schema-name filter (EDW, HIST, CDM, …). Selected set is keyed by
-  // schema_name.
   const [selectedSchemas, setSelectedSchemas] = useState(new Set());
   const [collapsedSchemas, setCollapsedSchemas] = useState(new Set());
+
+  // Applied state — only what's currently committed to the graph dim.
+  const [appliedConcepts, setAppliedConcepts] = useState(new Set());
+  const [appliedSchemas, setAppliedSchemas] = useState(new Set());
+  const [appliedSearch, setAppliedSearch] = useState("");
+  // True when the pending picks differ from what's currently applied —
+  // drives the "Uygula" button's enabled state.
+  const filtersDirty = useMemo(() => {
+    if (selectedConcepts.size !== appliedConcepts.size) return true;
+    for (const c of selectedConcepts) if (!appliedConcepts.has(c)) return true;
+    if (selectedSchemas.size !== appliedSchemas.size) return true;
+    for (const s of selectedSchemas) if (!appliedSchemas.has(s)) return true;
+    if (debouncedSearch !== appliedSearch) return true;
+    return false;
+  }, [selectedConcepts, selectedSchemas, debouncedSearch, appliedConcepts, appliedSchemas, appliedSearch]);
+  const applyFilters = useCallback(() => {
+    setAppliedConcepts(new Set(selectedConcepts));
+    setAppliedSchemas(new Set(selectedSchemas));
+    setAppliedSearch(debouncedSearch);
+  }, [selectedConcepts, selectedSchemas, debouncedSearch]);
+  const resetFilters = useCallback(() => {
+    setSelectedConcepts(new Set());
+    setSelectedSchemas(new Set());
+    setSearch("");
+    setAppliedConcepts(new Set());
+    setAppliedSchemas(new Set());
+    setAppliedSearch("");
+  }, []);
+  const filtersActive =
+    appliedConcepts.size > 0 ||
+    appliedSchemas.size > 0 ||
+    !!appliedSearch;
 
   // ── Basket / draft state ─────────────────────────────────────────────
   const [draftPid, setDraftPid] = useState(SEED_DRAFT.pid || null);
@@ -185,6 +220,31 @@ function App() {
       return true;
     });
   }, [tables, selectedConcepts, selectedSchemas, debouncedSearch]);
+
+  // Filter mask for the graph — only updates on Apply. Computed against
+  // `appliedConcepts/Schemas/Search` (not the live `selected*`), so each
+  // toggle in the rail doesn't trigger an expensive selectPoints round.
+  const filterMaskIds = useMemo(() => {
+    if (!filtersActive) return null;
+    return new Set(
+      tables
+        .filter((t) => {
+          if (appliedSchemas.size && !appliedSchemas.has(t.schema)) return false;
+          if (appliedConcepts.size) {
+            const c = new Set(t.concepts_bound || []);
+            let any = false;
+            for (const x of appliedConcepts) if (c.has(x)) { any = true; break; }
+            if (!any) return false;
+          }
+          if (appliedSearch) {
+            const hay = `${t.name} ${t.schema} ${t.description || ""}`.toLowerCase();
+            if (!hay.includes(appliedSearch)) return false;
+          }
+          return true;
+        })
+        .map(tableId)
+    );
+  }, [tables, filtersActive, appliedConcepts, appliedSchemas, appliedSearch]);
 
   // Group by schema for the "Şemalar" tree section. Uploads section
   // dropped — upload now lives in Hazırlık (Phase 8).
@@ -367,6 +427,10 @@ function App() {
           selectedSchemas={selectedSchemas}
           onToggleConcept={toggleConcept}
           onToggleSchema={toggleSchema}
+          filtersDirty={filtersDirty}
+          filtersActive={filtersActive}
+          onApplyFilters={applyFilters}
+          onResetFilters={resetFilters}
           treeGroups={treeGroups}
           collapsedSchemas={collapsedSchemas}
           onToggleSchemaCollapsed={toggleSchemaCollapsed}
@@ -390,6 +454,7 @@ function App() {
             basketTableIds={basketTableIds}
             highlightIds={highlightIds}
             highlightTick={highlightTick}
+            filterMaskIds={filterMaskIds}
             onSelect={setSelectedId}
             onAddToBasket={addToBasketById}
             onBulkAddToBasket={bulkAddToBasket}
@@ -426,13 +491,9 @@ function Topbar({ userName, userDept }) {
         Keşif
       </span>
       <nav className="kesif-topbar__tabs">
-        <button type="button" className="kesif-topbar__tab is-active">Tables</button>
-        <button type="button" className="kesif-topbar__tab is-disabled" title="Yakında — Phase 10">
-          Blocks
-        </button>
-        <button type="button" className="kesif-topbar__tab is-disabled" title="Yakında — Phase 13">
-          Processes
-        </button>
+        <a href="/presentations/atolye/kesif" className="kesif-topbar__tab is-active">Tables</a>
+        <a href="/presentations/atolye/bloklar" className="kesif-topbar__tab">Blocks</a>
+        <a href="/presentations/atolye/surecler" className="kesif-topbar__tab">Processes</a>
       </nav>
       <span className="kesif-topbar__spacer" />
       {userName && (
@@ -450,6 +511,7 @@ function LeftRail({
   search, onSearch,
   selectedConcepts, selectedSchemas,
   onToggleConcept, onToggleSchema,
+  filtersDirty, filtersActive, onApplyFilters, onResetFilters,
   treeGroups, collapsedSchemas, onToggleSchemaCollapsed,
   selectedId, onSelect,
   chatProps,
@@ -478,6 +540,30 @@ function LeftRail({
         selected={selectedSchemas}
         onToggle={onToggleSchema}
       />
+
+      {(filtersDirty || filtersActive) && (
+        <div className="kesif-filter-apply">
+          <button
+            type="button"
+            className="kesif-btn kesif-btn--primary kesif-filter-apply__btn"
+            onClick={onApplyFilters}
+            disabled={!filtersDirty}
+            title={filtersDirty ? "Seçimleri grafiğe uygula" : "Aktif uygulanan filtreler"}
+          >
+            Uygula
+          </button>
+          {filtersActive && (
+            <button
+              type="button"
+              className="kesif-btn kesif-filter-apply__btn"
+              onClick={onResetFilters}
+              title="Filtreleri sıfırla"
+            >
+              Sıfırla
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="kesif-tree">
         <h3 className="kesif-tree__section">
