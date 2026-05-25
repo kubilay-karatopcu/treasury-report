@@ -81,10 +81,15 @@ export const GRAPH_DEFAULTS = {
   // tables at the centroid of their bound concepts; force sim is
   // disabled. "force" runs Cosmograph's normal force-directed sim.
   layoutMode:               "radial",
-  // Radial-layout knobs (ignored when layoutMode === "force")
-  radialConceptRadius:      380,
-  radialTablePull:          0.55,    // 0 = at center, 1 = at concept ring, >1 = outside
-  radialTableJitter:        45,      // px — random offset around the centroid
+  // Radial-layout knobs (ignored when layoutMode === "force"). Usage-
+  // weighted phyllotaxis: most-used concept at the centre, less-used
+  // ones spiral outward. baseRadius controls the maximum reach;
+  // minSpacing forces concepts apart until no pair is closer.
+  radialConceptRadius:      380,    // outer reach for the least-used concept
+  radialConceptSpacing:     90,     // min px between any two concept hubs
+  radialTablePull:          1.0,    // 1 = at concept centroid; <1 inward, >1 outward
+  radialTableJitter:        45,     // px — random offset to avoid sibling stacking
+  radialTableMinPad:        55,     // px — minimum distance a table sits from its nearest concept hub
   // Force-sim params (ignored when layoutMode === "radial")
   simulationGravity:        0.25,
   simulationRepulsion:      2.5,
@@ -110,17 +115,29 @@ function _hashStr(s) {
 }
 
 
-// Build a node-id → {x, y} map for the radial layout. Concepts on a
-// circle of `radius`, evenly distributed; tables at the centroid of
-// their bound concepts × `pull` plus stable per-table jitter so
-// siblings don't stack.
-function computeRadialPositions(nodes, edges, { radius, pull, jitter }) {
-  const conceptNodes = nodes.filter((n) => n.type === "concept");
+// Usage-weighted phyllotaxis (sunflower) layout. Concepts are ranked
+// by usage_count desc — rank 0 (most-used) sits at the centre, rank N
+// (least-used) at the outer edge. Each concept's angular slot uses
+// the golden angle (137.5°) so consecutive concepts spread evenly
+// around the disc instead of bunching into one wedge.
+//
+// Repulsion: after placement, we measure the minimum pairwise distance
+// across all concepts. If it's below `minSpacing`, we scale the whole
+// layout outward (proportional grow) and re-check. Caps at 10
+// iterations so a pathological case can't loop forever.
+//
+// Tables: same idea as before — centroid of bound concepts × pull
+// factor + stable per-id jitter. Pull defaults to 1.0 (table sits at
+// the centroid); >1 pushes tables outward of their concepts, <1 pulls
+// them inward toward the centre.
+function computeRadialPositions(nodes, edges, { radius, minSpacing, pull, jitter, tableMinPad }) {
   const positions = new Map();
+  const conceptNodes = nodes.filter((n) => n.type === "concept");
+  const tableNodes = nodes.filter((n) => n.type !== "concept");
+
+  // Edge case — no concepts to anchor anything. Fall back to a fixed-
+  // ring layout for tables so the canvas isn't an empty dot at origin.
   if (conceptNodes.length === 0) {
-    // No concepts → tables would all sit on top of each other. Spread
-    // them in a circle as a fallback so the canvas isn't a single dot.
-    const tableNodes = nodes.filter((n) => n.type !== "concept");
     tableNodes.forEach((t, i) => {
       const angle = (2 * Math.PI * i) / Math.max(1, tableNodes.length) - Math.PI / 2;
       positions.set(t.id, { x: radius * Math.cos(angle), y: radius * Math.sin(angle) });
@@ -128,18 +145,46 @@ function computeRadialPositions(nodes, edges, { radius, pull, jitter }) {
     return positions;
   }
 
-  // 1. Concepts on a circle. Start from the top (-π/2) so the first
-  //    concept lands at 12 o'clock; cosmetic only, helps readability.
-  conceptNodes.forEach((c, i) => {
-    const angle = (2 * Math.PI * i) / conceptNodes.length - Math.PI / 2;
-    positions.set(c.id, {
-      x: radius * Math.cos(angle),
-      y: radius * Math.sin(angle),
-    });
-  });
+  // ── Concept placement: sort by usage_count desc, then phyllotaxis ─
+  const sortedConcepts = [...conceptNodes].sort(
+    (a, b) => (b.usage_count || 0) - (a.usage_count || 0)
+  );
+  const n = sortedConcepts.length;
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ~2.4 rad ≈ 137.5°
 
-  // 2. Tables → centroid of their bound concept hubs × pull factor.
-  //    Build a table → [conceptIds] map from the bind edges first.
+  function placeConcepts(scale) {
+    sortedConcepts.forEach((c, i) => {
+      // Rank 0 → r = 0 (exact centre). Rank n-1 → r = scale.
+      // sqrt distribution packs more nodes near the periphery, leaving
+      // breathing room around the central hub.
+      const r = n > 1 ? Math.sqrt(i / (n - 1)) * scale : 0;
+      const angle = i * GOLDEN_ANGLE - Math.PI / 2;
+      positions.set(c.id, { x: r * Math.cos(angle), y: r * Math.sin(angle) });
+    });
+  }
+
+  // Repulsion via scale-up: find minimum pair distance, grow until
+  // it satisfies minSpacing.
+  let currentScale = radius;
+  placeConcepts(currentScale);
+  for (let iter = 0; iter < 10; iter++) {
+    let minDist = Infinity;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const p1 = positions.get(sortedConcepts[i].id);
+        const p2 = positions.get(sortedConcepts[j].id);
+        const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        if (d < minDist) minDist = d;
+      }
+    }
+    if (minDist >= minSpacing || minDist === Infinity) break;
+    // Scale up so the closest pair lands exactly at minSpacing (+5%
+    // breathing room) and re-run placement.
+    currentScale *= (minSpacing / minDist) * 1.05;
+    placeConcepts(currentScale);
+  }
+
+  // ── Table placement: centroid of bound concepts × pull + jitter ──
   const conceptsByTable = new Map();
   for (const e of edges || []) {
     if (e.kind !== "binds") continue;
@@ -147,32 +192,66 @@ function computeRadialPositions(nodes, edges, { radius, pull, jitter }) {
     conceptsByTable.get(e.source).push(e.target);
   }
 
-  const tableNodes = nodes.filter((n) => n.type !== "concept");
   tableNodes.forEach((t) => {
     const boundIds = conceptsByTable.get(t.id) || [];
-    const conceptPositions = boundIds
-      .map((cid) => positions.get(cid))
-      .filter(Boolean);
+    const cps = boundIds.map((cid) => positions.get(cid)).filter(Boolean);
 
     let x = 0, y = 0;
-    if (conceptPositions.length > 0) {
-      x = conceptPositions.reduce((s, p) => s + p.x, 0) / conceptPositions.length;
-      y = conceptPositions.reduce((s, p) => s + p.y, 0) / conceptPositions.length;
+    if (cps.length > 0) {
+      x = cps.reduce((s, p) => s + p.x, 0) / cps.length;
+      y = cps.reduce((s, p) => s + p.y, 0) / cps.length;
+    } else {
+      // No concept bindings — float on an outer ring so they're visible
+      // and not piled at (0,0) on top of the popular hub.
+      const seed = _hashStr(t.id);
+      const a = ((seed % 360) * Math.PI) / 180;
+      x = currentScale * 0.85 * Math.cos(a);
+      y = currentScale * 0.85 * Math.sin(a);
     }
-    // Pull factor — 0..1 keeps tables between centre and the ring; >1
-    // pushes them outside the concept ring. Default 0.55 sits them
-    // safely in the middle annulus.
+    // Pull factor: 0 → centre, 1 → at centroid, >1 → beyond centroid.
     x *= pull;
     y *= pull;
 
-    // Stable jitter from a hash of the table id so re-renders don't
-    // teleport nodes. Polar offset so siblings spread along a small
-    // ring around the centroid rather than stacking.
+    // Stable jitter so sibling tables don't stack.
     const seed = _hashStr(t.id);
     const jitterAngle = ((seed % 360) * Math.PI) / 180;
-    const jitterRadius = (seed % 100) / 100 * jitter;
-    x += jitterRadius * Math.cos(jitterAngle);
-    y += jitterRadius * Math.sin(jitterAngle);
+    const jitterMag = ((seed % 100) / 100) * jitter;
+    x += jitterMag * Math.cos(jitterAngle);
+    y += jitterMag * Math.sin(jitterAngle);
+
+    // Minimum-distance enforcement: a table can't sit on top of any
+    // concept hub. Without this the popular central hubs disappear
+    // under stacked table labels (the screenshot bug). We push the
+    // table radially away from the nearest concept until clear.
+    if (tableMinPad > 0 && cps.length > 0) {
+      // Use the concept whose hub the table is currently closest to,
+      // not just its bound concepts — a multi-concept table can drift
+      // into an unrelated hub's territory and still cause overlap.
+      let nearestC = null;
+      let nearestD = Infinity;
+      for (const c of conceptNodes) {
+        const cp = positions.get(c.id);
+        if (!cp) continue;
+        const d = Math.hypot(x - cp.x, y - cp.y);
+        if (d < nearestD) { nearestD = d; nearestC = cp; }
+      }
+      if (nearestC && nearestD < tableMinPad) {
+        // Vector from concept → current position. If the table is
+        // exactly on the concept (vector length 0), use the jitter
+        // direction as the push-out azimuth.
+        let dx = x - nearestC.x;
+        let dy = y - nearestC.y;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.001) {
+          dx = Math.cos(jitterAngle);
+          dy = Math.sin(jitterAngle);
+        } else {
+          dx /= len; dy /= len;
+        }
+        x = nearestC.x + dx * tableMinPad;
+        y = nearestC.y + dy * tableMinPad;
+      }
+    }
 
     positions.set(t.id, { x, y });
   });
@@ -293,9 +372,11 @@ export default function GraphCanvas({
     const radialPositions =
       simParams.layoutMode === "radial"
         ? computeRadialPositions(graph.nodes, graph.edges, {
-            radius: simParams.radialConceptRadius,
-            pull:   simParams.radialTablePull,
-            jitter: simParams.radialTableJitter,
+            radius:       simParams.radialConceptRadius,
+            minSpacing:   simParams.radialConceptSpacing,
+            pull:         simParams.radialTablePull,
+            jitter:       simParams.radialTableJitter,
+            tableMinPad:  simParams.radialTableMinPad,
           })
         : null;
 
@@ -380,8 +461,10 @@ export default function GraphCanvas({
     simParams.bindOpacity,
     simParams.layoutMode,
     simParams.radialConceptRadius,
+    simParams.radialConceptSpacing,
     simParams.radialTablePull,
     simParams.radialTableJitter,
+    simParams.radialTableMinPad,
   ]);
 
   // Filter dim — derived set of point indices that should remain bright
@@ -907,9 +990,11 @@ const SIM_FIELDS_FORCE = [
 ];
 
 const SIM_FIELDS_RADIAL = [
-  { key: "radialConceptRadius",    label: "Çember yarıçap", min: 100,  max: 800,  step: 10   },
-  { key: "radialTablePull",        label: "Tablo çekim",    min: 0,    max: 1.5,  step: 0.05 },
-  { key: "radialTableJitter",      label: "Tablo dağılım",  min: 0,    max: 200,  step: 5    },
+  { key: "radialConceptRadius",    label: "Concept yayılım",   min: 100, max: 1000, step: 10   },
+  { key: "radialConceptSpacing",   label: "Concept itme",      min: 0,   max: 300,  step: 5    },
+  { key: "radialTablePull",        label: "Tablo çekim",       min: 0,   max: 2,    step: 0.05 },
+  { key: "radialTableJitter",      label: "Tablo dağılım",     min: 0,   max: 200,  step: 5    },
+  { key: "radialTableMinPad",      label: "Tablo min mesafe",  min: 0,   max: 200,  step: 5    },
 ];
 
 const SIM_FIELDS_VISUAL = [
