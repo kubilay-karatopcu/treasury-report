@@ -661,6 +661,45 @@
   gap: 8px;
   overflow-y: auto;
 }
+.kesif-sim__layout-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.kesif-sim__layout-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  font-family: inherit;
+}
+.kesif-sim__layout-btn:hover { background: #f1f5f9; color: #0f172a; }
+.kesif-sim__layout-btn.is-active {
+  background: #2563eb;
+  color: #fff;
+}
+.kesif-sim__group-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: #94a3b8;
+  margin-top: 4px;
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 6px;
+}
+.kesif-sim__group-title:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
 .kesif-sim__field {
   display: grid;
   grid-template-columns: 92px 1fr 56px;
