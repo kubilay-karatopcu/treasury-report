@@ -3,6 +3,9 @@
 {% set crumb = "Atölye · Pipeline · 02 Hazırlık" %}
 {% set sidebar_active = "hazirlik" %}
 {% set canvas_bleed = True %}
+{# Phase 11.kesif: Hazırlık has its own basket + scope builder UI.
+   Hide the PRISMA atölye sidebar to free horizontal space. #}
+{% set no_atolye_sidebar = True %}
 {% if sidebar is not defined or sidebar is none %}
   {% set sidebar = [] %}
 {% endif %}
@@ -11,8 +14,11 @@
 {% block head %}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
   {# React Flow styles, bundled by esbuild from @xyflow/react/dist/style.css #}
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='js/hazirlik.bundle.css') }}?v=3">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/hazirlik.css') }}?v=3">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='js/hazirlik.bundle.css') }}?v=4">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/hazirlik.css') }}?v=6">
+  {# Phase 11.kesif — dark override. #}
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/hazirlik_dark.css') }}?v=6">
   <style>
     body.prisma.canvas-bleed .canvas-bleed-mount { background: #f6f7f9; color: #1e293b; }
     body.prisma.canvas-bleed #hazirlik-root { flex: 1; min-height: 0; }
@@ -27,5 +33,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}?v=4"></script>
+  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}?v=8"></script>
 {% endblock %}

@@ -24,11 +24,18 @@ SIDEBAR_GROUPS = [
     {
         "label": "Kütüphane",
         "items": [
-            # Phase 11.lib: all three library items now have real producer
-            # routes under presentations.atolye_*.
+            # Phase 11.lib: tablolar + bloklar.
+            # Phase 12.workshops: split the old "Şablonlar" entry in two —
+            #  - "Şablonlar"  → in-progress workshops (Keşif/Hazırlık/Sunum)
+            #  - "Süreçler"   → completed snapshots (was the old Şablonlar)
+            # URLs kept stable: the legacy /atolye/sablonlar still serves the
+            # snapshot list (now labeled "Süreçler") so external bookmarks
+            # don't break. The new /atolye/taslaklar serves in-progress
+            # workshops under the "Şablonlar" label.
             {"key": "tablolar",  "num": "⊟", "label": "Tablolar",  "route": "presentations.atolye_tablolar"},
             {"key": "bloklar",   "num": "▦", "label": "Bloklar",   "route": "presentations.atolye_bloklar"},
-            {"key": "sablonlar", "num": "◇", "label": "Şablonlar", "route": "presentations.atolye_sablonlar"},
+            {"key": "taslaklar", "num": "◇", "label": "Şablonlar", "route": "presentations.atolye_taslaklar"},
+            {"key": "sablonlar", "num": "∎", "label": "Süreçler",  "route": "presentations.atolye_sablonlar"},
         ],
     },
     {

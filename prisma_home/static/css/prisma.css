@@ -84,12 +84,66 @@
   --editor-danger-soft:#3a1f1f;
 }
 
-/* ── Light theme override (Phase 11.light placeholder) ─────────────────
+/* ── Light theme override (Phase 12.light) ─────────────────────────────
    Activate by setting `<html data-theme="light">` or `body.theme-light`.
-   When that ships, flip the Track-B tokens here. Today this block is
-   intentionally empty so dark stays the default. */
+   The toggle in topbar.html flips this attribute; prisma_shell.js
+   persists the choice in localStorage('prisma-theme') and an inline
+   <head> script reads it before paint to prevent FOUC.
+
+   Every component CSS file pulls colors through these tokens; flipping
+   the values here is enough to repaint the entire app. */
 [data-theme="light"], body.theme-light {
-  /* (filled in Phase 11.light) */
+  /* Backgrounds — page canvas + raised surfaces */
+  --bg-0:    #F7F8FA;   /* page wash */
+  --bg-1:    #FFFFFF;   /* cards / blocks */
+  --bg-2:    #F1F3F7;   /* hover, raised panels */
+  --bg-3:    #E9ECF2;   /* nested surfaces */
+  --bg-card: #FFFFFF;
+  --bg-elev: #FFFFFF;
+
+  /* Borders — slate-200 / slate-300 */
+  --border-soft: #E5E7EB;
+  --border:      #D1D5DB;
+
+  /* Text — slate scale (inverted from dark ink scale) */
+  --ink:       #1E293B;
+  --ink-soft:  #334155;
+  --ink-mute:  #64748B;
+  --ink-faint: #94A3B8;
+  --ink-dim:   #CBD5E1;
+
+  /* Accents — brand gold stays; soft variants get cream backgrounds */
+  --gold:      #B07A2A;   /* darker gold for AA contrast on white */
+  --gold-soft: #D4A656;   /* the original brand gold reads as the "soft" hover tone */
+  --gold-dim:  #8E5E1A;
+
+  /* Semantic — red/green stay readable on light */
+  --green:    #2F855A;
+  --red:      #B91C1C;
+  --red-soft: #DC2626;
+  --blue:     #2563EB;
+
+  /* Domains — keep brand identity but a touch deeper for light contrast */
+  --liq: #2563EB;
+  --dep: #2F855A;
+  --fnd: #B07A2A;
+  --nii: #475569;
+  --sec: #B91C1C;
+  --krd: #8E5E1A;
+
+  /* Track B — flip the editor-surface tokens. Most resolve via var()
+     to the Track-A tokens above; we only need explicit values for the
+     ones that were hardcoded to dark hex (accent-soft, danger-soft). */
+  --editor-accent-soft: #FBF4E6;   /* light cream — gold-tinted bg on white */
+  --editor-danger-soft: #FEF2F2;   /* red-50 */
+
+  /* Color scheme hint — lets native controls (scrollbars, form inputs)
+     adopt the light system theme without extra CSS. */
+  color-scheme: light;
+}
+/* Dark stays the default — set color-scheme so native UI matches. */
+:root, [data-theme="dark"] {
+  color-scheme: dark;
 }
 
 /* Scope global resets to body.prisma so the new shell doesn't bleed into
@@ -151,19 +205,44 @@ body.prisma button { background: none; border: none; color: inherit; font: inher
   font-weight: 400;
   letter-spacing: 0.42em;
   color: var(--ink);
-  /* Subtle gold accent on the I + A like the prototype's text mark. */
-  background: linear-gradient(90deg,
-    var(--ink) 0%,
-    var(--ink) 18%,
-    var(--gold) 22%,
-    var(--ink) 30%,
-    var(--ink) 78%,
-    var(--gold) 82%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 .brand-mark .i, .brand-mark .a { color: var(--gold); }
+
+/* Phase 11.kesif — stacked PRISMA / TREASURY brand text mimics
+   prisma_logo.png's typography without inlining the image (which has
+   navy text that's invisible on the dark topbar). */
+.brand-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+  gap: 2px;
+  white-space: nowrap;
+}
+.brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  color: var(--ink);
+}
+.brand-subtitle {
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.46em;
+  color: var(--gold);
+  text-transform: uppercase;
+  padding-left: 1px;
+}
+.brand-tag {
+  white-space: nowrap;
+}
+/* Center crumb shouldn't grow into the right pill cluster; truncate gracefully. */
+.crumb {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
 .brand-tag {
   font-size: 10px;
   letter-spacing: 0.22em;
@@ -219,6 +298,54 @@ body.prisma button { background: none; border: none; color: inherit; font: inher
   background: var(--bg-2);
 }
 
+/* Phase 11.polish: dual mode pills — Masa | Atölye. Current side gets
+   gold tint instead of stark white-on-dark so neither pill reads as
+   "main screen / back to home". (Legacy — kept for any callers that
+   still emit the dual-pill markup.) */
+.mode-toggle-dual a {
+  letter-spacing: 0.20em;
+  font-weight: 500;
+}
+.mode-toggle-dual a.on {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+.mode-toggle-dual a:not(.on) {
+  color: var(--ink-mute);
+}
+.mode-toggle-dual a:not(.on):hover {
+  background: var(--bg-2);
+  color: var(--ink);
+}
+.mode-toggle.mode-toggle-dual { border-color: var(--gold); }
+
+/* Phase 11.topbar-v3 — single contextual back button.
+   One pill that always reads as "go to the other side". The arrow
+   direction in the label tells the user what's happening; the chip
+   itself is a gold-outlined ghost button so it doesn't compete with
+   the active page header. */
+.mode-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--gold);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--gold);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: background 0.18s, color 0.18s;
+}
+.mode-back:hover {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+.mode-back--forward { letter-spacing: 0.20em; }
+
 .user-chip {
   display: flex;
   align-items: center;
@@ -226,6 +353,32 @@ body.prisma button { background: none; border: none; color: inherit; font: inher
   font-size: 11px;
   color: var(--ink-mute);
 }
+
+/* Phase 12.light — theme toggle (sun / moon) sits between the mode-back
+   chip and the user-chip in topbar-right. */
+.theme-toggle {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.theme-toggle:hover {
+  background: var(--bg-2);
+  color: var(--gold);
+  border-color: var(--gold);
+}
+.theme-toggle__icon { display: block; }
+/* Default (dark): show moon. Light: show sun. */
+.theme-toggle__icon--sun  { display: none; }
+[data-theme="light"] .theme-toggle__icon--moon { display: none; }
+[data-theme="light"] .theme-toggle__icon--sun  { display: block; }
 .user-chip .avatar {
   width: 26px; height: 26px;
   border-radius: 50%;
@@ -1152,6 +1305,11 @@ body.prisma.light-content .card {
 .app.in-atolye .topbar { grid-column: 1 / -1; }
 .app.in-atolye .atolye-sidebar { display: flex; }
 .app.in-atolye .canvas { padding: 48px 64px 96px; }
+
+/* Phase 11.kesif — pages that own their internal nav (Keşif, Hazırlık,
+   Editor) opt out of the left PRISMA sidebar via `no_atolye_sidebar`. */
+.app.in-atolye.no-sidebar { grid-template-columns: 1fr; }
+.app.in-atolye.no-sidebar .atolye-sidebar { display: none; }
 
 .atolye-sidebar {
   display: none;

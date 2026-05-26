@@ -105,7 +105,11 @@
 /* ════════════════════════════════════════════════════════════════════
    ER editor (Phase 8.b redesign — React Flow / ChartDB style)
    ════════════════════════════════════════════════════════════════════ */
-.hz-app { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+/* Phase 11.hazirlik-polish-2: parent (canvas-bleed-mount + #hazirlik-root)
+   already flex-fills the canvas slot below the 56px PRISMA topbar — we
+   must NOT use 100vh here or the bottom 56px (incl. minimap + zoom
+   controls) gets pushed below the viewport. */
+.hz-app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 
 .hz-topbar {
   flex: 0 0 auto; height: 52px; display: flex; align-items: center;
@@ -259,6 +263,94 @@
   height: 100%; display: flex; flex-direction: column;
 }
 
+/* Phase 11.hazirlik-polish — basket-only sidebar:
+   Tablolar / Bloklar groups + per-group search input + flat list. */
+.hz-basket-group {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 16px;
+}
+.hz-basket-group__title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: #64748b;
+  padding: 4px 4px 2px;
+}
+.hz-basket-group__count {
+  margin-left: auto;
+  font-size: 10px;
+  background: #e2e8f0; color: #475569;
+  padding: 1px 6px; border-radius: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 600;
+}
+.hz-basket-search {
+  width: 100%; box-sizing: border-box;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  background: #fff;
+  border: 1px solid #d6dae0; border-radius: 4px;
+  color: #1f2937;
+  font-family: inherit;
+}
+.hz-basket-search::placeholder { color: #94a3b8; }
+.hz-basket-search:focus { border-color: #206bc4; outline: none; }
+
+.hz-basket-list {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.hz-basket-row {
+  display: flex; align-items: stretch;
+  border: 1px solid #e2e8f0; border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+.hz-basket-row__main {
+  flex: 1 1 auto;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  background: transparent; border: none;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.hz-basket-row__main:hover { background: #f8fafc; }
+.hz-basket-row--block .hz-basket-row__main { cursor: default; }
+.hz-basket-row--block .hz-basket-row__main:hover { background: transparent; }
+/* Visibility toggle icon (eye / eye-off) — Phase 11.polish-2 replaces the
+   old trash button. Hidden rows fade so the user can see at a glance
+   which tables are on the canvas. */
+.hz-basket-row__viz {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; color: #94a3b8;
+}
+.hz-basket-row.is-hidden .hz-basket-row__main { opacity: 0.45; }
+.hz-basket-row.is-hidden .hz-basket-row__viz { color: #d1d5db; }
+.hz-basket-row.is-derived .hz-basket-row__main { font-style: italic; }
+
+.hz-basket-empty {
+  font-size: 11.5px;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 8px 4px;
+  line-height: 1.5;
+}
+.hz-basket-empty--mini { padding: 6px 4px; font-size: 11px; }
+
+/* Sticky bottom CTA — "Sunum'a geç" lives here now that hz-topbar is gone. */
+.hz-sidebar-cta {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-top: 1px solid #e6e7e9;
+  background: #fbfbfc;
+}
+.hz-sidebar-cta__btn {
+  width: 100%;
+  justify-content: center;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+
 /* Node body shows the description instead of a column list. */
 .hz-node-desc { padding: 8px 10px; font-size: 11px; color: #475569; line-height: 1.45; max-width: 240px; }
 
@@ -333,7 +425,11 @@
    user clicks the eye on a sources-table row. Click outside or hit ESC to
    close. Sits inside .hz-body so the rest of the layout flexes around it. */
 .hz-docs-panel {
-  flex: 0 0 360px; min-width: 0; height: 100%;
+  /* Phase 11.polish-3 — was 360px. Wide concept tags
+     ("instrument_type", "scenario_label") + common-values list need
+     more room or they truncate. 440px is the sweet spot — still leaves
+     room for the ER canvas + AG Grid preview. */
+  flex: 0 0 440px; min-width: 0; height: 100%;
   background: #fff; border-right: 1px solid #e5e7eb;
   display: flex; flex-direction: column;
   box-shadow: 2px 0 12px rgba(15, 23, 42, .06);
@@ -386,18 +482,35 @@
   font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px;
   color: #64748b;
 }
-.hz-docs-col-marks { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+/* Phase 11.polish-3 — let the İşaretler cell wrap so long concept names +
+   common-values lists don't get clipped. Each pill/chip is its own flex
+   item; flex-basis: 100% on .hz-docs-vals forces it onto its own line. */
+.hz-docs-col-marks {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  align-items: flex-start; align-content: flex-start;
+}
 .hz-docs-pill {
   display: inline-block; padding: 0 5px; border-radius: 3px;
   font-size: 9px; line-height: 1.5; letter-spacing: 0.04em;
   background: #f1f5f9; color: #64748b; text-transform: uppercase;
   font-family: ui-monospace, Menlo, Consolas, monospace;
+  white-space: nowrap;
 }
 .hz-docs-pill--req { background: #fef3c7; color: #92400e; }
 .hz-docs-pill--key { background: #ddd6fe; color: #5b21b6; }
+.hz-docs-cols .hz-col-concept {
+  /* concept chips in the docs table get their own line if the cell is
+     narrow; no truncation. */
+  white-space: nowrap;
+  max-width: 100%;
+}
 .hz-docs-vals {
+  flex: 1 1 100%;
   font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace;
-  overflow: hidden; text-overflow: ellipsis; max-width: 240px; white-space: nowrap;
+  /* Allow soft wrap on whitespace so the list of common values isn't clipped. */
+  white-space: normal; word-break: normal; overflow-wrap: anywhere;
+  max-width: none;
+  margin-top: 2px;
 }
 .hz-docs-filters { display: flex; flex-direction: column; gap: 5px; }
 .hz-docs-filter {

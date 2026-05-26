@@ -15,7 +15,7 @@ def test_landing_returns_200_with_brand_mark(auth_client):
     rv = auth_client.get("/")
     assert rv.status_code == 200
     body = rv.data.decode("utf-8", errors="replace")
-    assert "brand-mark" in body
+    assert "brand-name" in body  # Phase 11.kesif: brand-mark → brand-stack/brand-name
     assert "PR" in body and "SM" in body  # PR<i>I</i>SM<a>A</a> shards
 
 
@@ -71,7 +71,7 @@ def test_presentations_list_renders_under_prisma_shell(auth_client):
     assert rv.status_code == 200
     body = rv.data.decode("utf-8", errors="replace")
     # Top bar + sidebar both present (presentations list = atolye mode).
-    assert "brand-mark" in body
+    assert "brand-name" in body  # Phase 11.kesif: brand-mark → brand-stack/brand-name
     assert "atolye-sidebar" in body
 
 
@@ -80,10 +80,10 @@ def test_editor_still_loads(auth_client):
     assert rv.status_code == 200
     body = rv.data.decode("utf-8", errors="replace")
     # The React mount root must still be present so the editor JS bundle
-    # can attach. Sidebar markup is also present (mode='atolye') even
-    # though the fullscreen mount overlays it visually.
+    # can attach. Phase 11.kesif: editor opts out of the PRISMA atölye
+    # sidebar because it owns its own header + side panels.
     assert 'id="presentation-root"' in body
-    assert "atolye-sidebar" in body
+    assert "atolye-sidebar" not in body
 
 
 def test_snapshot_view_has_no_sidebar(auth_client):
@@ -105,35 +105,42 @@ def test_snapshot_view_has_no_sidebar(auth_client):
     rv = auth_client.get(f"/presentations/snapshot/{sid}")
     assert rv.status_code == 200
     body = rv.data.decode("utf-8", errors="replace")
-    assert "brand-mark" in body
+    assert "brand-name" in body  # Phase 11.kesif: brand-mark → brand-stack/brand-name
     assert "atolye-sidebar" not in body
 
 
 # ── Stub pages return "yakında" ──────────────────────────────────────────────
 
 def test_wired_pipeline_pages_render_under_shell(auth_client):
-    """Phase 11.wrap: keşif / hazırlık / bloklar / süreçler / tablolar /
-    şablonlar now render inside the new PRISMA shell."""
-    for path in (
+    """Phase 11.wrap + .workbench: keşif / hazırlık / bloklar / süreçler /
+    tablolar / şablonlar all render inside the PRISMA shell."""
+    workbench_paths = {
         "/presentations/atolye/kesif",
         "/presentations/atolye/bloklar",
         "/presentations/atolye/surecler",
+    }
+    library_paths = {
         "/presentations/atolye/tablolar",
         "/presentations/atolye/sablonlar",
-    ):
+    }
+    for path in workbench_paths | library_paths:
         rv = auth_client.get(path)
         assert rv.status_code == 200, f"{path} returned {rv.status_code}"
         body = rv.data.decode("utf-8", errors="replace")
-        # New shell signature.
-        assert "brand-mark" in body, f"{path} missing PRISMA topbar"
+        assert "brand-name" in body, f"{path} missing PRISMA topbar"
+        # Workbench routes (kesif/bloklar/surecler) all serve the kesif
+        # shell which opts out of the PRISMA sidebar (they have their own
+        # internal nav). Library routes keep the sidebar.
+        if path in workbench_paths or "hazirlik" in path:
+            continue
         assert "atolye-sidebar" in body, f"{path} missing atölye sidebar"
 
     # Hazırlık redirects when no presentation is current; follow it.
+    # Phase 11.kesif: Hazırlık opts out of the PRISMA sidebar.
     rv = auth_client.get("/presentations/hazirlik", follow_redirects=True)
     assert rv.status_code == 200
     body = rv.data.decode("utf-8", errors="replace")
-    assert "brand-mark" in body
-    assert "atolye-sidebar" in body
+    assert "brand-name" in body
 
 
 def test_tablolar_page_lists_tables(auth_client):
@@ -182,47 +189,59 @@ def test_sidebar_library_targets_real_endpoints(flask_app):
 # ── Active sidebar item highlighting ────────────────────────────────────────
 
 def test_sidebar_active_key_marks_correct_item(auth_client):
-    # Phase 11.wire: bloklar route is now the real /presentations/atolye/bloklar.
-    rv = auth_client.get("/presentations/atolye/bloklar")
+    # Phase 11.workbench: bloklar lives under the kesif shell (no PRISMA
+    # sidebar). The Tablolar / Şablonlar library pages still render the
+    # PRISMA sidebar, so we test active-key highlighting there instead.
+    rv = auth_client.get("/presentations/atolye/tablolar")
     assert rv.status_code == 200
     body = rv.data.decode("utf-8", errors="replace")
-    # Active item gets the "on" class via the partial's `{% if item.active %}on{% endif %}`.
     assert "sidebar-item on" in body
-    # The active item should be Bloklar.
-    assert 'data-target="bloklar"' in body
+    assert 'data-target="tablolar"' in body
 
 
 # ── Mode toggle reflects current page ───────────────────────────────────────
 
-def test_mode_toggle_reflects_atolye_page(auth_client):
+def test_mode_back_on_atolye_home_points_at_masa(auth_client):
+    """Phase 11.topbar-v3: a single contextual back button.
+    On the Atölye landing the chip reads "← Masaya dön" and links to /."""
     rv = auth_client.get("/atolye/")
     body = rv.data.decode("utf-8", errors="replace")
-    # Producer pill is on, consumer pill is off — order matters in the partial.
-    assert 'id="modeProducer"' in body
-    assert 'id="modeConsumer"' in body
-    # Producer should have "on" class (rendered server-side from `mode == 'atolye'`).
     import re
-    producer_match = re.search(r'id="modeProducer"\s+class="([^"]*)"', body)
-    assert producer_match, "modeProducer button not found with class attribute"
-    assert "on" in producer_match.group(1)
+    m = re.search(r'<a[^>]+id="modeBack"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', body)
+    assert m, "modeBack chip should render in the topbar"
+    href, label = m.group(1), m.group(2).strip()
+    assert href.rstrip("/") in ("", "/"), f"chip should link to /, got {href!r}"
+    assert "Masaya" in label, f"chip label should mention Masa, got {label!r}"
 
 
-def test_mode_toggle_reflects_landing_page(auth_client):
+def test_mode_back_on_masa_points_at_atolye(auth_client):
+    """On the consumer landing the chip reads "Atölyeye geç →" → /atolye/."""
     rv = auth_client.get("/")
     body = rv.data.decode("utf-8", errors="replace")
     import re
-    consumer_match = re.search(r'id="modeConsumer"\s+class="([^"]*)"', body)
-    assert consumer_match
-    assert "on" in consumer_match.group(1)
+    m = re.search(r'<a[^>]+id="modeBack"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', body)
+    assert m, "modeBack chip should render"
+    href, label = m.group(1), m.group(2).strip()
+    assert href.rstrip("/") == "/atolye"
+    assert "Atöly" in label
 
 
-def test_snapshot_mode_pill_is_consumer_not_atolye(auth_client):
-    """Regression: prisma_shell.js used to force Atölye `on` for any URL that
-    started with /presentations/, which incorrectly flipped the pill on
-    snapshot views. Server now renders the canonical class via body class
-    and the JS reads from there.
-    """
-    # Create a snapshot off p_demo (warm the demo manifest first).
+def test_mode_back_on_atolye_subpage_points_at_atolye_home(auth_client):
+    """Inside any Atölye sub-page (Keşif/Hazırlık/Bloklar/etc) the chip reads
+    "← Atölyeye dön" so the user can pop back up to Atölye Ana, not all the
+    way out to Masa."""
+    rv = auth_client.get("/presentations/atolye/kesif")
+    body = rv.data.decode("utf-8", errors="replace")
+    import re
+    m = re.search(r'<a[^>]+id="modeBack"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', body)
+    assert m, "modeBack chip should render on Keşif sub-page"
+    href, label = m.group(1), m.group(2).strip()
+    assert href.rstrip("/") == "/atolye"
+    assert "Atöly" in label
+
+
+def test_snapshot_mode_back_points_at_atolye(auth_client):
+    """Snapshot view is consumer mode → the chip suggests jumping to Atölye."""
     auth_client.get("/presentations/p_demo")
     rv = auth_client.post("/presentations/p_demo/snapshot")
     assert rv.status_code == 200
@@ -231,20 +250,13 @@ def test_snapshot_mode_pill_is_consumer_not_atolye(auth_client):
     rv = auth_client.get(f"/presentations/snapshot/{sid}")
     assert rv.status_code == 200
     body = rv.data.decode("utf-8", errors="replace")
-
-    # Body must carry the consumer class so the shared JS reads
-    # consumer-as-truth. Producer pill must NOT have `on` in its
-    # server-rendered class attribute.
     assert 'class="prisma consumer' in body, "snapshot should render in consumer mode"
     import re
-    producer_match = re.search(r'id="modeProducer"\s+class="([^"]*)"', body)
-    assert producer_match, "modeProducer button missing"
-    assert "on" not in producer_match.group(1), (
-        "Atölye pill should NOT be `on` for snapshot views"
-    )
-    consumer_match = re.search(r'id="modeConsumer"\s+class="([^"]*)"', body)
-    assert consumer_match
-    assert "on" in consumer_match.group(1)
+    m = re.search(r'<a[^>]+id="modeBack"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', body)
+    assert m
+    href, label = m.group(1), m.group(2).strip()
+    assert href.rstrip("/") == "/atolye"
+    assert "Atöly" in label
 
 
 def test_editor_mount_leaves_room_for_topbar(auth_client):
@@ -254,3 +266,32 @@ def test_editor_mount_leaves_room_for_topbar(auth_client):
     body = rv.data.decode("utf-8", errors="replace")
     # The inline style block in editor.html sets top: 56px on the mount.
     assert "top: 56px" in body, "editor mount should leave 56px headroom for topbar"
+
+
+# ── Theme toggle (Phase 12.light) ──────────────────────────────────────────
+
+def test_theme_toggle_button_on_consumer(auth_client):
+    """The sun/moon theme toggle should render on the consumer landing."""
+    rv = auth_client.get("/")
+    body = rv.data.decode("utf-8", errors="replace")
+    assert 'id="themeToggle"' in body, "theme toggle button missing from topbar"
+    # Both icon SVGs ship; CSS toggles visibility based on data-theme.
+    assert "theme-toggle__icon--moon" in body
+    assert "theme-toggle__icon--sun" in body
+
+
+def test_theme_toggle_button_on_atolye(auth_client):
+    """The toggle should also render on the producer (Atölye) side."""
+    rv = auth_client.get("/atolye/")
+    body = rv.data.decode("utf-8", errors="replace")
+    assert 'id="themeToggle"' in body
+
+
+def test_theme_flash_prevention_script_present(auth_client):
+    """The inline <head> script must apply data-theme BEFORE stylesheets
+    load so the first paint matches the saved theme (no FOUC)."""
+    rv = auth_client.get("/")
+    body = rv.data.decode("utf-8", errors="replace")
+    # The script reads localStorage and sets data-theme on documentElement.
+    assert "prisma-theme" in body, "flash-prevention script missing"
+    assert "data-theme" in body

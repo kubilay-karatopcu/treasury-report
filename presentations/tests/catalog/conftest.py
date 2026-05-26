@@ -131,6 +131,10 @@ def flask_app(fixture_store, fake_dc):
     # routes (not used by the catalog endpoints themselves).
     from presentations import presentations_bp
     from presentations.session import SessionRegistry
+    # Phase 11.wrap: kesif.html now extends home/_base_prisma.html, so any
+    # test that hits a route rendering that template needs prisma_home_bp
+    # registered too.
+    from prisma_home import prisma_home_bp
 
     class FakeUser(UserMixin):
         sicil = "A16438"
@@ -169,6 +173,7 @@ def flask_app(fixture_store, fake_dc):
             login_user(FakeUser())
 
     app.register_blueprint(presentations_bp, url_prefix="/presentations")
+    app.register_blueprint(prisma_home_bp)
     return app
 
 

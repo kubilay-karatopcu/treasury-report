@@ -3,6 +3,7 @@ import { Database, Hash, Sparkles, Presentation, ArrowLeft } from 'lucide-react'
 import useStore from '../lib/store.js';
 import Basket from './Basket.jsx';
 import ChatBox from './ChatBox.jsx';
+import Header from './Header.jsx';
 
 function scrollToBlock(blockId) {
   const el = document.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`);
@@ -38,8 +39,9 @@ function EditSidebar({ onPresent, width, onResizeStart }) {
       )}
       <div className="sidebar-inner">
         <div className="sidebar-section sidebar-section--sources ts-scroll">
-          <div className="sidebar-label">
-            <span className="sidebar-label-icon"><Database size={12} strokeWidth={2} /></span>
+          {/* Phase 12.sunum-final: removed the small Database lucide icon
+              so the label reads as a proper section heading, not a chip. */}
+          <div className="sidebar-label sidebar-label--heading">
             <span>Veri Kaynakları</span>
           </div>
           <Basket />
@@ -53,6 +55,14 @@ function EditSidebar({ onPresent, width, onResizeStart }) {
             <ChatBox />
           </div>
         )}
+
+        {/* Phase 12.sunum-toolbar-3 — toolbar sits between chat and the
+            Sunum-format CTA. When the user clicks "Düzenle" and the chat
+            collapses (layoutEditMode=true), the toolbar stays anchored
+            right above the bottom CTA — no visual jump. */}
+        <div className="sidebar-section sidebar-section--toolbar">
+          <Header />
+        </div>
 
         <div className="sidebar-section sidebar-section--bottom">
           <button

@@ -2,6 +2,9 @@
 {% set mode = "atolye" %}
 {% set crumb = "Atölye · Pipeline · 03 Sunum" %}
 {% set sidebar_active = "sunum" %}
+{# Phase 11.kesif: Editor has its own header + side panels.
+   Hide the PRISMA atölye sidebar so the canvas reads full-width. #}
+{% set no_atolye_sidebar = True %}
 {% set sidebar = sidebar if sidebar is defined else None %}
 {# Phase 10A: sidebar context wiring lives here so the partial can iterate it.
    The editor renders a position:fixed React mount that overlays the shell,
@@ -18,9 +21,9 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine-dark.css">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=35">
   {# Phase 11.dark-editor — override layer; must load AFTER editor.css. #}
-  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=10">
   <style>
     /* Editor view: pin the mount to the viewport with position:fixed so
        parent-chain layout (Tabler, dev banner, container-xl) can't push it
@@ -42,31 +45,20 @@
       height: calc(100vh - 56px) !important;
       z-index: 10 !important;
       overflow: hidden !important;
-      background: #ffffff;
+      /* Phase 12.sunum-polish — was hardcoded #fff white; PRISMA design
+         system token instead. editor_dark.css cascades on top of the
+         React-rendered chrome so this just sets the wash colour. */
+      background: var(--bg-0, #0A0E1A);
     }
-    {% if scope_banner %}
-    /* Phase 8.b — read-only scope banner pushes the editor mount down 34px more. */
-    .presentations-editor-mount { top: 90px !important; height: calc(100vh - 90px) !important; }
-    .scope-banner {
-      position: fixed; top: 56px; left: 0; right: 0; height: 34px; z-index: 60;
-      display: flex; align-items: center; gap: 10px; padding: 0 14px;
-      background: #fff7ed; border-bottom: 1px solid #fed7aa; color: #7c2d12;
-      font: 13px/1.2 'InterVar', -apple-system, system-ui, sans-serif;
-      box-sizing: border-box;
-    }
-    .scope-banner .sb-edit { margin-left: auto; color: #206bc4; text-decoration: none; font-weight: 600; }
-    .scope-banner .sb-edit:hover { text-decoration: underline; }
-    {% endif %}
   </style>
 {% endblock %}
 
 {% block content %}
-{% if scope_banner %}
-<div class="scope-banner">
-  <span>🔒 Scope v{{ scope_banner.scope_version }}{% if scope_banner.pinned %} · {{ scope_banner.pinned | join(' · ') }}{% endif %}</span>
-  <a class="sb-edit" href="{{ scope_banner.edit_url }}">Scope'u düzenle</a>
-</div>
-{% endif %}
+{# Phase 12.sunum-polish — the scope-banner was a light-mode "Scope v3"
+   strip that didn't fit the dark design and the user said it has no
+   purpose (the Scope ref is already implicit in the manifest + the
+   sidebar). Removed entirely; if a future iteration needs to surface
+   scope-version + pinned filters, do it in-app via the React layer. #}
 <div
   id="presentation-root"
   class="presentations-editor-mount"
@@ -77,5 +69,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=4"></script>
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=9"></script>
 {% endblock %}

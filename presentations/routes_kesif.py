@@ -84,30 +84,27 @@ def atolye_root():
     return redirect(url_for("presentations.atolye_kesif"))
 
 
-@presentations_bp.route("/atolye/kesif")
-@login_required
-def atolye_kesif():
-    """Render the Keşif Tables tab shell.
+def _build_workbench_payload(sicil: str, initial_view: str) -> dict:
+    """Phase 11.workbench — shared payload for the unified Atölye Workbench
+    (Keşif / Bloklar / Süreçler all share the same React shell).
 
-    The React bundle mounts on ``#kesif-root`` and reads ``#kesif-data`` for
-    the initial draft pid + a CSRF-free seed (none in v1) + the user's
-    sicil. All catalog data comes from the catalog API; the template only
-    seeds the bootstrap state.
+    `initial_view` selects which center renders first: "tablolar" (graph),
+    "bloklar" (library grid), or "surecler" (process placeholder). All
+    endpoints are bundled so view swaps don't need server round-trips.
     """
-    sicil = getattr(current_user, "sicil", None) or ""
     draft = _draft_manager().get_or_create_current(sicil)
-
-    # Pre-read the draft's current basket so the basket panel hydrates
-    # without an extra round-trip on first paint.
+    title = ""
     try:
         sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, draft.pid)
         manifest = sess.get_manifest() or {}
         basket = manifest.get("basket") or []
+        title = (manifest.get("meta") or {}).get("title") or ""
     except Exception:
         basket = []
-        log.warning("kesif: failed to preload draft basket", exc_info=True)
+        log.warning("workbench: failed to preload draft basket", exc_info=True)
 
-    payload = {
+    return {
+        "initial_view": initial_view,
         "user": {
             "sicil": sicil,
             "name": getattr(current_user, "name", "") or "",
@@ -117,11 +114,12 @@ def atolye_kesif():
             "pid": draft.pid,
             "created_at": draft.created_at,
             "basket_count": len(basket),
+            # Phase 12.kesif-header: title shown in the workshop strip.
+            # Falls back to a friendly default — the user can edit it.
+            "title": title,
         },
         "basket": basket,
         "cosmograph": {
-            # The license key flows from app config when present (Cosmograph
-            # 2.x reads it at component-mount time to unlock commercial use).
             "license_key": current_app.config.get("COSMOGRAPH_LICENSE_KEY") or None,
         },
         "endpoints": {
@@ -130,18 +128,30 @@ def atolye_kesif():
             "catalog_graph": url_for("presentations.catalog_graph"),
             "basket_update": f"/presentations/{draft.pid}/basket",
             "draft_promote": url_for("presentations.kesif_draft_promote"),
+            # Phase 12.kesif-header endpoints — workshop title persistence
+            # + explicit "Kaydet" button.
+            "draft_title":  url_for("presentations.kesif_draft_title"),
+            "draft_save":   url_for("presentations.kesif_draft_save"),
             "chat_send": url_for("presentations.kesif_chat_send"),
             "chat_clear": url_for("presentations.kesif_chat_clear"),
             "hazirlik_template": "/presentations/hazirlik/{pid}",
+            # Phase 11.workbench — bloklar view's data source.
+            "library_list": url_for("presentations.list_library"),
+            "library_detail_template": "/presentations/library/{bid}",
+            "library_preview_template": "/presentations/library/{bid}/preview",
         },
-        # Phase 9.c — chat history seed so the drawer hydrates without an
-        # extra round-trip on first paint. Bound to the draft manifest so it
-        # persists across reloads but resets when the user promotes.
         "chat": {
             "history": _chat_history_for_draft(sicil, draft.pid),
         },
     }
 
+
+@presentations_bp.route("/atolye/kesif")
+@login_required
+def atolye_kesif():
+    """Atölye Workbench — Tablolar (graph) view."""
+    sicil = getattr(current_user, "sicil", None) or ""
+    payload = _build_workbench_payload(sicil, initial_view="tablolar")
     return render_template(
         "presentations/atolye/kesif.html",
         kesif_json=json.dumps(payload, ensure_ascii=False, default=str),
@@ -152,30 +162,18 @@ def atolye_kesif():
 @presentations_bp.route("/atolye/bloklar")
 @login_required
 def atolye_bloklar():
-    """Atölye / Bloklar — Hybrid C: left rail (filters + tree + chat),
-    center grid of saved block cards, right rail detail card. Reuses
-    Phase 6.5.a's /presentations/library JSON for the underlying data.
+    """Atölye Workbench — Bloklar view.
 
-    Phase 9.e — current sub-phase. Chat backend (propose_blocks) lands
-    in Phase 10 with the marketplace MVP; for now the chat panel
-    renders but proposals are placeholder-only.
+    Phase 11.workbench: renders the same kesif.html shell as ``atolye_kesif``
+    with ``initial_view="bloklar"`` so the React app starts on the block grid.
+    The legacy bloklar.html template is kept only for backward-compat with
+    bookmarks that hit the bundle directly.
     """
     sicil = getattr(current_user, "sicil", None) or ""
-    payload = {
-        "user": {
-            "sicil": sicil,
-            "name": getattr(current_user, "name", "") or "",
-            "department": getattr(current_user, "department", "") or "",
-        },
-        "endpoints": {
-            "library_list": url_for("presentations.list_library"),
-            "library_detail_template": "/presentations/library/{bid}",
-            "library_preview_template": "/presentations/library/{bid}/preview",
-        },
-    }
+    payload = _build_workbench_payload(sicil, initial_view="bloklar")
     return render_template(
-        "presentations/atolye/bloklar.html",
-        bloklar_json=json.dumps(payload, ensure_ascii=False, default=str),
+        "presentations/atolye/kesif.html",
+        kesif_json=json.dumps(payload, ensure_ascii=False, default=str),
         title="Bloklar",
     )
 
@@ -183,12 +181,16 @@ def atolye_bloklar():
 @presentations_bp.route("/atolye/surecler")
 @login_required
 def atolye_surecler():
-    """Atölye / Süreçler — Phase 13 placeholder. Renders the shared
-    top-nav with an empty body so the umbrella feels complete; real
-    process discovery (catalog/processes/*.yaml + tree render) comes
-    in a later phase."""
+    """Atölye Workbench — Süreçler view.
+
+    Phase 11.workbench: same shell as ``atolye_kesif`` with
+    ``initial_view="surecler"``. Center renders the Phase 13 placeholder.
+    """
+    sicil = getattr(current_user, "sicil", None) or ""
+    payload = _build_workbench_payload(sicil, initial_view="surecler")
     return render_template(
-        "presentations/atolye/surecler.html",
+        "presentations/atolye/kesif.html",
+        kesif_json=json.dumps(payload, ensure_ascii=False, default=str),
         title="Süreçler",
     )
 
@@ -270,6 +272,84 @@ def atolye_sablonlar():
     )
 
 
+# ── Phase 12.workshops — Şablonlar (in-progress workshops) ────────────────
+
+
+def _phase_label(phase: str) -> str:
+    """Human-readable Turkish label for a workshop phase."""
+    return {
+        "kesif":    "Keşif",
+        "hazirlik": "Hazırlık",
+        "sunum":    "Sunum",
+    }.get(phase, "Keşif")
+
+
+def _continue_url_for_phase(pid: str, phase: str) -> str:
+    """Where "Devam Et" should land for a workshop in a given phase.
+
+    - kesif    → /atolye/kesif (user's current draft; the rendered Keşif
+                 page picks up the basket from manifest by sicil+pid).
+    - hazirlik → /presentations/hazirlik/<pid> (re-opens scope editor)
+    - sunum    → /presentations/<pid> (the full editor)
+    """
+    if phase == "sunum":
+        return url_for("presentations.editor", pid=pid)
+    if phase == "hazirlik":
+        return url_for("presentations.hazirlik", pid=pid)
+    return url_for("presentations.atolye_kesif")
+
+
+def list_workshops_for(sicil: str) -> list[dict]:
+    """Phase 12.workshops — Atölye home + Şablonlar both need the same
+    list: every saved presentation owned by ``sicil``, enriched with
+    a phase chip + a "continue here" URL. Snapshot-only presentations
+    (those already published as Süreçler) are excluded so they don't
+    double-count.
+    """
+    registry = current_app.config.get("SESSION_REGISTRY")
+    if registry is None:
+        return []
+    try:
+        items = registry.list_user_presentations(sicil) or []
+    except Exception:
+        log.exception("list_workshops_for: registry list failed")
+        return []
+    out = []
+    for it in items:
+        phase = it.get("phase", "kesif")
+        pid = it.get("id")
+        # Title fallback — manifests created via the auto-flow may have an
+        # empty meta.title; surface the pid so the row isn't a blank line.
+        title = (it.get("title") or "").strip()
+        if not title:
+            title = f"Adsız çalışma · {pid[:12]}"
+        out.append({
+            **it,
+            "title": title,
+            "phase_label": _phase_label(phase),
+            "continue_url": _continue_url_for_phase(pid, phase),
+        })
+    return out
+
+
+@presentations_bp.route("/atolye/taslaklar")
+@login_required
+def atolye_taslaklar():
+    """Atölye / Şablonlar — in-progress workshops.
+
+    Every saved presentation that hasn't been turned into a published
+    snapshot yet lives here. Each row links back to the appropriate
+    Keşif / Hazırlık / Sunum page so the user can resume.
+    """
+    sicil = getattr(current_user, "sicil", None) or ""
+    workshops = list_workshops_for(sicil)
+    return render_template(
+        "presentations/atolye/taslaklar.html",
+        workshops=workshops,
+        total=len(workshops),
+    )
+
+
 @presentations_bp.route("/atolye/kesif/draft", methods=["GET"])
 @login_required
 def kesif_draft_info():
@@ -289,6 +369,66 @@ def kesif_draft_info():
         "pid": draft.pid,
         "basket": basket,
         "basket_count": len(basket),
+    })
+
+
+# ── Phase 12.kesif-header — workshop title + explicit save ───────────
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+@presentations_bp.route("/atolye/kesif/draft/title", methods=["POST"])
+@login_required
+def kesif_draft_title():
+    """Persist the workshop's title to the current draft's manifest.
+
+    Body: ``{"title": "Q4 Mevduat"}``. Empty strings clear the title back
+    to the auto-generated default. Title lives at ``manifest.meta.title``
+    so promote() naturally carries it across to the real presentation_id.
+    """
+    sicil = getattr(current_user, "sicil", None) or ""
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "").strip()[:200]
+    mgr = _draft_manager()
+    draft = mgr.get_or_create_current(sicil)
+    try:
+        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, draft.pid)
+        manifest = sess.get_manifest() or {}
+        meta = manifest.setdefault("meta", {})
+        meta["title"] = title
+        manifest["updated_at"] = _utc_now_iso()
+        sess.set_manifest(manifest)
+    except Exception as exc:
+        log.exception("kesif_draft_title: write failed")
+        return _json({"error": str(exc)}, status=500)
+    return _json({"ok": True, "title": title, "pid": draft.pid})
+
+
+@presentations_bp.route("/atolye/kesif/draft/save", methods=["POST"])
+@login_required
+def kesif_draft_save():
+    """Explicit "Kaydet" — bumps updated_at + re-persists the manifest
+    so the workshop reliably appears at the top of Son Aktiviteler /
+    Şablonlar. Auto-save covers most cases; this endpoint exists so the
+    user has a visible confirmation when they click the Save button.
+    """
+    sicil = getattr(current_user, "sicil", None) or ""
+    mgr = _draft_manager()
+    draft = mgr.get_or_create_current(sicil)
+    try:
+        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, draft.pid)
+        manifest = sess.get_manifest() or {}
+        manifest["updated_at"] = _utc_now_iso()
+        sess.set_manifest(manifest)
+    except Exception as exc:
+        log.exception("kesif_draft_save: write failed")
+        return _json({"error": str(exc)}, status=500)
+    return _json({
+        "ok": True,
+        "pid": draft.pid,
+        "updated_at": manifest.get("updated_at"),
     })
 
 

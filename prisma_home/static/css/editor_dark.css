@@ -11,12 +11,61 @@
    them in one place.
    ═════════════════════════════════════════════════════════════════════════ */
 
+/* ── Phase 12.sunum-tokens — root-cause fix ───────────────────────────
+   editor.css declares its design tokens at :root level (`--ts-card-bg:
+   #ffffff` etc). Until now we patched individual classes; the cleaner
+   solution is to redirect those tokens at body.prisma so every
+   `var(--ts-card-bg)` reference inside editor.css evaluates dark
+   without us having to chase each `background: var(--ts-…)` rule.
+   This fixes most "the frame is still white" complaints in one swoop:
+   chat panel frame, sidebar-bottom Sunum-format frame, modal body,
+   filter widget surface, properties panel, etc. */
+body.prisma {
+  /* Surfaces */
+  --ts-page-bg:        var(--editor-surface);
+  --ts-card-bg:        var(--editor-surface-1);
+  --ts-panel-bg:       var(--editor-surface);
+  --ts-card-border:    var(--editor-border);
+  --ts-hairline:       var(--editor-border);
+  --ts-card-shadow:    0 1px 4px rgba(0, 0, 0, 0.35);
+
+  /* Text */
+  --ts-ink:            var(--editor-ink);
+  --ts-ink-soft:       var(--editor-ink-soft);
+  --ts-muted:          var(--editor-ink-mute);
+  --ts-muted-soft:     var(--editor-ink-faint);
+
+  /* Brand → PRISMA gold accent (was Tabler blue) */
+  --ts-primary:        var(--editor-accent);
+  --ts-primary-hover:  var(--gold-soft);
+  --ts-primary-soft:   var(--editor-accent-soft);
+  --ts-primary-border: var(--editor-accent);
+  --ts-primary-glow:   rgba(212, 166, 86, 0.25);
+
+  /* Status — preserve semantic colors */
+  --ts-green:          var(--editor-success);
+  --ts-red:            var(--red-soft);
+  --ts-red-soft:       var(--editor-danger-soft);
+  --ts-yellow:         #d97706;
+}
+
 /* ── Body + root surfaces ─────────────────────────────────────────────── */
 body.prisma .editor-root,
 body.prisma .editor-body,
 body.prisma.canvas-bleed .canvas-bleed-mount {
   background: var(--editor-surface);
   color: var(--editor-ink-soft);
+}
+
+/* Phase 12.sunum-final-2 — editor-root anchor fix.
+   editor.css declared `.editor-root { position: fixed; inset: 0 }` which
+   anchors to the viewport regardless of the position:fixed parent
+   (.presentations-editor-mount at top:56px). The net effect: editor-root
+   covered the full viewport, hiding the editor-header behind the PRISMA
+   topbar. Re-anchor to the parent with position:absolute. */
+body.prisma .editor-root {
+  position: absolute !important;
+  inset: 0 !important;
 }
 
 /* ── Header / topbar — black with the gold edge already in PRISMA ───── */
@@ -110,26 +159,585 @@ body.prisma .tree-item:hover {
   border-color: var(--editor-border-strong);
 }
 
-/* ── Chat box (left-bottom) ─────────────────────────────────────── */
+/* ── Chat box (left-bottom) — Phase 12.sunum-polish full coverage ── */
+body.prisma .chat-box {
+  background: var(--editor-surface) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .chat-box-header {
+  background: var(--editor-surface-1) !important;
+  border-bottom-color: var(--editor-border) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .chat-box-header strong,
+body.prisma .chat-box-target { color: var(--editor-ink) !important; }
+body.prisma .chat-box-target-clear,
+body.prisma .chat-box-help {
+  color: var(--editor-ink-faint) !important;
+  background: transparent !important;
+}
+body.prisma .chat-box-target-clear:hover,
+body.prisma .chat-box-help:hover {
+  color: var(--editor-accent) !important;
+  background: var(--editor-surface-2) !important;
+}
+body.prisma .chat-box-locked-warn {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .chat-messages,
+body.prisma .chat-empty {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .chat-empty { font-style: italic; }
 body.prisma .chat-input,
 body.prisma .chat-message-input,
 body.prisma .chat-textarea {
-  background: var(--editor-surface-1);
-  color: var(--editor-ink);
-  border-color: var(--editor-border);
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-border) !important;
 }
 body.prisma .chat-input::placeholder,
 body.prisma .chat-textarea::placeholder {
-  color: var(--editor-ink-faint);
+  color: var(--editor-ink-faint) !important;
 }
+body.prisma .chat-input:focus,
+body.prisma .chat-textarea:focus {
+  border-color: var(--editor-accent) !important;
+  outline: none;
+}
+body.prisma .chat-input-wrap,
+body.prisma .chat-input-wrap--compact {
+  background: transparent !important;
+}
+body.prisma .chat-input-send {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+}
+body.prisma .chat-input-send:hover:not(:disabled) {
+  background: var(--gold-soft) !important;
+}
+body.prisma .chat-input-send:disabled { opacity: 0.4; }
+body.prisma .chat-footer {
+  background: var(--editor-surface) !important;
+  border-top-color: var(--editor-border) !important;
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .chat-footer-hint {
+  color: var(--editor-ink-faint) !important;
+  font-family: var(--mono);
+}
+body.prisma .chat-footer .btn-primary {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+body.prisma .chat-footer .btn-primary:hover:not(:disabled) {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .chat-footer .btn-primary:disabled { opacity: 0.4; }
+body.prisma .chat-msg,
+body.prisma .chat-bubble {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .chat-msg--user,
 body.prisma .chat-bubble--user {
-  background: var(--editor-surface-2);
-  color: var(--editor-ink);
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
 }
+body.prisma .chat-msg--assistant,
 body.prisma .chat-bubble--assistant {
-  background: var(--editor-surface-1);
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink-soft) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .chat-msg--loading {
+  color: var(--editor-ink-faint) !important;
+  font-style: italic;
+}
+
+/* ── Phase 12.sunum-tokens — Modal chrome + SourceModal (Kaynakça) ── */
+body.prisma .ts-modal-backdrop {
+  background: rgba(0, 0, 0, 0.65) !important;
+}
+body.prisma .ts-modal {
+  background: var(--editor-surface) !important;
+  border: 1px solid var(--editor-border-strong) !important;
   color: var(--editor-ink-soft);
-  border-color: var(--editor-border);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5) !important;
+}
+body.prisma .ts-modal-header {
+  background: var(--editor-surface-1) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .ts-modal-title {
+  color: var(--editor-ink) !important;
+}
+body.prisma .ts-modal-close {
+  color: var(--editor-ink-mute) !important;
+  background: transparent !important;
+}
+body.prisma .ts-modal-close:hover {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .ts-modal-body {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .ts-modal-footer {
+  background: var(--editor-surface-1) !important;
+  border-top-color: var(--editor-border) !important;
+}
+
+/* Source modal (Kaynakça) inner content */
+body.prisma .src-meta {
+  color: var(--editor-ink-mute) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .src-meta-item { color: var(--editor-ink-mute) !important; }
+body.prisma .src-meta-item > svg { color: var(--editor-ink-faint) !important; }
+body.prisma .src-meta-item--warn { color: #d97706 !important; }
+body.prisma .src-reason {
+  background: var(--editor-surface-1) !important;
+  border: 1px solid var(--editor-border) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .src-empty,
+body.prisma .docs-empty {
+  background: var(--editor-surface-1) !important;
+  border: 1px dashed var(--editor-border) !important;
+  color: var(--editor-ink-faint) !important;
+  font-style: italic;
+}
+body.prisma .src-section-title {
+  color: var(--editor-ink-mute) !important;
+  font-family: var(--mono);
+}
+body.prisma .src-copy-btn {
+  background: transparent !important;
+  border: 1px solid var(--editor-border) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .src-copy-btn:hover {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+/* SQL pre block — already dark-themed in editor.css (#0f172a/#e2e8f0)
+   but ensure the border + scrollbar fit the PRISMA tone. */
+body.prisma .src-sql {
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid var(--editor-border) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .src-sql--rewritten {
+  background: var(--editor-surface-2) !important;
+}
+body.prisma .src-sql--runnable {
+  background: rgba(40, 80, 60, 0.30) !important;
+  color: #9be3ad !important;
+  border-left-color: var(--editor-success) !important;
+}
+body.prisma .src-rewritten summary {
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .src-rewritten summary:hover {
+  color: var(--editor-accent) !important;
+}
+body.prisma .src-preview-wrap {
+  border-color: var(--editor-border) !important;
+}
+body.prisma .src-preview th {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .src-preview td {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink-soft) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .src-null { color: var(--editor-ink-faint) !important; }
+
+/* HelpModal + generic dialogs (block-type help, etc) inherit the
+   ts-modal styles above, but the .docs-* tables used in TableDocsPanel
+   need their own coverage too. */
+body.prisma .docs-section-title {
+  color: var(--editor-ink-mute) !important;
+  font-family: var(--mono);
+}
+
+/* ── Phase 12.sunum-toolbar-2 — inline sidebar toolbar ──────────── */
+
+/* Toolbar relocated from floating overlay → flow element inside the
+   left sidebar, sitting in `.sidebar-section--toolbar` just above the
+   chat. Compact, horizontal row of 3 small buttons (Help / Düzenle /
+   Kaydet). */
+.sidebar-section--toolbar {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border-top: 1px solid var(--editor-border);
+}
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  /* Phase 12.sunum-toolbar-4 — 3 buttons distributed across the row
+     so Düzenle ends up centered between Help and Kaydet. With
+     space-between, gap(Help↔Düzenle) == gap(Düzenle↔Kaydet) regardless
+     of button widths. */
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  width: 100%;
+}
+body.prisma .editor-toolbar { color: var(--editor-ink-soft); }
+/* Compact PRISMA-native pill — Inter regular weight, sentence case,
+   tight letter-spacing. Sizes to content so two text buttons + an
+   icon-only help button fit the 320px sidebar without crowding. */
+.editor-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--editor-border-strong);
+  border-radius: 2px;
+  font-family: 'Inter', var(--sans, sans-serif);
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  text-transform: none;
+  color: var(--editor-ink-mute);
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+.editor-toolbar__btn:hover {
+  color: var(--editor-ink);
+  background: var(--editor-surface-2);
+  border-color: var(--editor-ink-faint);
+}
+/* The "?" help button is icon-only — fixed square so it doesn't grow. */
+.editor-toolbar__btn[aria-label="Yardım"] {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  flex: 0 0 26px;
+}
+.editor-toolbar__btn.is-active,
+.editor-toolbar__btn--toggle.is-active {
+  background: var(--editor-accent-soft);
+  color: var(--editor-accent);
+  border-color: var(--editor-accent);
+}
+.editor-toolbar__btn--primary {
+  background: var(--editor-accent);
+  color: var(--editor-surface);
+  border-color: var(--editor-accent);
+  font-weight: 500;
+  /* Phase 12.sunum-toolbar-4: removed `margin-left: auto`. The flex
+     container now uses `justify-content: space-between` so all three
+     buttons (Help, Düzenle, Kaydet) sit at equal gaps. */
+}
+.editor-toolbar__btn--primary:hover {
+  background: var(--gold-soft);
+  color: var(--editor-surface);
+  border-color: var(--gold-soft);
+}
+
+/* Sepet aktif satır — was full gold-tinted fill (via --ts-primary-soft);
+   user wants border-only so the selected row reads as an outline, not
+   a fill. */
+body.prisma .sources-table-wrap.is-active {
+  background: transparent !important;
+  border: 1px solid var(--editor-accent) !important;
+  border-radius: 2px;
+}
+body.prisma .sources-table-wrap.is-active .sources-table-name {
+  color: var(--editor-ink) !important;
+}
+
+/* Eye icon next to table names — was hover-only; user wants it always
+   visible + gold so the "open docs panel" affordance is discoverable. */
+body.prisma .sources-table-eye-hint {
+  opacity: 1 !important;
+  color: var(--editor-accent) !important;
+  background: transparent !important;
+}
+body.prisma .sources-table--readonly:hover .sources-table-eye-hint,
+body.prisma .sources-table-eye-hint:hover {
+  background: var(--editor-accent-soft) !important;
+  color: var(--gold-soft) !important;
+}
+
+/* ── Phase 12.sunum-toolbar-2 — TableDocsPanel dark coverage ────── */
+/* Was hardcoded #ffffff + #fafbfc on the side panel; flip to PRISMA dark
+   so the column docs side modal reads on the dark editor surface. */
+body.prisma .docs-side-panel {
+  background: var(--editor-surface) !important;
+  border-right-color: var(--editor-border-strong) !important;
+  color: var(--editor-ink-soft);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.45) !important;
+}
+body.prisma .docs-side-panel__header {
+  background: var(--editor-surface-1) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .docs-side-panel__title { color: var(--editor-ink) !important; }
+body.prisma .docs-side-panel__sub   { color: var(--editor-ink-mute) !important; }
+body.prisma .docs-side-panel__body  { background: transparent !important; color: var(--editor-ink-soft); }
+body.prisma .docs-side-panel__body .docs-desc {
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .docs-section-title {
+  color: var(--editor-ink-mute) !important;
+  font-family: var(--mono);
+}
+body.prisma .docs-section-title > svg { color: var(--editor-ink-faint) !important; }
+body.prisma .docs-empty {
+  background: var(--editor-surface-1) !important;
+  border: 1px dashed var(--editor-border) !important;
+  color: var(--editor-ink-faint) !important;
+  font-style: italic;
+}
+body.prisma .docs-cols-table {
+  border-color: var(--editor-border) !important;
+  background: var(--editor-surface-1) !important;
+}
+body.prisma .docs-cols-table th {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .docs-cols-table td {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink-soft) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .docs-cols-table tr:hover td {
+  background: var(--editor-surface-2) !important;
+}
+body.prisma .docs-col-name { color: var(--editor-ink) !important; }
+body.prisma .docs-col-type { color: var(--editor-ink-mute) !important; }
+body.prisma .docs-col-dash { color: var(--editor-ink-faint) !important; }
+body.prisma .docs-col-concept .hz-col-concept,
+body.prisma .docs-col-concept span {
+  background: rgba(120, 180, 120, 0.16) !important;
+  color: #9be3ad !important;
+}
+/* "İlk 5000 satır getir" preview load button */
+body.prisma .docs-preview-load {
+  background: transparent !important;
+  border: 1px solid var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .docs-preview-load:hover {
+  background: var(--editor-accent-soft) !important;
+  color: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .docs-preview-loading,
+body.prisma .docs-preview-error {
+  background: var(--editor-surface-1) !important;
+  border: 1px solid var(--editor-border) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .docs-preview-error {
+  border-color: var(--editor-danger) !important;
+  color: var(--red-soft) !important;
+}
+body.prisma .docs-preview-grid-meta {
+  color: var(--editor-ink-mute) !important;
+}
+/* "concept · filtrede kullanılabilir · öneri henüz onaylanmadı" hint chips */
+body.prisma .docs-section .hz-col-concept,
+body.prisma .docs-cols-table .hz-col-concept {
+  background: rgba(120, 180, 120, 0.18) !important;
+  color: #9be3ad !important;
+}
+
+/* Properties side panel — buttons get gold outlines so they're
+   discoverable on the dark surface. User mentioned the danger-delete
+   should stay red-bordered for safety. */
+body.prisma .props-side-panel button:not(.danger-btn):not([data-danger="true"]):not(.width-picker-btn):not(.props-side-panel__danger) {
+  background: transparent;
+  border: 1px solid var(--editor-accent);
+  color: var(--editor-accent);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+body.prisma .props-side-panel button:not(.danger-btn):not([data-danger="true"]):not(.width-picker-btn):not(.props-side-panel__danger):hover {
+  background: var(--editor-accent-soft);
+  color: var(--gold-soft);
+  border-color: var(--gold-soft);
+}
+body.prisma .props-side-panel .danger-btn,
+body.prisma .props-side-panel [data-danger="true"],
+body.prisma .props-side-panel__danger {
+  background: transparent !important;
+  color: var(--red-soft) !important;
+  border: 1px solid var(--editor-danger) !important;
+}
+body.prisma .props-side-panel .danger-btn:hover,
+body.prisma .props-side-panel [data-danger="true"]:hover,
+body.prisma .props-side-panel__danger:hover {
+  background: var(--editor-danger-soft) !important;
+}
+/* "Şemayı Tara" link-style button at bottom of SQL editor + "bind yok"
+   muted text — keep them as low-emphasis but readable. */
+body.prisma .props-side-panel .props-link-btn,
+body.prisma .props-side-panel .props-bind-status {
+  color: var(--editor-ink-mute) !important;
+  background: transparent !important;
+  border: none !important;
+}
+body.prisma .props-side-panel .props-link-btn:hover {
+  color: var(--editor-accent) !important;
+}
+
+/* Width picker — Tam / 2/3 / 1/2 / 1/3 segmented control. Was light-gray
+   tray with white-fill active pill; flip to dark surface with gold
+   accent on the selected option. */
+body.prisma .width-picker {
+  background: var(--editor-surface-2) !important;
+  border: 1px solid var(--editor-border) !important;
+}
+body.prisma .width-picker-btn {
+  color: var(--editor-ink-mute) !important;
+  background: transparent !important;
+}
+body.prisma .width-picker-btn:hover {
+  color: var(--editor-ink) !important;
+  /* Phase 12.light: use editor-surface-2 (var) so the hover wash
+     flips automatically between dark (slightly lighter than surface)
+     and light (slightly darker than white). */
+  background: var(--editor-surface-2) !important;
+}
+body.prisma .width-picker-btn.is-active {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  box-shadow: none !important;
+}
+
+/* Lock toggle pill (Kilitsiz / Kilitli) next to width picker */
+body.prisma .lock-toggle-btn {
+  background: transparent !important;
+  color: var(--editor-ink-mute) !important;
+  border: 1px solid var(--editor-border-strong) !important;
+}
+body.prisma .lock-toggle-btn:hover {
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-ink-faint) !important;
+}
+body.prisma .lock-toggle-btn.is-locked {
+  color: var(--editor-accent) !important;
+  border-color: var(--editor-accent) !important;
+}
+
+/* ── Phase 12.sunum-final — last polish ─────────────────────────── */
+
+/* Title pencil — was hover-only + Tabler-blue. PRISMA: always visible,
+   gold accent, subtle hover. The user explicitly asked for "hep
+   gözüksün" (always visible) so the affordance is discoverable. */
+body.prisma .report-title-edit {
+  opacity: 1 !important;
+  color: var(--editor-accent) !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+body.prisma .report-title-edit:hover {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--gold-soft) !important;
+}
+
+/* Sidebar section heading — was a small 11px caps chip with an icon;
+   the icon got removed in Sidebar.jsx and the label scales up to feel
+   like a proper section heading. */
+body.prisma .sidebar-label--heading {
+  font-size: 17px !important;
+  font-weight: 300 !important;
+  letter-spacing: -0.005em !important;
+  text-transform: none !important;
+  color: var(--editor-ink) !important;
+  margin-bottom: 14px !important;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--editor-border);
+}
+
+/* Mode-toggle CTAs — both Sunum-format + Düzenlemeye-dön gold filled
+   so they read as primary actions consistently. Phase 12.sunum-polish
+   left "present" gold-outline; user revisited and wanted filled gold. */
+body.prisma .mode-cta,
+body.prisma .mode-cta--present,
+body.prisma .mode-cta--exit,
+body.prisma .mode-cta--edit {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border: 1px solid var(--editor-accent) !important;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 10px 16px;
+}
+body.prisma .mode-cta:hover:not(:disabled),
+body.prisma .mode-cta--present:hover,
+body.prisma .mode-cta--exit:hover,
+body.prisma .mode-cta--edit:hover {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+  color: var(--editor-surface) !important;
+}
+body.prisma .mode-cta svg { color: var(--editor-surface) !important; }
+
+/* Presentation-mode hardcoded white surfaces — editor.css line 886
+   sets `.editor-root.mode-presentation .blocks-canvas { background:
+   #fff }` which is the white edges the user reported. Override to
+   keep the dark canvas all the way to the gutter. */
+body.prisma .editor-root.mode-presentation .blocks-canvas,
+body.prisma.canvas-bleed .editor-root.mode-presentation .blocks-canvas {
+  background: var(--editor-surface) !important;
+}
+body.prisma .editor-root.mode-presentation .canvas-content,
+body.prisma .editor-root.mode-presentation .editor-content {
+  background: transparent !important;
+  color: var(--editor-ink-soft);
+}
+/* The TOC helper bar at the bottom of the presentation-mode sidebar
+   ("Sunum modu — bloklar düzenlenemez…") was using muted slate; bump
+   it onto our PRISMA mute so it reads. */
+body.prisma .toc-helper {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .toc-helper-title {
+  color: var(--editor-ink) !important;
+}
+
+/* ── "Genel mod" / "Bir blok seçili" hint banner (top of canvas) ── */
+body.prisma .editor-hint {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .editor-hint strong {
+  color: var(--gold-soft) !important;
+}
+body.prisma .editor-hint .editor-hint-icon {
+  color: var(--editor-accent) !important;
 }
 
 /* ── Center canvas + scope banner ───────────────────────────────── */
@@ -404,6 +1012,393 @@ body.prisma .ag-theme-alpine-dark {
   --ag-selected-row-background-color: var(--editor-accent-soft);
   --ag-border-color: var(--editor-border);
   --ag-secondary-border-color: var(--editor-border);
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   Phase 12.sunum-polish — fill the 6 remaining light spots in the Sunum
+   editor (empty state, filter bar, add buttons, props side panel,
+   present button). Pure overrides; editor.css source stays untouched
+   so a future light theme just stops loading this sheet.
+   ═════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Empty start screen ("Yeni sunuma başla") ───────────────── */
+body.prisma .empty-start {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .empty-start__sparkle {
+  background: radial-gradient(
+    circle at center,
+    var(--editor-accent-soft) 0%,
+    transparent 70%
+  ) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .empty-start__title { color: var(--editor-ink) !important; }
+body.prisma .empty-start__sub   { color: var(--editor-ink-mute) !important; }
+body.prisma .empty-start__chat-wrap {
+  background: transparent !important;
+}
+body.prisma .empty-start__chat,
+body.prisma .empty-start__chat .chat-input,
+body.prisma .empty-start__chat textarea {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .empty-start__chat .chat-input::placeholder,
+body.prisma .empty-start__chat textarea::placeholder {
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .empty-start__divider {
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .empty-start__divider::before,
+body.prisma .empty-start__divider::after {
+  background: var(--editor-border) !important;
+}
+body.prisma .empty-start__manual {
+  background: transparent !important;
+  border: 1px solid var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+body.prisma .empty-start__manual:hover {
+  background: var(--editor-accent-soft) !important;
+  color: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+
+/* ── 2. Filter bar (center, above sections) ────────────────────── */
+body.prisma .filter-bar {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .filter-bar__add {
+  background: transparent !important;
+  border: 1px dashed var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .filter-bar__add:hover {
+  background: var(--editor-accent-soft) !important;
+  color: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .filter-bar__apply {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+}
+body.prisma .filter-bar__apply:hover {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .filter-bar__reset,
+body.prisma .filter-bar__clear {
+  background: transparent !important;
+  color: var(--editor-ink-mute) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .filter-bar__reset:hover,
+body.prisma .filter-bar__clear:hover {
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-ink-faint) !important;
+}
+
+/* Filter widget chips + inputs */
+body.prisma .filter-widget,
+body.prisma .filter-chip {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .filter-widget__label,
+body.prisma .filter-chip__label {
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .filter-widget__select,
+body.prisma .filter-widget__input,
+body.prisma .filter-widget input[type="text"],
+body.prisma .filter-widget input[type="number"],
+body.prisma .filter-widget input[type="date"],
+body.prisma .filter-widget select {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .filter-widget__select:focus,
+body.prisma .filter-widget__input:focus,
+body.prisma .filter-widget input:focus,
+body.prisma .filter-widget select:focus {
+  border-color: var(--editor-accent) !important;
+  outline: none;
+}
+body.prisma .filter-enum-multi__panel,
+body.prisma .filter-popover {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border-strong) !important;
+  color: var(--editor-ink-soft);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+body.prisma .filter-enum-multi__option:hover {
+  background: var(--editor-surface-2) !important;
+}
+
+/* ── 3. Add section / Add block buttons → gold ─────────────────── */
+body.prisma .layout-add-row {
+  background: transparent !important;
+}
+body.prisma .layout-add-btn,
+body.prisma .layout-add-btn--ghost {
+  background: transparent !important;
+  border: 1px dashed var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: all 0.18s;
+}
+body.prisma .layout-add-btn:hover,
+body.prisma .layout-add-btn--ghost:hover {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--gold-soft) !important;
+  color: var(--gold-soft) !important;
+}
+body.prisma .layout-add-btn--primary {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-style: solid !important;
+}
+body.prisma .layout-add-btn--primary:hover {
+  background: var(--gold-soft) !important;
+  color: var(--editor-surface) !important;
+}
+/* Layout-type popup menu ("Hangi blok?" picker) */
+body.prisma .layout-type-menu,
+body.prisma .layout-block-picker {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border-strong) !important;
+  color: var(--editor-ink-soft);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+body.prisma .layout-type-menu button,
+body.prisma .layout-block-picker button {
+  background: transparent !important;
+  color: var(--editor-ink-soft) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .layout-type-menu button:hover,
+body.prisma .layout-block-picker button:hover {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+
+/* ── 4. Right properties side panel ────────────────────────────── */
+body.prisma .props-side-panel {
+  background: var(--editor-surface) !important;
+  border-left-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .props-side-panel__header,
+body.prisma .props-side-panel__section,
+body.prisma .props-side-panel__section-title {
+  background: transparent !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .props-side-panel__title {
+  color: var(--editor-ink) !important;
+}
+body.prisma .props-side-panel__subtitle,
+body.prisma .props-side-panel__hint {
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .props-label,
+body.prisma .props-side-panel label {
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .props-input,
+body.prisma .props-textarea,
+body.prisma .props-select,
+body.prisma .props-side-panel input[type="text"],
+body.prisma .props-side-panel input[type="number"],
+body.prisma .props-side-panel textarea,
+body.prisma .props-side-panel select {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .props-input:focus,
+body.prisma .props-textarea:focus,
+body.prisma .props-select:focus,
+body.prisma .props-side-panel input:focus,
+body.prisma .props-side-panel textarea:focus,
+body.prisma .props-side-panel select:focus {
+  border-color: var(--editor-accent) !important;
+  outline: none;
+}
+body.prisma .props-side-panel__danger,
+body.prisma .props-side-panel .danger-btn,
+body.prisma .props-side-panel button[data-danger="true"] {
+  background: transparent !important;
+  color: var(--red-soft) !important;
+  border-color: var(--editor-danger) !important;
+}
+body.prisma .props-side-panel__danger:hover {
+  background: var(--editor-danger-soft) !important;
+}
+/* Color swatch input — keep the actual color visible but dark border */
+body.prisma .props-side-panel input[type="color"] {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+}
+
+/* "Bir blok seçili" notification bar (selection hint above sections) */
+body.prisma .block-selected-hint,
+body.prisma .selection-banner,
+body.prisma .alert-info {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+
+/* ── 5. Sunum Formatına Geç (left-rail bottom CTA) ─────────────── */
+body.prisma .mode-cta--present {
+  background: transparent !important;
+  border: 1px solid var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+body.prisma .mode-cta--present:hover {
+  background: var(--editor-accent-soft) !important;
+  color: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .mode-cta--edit {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+}
+body.prisma .mode-cta--edit:hover {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+
+/* ── 6. Sources sidebar polish ─────────────────────────────────── */
+body.prisma .sources-domain-header {
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .sources-domain-header:hover {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .sources-domain.is-open .sources-domain-header {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .sources-domain-count {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+  font-family: var(--mono);
+}
+body.prisma .sources-table-name { color: var(--editor-ink) !important; }
+body.prisma .sources-table-desc { color: var(--editor-ink-mute) !important; }
+body.prisma .sidebar-empty {
+  color: var(--editor-ink-faint) !important;
+  font-style: italic;
+}
+
+/* ── Phase 12.sunum-basket — basket-only sidebar groups ────────── */
+body.prisma .sources-list--basket {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 4px;
+}
+body.prisma .sources-basket-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+body.prisma .sources-basket-group__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--editor-ink-mute);
+  font-family: var(--mono);
+}
+body.prisma .sources-basket-group__count {
+  margin-left: auto;
+  background: var(--editor-accent-soft);
+  color: var(--editor-accent);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+body.prisma .sources-basket-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--editor-surface-1);
+  border: 1px solid var(--editor-border);
+  border-radius: 2px;
+  color: var(--editor-ink-faint);
+}
+body.prisma .sources-basket-search:focus-within {
+  border-color: var(--editor-accent);
+  color: var(--editor-accent);
+}
+body.prisma .sources-basket-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  color: var(--editor-ink);
+  font-family: var(--sans);
+  font-size: 12px;
+  outline: none;
+}
+body.prisma .sources-basket-search input::placeholder {
+  color: var(--editor-ink-faint);
+}
+body.prisma .sources-basket-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+body.prisma .sources-table-wrap--block .sources-table {
+  cursor: default;
+}
+body.prisma .sources-table-wrap--block:hover { background: transparent; }
+body.prisma .sidebar-empty--mini {
+  padding: 6px 4px;
+  font-size: 11px;
+}
+
+/* TOC (presentation-mode sidebar table-of-contents) */
+body.prisma .toc-list { background: transparent; }
+body.prisma .toc-item {
+  color: var(--editor-ink-soft);
+  border-color: var(--editor-border);
+}
+body.prisma .toc-item:hover {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink);
+}
+body.prisma .toc-item.is-active {
+  background: var(--editor-accent-soft);
+  color: var(--editor-accent);
+  border-left-color: var(--editor-accent);
 }
 
 /* ── Login + helper messages already dark via login.html — no overrides ── */

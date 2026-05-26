@@ -713,6 +713,28 @@ def hazirlik(pid: str):
         log.warning("hazirlik: _refresh_routing failed", exc_info=True)
 
     cols_by_alias = _columns_by_alias(scope)
+    # Phase 11.hazirlik-polish: surface the manifest's library-block basket
+    # items (kind="block") so the Hazırlık sidebar can show them next to
+    # the table list. Blocks don't participate in scope (they're already
+    # rendered React components), but the user expects "my basket" to
+    # include both flavors.
+    library_blocks: list[dict] = []
+    try:
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        m = sess.get_manifest() or {}
+        for it in (m.get("basket") or []):
+            if (it or {}).get("kind") != "block":
+                continue
+            library_blocks.append({
+                "library_id": it.get("library_id") or "",
+                "name": it.get("name") or it.get("library_id") or "",
+                "block_type": it.get("block_type") or "",
+                "owner_id": it.get("owner_id") or "",
+                "tags": it.get("tags") or [],
+            })
+    except Exception:
+        log.warning("hazirlik: library_blocks lookup failed", exc_info=True)
+
     payload = {
         "presentation_id": pid,
         "title": title,
@@ -726,6 +748,7 @@ def hazirlik(pid: str):
             "threshold_bytes": _routing_threshold_bytes(),
             "hard_ceiling_bytes": _routing_hard_ceiling_bytes(),
         },
+        "library_blocks": library_blocks,
     }
     return render_template(
         "presentations/hazirlik.html",
