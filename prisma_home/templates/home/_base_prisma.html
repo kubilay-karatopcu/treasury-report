@@ -5,6 +5,21 @@
   <title>{% block title %}{{ page_title or "PRISMA" }} — Hazine{% endblock %}</title>
   <meta name="viewport" content="width=1280">
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='prisma_icon.png') }}">
+  {# Phase 12.light — flash-prevention. Read the saved theme BEFORE any
+     stylesheet loads and set data-theme on <html> so the page paints
+     in the correct theme on first render. localStorage default is dark
+     so existing users get no surprise. #}
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('prisma-theme') || 'dark';
+        if (t !== 'light' && t !== 'dark') t = 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -20,20 +35,20 @@
        canvas slot so the PRISMA topbar + sidebar keep their dark theme. #}
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   {% endif %}
-  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/prisma.css') }}?v=2">
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/prisma.css') }}?v=4">
   {% block head %}{% endblock %}
 </head>
-<body class="prisma {{ mode|default('consumer') }}{% if light_content %} light-content{% endif %}{% if canvas_bleed %} canvas-bleed{% endif %}">
-  <div class="app {% if mode == 'atolye' %}in-atolye{% endif %}" id="appShell">
+<body class="prisma {{ mode|default('consumer') }}{% if light_content %} light-content{% endif %}{% if canvas_bleed %} canvas-bleed{% endif %}{% if no_atolye_sidebar %} no-sidebar{% endif %}">
+  <div class="app {% if mode == 'atolye' %}in-atolye{% endif %}{% if no_atolye_sidebar %} no-sidebar{% endif %}" id="appShell">
     {% include "partials/topbar.html" %}
-    {% if mode == 'atolye' %}
+    {% if mode == 'atolye' and not no_atolye_sidebar %}
       {% include "partials/atolye_sidebar.html" %}
     {% endif %}
     <main class="canvas">
       {% block content %}{% endblock %}
     </main>
   </div>
-  <script src="{{ url_for('prisma_home.static', filename='js/prisma_shell.js') }}?v=1"></script>
+  <script src="{{ url_for('prisma_home.static', filename='js/prisma_shell.js') }}?v=2"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

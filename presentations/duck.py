@@ -80,6 +80,10 @@ def register_dataframe(conn, view_name, df):
 def populate_basket(dc, conn, basket):
     loaded = {}
     for item in basket:
+        # Phase 11.basket-blocks: basket now also holds saved library blocks
+        # (kind="block") which aren't Oracle tables — skip them in fetch.
+        if item.get("kind") == "block" or not item.get("table"):
+            continue
         # Upload-backed basket entries don't fetch via Oracle.
         if item["table"].startswith("upload__"):
             continue

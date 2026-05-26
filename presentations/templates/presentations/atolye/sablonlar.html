@@ -1,11 +1,14 @@
 {% extends "home/_base_prisma.html" %}
 {% set mode = "atolye" %}
-{% set crumb = "Atölye · Kütüphane · Şablonlar" %}
+{# Phase 12.workshops — was "Şablonlar"; this list shows expert-bound
+   snapshots, renamed to "Süreçler" (completed/published workshops).
+   URL stays /atolye/sablonlar so existing bookmarks keep working. #}
+{% set crumb = "Atölye · Kütüphane · Süreçler" %}
 {% set sidebar_active = "sablonlar" %}
 {% if sidebar is not defined or sidebar is none %}
   {% set sidebar = [] %}
 {% endif %}
-{% block title %}Atölye / Şablonlar — PRISMA{% endblock %}
+{% block title %}Atölye / Süreçler — PRISMA{% endblock %}
 
 {% block head %}
 <style>
@@ -122,16 +125,15 @@
   <div class="sablonlar-page">
     <div class="sablonlar-head">
       <div>
-        <div class="eyebrow">A · Kütüphane · ◇</div>
-        <h2>Şablonlar</h2>
+        <div class="eyebrow">A · Kütüphane · ∎</div>
+        <h2>Süreçler</h2>
         <p class="sub">
-          Uzmanlara bağlı snapshot'lar — başlangıç noktası olarak kullan.
-          Yeni bir sunum açarken bunlardan birini klonlayıp üstüne kendi
-          değişikliklerini yapabilirsin.
+          Tamamlanmış ve uzmana bağlanmış snapshot'lar — başlangıç noktası
+          olarak kullan ya da klonlayıp üstüne kendi değişikliklerini yap.
         </p>
       </div>
       <div class="sablonlar-meta">
-        {{ total }} şablon · son 24
+        {{ total }} süreç · son 24
       </div>
     </div>
 
@@ -165,11 +167,11 @@
       </div>
     {% else %}
       <div class="empty-state">
-        <h3>Henüz şablon yok</h3>
+        <h3>Henüz süreç yok</h3>
         <p>
-          Şablonlar, en az bir uzmana bağlanmış snapshot'lardan oluşur.
+          Süreçler, en az bir uzmana bağlanmış snapshot'lardan oluşur.
           Bir sunum hazırla, Snapshot Al ile yayınlarken bir uzman seç —
-          o snapshot otomatik olarak burada şablon olarak gözükecek.
+          o snapshot otomatik olarak burada süreç olarak gözükecek.
         </p>
         <a class="empty-cta" href="{{ url_for('presentations.list_presentations') }}">
           Sunumlarımı aç

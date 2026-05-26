@@ -321,6 +321,26 @@ export default function GraphCanvas({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Phase 12.light — Cosmograph's WebGL canvas needs a hex background
+  // (it can't read CSS variables). Watch <html data-theme> and feed
+  // the matching PRISMA surface hex into the prop.
+  const [graphBg, setGraphBg] = useState(() => (
+    document.documentElement.getAttribute("data-theme") === "light"
+      ? "#F7F8FA"
+      : "#0A0E1A"
+  ));
+  useEffect(() => {
+    const html = document.documentElement;
+    const sync = () => {
+      const theme = html.getAttribute("data-theme") || "dark";
+      setGraphBg(theme === "light" ? "#F7F8FA" : "#0A0E1A");
+    };
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(html, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
+
   // Multi-select state (Set of node ids). Cosmograph's own selection API
   // is imperative; we keep a React copy so the basket affordance can read
   // it without poking through the ref.
@@ -817,7 +837,7 @@ export default function GraphCanvas({
           // Hover dim — Cosmograph greys out non-selected on selectPoints.
           pointGreyoutOpacity={0.15}
           linkGreyoutOpacity={0.05}
-          backgroundColor="#f6f7f9"
+          backgroundColor={graphBg}
           // Show labels for the strongest-bound nodes; the rest hide on
           // collision (Cosmograph picks by pointLabelWeightBy under the hood).
           pointLabelWeightBy="sizeWeight"
@@ -847,11 +867,10 @@ export default function GraphCanvas({
 
       <Legend deptIndex={deptIndex} />
 
-      <SimPanel
-        params={simParams}
-        onChange={setSimParams}
-        onReset={() => setSimParams(initialSimParams)}
-      />
+      {/* Phase 11.workbench — view tabs now live in kesif/index.jsx so they
+          can drive a shared `view` state (router) rather than navigating
+          server-side. The old GraphTabsOverlay was removed in favor of
+          <WorkbenchTabs> rendered alongside the center canvas. */}
 
       <MultiSelectBar
         ids={multiSelectIds}
@@ -1010,6 +1029,10 @@ function ContextMenu({
     </div>
   );
 }
+
+
+// (GraphTabsOverlay moved to kesif/index.jsx as <WorkbenchTabs> in
+//  Phase 11.workbench so it can drive shared view state.)
 
 
 // ── SimPanel — live tuning overlay (top-left of the graph) ───────────

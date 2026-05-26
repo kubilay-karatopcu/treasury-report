@@ -15,19 +15,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
   Handle, Position, useNodesState,
+  BaseEdge, EdgeLabelRenderer, getBezierPath,
 } from "@xyflow/react";
 import { AgGridReact } from "ag-grid-react";
 import "ag-grid-enterprise";   // demo (unlicensed → watermark) — pivot/row-grouping/aggregation
 import "@xyflow/react/dist/style.css";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-alpine.css";
+// `ag-theme-alpine.css` ships both light + dark variants — switching the
+// className on the wrapper is enough to flip themes, no second import.
 // Veri Yükle: reuse Sunum's modal — editor/lib/api.js has the upload routes,
 // and api.js's API_BASE is hazirlik-aware (strips /hazirlik/ from the path).
 import UploadModal from "../editor/components/UploadModal.jsx";
 import {
   X, Plus, Trash2, Database, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2,
-  Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, Tag,
+  Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -371,6 +374,11 @@ function computeSuggestedEdges(basket) {
   return out;
 }
 
+// Stable, order-independent key for "edge between this node pair" — used
+// to group all edges (confirmed + suggested) between the same two table
+// nodes so their labels can be stacked vertically rather than overlap.
+function pairKey(a, b) { return a < b ? `${a}::${b}` : `${b}::${a}`; }
+
 function buildEdges(scope) {
   const confirmed = new Set(scope.joins.map(
     (j) => joinKey(j.left.alias, j.left.column, j.right.alias, j.right.column)));
@@ -385,11 +393,13 @@ function buildEdges(scope) {
       // visually snaps to the top row even though the label is right.
       sourceHandle: j.left.column,
       targetHandle: j.right.column,
-      // Confirmed edge label: prefer the concept (shows *why* the join exists)
-      // over the raw kind, then append the column pair for clarity.
-      label: concept ? `${concept} · ${j.left.column}=${j.right.column}` : `${j.kind}: ${j.left.column}=${j.right.column}`,
+      type: "hzPairEdge",
       className: "hz-edge hz-edge--confirmed",
-      data: { confirmed: true, join: j, concept },
+      data: {
+        confirmed: true, join: j, concept,
+        label: concept ? `${concept} · ${j.left.column}=${j.right.column}` : `${j.kind}: ${j.left.column}=${j.right.column}`,
+        kind: "confirmed",
+      },
     };
   });
   const aliases = new Set(scope.basket.map((b) => b.alias));
@@ -413,16 +423,81 @@ function buildEdges(scope) {
       id: `sug_${i}`, source: s.left.alias, target: s.right.alias,
       sourceHandle: s.left.column,
       targetHandle: s.right.column,
-      // Edge label hints at the two interactions:
+      type: "hzPairEdge",
+      className: "hz-edge hz-edge--suggested",
+      // Edge interaction hints (handled in App.onEdgeClick):
       //   click       → confirms suggestion as a real join
       //   shift+click → dismisses (added to scope.dismissed_suggestions)
-      label: `${concept ? `${concept} · ${kindLabel}` : kindLabel}  · ⇧×`,
-      className: "hz-edge hz-edge--suggested",
-      data: { suggested: true, edge: s, concept, dismissKey: k },
+      data: {
+        suggested: true, edge: s, concept, dismissKey: k,
+        label: `${concept ? `${concept} · ${kindLabel}` : kindLabel} · ⇧×`,
+        kind: "suggested",
+      },
+    });
+  });
+
+  // Stack labels: for each (sourceNode, targetNode) pair, annotate each
+  // edge in the group with its index + group size so the custom edge
+  // component can offset the label vertically and labels stop overlapping.
+  const groups = new Map();
+  edges.forEach((e) => {
+    const pk = pairKey(e.source, e.target);
+    const arr = groups.get(pk) || [];
+    arr.push(e);
+    groups.set(pk, arr);
+  });
+  groups.forEach((arr) => {
+    arr.forEach((e, idx) => {
+      e.data = { ...(e.data || {}), stackIndex: idx, stackOf: arr.length };
     });
   });
   return edges;
 }
+
+// Custom edge that renders its label via EdgeLabelRenderer with a vertical
+// offset derived from `data.stackIndex / stackOf`. This is what stops the
+// "öneri" pills from piling on top of each other when several suggestions
+// cross between the same two table cards.
+function HzPairEdge({
+  id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition,
+  style, markerEnd, data, selected,
+}) {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX, sourceY, targetX, targetY,
+    sourcePosition, targetPosition,
+  });
+  const stackIndex = data?.stackIndex ?? 0;
+  const stackOf = data?.stackOf ?? 1;
+  // Center the stack on the midpoint: i=0 of N items sits at top, i=N-1 at
+  // bottom. Spacing slightly larger than the chip height (≈18px) so they
+  // don't quite touch.
+  const offsetY = (stackIndex - (stackOf - 1) / 2) * 22;
+  const isSuggested = data?.kind === "suggested";
+  const cls = `hz-edge-chip${isSuggested ? " hz-edge-chip--suggested" : " hz-edge-chip--confirmed"}${selected ? " is-selected" : ""}`;
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+      {data?.label && (
+        <EdgeLabelRenderer>
+          <div
+            className={cls}
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY + offsetY}px)`,
+              pointerEvents: "all",
+            }}
+            title={data.label}
+          >
+            {data.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const EDGE_TYPES = { hzPairEdge: HzPairEdge };
 
 // ── Join-key modal ───────────────────────────────────────────────────────────
 
@@ -689,81 +764,231 @@ function TableDocsPanel({ table, onClose }) {
 
 // ── Left sidebar (Sunum design: source categories + chat) ────────────────────
 
-function SourcesSidebar({ scope, onToggleTable, onRemove, onOpenDocs, onOpenUpload, chat }) {
-  const [open, setOpen] = useState({});
-  const inBasket = new Set(scope.basket.map((b) => tableId(b.table_ref)));
+function SourcesSidebar({
+  scope, onOpenDocs, libraryBlocks, chat,
+  hiddenAliases, onToggleVisibility,
+  goingToSunum, onGoToSunum,
+}) {
+  // Phase 11.hazirlik-polish: sidebar shows ONLY what's in MY basket
+  // (no longer the full DOMAINS tree). Split into Tablolar + Bloklar
+  // with per-group search inputs, mirroring the Keşif Sepet pattern.
+  const [tableSearch, setTableSearch] = useState("");
+  const [blockSearch, setBlockSearch] = useState("");
+
+  // Build a flat list of basket tables with the catalog row (for the eye
+  // icon → docs) attached. Derived items have no table_ref → skip eye.
+  const tableById = useMemo(() => {
+    const map = {};
+    for (const d of (DOMAINS || [])) {
+      for (const t of (d.tables || [])) map[t.id] = t;
+    }
+    return map;
+  }, []);
+  const tableItems = useMemo(() => {
+    return (scope.basket || [])
+      .filter((b) => b.table_ref != null)
+      .map((b) => {
+        const tid = tableId(b.table_ref);
+        return {
+          alias: b.alias,
+          tid,
+          schema: b.table_ref.schema,
+          name: b.table_ref.name,
+          catalog: tableById[tid] || null,
+        };
+      });
+  }, [scope.basket, tableById]);
+  const derivedItems = useMemo(
+    () => (scope.basket || []).filter((b) => b.derivation != null),
+    [scope.basket],
+  );
+
+  const tablesFiltered = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return tableItems;
+    return tableItems.filter((it) =>
+      it.tid.toLowerCase().includes(q)
+      || (it.alias || "").toLowerCase().includes(q)
+    );
+  }, [tableItems, tableSearch]);
+  const blocksFiltered = useMemo(() => {
+    const q = blockSearch.trim().toLowerCase();
+    const all = libraryBlocks || [];
+    if (!q) return all;
+    return all.filter((b) =>
+      (b.name || "").toLowerCase().includes(q)
+      || (b.block_type || "").toLowerCase().includes(q)
+      || (b.tags || []).join(" ").toLowerCase().includes(q)
+    );
+  }, [libraryBlocks, blockSearch]);
+
+  const hasNoBasket = tableItems.length === 0 && derivedItems.length === 0
+    && (libraryBlocks || []).length === 0;
+
   return (
     <aside className="editor-sidebar hz-sidebar">
       <div className="sidebar-inner">
         <div className="sidebar-section sidebar-section--sources ts-scroll">
-          <div className="sidebar-label"><span className="sidebar-label-icon"><Database size={12} /></span><span>Veri Kaynakları</span></div>
-          <button
-            type="button"
-            className="sources-upload-cta"
-            onClick={onOpenUpload}
-            title="Excel / yapıştırma ile veri ekle"
-          >
-            <Upload size={12} strokeWidth={2} />
-            <span>Veri Yükle</span>
-          </button>
-          <div className="sources-list">
-            {DOMAINS.map((d) => {
-              const isOpen = !!open[d.id];
-              const cnt = (d.tables || []).filter((t) => inBasket.has(t.id)).length;
-              const DomainIcon = pickDomainIcon(d);
-              return (
-                <div key={d.id} className={`sources-domain${isOpen ? " is-open" : ""}`}>
-                  <button type="button" className="sources-domain-header"
-                    onClick={() => setOpen((o) => ({ ...o, [d.id]: !o[d.id] }))}>
-                    <ChevronRight size={12} strokeWidth={2} className="sources-domain-chevron" />
-                    <DomainIcon size={14} strokeWidth={1.8} className="sources-domain-icon" />
-                    <span className="sources-domain-label">{d.label}</span>
-                    {cnt > 0 && <span className="sources-domain-count">{cnt}</span>}
-                  </button>
-                  {isOpen && (
-                    <div className="sources-tables">
-                      {(d.tables || []).map((t) => {
-                        const active = inBasket.has(t.id);
-                        return (
-                          <div key={t.id} className={`sources-table-wrap${active ? " is-active" : ""}`}>
-                            <button type="button" className="sources-table"
-                              onClick={() => onToggleTable(t)}
-                              title={active ? "Sepetten çıkar" : "Sepete ekle"}>
-                              <div className="sources-table-info">
-                                <div className="sources-table-name">{(t.id || "").split(".").pop()}</div>
-                                <div className="sources-table-desc">
-                                  {t.desc}{t.rows ? ` · ${t.rows}` : ""}
-                                </div>
-                              </div>
-                              {/* Only show the Trash icon when the table is already in
-                                  the basket — Plus is implicit (clicking the row adds). */}
-                              {active && (
-                                <span className="sources-table-toggle" title="Sepetten çıkar">
-                                  <Trash2 size={12} strokeWidth={1.8} />
-                                </span>
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              className="sources-table-eye"
-                              onClick={(e) => { e.stopPropagation(); onOpenDocs && onOpenDocs(t); }}
-                              title="Tablo dökümanını göster"
-                            >
-                              <Eye size={12} strokeWidth={1.8} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="sidebar-label">
+            <span className="sidebar-label-icon"><Database size={12} /></span>
+            <span>Veri Kaynakları</span>
           </div>
+
+          {hasNoBasket && (
+            <div className="hz-basket-empty">
+              Sepetin boş. Önce Keşif'ten tablo veya blok ekle, sonra
+              buradan ER düzenle.
+            </div>
+          )}
+
+          {/* ── Tablolar ─────────────────────────────────────────── */}
+          {(tableItems.length > 0 || derivedItems.length > 0) && (
+            <div className="hz-basket-group">
+              <div className="hz-basket-group__title">
+                <Table2 size={11} strokeWidth={2} />
+                <span>Tablolar</span>
+                <span className="hz-basket-group__count">
+                  {tableItems.length + derivedItems.length}
+                </span>
+              </div>
+              <input
+                type="text"
+                className="hz-basket-search"
+                placeholder="Tablo ara…"
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+              />
+              <div className="hz-basket-list">
+                {tablesFiltered.map((it) => {
+                  const hidden = hiddenAliases?.has(it.alias) || false;
+                  return (
+                    <div
+                      key={it.alias}
+                      className={`hz-basket-row sources-table-wrap is-active${hidden ? " is-hidden" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="hz-basket-row__main sources-table"
+                        onClick={() => onToggleVisibility && onToggleVisibility(it.alias)}
+                        title={hidden ? "Görünür yap" : "Görünümden gizle"}
+                      >
+                        <span className="hz-basket-row__viz" aria-hidden>
+                          {hidden ? <EyeOff size={12} strokeWidth={1.8} /> : <Eye size={12} strokeWidth={1.8} />}
+                        </span>
+                        <div className="sources-table-info">
+                          <div className="sources-table-name">{it.name}</div>
+                          <div className="sources-table-desc">
+                            {it.schema}{it.catalog?.desc ? ` · ${it.catalog.desc}` : ""}
+                          </div>
+                        </div>
+                      </button>
+                      {it.catalog && (
+                        <button
+                          type="button"
+                          className="sources-table-eye"
+                          onClick={(e) => { e.stopPropagation(); onOpenDocs && onOpenDocs(it.catalog); }}
+                          title="Tablo dökümanını göster"
+                        >
+                          <Info size={12} strokeWidth={1.8} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {derivedItems.map((b) => {
+                  const hidden = hiddenAliases?.has(b.alias) || false;
+                  return (
+                    <div
+                      key={b.alias}
+                      className={`hz-basket-row sources-table-wrap is-active is-derived${hidden ? " is-hidden" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="hz-basket-row__main sources-table"
+                        onClick={() => onToggleVisibility && onToggleVisibility(b.alias)}
+                        title={hidden ? "Görünür yap" : "Görünümden gizle"}
+                      >
+                        <span className="hz-basket-row__viz" aria-hidden>
+                          {hidden ? <EyeOff size={12} strokeWidth={1.8} /> : <Eye size={12} strokeWidth={1.8} />}
+                        </span>
+                        <div className="sources-table-info">
+                          <div className="sources-table-name">{b.alias}</div>
+                          <div className="sources-table-desc">
+                            {b.derivation?.kind === "aggregate" ? "agregat" : "hesaplama"}
+                            {b.derivation?.source_alias ? ` · ${b.derivation.source_alias}` : ""}
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  );
+                })}
+                {tablesFiltered.length === 0 && derivedItems.length === 0 && tableSearch && (
+                  <div className="hz-basket-empty hz-basket-empty--mini">
+                    "{tableSearch}" ile eşleşen tablo yok.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Bloklar ──────────────────────────────────────────── */}
+          {(libraryBlocks || []).length > 0 && (
+            <div className="hz-basket-group">
+              <div className="hz-basket-group__title">
+                <Tag size={11} strokeWidth={2} />
+                <span>Bloklar</span>
+                <span className="hz-basket-group__count">
+                  {(libraryBlocks || []).length}
+                </span>
+              </div>
+              <input
+                type="text"
+                className="hz-basket-search"
+                placeholder="Blok ara…"
+                value={blockSearch}
+                onChange={(e) => setBlockSearch(e.target.value)}
+              />
+              <div className="hz-basket-list">
+                {blocksFiltered.map((b) => (
+                  <div key={b.library_id} className="hz-basket-row hz-basket-row--block">
+                    <div className="hz-basket-row__main">
+                      <div className="sources-table-info">
+                        <div className="sources-table-name">{b.name}</div>
+                        <div className="sources-table-desc">
+                          {b.block_type || "blok"}{b.owner_id ? ` · ${b.owner_id}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {blocksFiltered.length === 0 && blockSearch && (
+                  <div className="hz-basket-empty hz-basket-empty--mini">
+                    "{blockSearch}" ile eşleşen blok yok.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="sidebar-section sidebar-section--chat">
           <ChatPanel {...chat} />
+        </div>
+
+        {/* Phase 11.hazirlik-polish: "Sunum'a geç" relocated from a
+            top-bar (removed) to a sticky CTA below the chat — same
+            visual rhythm as Keşif's "Hazırlık'a geç" bottom CTA. */}
+        <div className="hz-sidebar-cta">
+          <button
+            type="button"
+            className="ts-btn ts-btn--primary hz-sidebar-cta__btn"
+            disabled={goingToSunum}
+            onClick={onGoToSunum}
+          >
+            {goingToSunum
+              ? <><Loader2 size={13} className="ts-spin" /> Hazırlanıyor…</>
+              : <>Sunum'a geç <ArrowRight size={14} /></>}
+          </button>
         </div>
       </div>
     </aside>
@@ -1109,7 +1334,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                 Türetilmiş tablo · kaynak tablonun örneği üzerinde hesaplandı. Sunum tam veri üzerinde yeniden hesaplayacak.
               </p>
             )}
-            <div className="ag-theme-alpine" style={{ width: "100%", height: "100%" }}>
+            <div className="ag-theme-alpine-dark" style={{ width: "100%", height: "100%" }}>
               <AgGridReact
                 columnDefs={colDefs} rowData={rowData} animateRows
                 onGridReady={handleReady}
@@ -1223,6 +1448,18 @@ function App() {
   const gridApiRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesStateCompat(() => initialNodes(DATA.scope));
+  // Phase 11.hazirlik-polish-2: alias visibility on the canvas. The
+  // sidebar's "Tablolar" rows toggle entries in this set; the nodes
+  // reconciliation effect applies it to each node's `hidden` flag.
+  // React Flow drops edges connected to hidden nodes automatically.
+  const [hiddenAliases, setHiddenAliases] = useState(() => new Set());
+  const toggleAliasVisibility = useCallback((alias) => {
+    setHiddenAliases((s) => {
+      const n = new Set(s);
+      if (n.has(alias)) n.delete(alias); else n.add(alias);
+      return n;
+    });
+  }, []);
   const edges = useMemo(() => buildEdges(scope), [scope]);
 
   // Auto-save the draft scope to the session manifest 500ms after the last
@@ -1253,7 +1490,13 @@ function App() {
         .filter((n) => aliasesInScope.has(n.id))
         .map((n) => {
           const item = scope.basket.find((b) => b.alias === n.id);
-          return item ? { ...n, data: enrichNodeData(item, scope) } : n;
+          // Apply current visibility on every reconcile — hiddenAliases
+          // mutates independently of `scope`, so this effect picks it up
+          // via the dependency list below.
+          const hidden = hiddenAliases.has(n.id);
+          return item
+            ? { ...n, hidden, data: enrichNodeData(item, scope) }
+            : { ...n, hidden };
         });
       const known = new Set(kept.map((n) => n.id));
       const added = [];
@@ -1283,13 +1526,14 @@ function App() {
         added.push({
           id: item.alias, type: "tableNode",
           position: { x: 100 + (seq % 3) * 340, y: 100 + Math.floor(seq / 3) * 240 },
+          hidden: hiddenAliases.has(item.alias),
           data: enrichNodeData(item, scope),
         });
       });
       return [...kept, ...added];
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope]);
+  }, [scope, hiddenAliases]);
 
   // ── Stage-2 LLM chat (8.f) ─────────────────────────────────────────────────
   const [chatHistory, setChatHistory] = useState([]);
@@ -1584,7 +1828,19 @@ function App() {
     finally { setPreviewLoading(false); }
   }, [scope]);
 
-  const onNodeClick = useCallback((_e, node) => showPreview(node.id), [showPreview]);
+  // Click a node → open its preview drawer. Click the SAME node again →
+  // collapse the drawer (toggle behavior). Click anywhere on the empty
+  // canvas (onPaneClick below) also closes the drawer.
+  const onNodeClick = useCallback((_e, node) => {
+    if (preview && preview.alias === node.id) {
+      setPreview(null);
+      return;
+    }
+    showPreview(node.id);
+  }, [preview, showPreview]);
+  const onPaneClick = useCallback(() => {
+    if (preview) setPreview(null);
+  }, [preview]);
 
   // "Görünümü kaydet" — captures the current AG Grid state in one shot:
   //   - filter model     → scope.filters (pinned if column has concept, else raw)
@@ -1758,24 +2014,22 @@ function App() {
 
   return (
     <div className="hz-app">
-      <header className="hz-topbar">
-        <div className="hz-topbar-left">
-          <a className="hz-back" href={LIST_URL}><ChevronLeft size={14} /> Raporlar</a>
-          <span className="hz-eyebrow">HAZIRLIK</span>
-          <span className="hz-title">{DATA.title}</span>
-        </div>
-        <button className="ts-btn ts-btn--primary" disabled={busy} onClick={goToSunum}>
-          {busy ? "Hazırlanıyor…" : <>Sunum'a geç <ArrowRight size={15} /></>}
-        </button>
-      </header>
+      {/* Phase 11.hazirlik-polish: internal hz-topbar removed. The PRISMA
+          shell topbar already shows the breadcrumb + brand; an extra
+          row below it just cut the canvas off without adding info.
+          "Sunum'a geç" + "Raporlar" link relocated into the sidebar. */}
 
       {err && <div className="hz-error hz-error--bar">{err}</div>}
 
       <div className="hz-body">
         <SourcesSidebar
-          scope={scope} onToggleTable={toggleTable} onRemove={removeTable}
+          scope={scope}
+          libraryBlocks={DATA.library_blocks || []}
+          hiddenAliases={hiddenAliases}
+          onToggleVisibility={toggleAliasVisibility}
           onOpenDocs={(t) => setDocsTable((cur) => (cur && cur.id === t.id ? null : t))}
-          onOpenUpload={() => setUploadOpen(true)}
+          goingToSunum={busy}
+          onGoToSunum={goToSunum}
           chat={{
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
@@ -1791,8 +2045,10 @@ function App() {
             <ReactFlow
               nodes={nodes} edges={edges}
               onNodesChange={onNodesChange}
-              onConnect={onConnect} onEdgeClick={onEdgeClick} onNodeClick={onNodeClick}
-              nodeTypes={NODE_TYPES} fitView proOptions={{ hideAttribution: true }}
+              onConnect={onConnect} onEdgeClick={onEdgeClick}
+              onNodeClick={onNodeClick} onPaneClick={onPaneClick}
+              nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
+              fitView proOptions={{ hideAttribution: true }}
             >
               <Background gap={16} />
               <Controls />

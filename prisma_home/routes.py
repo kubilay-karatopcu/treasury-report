@@ -150,11 +150,21 @@ def expert_briefing_json(code: str):
 @prisma_home_bp.route("/atolye/")
 @login_required
 def atolye_home():
+    # Phase 12.workshops: surface the user's recent workshops on the
+    # home page so the producer can resume work without going through
+    # the sidebar. The helper lives in presentations.routes_kesif so
+    # we lazily import to avoid a circular blueprint import at module
+    # load time.
+    from presentations.routes_kesif import list_workshops_for
+    sicil = getattr(current_user, "sicil", None) or ""
+    workshops = list_workshops_for(sicil)
     return render_template(
         "home/atolye_home.html",
         mode="atolye",
         crumb="Atölye · Ana",
         sidebar=get_sidebar(active_key="atolye"),
+        workshops=workshops[:6],          # top-5 + 1 spillover
+        workshop_total=len(workshops),
     )
 
 

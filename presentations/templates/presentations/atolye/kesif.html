@@ -3,6 +3,9 @@
 {% set crumb = "Atölye · Pipeline · 01 Keşif" %}
 {% set sidebar_active = "kesif" %}
 {% set canvas_bleed = True %}
+{# Phase 11.kesif: Keşif has its own internal nav (graph tabs + sidebar).
+   Hide the PRISMA atölye sidebar so we don't stack two navigation columns. #}
+{% set no_atolye_sidebar = True %}
 {% if sidebar is not defined or sidebar is none %}
   {% set sidebar = [] %}
 {% endif %}
@@ -10,7 +13,12 @@
 
 {% block head %}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=9">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=11">
+  {# Phase 11.workbench — bloklar view inside the same shell needs bloklar.css. #}
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/bloklar.css') }}?v=3">
+  {# Phase 11.kesif — dark override; loaded LAST so it wins over the source sheets. #}
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/kesif_dark.css') }}?v=4">
   <style>
     /* Phase 11.wrap: scope the legacy fullscreen reset to the canvas slot. */
     body.prisma.canvas-bleed .canvas-bleed-mount { background: #f6f7f9; color: #1e293b; }
@@ -26,5 +34,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/kesif.bundle.js') }}?v=21"></script>
+  <script src="{{ url_for('presentations.static', filename='js/kesif.bundle.js') }}?v=28"></script>
 {% endblock %}

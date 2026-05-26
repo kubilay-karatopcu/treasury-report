@@ -817,6 +817,116 @@ def _execute_preview_sql(block: dict) -> None:
         conn.close()
 
 
+@presentations_bp.route("/library/<bid>/add-to-draft", methods=["POST"])
+@login_required
+def add_library_block_to_draft(bid: str):
+    """Phase 11.polish-final — "Sunuma ekle" CTA from Atölye/Bloklar.
+
+    Resolves the user's most-recent draft presentation (or creates a fresh
+    one if none exists), clones the library block as a manifest leaf, and
+    appends it to the last section (creating an "İçerik" section if the
+    manifest has none). Returns ``{pid, url}`` so the frontend can open
+    the editor in a new tab.
+
+    Idempotency: the cloned block gets a fresh ``id`` per call, so repeat
+    clicks add a fresh copy rather than no-op'ing.
+    """
+    store = current_app.config["LIBRARY_STORE"]
+    payload = store.load(bid)
+    if payload is None:
+        return Response(
+            json.dumps({"error": "Blok bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+    meta = payload.get("meta") or {}
+    if not _can_see_dashboard(
+        meta, current_user.sicil,
+        getattr(current_user, "department", "") or "",
+    ):
+        return Response(
+            json.dumps({"error": "Bu bloka erişiminiz yok."}, ensure_ascii=False),
+            status=403, mimetype="application/json",
+        )
+
+    block_template = payload.get("block") or {}
+    if not block_template:
+        return Response(
+            json.dumps({"error": "Blok şablonu boş."}, ensure_ascii=False),
+            status=400, mimetype="application/json",
+        )
+
+    # Pick the user's most-recent presentation; mint a new draft if none.
+    registry = current_app.config["SESSION_REGISTRY"]
+    items = registry.list_user_presentations(current_user.sicil)
+    target_pid: str | None = None
+    for it in items:
+        pid = it.get("id")
+        if pid and pid != "p_demo":
+            target_pid = pid
+            break
+
+    if target_pid is None:
+        target_pid = "p_" + secrets.token_urlsafe(8)
+        now = datetime.now(timezone.utc).isoformat()
+        seed_manifest = {
+            "id": target_pid,
+            "version": 1,
+            "owner_id": current_user.sicil,
+            "created_at": now,
+            "updated_at": now,
+            "meta": {
+                "title": "Yeni Sunum",
+                "eyebrow": "Treasury Report",
+                "date": "",
+                "author_label": current_user.sicil,
+            },
+            "basket": [],
+            "blocks": [],
+        }
+        registry.get_or_create(current_user.sicil, target_pid).set_manifest(seed_manifest)
+
+    session = _get_session(target_pid)
+    manifest = session.get_manifest(fallback=_seed_manifest(target_pid)) or {}
+
+    # Clone the block with a fresh id so repeat clicks don't collide.
+    cloned = json.loads(json.dumps(block_template))
+    cloned["id"] = "b_" + secrets.token_urlsafe(6)
+
+    blocks = manifest.setdefault("blocks", [])
+    # Find or create a target section. Manifest is in nested form post-migration.
+    target_section = None
+    for top in blocks:
+        if top.get("type") == "section_header":
+            target_section = top
+            break
+    if target_section is None:
+        target_section = {
+            "id": "h_intro_auto_lib",
+            "type": "section_header",
+            "title": "İçerik",
+            "locked": False,
+            "children": [],
+            "config": {},
+        }
+        blocks.append(target_section)
+
+    target_section.setdefault("children", []).append(cloned)
+    manifest["version"] = manifest.get("version", 0) + 1
+    manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
+    session.set_manifest(manifest)
+
+    from flask import url_for as _url_for
+    return Response(
+        json.dumps({
+            "ok": True,
+            "pid": target_pid,
+            "url": _url_for("presentations.editor", pid=target_pid),
+            "version": manifest["version"],
+        }, ensure_ascii=False),
+        mimetype="application/json",
+    )
+
+
 @presentations_bp.route("/library/<bid>")
 @login_required
 def get_library_block(bid: str):

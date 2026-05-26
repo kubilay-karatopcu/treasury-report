@@ -509,8 +509,16 @@ def _seed_into(library_dir: Path) -> int:
                 "tags": [label] + block.get("tags", []),
                 "used_tables": block.get("used_tables", []),
                 "block_type": block["type"],
-                "audience_sicils": [],
-                "audience_departments": [USER_DEPT],
+                # Phase 11.workbench — seed audience covers every DEV
+                # department so blocks are visible regardless of which fake
+                # user app.py / run_local.py boots with.
+                "audience_sicils": ["A00000", "A16438"],
+                "audience_departments": [
+                    USER_DEPT,
+                    "FİNANSAL YAPAY ZEKA UYGULAMALARI",
+                    "BİLANÇO YÖNETİMİ",
+                    "BİLANÇO ANALİZİ VE MEVDUAT YÖNETİMİ",
+                ],
             }
             d = library_dir / lid
             d.mkdir(parents=True, exist_ok=True)

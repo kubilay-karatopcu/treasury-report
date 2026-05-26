@@ -1,0 +1,659 @@
+/* ═════════════════════════════════════════════════════════════════════════
+   Hazırlık dark theme — Phase 11.kesif (sister sheet to kesif_dark.css)
+
+   Hazırlık reuses kesif.css for its left rail + general panel chrome
+   but adds its own hazirlik.css for the React Flow scope builder. This
+   sheet overrides both, plus React Flow's own light defaults.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* Body */
+body.prisma .hazirlik-body,
+body.prisma.canvas-bleed .canvas-bleed-mount {
+  background: var(--editor-surface);
+  color: var(--editor-ink-soft);
+}
+
+/* Pull in kesif overrides for the shared left rail / search / filter chrome.
+   The two pages literally share kesif.css so the kesif-* selectors above
+   apply here unchanged. We only add hazirlik-specific surfaces. */
+
+body.prisma .hazirlik-shell,
+body.prisma .hazirlik-canvas,
+body.prisma .hazirlik-toolbar {
+  background: var(--editor-surface);
+  color: var(--editor-ink-soft);
+  border-color: var(--editor-border);
+}
+body.prisma .hazirlik-toolbar { border-bottom-color: var(--editor-border); }
+body.prisma .hazirlik-toolbar__title { color: var(--editor-ink); }
+body.prisma .hazirlik-toolbar__sub { color: var(--editor-ink-mute); }
+body.prisma .hazirlik-btn {
+  background: transparent;
+  color: var(--editor-ink-mute);
+  border-color: var(--editor-border-strong);
+}
+body.prisma .hazirlik-btn:hover:not(:disabled) {
+  color: var(--editor-ink);
+  border-color: var(--editor-ink-faint);
+  background: var(--editor-surface-2);
+}
+body.prisma .hazirlik-btn--primary {
+  background: var(--editor-accent);
+  color: var(--editor-surface);
+  border-color: var(--editor-accent);
+}
+body.prisma .hazirlik-btn--primary:hover:not(:disabled) {
+  background: var(--gold-soft);
+  border-color: var(--gold-soft);
+}
+
+/* Basket panel (left, lists pinned tables) */
+body.prisma .hazirlik-basket {
+  background: var(--editor-surface);
+  border-color: var(--editor-border);
+}
+body.prisma .hazirlik-basket__title { color: var(--editor-ink-mute); }
+body.prisma .hazirlik-basket__item {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .hazirlik-basket__item:hover { background: var(--editor-surface-2); }
+body.prisma .hazirlik-basket__item.is-selected {
+  border-color: var(--editor-accent);
+}
+
+/* React Flow canvas — scope builder graph. ReactFlow draws on a light bg
+   by default; we tint the controls + background. */
+body.prisma .react-flow__renderer { background: var(--editor-surface); }
+body.prisma .react-flow__background { background: var(--editor-surface); }
+body.prisma .react-flow__controls {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+}
+body.prisma .react-flow__controls-button {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink-mute);
+  border-bottom-color: var(--editor-border);
+}
+body.prisma .react-flow__controls-button:hover {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink);
+}
+body.prisma .react-flow__minimap {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+}
+body.prisma .react-flow__node {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border-strong);
+  color: var(--editor-ink-soft);
+}
+body.prisma .react-flow__node-default,
+body.prisma .react-flow__node-input,
+body.prisma .react-flow__node-output {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink);
+}
+body.prisma .react-flow__edge-path { stroke: var(--editor-border-strong); }
+body.prisma .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--editor-accent);
+}
+
+/* Right panel — scope details */
+body.prisma .hazirlik-right {
+  background: var(--editor-surface);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .hazirlik-right__title { color: var(--editor-ink); }
+body.prisma .hazirlik-right__field-label { color: var(--editor-ink-mute); }
+body.prisma .hazirlik-right input[type="text"],
+body.prisma .hazirlik-right textarea,
+body.prisma .hazirlik-right select {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink);
+}
+body.prisma .hazirlik-right input:focus,
+body.prisma .hazirlik-right textarea:focus {
+  border-color: var(--editor-accent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Phase 11.hazirlik-polish — sidebar (basket only) + chat + bottom CTA
+   ─────────────────────────────────────────────────────────────────── */
+
+/* Sidebar surfaces — was bright white via editor.css, flip to PRISMA dark */
+body.prisma .hz-app .editor-sidebar.hz-sidebar {
+  background: var(--editor-surface) !important;
+  border-right-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-sidebar .sidebar-section--sources,
+body.prisma .hz-sidebar .sidebar-section--chat {
+  background: transparent !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .hz-sidebar .sidebar-label {
+  color: var(--editor-ink-mute) !important;
+}
+
+/* Basket groups (Tablolar / Bloklar headers) */
+body.prisma .hz-basket-group__title {
+  color: var(--editor-ink-mute);
+  font-family: var(--mono);
+}
+body.prisma .hz-basket-group__count {
+  background: var(--editor-accent-soft);
+  color: var(--editor-accent);
+  font-family: var(--mono);
+}
+body.prisma .hz-basket-search {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink);
+}
+body.prisma .hz-basket-search::placeholder { color: var(--editor-ink-faint); }
+body.prisma .hz-basket-search:focus { border-color: var(--editor-accent); }
+
+/* Basket rows */
+body.prisma .hz-basket-row {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-basket-row.is-active {
+  border-color: var(--editor-accent);
+}
+body.prisma .hz-basket-row__main:hover {
+  background: var(--editor-surface-2);
+}
+body.prisma .hz-basket-row .sources-table-name {
+  color: var(--editor-ink) !important;
+}
+body.prisma .hz-basket-row .sources-table-desc {
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .hz-basket-row__remove { color: var(--editor-ink-faint); }
+body.prisma .hz-basket-row__remove:hover {
+  background: var(--editor-danger-soft);
+  color: var(--red-soft);
+  border-left-color: var(--editor-danger);
+}
+body.prisma .hz-basket-row--block {
+  /* Blocks aren't clickable here (no preview yet) — muted gold accent
+     border so they're visually distinct from interactive table rows. */
+  border-color: var(--editor-accent-soft);
+}
+body.prisma .hz-basket-empty {
+  color: var(--editor-ink-faint);
+}
+
+/* Eye icon (table docs) — gold tint on hover */
+body.prisma .hz-sidebar .sources-table-eye {
+  color: var(--editor-ink-faint) !important;
+  background: transparent !important;
+  border-left-color: var(--editor-border) !important;
+}
+body.prisma .hz-sidebar .sources-table-eye:hover {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+
+/* Bottom CTA — "Sunum'a geç" relocated to the bottom of the sidebar */
+body.prisma .hz-sidebar-cta {
+  background: var(--editor-surface);
+  border-top-color: var(--editor-border) !important;
+}
+body.prisma .hz-sidebar-cta__btn {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 8px 14px;
+}
+body.prisma .hz-sidebar-cta__btn:hover:not(:disabled) {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .hz-sidebar-cta__btn:disabled { opacity: 0.55; }
+
+/* ── Chat drawer dark (same comprehensive pattern as kesif_dark.css) ── */
+body.prisma .hz-sidebar .chat-box {
+  background: var(--editor-surface) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-sidebar .chat-box-header {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink-mute) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .hz-sidebar .chat-messages,
+body.prisma .hz-sidebar .chat-empty {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .hz-sidebar .chat-input {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .hz-sidebar .chat-input::placeholder { color: var(--editor-ink-faint) !important; }
+body.prisma .hz-sidebar .chat-input:focus { border-color: var(--editor-accent) !important; outline: none; }
+body.prisma .hz-sidebar .chat-footer {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-faint) !important;
+  border-top-color: var(--editor-border) !important;
+}
+body.prisma .hz-sidebar .chat-footer-hint { color: var(--editor-ink-faint) !important; }
+body.prisma .hz-sidebar .chat-bubble {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .hz-sidebar .chat-turn--user .chat-bubble {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .hz-sidebar .chat-msg--loading {
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .hz-sidebar .btn-primary {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+  font-weight: 500;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+body.prisma .hz-sidebar .btn-primary:hover:not(:disabled) {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .hz-sidebar .btn-primary:disabled { opacity: 0.45; }
+
+/* Suggestion cards inside chat — dark surfaces + gold "Apply" */
+body.prisma .hz-sidebar .hz-sugg {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-sidebar .hz-sugg-kind {
+  color: var(--editor-accent) !important;
+  background: var(--editor-accent-soft) !important;
+}
+body.prisma .hz-sidebar .hz-sugg-body { color: var(--editor-ink) !important; }
+body.prisma .hz-sidebar .hz-sugg-rationale { color: var(--editor-ink-mute) !important; }
+
+/* Canvas empty hint — gold tint when basket is empty */
+body.prisma .hz-canvas-empty { color: var(--editor-ink-faint) !important; }
+
+/* Visibility toggle icon + hidden row dim */
+body.prisma .hz-basket-row__viz { color: var(--editor-ink-faint); }
+body.prisma .hz-basket-row.is-hidden .hz-basket-row__main { opacity: 0.4; }
+body.prisma .hz-basket-row.is-hidden .hz-basket-row__viz {
+  color: var(--editor-border-strong);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Phase 11.hazirlik-polish-2 — canvas surface dark
+   The ER builder used legacy light tokens (blue node heads, white card
+   bodies, faint dashed edges). Tint them all so the dark canvas reads.
+   ─────────────────────────────────────────────────────────────────── */
+
+/* Canvas backdrop */
+body.prisma .hz-canvas { background: var(--editor-surface) !important; }
+body.prisma .react-flow__pane { background: var(--editor-surface) !important; }
+/* Dots in the grid background */
+body.prisma .react-flow__background-pattern,
+body.prisma .react-flow__background .react-flow__background-pattern {
+  color: var(--editor-border) !important;
+}
+
+/* Table node card */
+body.prisma .hz-node {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border-strong) !important;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-node-head {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+  border-bottom: 1px solid var(--editor-border) !important;
+}
+body.prisma .hz-node-head .hz-badge {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .hz-node--derived .hz-node-head {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .hz-node-meta,
+body.prisma .hz-node-sub,
+body.prisma .hz-node-desc {
+  color: var(--editor-ink-mute) !important;
+  background: transparent !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .hz-node-col {
+  border-bottom-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-node-col:hover {
+  background: var(--editor-surface-2) !important;
+}
+body.prisma .hz-node-col--other {
+  background: rgba(0, 0, 0, 0.18) !important;
+}
+body.prisma .hz-col-name { color: var(--editor-ink) !important; }
+body.prisma .hz-col-concept {
+  background: rgba(120, 180, 120, 0.16) !important;
+  color: #9be3ad !important;
+}
+body.prisma .hz-col-concept--none { background: transparent !important; color: var(--editor-ink-faint) !important; }
+body.prisma .hz-node-routing {
+  background: var(--editor-surface-2) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .hz-route-override,
+body.prisma .hz-route-btn,
+body.prisma .hz-proj-count {
+  color: var(--editor-ink-mute) !important;
+  background: transparent !important;
+  border-color: var(--editor-border-strong) !important;
+}
+body.prisma .hz-route-override:hover:not(:disabled),
+body.prisma .hz-route-btn:hover:not(:disabled) {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .hz-node-filters {
+  background: var(--editor-surface-2) !important;
+  border-top-color: var(--editor-border) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .hz-handle {
+  background: var(--editor-border-strong) !important;
+  border-color: var(--editor-surface-1) !important;
+}
+body.prisma .hz-handle:hover { background: var(--editor-accent) !important; }
+body.prisma .hz-handle--other { background: var(--editor-border) !important; }
+
+/* Edges — readable lines + dark labels.
+   Suggested edges are dashed light gray; confirmed are gold-solid. */
+body.prisma .react-flow__edge.hz-edge--suggested .react-flow__edge-path {
+  stroke: var(--editor-ink-mute) !important;
+  stroke-width: 1.2 !important;
+  opacity: 0.7;
+}
+body.prisma .react-flow__edge.hz-edge--confirmed .react-flow__edge-path {
+  stroke: var(--editor-accent) !important;
+  stroke-width: 2 !important;
+}
+body.prisma .react-flow__edge.selected .react-flow__edge-path,
+body.prisma .react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--editor-accent) !important;
+  opacity: 1;
+}
+/* Edge text labels — legacy <text> rendering (now superseded by the
+   custom HzPairEdge that uses HTML chips via EdgeLabelRenderer). Kept
+   for any edges that still use the default ReactFlow label rendering. */
+body.prisma .react-flow__edge-textbg {
+  /* Phase 12.light: use the editor surface var so the edge-label
+     backplate flips between dark and light themes. */
+  fill: var(--editor-surface-1) !important;
+}
+body.prisma .react-flow__edge-text {
+  fill: var(--editor-ink) !important;
+  font-size: 10px;
+  font-family: var(--mono);
+}
+body.prisma .react-flow__edge.hz-edge--suggested .react-flow__edge-text {
+  fill: var(--editor-ink-soft) !important;
+}
+body.prisma .react-flow__edge.hz-edge--confirmed .react-flow__edge-text {
+  fill: var(--editor-accent) !important;
+}
+
+/* HzPairEdge — HTML chip labels positioned via EdgeLabelRenderer with
+   stackIndex offsets so multiple edges between the same node pair stack
+   vertically instead of piling at the same midpoint. */
+body.prisma .hz-edge-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.01em;
+  background: var(--editor-surface-1);
+  border: 1px solid var(--editor-border);
+  color: var(--editor-ink-soft);
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: all;
+  cursor: default;
+  /* Truncate over-long labels (concept + pair + ⇧× can run long); on
+     hover the full text shows in the `title=` tooltip. */
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: max-width 0.18s, background 0.18s, color 0.18s;
+}
+body.prisma .hz-edge-chip:hover {
+  max-width: 480px;
+  background: var(--editor-surface-2);
+  color: var(--editor-ink);
+  z-index: 10;
+}
+body.prisma .hz-edge-chip--suggested {
+  color: var(--editor-ink-soft);
+  border-color: var(--editor-border-strong);
+}
+body.prisma .hz-edge-chip--confirmed {
+  color: var(--editor-accent);
+  border-color: var(--editor-accent);
+  background: var(--editor-surface-1);
+}
+body.prisma .hz-edge-chip.is-selected {
+  border-color: var(--editor-accent);
+  color: var(--editor-accent);
+}
+
+/* React Flow chrome (minimap + zoom controls + attribution). The default
+   white panels read as bright squares against the dark canvas. */
+body.prisma .react-flow__controls {
+  background: var(--editor-surface-1) !important;
+  border: 1px solid var(--editor-border-strong) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important;
+}
+body.prisma .react-flow__controls-button {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink-mute) !important;
+  border-bottom: 1px solid var(--editor-border) !important;
+}
+body.prisma .react-flow__controls-button:hover {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .react-flow__controls-button svg { fill: currentColor !important; }
+body.prisma .react-flow__minimap {
+  background: var(--editor-surface-1) !important;
+  border: 1px solid var(--editor-border-strong) !important;
+}
+body.prisma .react-flow__minimap-mask {
+  fill: rgba(212, 166, 86, 0.18) !important;
+  stroke: var(--editor-accent) !important;
+}
+body.prisma .react-flow__minimap-node { fill: var(--editor-ink-faint) !important; }
+body.prisma .react-flow__attribution { display: none !important; }
+
+/* ─────────────────────────────────────────────────────────────────────
+   AG Grid custom header (ConceptHeader) — was hardcoded slate text from
+   the light theme; now reads as light-white on the dark grid. The
+   default AG Grid header is replaced by ConceptHeader for every column
+   so this is the single source of truth for header text colors.
+   ─────────────────────────────────────────────────────────────────── */
+body.prisma .hz-grid-header-name {
+  color: var(--editor-ink) !important;
+  font-weight: 500;
+}
+body.prisma .hz-grid-header-label:hover .hz-grid-header-name {
+  color: var(--editor-accent) !important;
+}
+body.prisma .hz-grid-header-sort {
+  color: var(--editor-accent) !important;
+}
+body.prisma .hz-grid-header-menu {
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .hz-grid-header-menu:hover {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .hz-grid-header-menu.is-active {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+/* The concept chip inside the header (e.g., "as_of_time") on dark
+   surfaces needs slightly more contrast than the light theme's soft
+   green — bump it via the green-soft accent we use elsewhere. */
+body.prisma .hz-grid-header-concept {
+  background: rgba(120, 180, 120, 0.18) !important;
+  color: #9be3ad !important;
+}
+/* Also force AG Grid's own header-cell text fallback (in case any
+   non-custom headers slip through, e.g., row-group auto columns) to
+   the same light-white tone. */
+body.prisma .ag-theme-alpine-dark .ag-header-cell-label,
+body.prisma .ag-theme-alpine-dark .ag-header-cell-text,
+body.prisma .ag-theme-alpine-dark .ag-header-group-cell-label {
+  color: var(--editor-ink) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Preview drawer (AG Grid) — dark
+   ─────────────────────────────────────────────────────────────────── */
+body.prisma .hz-preview {
+  background: var(--editor-surface) !important;
+  border-top-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-preview-resize:hover { background: var(--editor-accent-soft) !important; }
+body.prisma .hz-preview-head {
+  background: var(--editor-surface-1) !important;
+  border-bottom-color: var(--editor-border) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .hz-preview-head .hz-muted,
+body.prisma .hz-preview-head svg { color: var(--editor-ink-mute) !important; }
+body.prisma .hz-preview .hz-muted { color: var(--editor-ink-mute) !important; }
+body.prisma .hz-preview-actions .ts-btn {
+  background: transparent !important;
+  color: var(--editor-accent) !important;
+  border-color: var(--editor-accent) !important;
+  font-weight: 500;
+}
+body.prisma .hz-preview-actions .ts-btn:hover:not(:disabled) {
+  background: var(--editor-accent-soft) !important;
+  color: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .hz-preview-actions .ts-btn:disabled { opacity: 0.4; }
+body.prisma .hz-preview .hz-icon-btn {
+  color: var(--editor-ink-mute) !important;
+  background: transparent !important;
+}
+body.prisma .hz-preview .hz-icon-btn:hover {
+  color: var(--editor-ink) !important;
+  background: var(--editor-surface-2) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   TableDocsPanel (eye icon → schema/columns side panel) — dark
+   ─────────────────────────────────────────────────────────────────── */
+body.prisma .hz-docs-panel {
+  background: var(--editor-surface) !important;
+  border-right-color: var(--editor-border-strong) !important;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.45) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .hz-docs-panel-head {
+  background: var(--editor-surface-1) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .hz-docs-panel-title { color: var(--editor-ink) !important; }
+body.prisma .hz-docs-panel-sub { color: var(--editor-ink-mute) !important; }
+body.prisma .hz-docs-panel-close {
+  color: var(--editor-ink-faint) !important;
+  background: transparent !important;
+}
+body.prisma .hz-docs-panel-close:hover {
+  color: var(--editor-ink) !important;
+  background: var(--editor-surface-2) !important;
+}
+body.prisma .hz-docs-section-title {
+  color: var(--editor-ink-mute) !important;
+  font-family: var(--mono);
+}
+body.prisma .hz-docs-cols {
+  border-color: var(--editor-border) !important;
+}
+body.prisma .hz-docs-cols th {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .hz-docs-cols td {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .hz-docs-cols tr:hover td { background: var(--editor-surface-2) !important; }
+body.prisma .hz-docs-col-name { color: var(--editor-ink) !important; }
+body.prisma .hz-docs-col-type { color: var(--editor-ink-mute) !important; }
+body.prisma .hz-docs-pill {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .hz-docs-pill--key {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .hz-docs-pill--req {
+  background: rgba(120, 180, 120, 0.18) !important;
+  color: #9be3ad !important;
+}
+body.prisma .hz-docs-vals { color: var(--editor-ink-faint) !important; }
+body.prisma .hz-docs-filter {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .hz-docs-filter-label { color: var(--editor-ink) !important; }
+body.prisma .hz-docs-filter-expr {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-soft) !important;
+  border-color: var(--editor-border) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Toast notification + error bar — dark
+   ─────────────────────────────────────────────────────────────────── */
+body.prisma .hz-toast {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+  border: 1px solid var(--editor-accent) !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5) !important;
+}
+body.prisma .hz-error,
+body.prisma .hz-error--bar {
+  background: var(--editor-danger-soft) !important;
+  color: var(--red-soft) !important;
+  border-color: var(--editor-danger) !important;
+}

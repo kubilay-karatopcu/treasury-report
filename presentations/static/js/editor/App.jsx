@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import useStore        from './lib/store.js';
 import { fetchUserInfo } from './lib/api.js';
-import Header          from './components/Header.jsx';
+// Header.jsx is now imported by Sidebar.jsx (toolbar lives inside the
+// left rail above the chat). Removed from the App.jsx tree.
 import Sidebar         from './components/Sidebar.jsx';
 import BlockCard       from './components/BlockCard.jsx';
 import ShareModal      from './components/ShareModal.jsx';
@@ -113,7 +114,9 @@ export default function App({ initialManifest, mode = 'editor' }) {
 
   return (
     <div className={rootClass}>
-      <Header />
+      {/* Phase 12.sunum-toolbar-2 — the floating toolbar moved inside
+          Sidebar.jsx so it sits above the chat box. Header is rendered
+          there now; we keep the import path for HelpModal portal. */}
       <div className="editor-body">
         {/* Sidebar her zaman görünür — snapshot'ta TOC için (sadece İçindekiler).
             Edit modda EditSidebar (data sources + chat), presentation/snapshot

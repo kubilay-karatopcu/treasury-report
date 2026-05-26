@@ -1,13 +1,133 @@
 {% extends "home/_base_prisma.html" %}
 {% block title %}Atölye — PRISMA{% endblock %}
 
+{% block head %}
+<style>
+  /* Phase 12.atolye-home — recent workshops grid on Atölye Ana.
+     Same dark token system as the rest of the producer side. */
+  .recent-workshops {
+    margin-top: 56px;
+  }
+  .recent-workshops__head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .recent-workshops__head h3 {
+    font-size: 22px; font-weight: 200; letter-spacing: -0.005em;
+    color: var(--ink); margin: 0;
+  }
+  .recent-workshops__head .eyebrow {
+    font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 4px;
+  }
+  .recent-workshops__head .all-link {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+    color: var(--gold); text-decoration: none;
+  }
+  .recent-workshops__head .all-link:hover { color: var(--ink); }
+
+  .recent-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+  }
+  .recent-card {
+    background: var(--bg-1);
+    padding: 20px 22px 16px;
+    display: flex; flex-direction: column;
+    text-decoration: none; color: inherit;
+    transition: background 0.2s;
+    min-height: 160px;
+  }
+  .recent-card:hover { background: var(--bg-2); }
+  .recent-card__head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .recent-card__num {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.04em; color: var(--gold);
+  }
+  .recent-card__phase {
+    font-family: var(--mono); font-size: 9px;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    color: var(--ink-mute);
+  }
+  .recent-card__phase--kesif    { color: var(--ink-mute); border-color: var(--border); }
+  .recent-card__phase--hazirlik { color: var(--gold);     border-color: var(--gold);
+                                  background: rgba(212, 166, 86, 0.10); }
+  .recent-card__phase--sunum    { color: var(--bg-0);     border-color: var(--gold);
+                                  background: var(--gold); }
+  .recent-card__name {
+    font-size: 15px; font-weight: 300;
+    color: var(--ink); line-height: 1.35;
+    margin-bottom: 6px;
+    overflow-wrap: anywhere;
+  }
+  .recent-card__meta {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12px; color: var(--ink-mute);
+    flex: 1;
+    line-height: 1.5;
+  }
+  .recent-card__foot {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--mono); font-size: 9.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+  }
+  .recent-card__cta {
+    color: var(--gold); text-decoration: none;
+    letter-spacing: 0.18em;
+  }
+  .recent-card:hover .recent-card__cta { color: var(--ink); }
+
+  .recent-empty {
+    border: 1px solid var(--border-soft);
+    padding: 40px 24px; text-align: center;
+    color: var(--ink-faint);
+  }
+  .recent-empty h4 {
+    font-size: 14px; color: var(--ink-soft);
+    font-weight: 300; letter-spacing: 0.005em;
+    margin: 0 0 8px;
+  }
+  .recent-empty p {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12.5px; line-height: 1.55;
+    margin: 0 auto;
+    max-width: 460px;
+  }
+  .recent-empty .cta {
+    display: inline-block;
+    margin-top: 18px;
+    padding: 8px 18px;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .recent-empty .cta:hover { background: var(--gold); color: var(--bg-0); }
+</style>
+{% endblock %}
+
 {% block content %}
   <div class="atolye-intro">
-    <div class="eyebrow">Atölye · Ana</div>
+    <div class="eyebrow">Atölye · Üretim</div>
     <h2>Üretim akışı</h2>
     <p class="sub">
-      Keşif veriyi soruşturur, Hazırlık tabloları olgunlaştırır, Sunum bunu uzmanlara bağlar.
-      Phase 10A için yalnızca kabuğu görüyorsun — gerçek pipeline kartları 10C'de geliyor.
+      Keşif veriyi soruşturur, Hazırlık tabloları olgunlaştırır, Sunum
+      bunu uzmanlara bağlanmış bir anlatıya çevirir. Aşağıdaki üç aşamadan
+      birinden başlayın ya da en altta "Son Aktiviteler" kısmında kaldığınız
+      yerden devam edin.
     </p>
   </div>
 
@@ -17,7 +137,7 @@
       <div class="stage-name">Keşif</div>
       <div class="stage-tag">Discovery</div>
       <div class="stage-desc">
-        Tablo grafı, doc inceleme, ad-hoc soruşturma. Phase 9 modülü.
+        Tablo grafı + uzman sohbeti — doğru veriyi bul, sepete ekle.
       </div>
     </a>
     <a class="stage" href="{{ url_for('presentations.hazirlik_new') }}" style="text-decoration: none; color: inherit;">
@@ -25,7 +145,7 @@
       <div class="stage-name">Hazırlık</div>
       <div class="stage-tag">Curation</div>
       <div class="stage-desc">
-        Scope tanımla, blok şablonu yaz, doc bağla. Phase 8 modülü.
+        Joinler, filtreler, projection — scope'u kilitle ve şablonu olgunlaştır.
       </div>
     </a>
     <a class="stage current" href="{{ url_for('presentations.list_presentations') }}" style="text-decoration: none; color: inherit;">
@@ -33,12 +153,64 @@
       <div class="stage-name">Sunum</div>
       <div class="stage-tag">Composition</div>
       <div class="stage-desc">
-        Bloklardan bir araya getir, yayınla, uzmana bağla. Mevcut modül.
+        Bloklardan bir araya getir, uzmana bağla, yayınla.
       </div>
     </a>
   </div>
 
-  <p style="font-size: 11px; letter-spacing: 0.22em; color: var(--ink-faint); text-transform: uppercase; text-align: center; margin-top: 56px;">
-    Phase 10C — gerçek aşama kartları (son aktivite + sayaçlar) buraya gelecek.
-  </p>
+  {# ── Son Aktiviteler — Phase 12.workshops ─────────────────────────── #}
+  <div class="recent-workshops">
+    <div class="recent-workshops__head">
+      <div>
+        <div class="eyebrow">A · Son Aktiviteler</div>
+        <h3>Kaldığın yerden devam et</h3>
+      </div>
+      {% if workshop_total > 6 %}
+        <a class="all-link" href="{{ url_for('presentations.atolye_taslaklar') }}">
+          Tümü ({{ workshop_total }}) →
+        </a>
+      {% endif %}
+    </div>
+
+    {% if workshops and workshops|length > 0 %}
+      <div class="recent-grid">
+        {% for w in workshops %}
+          <a class="recent-card" href="{{ w.continue_url }}">
+            <div class="recent-card__head">
+              <span class="recent-card__num">{{ '%02d' % loop.index }}</span>
+              <span class="recent-card__phase recent-card__phase--{{ w.phase }}">
+                {{ w.phase_label }}
+              </span>
+            </div>
+            <div class="recent-card__name">{{ w.title }}</div>
+            <div class="recent-card__meta">
+              {% if w.phase == 'sunum' %}
+                {{ w.blocks_count }} blok · v{{ w.version }}
+              {% elif w.phase == 'hazirlik' %}
+                Scope düzenleniyor · {{ w.basket_count }} tablo
+              {% else %}
+                {{ w.basket_count }} tablo sepette
+              {% endif %}
+            </div>
+            <div class="recent-card__foot">
+              <span>{{ (w.updated_at or '')[:10] or '—' }}</span>
+              <span class="recent-card__cta">Devam Et →</span>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="recent-empty">
+        <h4>Henüz bir çalışma yok</h4>
+        <p>
+          Üst kısımdaki Keşif kartına tıklayıp yeni bir çalışma başlat —
+          kaydettiğinde burada gözükecek ve istediğin zaman kaldığın
+          yerden devam edebilirsin.
+        </p>
+        <a class="cta" href="{{ url_for('presentations.atolye_kesif') }}">
+          Keşif başlat
+        </a>
+      </div>
+    {% endif %}
+  </div>
 {% endblock %}

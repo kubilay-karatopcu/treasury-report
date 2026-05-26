@@ -531,6 +531,37 @@
   font-weight: 600;
 }
 .kesif-basket__items { display: flex; flex-direction: column; gap: 4px; }
+
+/* Phase 11.basket-blocks — Sepet panel splits into Tablolar / Bloklar groups.
+   Each group gets its own subtitle + small count badge. */
+.kesif-basket__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.kesif-basket__group:first-child { margin-top: 8px; }
+.kesif-basket__group-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+}
+.kesif-basket__group-count {
+  font-size: 10px;
+  background: #e2e8f0;
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
 .kesif-basket__item {
   display: flex;
   align-items: center;
