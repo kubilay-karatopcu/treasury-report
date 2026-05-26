@@ -1,0 +1,61 @@
+table: TREASURY_BONDS
+schema: EDW
+description: |
+  Devlet ve şirket tahvili portföyü — ISIN, vade, kupon, mark-to-market.
+  Sabit getirili portföy yönetimi için ana tablo.
+partition_column: DATE
+
+columns:
+  DATE:
+    type: DATE
+    description: "Değerleme tarihi"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_date
+    suggested_semantic_tag: as_of_time
+
+  ISIN:
+    type: CHAR(12)
+    description: "ISIN kodu"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: isin_codes
+    suggested_semantic_tag: other
+
+  ISSUER_TYPE:
+    type: VARCHAR2(20)
+    description: "İhraç eden (DEVLET, KURUMSAL, BANKA)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: issuer_types
+    suggested_semantic_tag: instrument_type
+    distinct_values_sample: [DEVLET, KURUMSAL, BANKA]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z
+
+  CURRENCY:
+    type: CHAR(3)
+    description: "Para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+
+  MATURITY:
+    type: VARCHAR2(8)
+    description: "Vade dilimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: maturities
+    suggested_semantic_tag: maturity
+
+  COUPON:
+    type: NUMBER(6,4)
+    description: "Yıllık kupon oranı"
+    filterable: false
+    aggregatable: true
+
+  MARK_TO_MARKET:
+    type: NUMBER(18,2)
+    description: "Piyasa değeri (TL)"
+    filterable: false
+    aggregatable: true

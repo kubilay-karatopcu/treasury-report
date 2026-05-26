@@ -1,0 +1,595 @@
+"""Pydantic models for the Phase 8 scope contract (spec §2.1, §2.4).
+
+A scope contract is stored at
+``s3://<bucket>/presentations/<user>/<id>/scope_v<N>.yaml`` with a single
+top-level ``scope:`` key whose value matches :class:`ScopeContract`. See
+``examples/phase_8/sample_scope.yaml`` for the canonical fixture.
+
+This module is pure: it parses / validates / serialises the contract shape and
+the identifier rules from §2.4. The *semantic* validators (concept existence,
+projection-column existence, join consistency, …) live in
+:mod:`presentations.scope.validators` because they need catalog metadata; the
+routing decision lives in :mod:`presentations.scope.routing`.
+
+Field defaults (§2.1, "All scope contract field defaults documented"):
+
+- ``parent_version``        → ``None`` (first version of a presentation).
+- ``projection.include_all``→ ``False`` (explicit column list is honoured).
+- ``routing.decided_by``    → ``"system"`` (the algorithm chose it).
+- ``routing.threshold_bytes``→ ``None`` (decision recorded without the cap that
+  produced it — only meaningful for audit; the live cap comes from config).
+- ``filters.pinned`` / ``filters.interactive`` → ``[]``.
+- ``<filter>.applies_to``   → ``[]`` meaning "all basket tables that bind the
+  concept" (§2.1; the validator interprets the empty list, not the schema).
+- ``status.state``          → ``"drafting"`` (no fetch has run yet).
+- ``status.cached_tables`` / ``lazy_tables`` / ``errors`` → ``[]``.
+"""
+from __future__ import annotations
+
+import re
+from datetime import date, datetime
+from typing import Annotated, Any, Literal
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from presentations.scope._yaml import dump_yaml, load_yaml
+
+
+# ── Identifier types (§2.4) ────────────────────────────────────────────────
+
+_ALIAS_RE = re.compile(r"^[a-z][a-z0-9_]*$")          # snake_case, 3–40 chars
+_PF_ID_RE = re.compile(r"^pf_[a-z0-9_-]+$")
+_IF_ID_RE = re.compile(r"^if_[a-z0-9_-]+$")
+_JOIN_ID_RE = re.compile(r"^j_[a-z0-9_-]+$")
+_ORACLE_IDENT_RE = re.compile(r"^[A-Z_][A-Z0-9_$#]*$")
+
+Alias = Annotated[
+    str,
+    StringConstraints(min_length=3, max_length=40, pattern=_ALIAS_RE.pattern),
+]
+PinnedFilterId = Annotated[
+    str, StringConstraints(min_length=4, max_length=60, pattern=_PF_ID_RE.pattern)
+]
+InteractiveFilterId = Annotated[
+    str, StringConstraints(min_length=4, max_length=60, pattern=_IF_ID_RE.pattern)
+]
+JoinId = Annotated[
+    str, StringConstraints(min_length=3, max_length=60, pattern=_JOIN_ID_RE.pattern)
+]
+RawFilterId = Annotated[
+    str, StringConstraints(min_length=4, max_length=60, pattern=r"^rf_[a-z0-9_-]+$")
+]
+OracleIdentifier = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=128, pattern=_ORACLE_IDENT_RE.pattern),
+]
+
+
+# ── Basket ──────────────────────────────────────────────────────────────────
+
+class TableRef(BaseModel):
+    """A fully-qualified Oracle table reference."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    # `schema` shadows BaseModel.schema(); store as schema_name, alias on disk.
+    schema_name: OracleIdentifier = Field(alias="schema")
+    name: OracleIdentifier
+
+
+class JoinedColumn(BaseModel):
+    """A column pulled from a related alias via a confirmed join (§6R.5)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    via_join: JoinId
+    column: str = Field(min_length=1, max_length=128)
+    as_: str | None = Field(default=None, alias="as", max_length=128)
+
+
+class DerivedColumn(BaseModel):
+    """A calculated column. Authoring is deferred (§6R.7); schema-only for now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    expr: str = Field(min_length=1)
+
+
+class Projection(BaseModel):
+    """Which columns of the table are pulled into scope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    columns: list[str] = Field(default_factory=list)
+    include_all: bool = False
+    joined: list[JoinedColumn] = Field(default_factory=list)
+    derived: list[DerivedColumn] = Field(default_factory=list)
+
+    @field_validator("columns")
+    @classmethod
+    def _strip(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        for c in v:
+            if not isinstance(c, str) or not c.strip():
+                raise ValueError(f"projection column must be a non-empty string: {c!r}")
+            out.append(c.strip())
+        return out
+
+
+class Routing(BaseModel):
+    """Per-table cached/lazy decision, recorded at scope-build time."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["cached", "lazy"]
+    decided_by: Literal["system", "user"] = "system"
+    # Sign / floor sanity is a *validator* concern (§2.2 rule 7), not a schema
+    # one — the contract must be parseable even when these are misconfigured so
+    # the validator can surface a precise message instead of a Pydantic error.
+    estimated_bytes: int
+    # The cap that was applied at decision time (audit only — the live cap is a
+    # config value). Optional so a contract can be recorded without it.
+    threshold_bytes: int | None = None
+
+
+class NodePosition(BaseModel):
+    """React Flow node position on the ER canvas (UI persistence, §6R.7)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    x: float
+    y: float
+
+
+AggFn = Literal["sum", "avg", "count", "count_distinct", "min", "max"]
+
+
+class Measure(BaseModel):
+    """An aggregation in a derived table: ``fn(column) AS as``."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    column: str = Field(min_length=1, max_length=128)
+    fn: AggFn
+    as_: str = Field(alias="as", min_length=1, max_length=128)
+
+
+class CalculatedColumn(BaseModel):
+    """One computed output column for a ``kind: calculated`` derivation.
+
+    ``expr`` is a DuckDB SQL expression referencing input columns. When the
+    calculated derivation joins multiple source aliases, ambiguous column
+    names must be qualified by alias (e.g. ``deposits_daily.BALANCE_TRY``).
+    The compiler does NOT rewrite the expression — it's emitted verbatim in
+    the SELECT list, so column names must already match the materialised
+    DuckDB views.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    expr: str = Field(min_length=1, max_length=2000)
+    type_hint: str | None = Field(default=None, max_length=64)
+
+
+class CalculatedJoinKey(BaseModel):
+    """Inner-join across the source aliases of a calculated derivation.
+
+    The compiler chains ``INNER JOIN right_alias ON …`` clauses in order;
+    the first source_alias is the FROM root."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    left_alias: Alias
+    left_column: str = Field(min_length=1, max_length=128)
+    right_alias: Alias
+    right_column: str = Field(min_length=1, max_length=128)
+
+
+class Derivation(BaseModel):
+    """A derived table generated from one or more basket aliases.
+
+    Two kinds (spec §6R aggregate + Polish-5 calculated):
+
+    - ``aggregate`` — single ``source_alias``, ``GROUP BY group_by`` + the
+      ``measures`` (fn(column) AS as) emit a coarser table. Pivot UI / LLM
+      both produce this definition; the compiler is
+      :func:`presentations.scope.fetch.compile_aggregate_sql`.
+
+    - ``calculated`` — multiple ``source_aliases`` joined via ``join_keys``,
+      then a SELECT of arbitrary expressions (``columns``). Use cases:
+      "deposits.INTEREST_RATE - competitor.RATE", "ratio of two measures",
+      "concatenated label". The compiler is
+      :func:`presentations.scope.fetch.compile_calculated_sql`. NO group-by
+      step — for that, build a separate aggregate downstream of the
+      calculated alias.
+
+    The two field sets are mutually exclusive (validator enforces it). The
+    front-end never produces SQL directly — it produces this definition and
+    the server-side compiler emits the SQL.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["aggregate", "calculated"] = "aggregate"
+    # aggregate-only ----------------------------------------------------
+    source_alias: Alias | None = None
+    group_by: list[str] = Field(default_factory=list)
+    measures: list[Measure] = Field(default_factory=list)
+    # calculated-only ---------------------------------------------------
+    source_aliases: list[Alias] = Field(default_factory=list)
+    join_keys: list[CalculatedJoinKey] = Field(default_factory=list)
+    columns: list[CalculatedColumn] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _kind_shape(self) -> "Derivation":
+        if self.kind == "aggregate":
+            if self.source_alias is None:
+                raise ValueError("aggregate derivation: source_alias zorunlu")
+            if self.source_aliases or self.join_keys or self.columns:
+                raise ValueError(
+                    "aggregate derivation: source_aliases / join_keys / columns "
+                    "alanları sadece kind='calculated' için kullanılır"
+                )
+            if not self.group_by and not self.measures:
+                raise ValueError(
+                    "aggregate derivation: group_by ya da measures'tan en az biri olmalı"
+                )
+        elif self.kind == "calculated":
+            if not self.source_aliases:
+                raise ValueError("calculated derivation: en az bir source_aliases gerekli")
+            if not self.columns:
+                raise ValueError("calculated derivation: en az bir output column gerekli")
+            if self.source_alias is not None or self.group_by or self.measures:
+                raise ValueError(
+                    "calculated derivation: source_alias / group_by / measures "
+                    "alanları sadece kind='aggregate' için kullanılır"
+                )
+            # Multi-source requires explicit join_keys; single-source needs none.
+            if len(self.source_aliases) > 1 and not self.join_keys:
+                raise ValueError(
+                    "calculated derivation: çoklu source_aliases için join_keys gerekli"
+                )
+            # Every join_key's aliases must be in source_aliases.
+            srcset = set(self.source_aliases)
+            for jk in self.join_keys:
+                if jk.left_alias not in srcset:
+                    raise ValueError(
+                        f"calculated join_key: '{jk.left_alias}' source_aliases'ta yok"
+                    )
+                if jk.right_alias not in srcset:
+                    raise ValueError(
+                        f"calculated join_key: '{jk.right_alias}' source_aliases'ta yok"
+                    )
+            # Unique output column names.
+            seen: set[str] = set()
+            for c in self.columns:
+                if c.name in seen:
+                    raise ValueError(f"calculated columns: '{c.name}' iki kez tanımlı")
+                seen.add(c.name)
+        return self
+
+
+class BasketItem(BaseModel):
+    """One table in the scope basket — either a real Oracle table
+    (``table_ref``) or a derived/aggregate table (``derivation``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    table_ref: TableRef | None = None
+    derivation: Derivation | None = None
+    alias: Alias
+    projection: Projection
+    routing: Routing
+    layout: NodePosition | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "BasketItem":
+        if (self.table_ref is None) == (self.derivation is None):
+            raise ValueError(
+                f"basket item {self.alias!r}: set exactly one of table_ref or derivation"
+            )
+        return self
+
+
+# ── Joins ─────────────────────────────────────────────────────────────────
+
+class JoinSide(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alias: Alias
+    column: str = Field(min_length=1, max_length=128)
+
+
+class Join(BaseModel):
+    """A confirmed join between two basket aliases."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: JoinId
+    kind: Literal["lookup", "inner", "left"]
+    left: JoinSide
+    right: JoinSide
+    confirmed_at: datetime | None = None
+
+
+# ── Filters ─────────────────────────────────────────────────────────────────
+
+FilterOp = Literal["between", "in", "not_in", "eq", "last_n_days"]
+
+
+def _iso(v: Any) -> Any:
+    """Normalise a date/datetime to an ISO string; pass everything else
+    through. Filter values are JSON-native (strings/numbers) after this, so
+    a contract round-trips through YAML/JSON without date↔str drift, and ISO
+    date strings compare correctly for the ``between`` rule."""
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    return v
+
+
+def _iso_list(v: Any) -> Any:
+    if isinstance(v, list):
+        return [_iso(x) for x in v]
+    return v
+
+
+class PinnedFilter(BaseModel):
+    """A filter locked at scope time. Immutable in Sunum (§2.1, §4.1).
+
+    Op-dependent value carriers:
+      - ``between``            → ``from`` / ``to``
+      - ``in`` / ``not_in``    → ``values``
+      - ``eq`` / ``last_n_days``→ ``value``
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: PinnedFilterId
+    concept: str = Field(min_length=1)
+    op: FilterOp
+    # `from` is a Python keyword; store as from_ with the on-disk alias.
+    from_: Any | None = Field(default=None, alias="from")
+    to: Any | None = None
+    values: list[Any] | None = None
+    value: Any | None = None
+    applies_to: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalise_dates(self) -> "PinnedFilter":
+        self.from_ = _iso(self.from_)
+        self.to = _iso(self.to)
+        self.value = _iso(self.value)
+        self.values = _iso_list(self.values)
+        return self
+
+
+class InteractiveFilter(BaseModel):
+    """A filter exposed as a dashboard widget in Sunum (§2.1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: InteractiveFilterId
+    concept: str = Field(min_length=1)
+    op: FilterOp
+    default_values: list[Any] | None = None
+    allowed_values: list[Any] | None = None
+    label: str | None = None
+    applies_to: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalise_dates(self) -> "InteractiveFilter":
+        self.default_values = _iso_list(self.default_values)
+        self.allowed_values = _iso_list(self.allowed_values)
+        return self
+
+
+class RawFilter(BaseModel):
+    """A non-concept, column-level filter (§6R.4). Applied as a fetch-time
+    WHERE to shrink the cached table; never exported as a concept filter."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: RawFilterId
+    alias: Alias
+    column: str = Field(min_length=1, max_length=128)
+    op: FilterOp
+    from_: Any | None = Field(default=None, alias="from")
+    to: Any | None = None
+    values: list[Any] | None = None
+    value: Any | None = None
+
+    @model_validator(mode="after")
+    def _normalise_dates(self) -> "RawFilter":
+        self.from_ = _iso(self.from_)
+        self.to = _iso(self.to)
+        self.value = _iso(self.value)
+        self.values = _iso_list(self.values)
+        return self
+
+
+class Filters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pinned: list[PinnedFilter] = Field(default_factory=list)
+    interactive: list[InteractiveFilter] = Field(default_factory=list)
+    raw: list[RawFilter] = Field(default_factory=list)
+
+
+# ── Status ──────────────────────────────────────────────────────────────────
+
+class Status(BaseModel):
+    """System-mutated materialisation state (§2.1).
+
+    The user-authored fields of the contract never change once
+    ``state == "ready"``; only this block is rewritten as the scope is fetched.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["drafting", "fetching", "ready", "failed"] = "drafting"
+    fetched_at: datetime | None = None
+    fetch_duration_ms: int | None = Field(default=None, ge=0)
+    cached_tables: list[str] = Field(default_factory=list)
+    lazy_tables: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+# ── Scope contract (root) ──────────────────────────────────────────────────
+
+class ScopeContract(BaseModel):
+    """The durable scope artifact for one presentation version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    presentation_id: str = Field(min_length=1, max_length=80)
+    version: int = Field(ge=1, le=1_000_000)
+    created_by: str = Field(min_length=1, max_length=80)
+    created_at: datetime
+    parent_version: int | None = Field(default=None, ge=1)
+
+    basket: list[BasketItem] = Field(default_factory=list)
+    joins: list[Join] = Field(default_factory=list)
+    filters: Filters = Field(default_factory=Filters)
+    status: Status = Field(default_factory=Status)
+    # Auto-suggested edges the user explicitly dismissed (× on the edge label).
+    # Format: "alias.col—alias.col" sorted lexicographically (the same
+    # joinKey() string the frontend uses to dedup). Persisted with the scope
+    # so the dismissal survives reloads; cleared when one of the aliases is
+    # removed from the basket so re-adding gives a clean slate.
+    dismissed_suggestions: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _parent_below_self(self) -> "ScopeContract":
+        if self.parent_version is not None and self.parent_version >= self.version:
+            raise ValueError(
+                f"parent_version ({self.parent_version}) must be < version ({self.version})"
+            )
+        return self
+
+    # ── Convenience accessors (used by validators / routing / resolver) ──────
+
+    def alias_list(self) -> list[str]:
+        return [b.alias for b in self.basket]
+
+    def basket_item(self, alias: str) -> BasketItem | None:
+        for b in self.basket:
+            if b.alias == alias:
+                return b
+        return None
+
+    def raw_items(self) -> list[BasketItem]:
+        """Basket items backed by a real Oracle table."""
+        return [b for b in self.basket if b.table_ref is not None]
+
+    def derived_items(self) -> list[BasketItem]:
+        """Derived (aggregate) basket items."""
+        return [b for b in self.basket if b.derivation is not None]
+
+    def find_pinned(self, filter_id: str) -> PinnedFilter | None:
+        for f in self.filters.pinned:
+            if f.id == filter_id:
+                return f
+        return None
+
+    def find_interactive(self, filter_id: str) -> InteractiveFilter | None:
+        for f in self.filters.interactive:
+            if f.id == filter_id:
+                return f
+        return None
+
+    def pinned_filter_ids(self) -> set[str]:
+        return {f.id for f in self.filters.pinned}
+
+    def pinned_filters_for_alias(self, alias: str) -> list[PinnedFilter]:
+        """Pinned filters that target ``alias`` — explicit match, or empty
+        ``applies_to`` (= all basket tables, per §2.1)."""
+        return [
+            f for f in self.filters.pinned
+            if not f.applies_to or alias in f.applies_to
+        ]
+
+    def raw_filters_for_alias(self, alias: str) -> list["RawFilter"]:
+        """Non-concept (raw) filters targeting ``alias`` (§6R.4)."""
+        return [f for f in self.filters.raw if f.alias == alias]
+
+    def find_join(self, join_id: str) -> Join | None:
+        for j in self.joins:
+            if j.id == join_id:
+                return j
+        return None
+
+    def is_lazy_alias(self, alias: str) -> bool:
+        return alias in self.status.lazy_tables
+
+
+# ── YAML wrappers ───────────────────────────────────────────────────────────
+
+class ScopeDocument(BaseModel):
+    """On-disk YAML root: ``{scope: {...}}``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: ScopeContract
+
+
+def load_scope_from_dict(raw: dict[str, Any]) -> ScopeContract:
+    """Parse a scope dict (with or without the ``scope:`` wrapper)."""
+    if isinstance(raw, dict) and set(raw.keys()) == {"scope"}:
+        return ScopeDocument.model_validate(raw).scope
+    return ScopeContract.model_validate(raw)
+
+
+def scope_to_dict(scope: ScopeContract) -> dict[str, Any]:
+    """Serialise to the ``{scope: {...}}`` shape (aliases applied, dates as
+    ISO strings, ``None`` fields dropped). Stable field order."""
+    return {
+        "scope": scope.model_dump(by_alias=True, mode="json", exclude_none=True)
+    }
+
+
+def load_scope_yaml(text: str) -> ScopeContract:
+    """Parse scope YAML text (bool-safe) into a :class:`ScopeContract`."""
+    raw = load_yaml(text)
+    if raw is None:
+        raise ValueError("empty scope YAML")
+    return load_scope_from_dict(raw)
+
+
+def dump_scope_yaml(scope: ScopeContract) -> str:
+    """Serialise a :class:`ScopeContract` to YAML text. Idempotent:
+    ``dump_scope_yaml(load_scope_yaml(t))`` is a fixed point."""
+    return dump_yaml(scope_to_dict(scope))
+
+
+# ── ScopeRef (for the dashboard manifest, §2.3) ────────────────────────────
+
+class ScopeRef(BaseModel):
+    """Pointer from a dashboard manifest to a scope contract version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    presentation_id: str = Field(min_length=1, max_length=80)
+    scope_version: int = Field(ge=1, le=1_000_000)
+
+
+__all__ = [
+    "TableRef", "Projection", "JoinedColumn", "DerivedColumn", "Routing",
+    "NodePosition", "AggFn", "Measure", "CalculatedColumn", "CalculatedJoinKey",
+    "Derivation", "BasketItem",
+    "JoinSide", "Join",
+    "FilterOp", "PinnedFilter", "InteractiveFilter", "RawFilter", "Filters",
+    "Status", "ScopeContract", "ScopeDocument", "ScopeRef",
+    "load_scope_from_dict", "scope_to_dict",
+    "load_scope_yaml", "dump_scope_yaml",
+]

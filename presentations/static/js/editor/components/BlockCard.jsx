@@ -72,11 +72,14 @@ export default function BlockCard({ block }) {
   const setSelectedBlock = useStore((s) => s.setSelectedBlock);
   const toggleLock       = useStore((s) => s.toggleLock);
   const refreshBlock     = useStore((s) => s.refreshBlock);
+  const runBlockManualSql = useStore((s) => s.runBlockManualSql);
   const viewMode         = useStore((s) => s.viewMode);
   const flashingBlockIds = useStore((s) => s.flashingBlockIds);
   const mode             = useStore((s) => s.mode);
   const layoutEditMode   = useStore((s) => s.layoutEditMode);
   const moveBlock        = useStore((s) => s.moveBlock);
+  // Phase 7 — concept compilation outcome for this block (after Güncelle).
+  const conceptInfo      = useStore((s) => s.conceptStatus?.[block.id]);
   // Move bounds — manifest değiştikçe yeniden hesaplanır
   const moveBounds = useStore((s) => {
     if (!s.manifest) return { canUp: false, canDown: false };
@@ -132,7 +135,22 @@ export default function BlockCard({ block }) {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      await refreshBlock(block.id);
+      // Phase 6.5: block has `query` + `variables` shape → use the
+      // variable-aware run-manual endpoint (resolves :binds, expands enum
+      // lists, calls DataClient with proper query_params). The legacy
+      // /block/<bid>/refresh path doesn't know how to bind variables and
+      // crashes with `Parser Error at ":"` on DuckDB.
+      const hasPhase65 = typeof block.query === 'string'
+        && block.query.trim().length > 0
+        && Array.isArray(block.variables);
+      if (hasPhase65) {
+        await runBlockManualSql(block.id, {
+          query: block.query,
+          variables: block.variables,
+        });
+      } else {
+        await refreshBlock(block.id);
+      }
     } catch (err) {
       setRefreshError(err.message);
     } finally {
@@ -146,6 +164,7 @@ export default function BlockCard({ block }) {
     block.locked ? 'is-locked'     : '',
     isFlashing   ? 'is-flashing'   : '',
     isSnapshot   ? 'is-snapshot'   : '',
+    block.data_stale ? 'is-stale'  : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -162,6 +181,15 @@ export default function BlockCard({ block }) {
             {TYPE_LABELS[block.type] || block.type}
           </span>
           {block.locked && <span className="block-locked-pill">Locked</span>}
+          {block.data_stale && (
+            <span
+              className="block-stale-pill"
+              title="Tip değişti veya değişkenler güncellendi — Properties paneli'nden Çalıştır."
+            >
+              <AlertTriangle size={10} strokeWidth={2.2} />
+              veri eski
+            </span>
+          )}
           {isTruncated && (
             <span
               className="block-trunc-pill"
@@ -169,6 +197,27 @@ export default function BlockCard({ block }) {
             >
               <AlertTriangle size={10} strokeWidth={2.2} />
               kesildi
+            </span>
+          )}
+          {conceptInfo && conceptInfo.injected && conceptInfo.applied.length > 0 && (
+            <span
+              className="block-concept-pill"
+              title={'Uygulanan concept filtreleri: '
+                + conceptInfo.applied.map((a) => a.concept).join(', ')}
+            >
+              <Database size={10} strokeWidth={2.2} />
+              {conceptInfo.applied.length} concept filtresi
+            </span>
+          )}
+          {conceptInfo && conceptInfo.blind.length > 0 && (
+            <span
+              className="block-blind-pill"
+              title={'Bu blok şu kavram(lar)ı bilmiyor — filtre uygulanmadı: '
+                + conceptInfo.blind.join(', ')
+                + '. Kaynak tabloya binding ekleyin (/concepts/review).'}
+            >
+              <AlertTriangle size={10} strokeWidth={2.2} />
+              filtre uygulanmadı: {conceptInfo.blind.join(', ')}
             </span>
           )}
           <span className="block-strip-spacer" />

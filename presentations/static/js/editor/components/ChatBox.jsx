@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, X, Lock, Send, Loader2, HelpCircle } from 'lucide-react';
+import {
+  MessageSquare, X, Lock, Send, Loader2, HelpCircle,
+  Library, Plus, XCircle,
+} from 'lucide-react';
 import useStore from '../lib/store.js';
-import { postChatMessage, openChatStream } from '../lib/api.js';
+import { postChatMessage, openChatStream, fetchLibraryBlock } from '../lib/api.js';
 import HelpModal from './HelpModal.jsx';
 
 export default function ChatBox({ compact = false }) {
@@ -17,6 +20,8 @@ export default function ChatBox({ compact = false }) {
   const applyPatches     = useStore((s) => s.applyPatches);
   const selectedBlockId  = useStore((s) => s.selectedBlockId);
   const setSelectedBlock = useStore((s) => s.setSelectedBlock);
+  const hydrateFilterDefaults = useStore((s) => s.hydrateFilterDefaults);
+  const applyFilters     = useStore((s) => s.applyFilters);
 
   const selectedBlock = findBlock(manifest?.blocks, selectedBlockId);
   const isLocked = !!selectedBlock?.locked;
@@ -35,6 +40,11 @@ export default function ChatBox({ compact = false }) {
     addChatMessage({ role: 'user', text: msg });
     setLoading(true);
 
+    // Phase 7: if this turn seeds a dashboard filter (e.g. a concept-mapped
+    // value from the prompt), auto-apply it after the turn so the block
+    // renders filtered without a manual Güncelle.
+    let seededFilter = false;
+
     try {
       const { token } = await postChatMessage(msg, selectedBlockId);
       openChatStream(token, {
@@ -46,9 +56,25 @@ export default function ChatBox({ compact = false }) {
         onPatch: (data) => {
           if (Array.isArray(data.patches) && data.patches.length > 0) {
             applyPatches(data.patches);
+            if (data.patches.some((p) => typeof p.path === 'string' && p.path.startsWith('/filters'))) {
+              seededFilter = true;
+            }
           }
           if (data.explanation) {
             addChatMessage({ role: 'assistant', text: data.explanation });
+          }
+        },
+        onSuggestion: (data) => {
+          // F.5: LLM library bloğu önerdi — chat'e kart olarak ekle
+          if (data.explanation) {
+            addChatMessage({ role: 'assistant', text: data.explanation });
+          }
+          for (const s of (data.suggestions || [])) {
+            addChatMessage({
+              role: 'assistant',
+              kind: 'library_suggestion',
+              suggestion: s,
+            });
           }
         },
         onError: (data) => {
@@ -59,7 +85,15 @@ export default function ChatBox({ compact = false }) {
           });
           setLoading(false);
         },
-        onDone: () => setLoading(false),
+        onDone: () => {
+          setLoading(false);
+          // Seed the new filter's default into filterState + apply once, so
+          // the freshly-authored block shows filtered data immediately.
+          if (seededFilter) {
+            hydrateFilterDefaults();
+            applyFilters().catch((e) => console.warn('auto-apply after chat failed:', e));
+          }
+        },
       });
     } catch (err) {
       addChatMessage({ role: 'assistant', text: err.message, status: 'error' });
@@ -129,17 +163,38 @@ export default function ChatBox({ compact = false }) {
               Bir komut yaz, ya da bir bloğa tıklayıp onu hedefle.
             </div>
           )}
-          {chatHistory.map((m, i) => (
-            <div
-              key={`${m.ts || i}_${i}`}
-              className={
-                `chat-msg chat-msg--${m.role}`
-                + (m.status ? ` chat-msg--${m.status}` : '')
-              }
-            >
-              {m.text}
-            </div>
-          ))}
+          {chatHistory.map((m, i) => {
+            if (m.kind === 'library_suggestion') {
+              return (
+                <LibrarySuggestionCard
+                  key={`${m.ts || i}_${i}`}
+                  suggestion={m.suggestion}
+                  manifest={manifest}
+                  onConsumed={(updates) => {
+                    // updates.dismissed/added → mesajı işaretle (idempotent)
+                    addChatMessage({
+                      role: 'assistant',
+                      text: updates.added
+                        ? `'${m.suggestion.name}' eklendi.`
+                        : 'Öneri reddedildi. İstersen yeni baştan üretmeyi söyleyebilirsin.',
+                      status: updates.added ? undefined : 'noop',
+                    });
+                  }}
+                />
+              );
+            }
+            return (
+              <div
+                key={`${m.ts || i}_${i}`}
+                className={
+                  `chat-msg chat-msg--${m.role}`
+                  + (m.status ? ` chat-msg--${m.status}` : '')
+                }
+              >
+                {m.text}
+              </div>
+            );
+          })}
           {loading && <div className="chat-msg chat-msg--loading">Düşünüyor…</div>}
         </div>
 
@@ -196,6 +251,101 @@ export default function ChatBox({ compact = false }) {
 
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </>
+  );
+}
+
+
+function LibrarySuggestionCard({ suggestion, manifest, onConsumed }) {
+  const addLibraryToSec = useStore((s) => s.addLibraryBlockToSection);
+  const [busy, setBusy]   = useState(false);
+  const [done, setDone]   = useState(false);
+
+  // Hangi section'a eklenecek? target_path "/blocks/N/children/-" parse et.
+  // Yoksa son section'a düş.
+  function pickSection() {
+    const sections = manifest?.blocks || [];
+    const tp = suggestion.target_path || '';
+    const m = tp.match(/^\/blocks\/(\d+)/);
+    if (m) {
+      const idx = parseInt(m[1], 10);
+      const sec = sections[idx];
+      if (sec && sec.type === 'section_header') return sec.id;
+    }
+    // Fallback: son section
+    for (let i = sections.length - 1; i >= 0; i--) {
+      if (sections[i].type === 'section_header') return sections[i].id;
+    }
+    return null;
+  }
+
+  async function handleAdd() {
+    if (busy || done) return;
+    const sectionId = pickSection();
+    if (!sectionId) {
+      alert('Eklenebilecek bir bölüm yok. Önce bir bölüm oluştur.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { block } = await fetchLibraryBlock(suggestion.library_id);
+      addLibraryToSec(sectionId, block);
+      setDone(true);
+      onConsumed?.({ added: true });
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleDismiss() {
+    if (done) return;
+    setDone(true);
+    onConsumed?.({ added: false });
+  }
+
+  if (done) return null;
+
+  return (
+    <div className="chat-msg chat-msg--assistant chat-suggestion-card">
+      <div className="chat-suggestion-head">
+        <Library size={13} strokeWidth={1.8} />
+        <span className="chat-suggestion-eyebrow">Kütüphaneden öneri</span>
+      </div>
+      <div className="chat-suggestion-title">{suggestion.name}</div>
+      {suggestion.description && (
+        <div className="chat-suggestion-desc">{suggestion.description}</div>
+      )}
+      {suggestion.reason && (
+        <div className="chat-suggestion-reason">→ {suggestion.reason}</div>
+      )}
+      <div className="chat-suggestion-meta">
+        <span className="lib-tag-chip">{suggestion.block_type}</span>
+        {(suggestion.tags || []).map((t) => (
+          <span key={t} className="lib-tag-chip">{t}</span>
+        ))}
+      </div>
+      <div className="chat-suggestion-actions">
+        <button
+          type="button"
+          className="lib-btn lib-btn--add"
+          onClick={handleAdd}
+          disabled={busy}
+        >
+          <Plus size={12} strokeWidth={2} />
+          {busy ? 'Ekleniyor…' : 'Bunu ekle'}
+        </button>
+        <button
+          type="button"
+          className="lib-btn"
+          onClick={handleDismiss}
+          disabled={busy}
+        >
+          <XCircle size={12} strokeWidth={1.8} />
+          İstemiyorum
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -1,0 +1,155 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Kütüphane · Tablolar" %}
+{% set sidebar_active = "tablolar" %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}Atölye / Tablolar — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  /* Phase 11.lib — flat catalog browser. Reuses prisma.css's `.table-row`
+     + `.domain-divider` styles lifted from the UX prototype. */
+  .tablolar-page { padding: 48px 64px 96px; }
+  .tablolar-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 36px; gap: 32px;
+  }
+  .tablolar-head h2 {
+    font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+    color: var(--ink); margin: 0 0 6px;
+  }
+  .tablolar-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 14px;
+  }
+  .tablolar-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 14px; color: var(--ink-mute);
+    line-height: 1.55; max-width: 560px;
+  }
+  .tablolar-meta {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .table-list { border: 1px solid var(--border-soft); }
+  .table-row {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) 110px 130px 90px 90px 80px;
+    padding: 14px 22px;
+    align-items: center;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.18s;
+    text-decoration: none;
+    color: inherit;
+  }
+  .table-row:hover { background: var(--bg-2); }
+  .table-row:last-child { border-bottom: none; }
+  .table-row .tname {
+    font-family: var(--mono); color: var(--ink);
+    font-size: 12.5px; letter-spacing: 0.005em;
+  }
+  .table-row .tdesc {
+    font-family: var(--serif); font-style: italic;
+    color: var(--ink-faint); font-size: 11.5px;
+    margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .table-row .tcell {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-mute); letter-spacing: 0.04em;
+  }
+  .table-row .tact {
+    color: var(--gold); font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; text-align: right;
+  }
+
+  .domain-divider {
+    display: flex; align-items: center; gap: 18px;
+    padding: 22px 22px 14px; background: var(--bg-0);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .domain-divider .dcode {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--gold); letter-spacing: 0.22em;
+  }
+  .domain-divider .dname {
+    font-size: 11px; letter-spacing: 0.24em;
+    text-transform: uppercase; color: var(--ink-soft);
+  }
+  .domain-divider .dline { flex: 1; height: 1px; background: var(--border-soft); }
+  .domain-divider .dcount {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--ink-faint); letter-spacing: 0.06em;
+  }
+
+  .empty-state {
+    padding: 64px 24px; text-align: center;
+    border: 1px solid var(--border-soft);
+    color: var(--ink-faint);
+    font-family: var(--serif); font-style: italic;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="tablolar-page">
+    <div class="tablolar-head">
+      <div>
+        <div class="eyebrow">A · Kütüphane · ⊟</div>
+        <h2>Tablolar</h2>
+        <p class="sub">
+          Veri ambarındaki tüm tablolar — şemaya göre gruplu.
+          Bir satıra tıkla, hangi kolonların var ve hangi concept'lere bağlı görmek için.
+        </p>
+      </div>
+      <div class="tablolar-meta">{{ total }} tablo · {{ groups|length }} şema</div>
+    </div>
+
+    {% if groups %}
+      {% for schema, tables in groups %}
+        <div style="margin-bottom: 28px;">
+          <div class="domain-divider">
+            <span class="dcode">{{ schema }}</span>
+            <span class="dname">{{ schema }} şeması</span>
+            <span class="dline"></span>
+            <span class="dcount">{{ tables|length }} tablo</span>
+          </div>
+          <div class="table-list">
+            {% for t in tables %}
+              <a class="table-row" href="{{ url_for('presentations.atolye_kesif') }}?focus={{ t.schema_name }}.{{ t.name }}">
+                <div>
+                  <div class="tname">{{ t.schema_name }}.{{ t.name }}</div>
+                  {% if t.description %}<div class="tdesc">{{ t.description }}</div>{% endif %}
+                </div>
+                <div class="tcell">{{ t.department or '—' }}</div>
+                <div class="tcell">
+                  {% if t.concepts_bound %}
+                    {{ t.concepts_bound|length }} concept
+                  {% else %}—{% endif %}
+                </div>
+                <div class="tcell">
+                  {% if t.row_count_estimate %}
+                    {{ '{:,}'.format(t.row_count_estimate).replace(',', '.') }}
+                  {% else %}—{% endif %}
+                </div>
+                <div class="tcell">{{ t.source or '—' }}</div>
+                <div class="tact">aç →</div>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        Catalog yüklenemedi ya da hiç tablo yok.
+        Üretim ortamında bu liste EDW'den dolar.
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{# Citation grid — snapshots bound to this expert.
+   Vars: snapshots (list of meta dicts)
+   Empty state: render the prototype's "Henüz kaynakça yok" placeholder.
+#}
+{% if snapshots %}
+<div class="citations">
+  <div class="citation-grid">
+    {% for snap in snapshots %}
+    <a class="citation-card" href="{{ url_for('presentations.view_snapshot', sid=snap.snapshot_id) }}">
+      <div class="ref">[{{ '%02d' % loop.index }}] · {{ snap.snapshot_id[-6:]|upper }}</div>
+      <div class="title">{{ snap.title or 'Başlıksız snapshot' }}</div>
+      <div class="src">
+        snapshot · v{{ snap.manifest_version|default(1) }}
+        {% if snap.created_at %} · {{ snap.created_at[:10] }}{% endif %}
+      </div>
+      <div class="badges">
+        {% if snap.bound_experts %}
+          {% for eid in snap.bound_experts %}
+            <span class="badge">{{ eid }}</span>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div style="padding: 48px 24px; border: 1px solid var(--border-soft); text-align: center;">
+  <div style="font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.22em;
+              text-transform: uppercase; color: var(--ink-faint); margin-bottom: 14px;">
+    Henüz kaynakça yok
+  </div>
+  <p style="font-family: var(--serif); font-style: italic; font-size: 13px;
+            color: var(--ink-mute); line-height: 1.6; max-width: 480px; margin: 0 auto;">
+    Bu uzmana bağlanmış snapshot olmadığı sürece burada kaynakça görünmez.
+    Atölye'de yeni sunumlar yayınlandıkça otomatik dolacak.
+  </p>
+</div>
+{% endif %}

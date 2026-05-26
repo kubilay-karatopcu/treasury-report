@@ -1,5 +1,13 @@
-{% extends "base.html" %}
-{% block title %}Sunumlarım — Treasury Studio{% endblock %}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Pipeline · 03 Sunum" %}
+{% set sidebar_active = "sunum" %}
+{# Phase 11.dark-editor: list page is now fully dark via editor_dark.css —
+   light_content opt-in dropped. #}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}Rapor Şablonları — Treasury Studio{% endblock %}
 
 {% block filter_panel %}{% endblock %}
 
@@ -8,11 +16,51 @@
   .pres-list-page { padding: 32px 0; }
   .pres-list-header {
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+    margin-bottom: 8px; flex-wrap: wrap; gap: 12px;
   }
   .pres-list-title { font-size: 22px; font-weight: 600; color: #1d273b; margin: 0; }
   .pres-list-subtitle { font-size: 13px; color: #9aa0aa; margin-top: 2px; }
 
+  /* ── Tabs ─────────────────────────────────────────── */
+  .pres-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #e6e7e9;
+    margin: 16px 0 24px;
+  }
+  .pres-tab {
+    background: transparent;
+    border: none;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #64748b;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .pres-tab:hover { color: #0f172a; }
+  .pres-tab.is-active {
+    color: #1e3a8a;
+    border-bottom-color: #2563eb;
+  }
+  .pres-tab-count {
+    font-size: 11px;
+    color: #94a3b8;
+    background: #f1f5f9;
+    padding: 1px 7px;
+    border-radius: 10px;
+  }
+
+  .pres-tabpanel { display: none; }
+  .pres-tabpanel.is-active { display: block; }
+
+  /* ── Grid ─────────────────────────────────────────── */
   .pres-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -46,12 +94,138 @@
     overflow: hidden; text-overflow: ellipsis;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
+  .pres-card-desc {
+    font-size: 12px; color: #64748b; line-height: 1.4; margin: 0;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .pres-card-meta {
     display: flex; flex-wrap: wrap; gap: 8px;
     font-size: 11px; color: #9aa0aa;
     margin-top: auto;
   }
   .pres-card-meta-item { display: inline-flex; align-items: center; gap: 4px; }
+  .pres-card-tags {
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .pres-tag-chip {
+    background: #f1f5f9; color: #475569;
+    padding: 1px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 500;
+  }
+  /* New: type pill at top of block card (replaces the underscore-spew eyebrow) */
+  .pres-card-type-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    align-self: flex-start;
+    background: #eff6ff; color: #1e3a8a;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  /* Footer labels — team / owner / version / date as compact gray chips. */
+  .pres-card-footer {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    padding-top: 10px;
+    margin-top: auto;
+    border-top: 1px solid #f0f2f5;
+  }
+  .pres-card-label {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: #f8fafc; color: #64748b;
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 500;
+    border: 1px solid #e2e8f0;
+  }
+  .pres-tag-chip--deprecated {
+    background: #fef3c7; color: #92400e;
+  }
+  /* Bloklar tab — card hover-action overlay (Önizle + Sunuma ekle) */
+  .pres-card-hover-actions {
+    position: absolute; top: 10px; right: 10px;
+    display: flex; gap: 4px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+  .pres-card:hover .pres-card-hover-actions {
+    opacity: 1; pointer-events: auto;
+  }
+  .pres-card-action {
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #ffffff; border: 1px solid #cbd5e1;
+    border-radius: 6px; cursor: pointer;
+    font-size: 13px; color: #475569;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .pres-card-action:hover {
+    background: #eff6ff; color: #1e3a8a; border-color: #2563eb;
+  }
+  .pres-card-action--primary {
+    background: #2563eb; color: #ffffff; border-color: #2563eb;
+    width: auto; padding: 0 10px;
+    font-size: 12px; font-weight: 500; gap: 4px;
+  }
+  .pres-card-action--primary:hover {
+    background: #1d4ed8; color: #ffffff; border-color: #1d4ed8;
+  }
+
+  /* Phase 6.5 — Bloklar tab filter bar */
+  .pres-blocks-filters {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+    align-items: center;
+  }
+  .pres-blocks-filters input,
+  .pres-blocks-filters select {
+    border: 1px solid #cbd5e1; border-radius: 6px;
+    padding: 6px 10px; font-size: 13px;
+    font-family: inherit; min-width: 140px;
+    background: #ffffff;
+  }
+  .pres-blocks-filters__search {
+    flex: 1 1 280px;
+    min-width: 220px !important;
+  }
+  .pres-blocks-filters input:focus,
+  .pres-blocks-filters select:focus {
+    outline: 2px solid #2563eb; outline-offset: -1px; border-color: #2563eb;
+  }
+  .pres-filter-btn {
+    height: 32px; padding: 0 14px;
+    background: #475569; color: white; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
+  }
+  .pres-filter-btn:hover { background: #334155; }
+  .pres-filter-btn--ghost {
+    background: white; color: #475569; border: 1px solid #cbd5e1;
+  }
+  .pres-filter-btn--ghost:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
+
+  /* Active filter chips row (selected tags) */
+  .pres-active-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 0 0 14px;
+    padding: 8px 10px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+  }
+  .pres-active-tags__label {
+    font-size: 11px; color: #1e3a8a; font-weight: 600;
+    align-self: center; margin-right: 4px;
+  }
+  .pres-active-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #ffffff; color: #1e3a8a;
+    border: 1px solid #bfdbfe; border-radius: 12px;
+    padding: 2px 4px 2px 10px;
+    font-size: 12px; font-weight: 500;
+  }
+  .pres-active-tag__x {
+    background: transparent; border: none; color: #1e3a8a;
+    cursor: pointer; font-size: 14px; line-height: 1;
+    padding: 0 5px; border-radius: 50%; opacity: 0.65;
+  }
+  .pres-active-tag__x:hover { opacity: 1; background: rgba(30,58,138,0.12); }
   .pres-card-actions {
     display: flex; gap: 6px; padding-top: 12px;
     border-top: 1px solid #f0f2f5;
@@ -67,6 +241,10 @@
     background: #206bc4; color: white; border: 1px solid #206bc4;
   }
   .pres-card-btn--primary:hover { background: #1a5ba8; border-color: #1a5ba8; color: white; }
+  .pres-card-btn--ghost {
+    background: white; color: #1e3a8a; border: 1px solid #cbd5e1;
+  }
+  .pres-card-btn--ghost:hover { background: #f1f5f9; border-color: #94a3b8; }
   .pres-card-btn--danger {
     background: white; color: #d63939; border: 1px solid #e6e7e9;
     flex: 0 0 auto; padding: 0 10px;
@@ -90,87 +268,624 @@
   }
   .pres-empty-title { font-size: 16px; font-weight: 600; color: #354052; margin-bottom: 6px; }
   .pres-empty-subtitle { font-size: 13px; color: #9aa0aa; margin-bottom: 18px; }
+
+  .pres-loading {
+    text-align: center; padding: 32px; color: #94a3b8; font-style: italic;
+  }
+
+  /* Block preview modal (iframe) */
+  .blk-preview-backdrop {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
+    z-index: 200; display: flex; align-items: center; justify-content: center;
+    padding: 32px; animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } }
+  .blk-preview-modal {
+    background: #ffffff; border-radius: 12px; width: 95%; max-width: 1100px;
+    height: 85vh; display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.25);
+  }
+  .blk-preview-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; border-bottom: 1px solid #e2e8f0; background: #f8fafc;
+  }
+  .blk-preview-title {
+    font-size: 14px; font-weight: 600; color: #0f172a;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .blk-preview-close {
+    background: transparent; border: none; cursor: pointer;
+    padding: 6px; border-radius: 6px; color: #64748b;
+    display: flex; align-items: center;
+  }
+  .blk-preview-close:hover { background: #e2e8f0; color: #0f172a; }
+  .blk-preview-iframe {
+    flex: 1; border: none; width: 100%; background: #ffffff;
+  }
+  .pres-card-eye {
+    background: white; border: 1px solid #e6e7e9; color: #475569;
+    width: 28px; height: 28px; border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: auto;
+  }
+  .pres-card-eye:hover { border-color: #206bc4; color: #206bc4; }
 </style>
+{# Phase 11.dark-editor — dark override layer; loaded LAST so its rules
+   win over the inline <style> block's hardcoded light colors above. #}
+<link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
 {% endblock %}
 
 {% block content %}
 <div class="container-xl pres-list-page">
   <div class="pres-list-header">
     <div>
-      <h1 class="pres-list-title">Sunumlarım</h1>
-      <div class="pres-list-subtitle">
-        {% if presentations %}{{ presentations|length }} sunum{% else %}Henüz sunum yok{% endif %}
-      </div>
+      <h1 class="pres-list-title">Rapor Şablonları</h1>
+      <div class="pres-list-subtitle">Sunumlar ve bloklar tek yerde</div>
     </div>
-    <button id="new-presentation-btn" class="pres-create-btn">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor" stroke-width="2.5"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 5v14M5 12h14"/>
-      </svg>
-      Yeni Sunum
+    <div class="pres-list-actions" style="display:flex; gap:8px; align-items:center;">
+      <a href="{{ url_for('presentations.atolye_kesif') }}" class="pres-create-btn pres-create-btn--ghost"
+         style="background:#fff; color:#1e3a8a; border:1.5px solid #c7d2fe;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/>
+          <path d="m21 21-4.3-4.3"/>
+        </svg>
+        Atölye
+      </a>
+      <button id="new-presentation-btn" class="pres-create-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        <span id="new-create-label">Yeni Sunum</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="pres-tabs" role="tablist">
+    <button type="button" class="pres-tab is-active" data-tab="presentations">
+      Sunumlar <span class="pres-tab-count">{{ presentations|length }}</span>
+    </button>
+    <button type="button" class="pres-tab" data-tab="blocks">
+      Bloklar <span class="pres-tab-count" id="blocks-count">…</span>
     </button>
   </div>
 
-  {% if presentations %}
-  <div class="pres-grid">
-    {% for p in presentations %}
-    <div class="pres-card" data-pid="{{ p.id }}">
-      <div class="pres-card-eyebrow {% if p.is_demo %}is-demo{% endif %}">
-        {% if p.is_demo %}
-          ⭐ Örnek Sunum
-        {% else %}
-          📊 Sunum
-        {% endif %}
+  <!-- ─────────── PRESENTATIONS TAB ─────────── -->
+  <div class="pres-tabpanel is-active" data-tabpanel="presentations">
+    {% if presentations %}
+    <div class="pres-grid">
+      {% for p in presentations %}
+      <div class="pres-card" data-pid="{{ p.id }}">
+        <div class="pres-card-eyebrow {% if p.is_demo %}is-demo{% endif %}">
+          {% if p.is_demo %}⭐ Örnek Sunum{% else %}📊 Sunum{% endif %}
+        </div>
+        <div class="pres-card-title">{{ p.title }}</div>
+        <div class="pres-card-meta">
+          {% if p.blocks_count is not none %}
+            <span class="pres-card-meta-item">📦 {{ p.blocks_count }} blok</span>
+          {% endif %}
+          {% if p.updated_at %}
+            <span class="pres-card-meta-item">🕒 {{ p.updated_at[:10] }}</span>
+          {% elif p.date %}
+            <span class="pres-card-meta-item">🕒 {{ p.date }}</span>
+          {% endif %}
+        </div>
+        <div class="pres-card-actions">
+          <a href="{{ url_for('presentations.editor', pid=p.id) }}" class="pres-card-btn pres-card-btn--primary">
+            {% if p.is_demo %}Aç{% else %}Düzenle{% endif %}
+          </a>
+          {% if not p.is_demo %}
+          <button class="pres-card-btn pres-card-btn--danger js-delete-pres" data-pid="{{ p.id }}" title="Sil">
+            🗑
+          </button>
+          {% endif %}
+        </div>
       </div>
-      <div class="pres-card-title">{{ p.title }}</div>
-      <div class="pres-card-meta">
-        {% if p.blocks_count is not none %}
-          <span class="pres-card-meta-item">📦 {{ p.blocks_count }} blok</span>
-        {% endif %}
-        {% if p.updated_at %}
-          <span class="pres-card-meta-item">🕒 {{ p.updated_at[:10] }}</span>
-        {% elif p.date %}
-          <span class="pres-card-meta-item">🕒 {{ p.date }}</span>
-        {% endif %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="pres-empty">
+      <div class="pres-empty-title">Henüz sunum yok</div>
+      <div class="pres-empty-subtitle">İlk sunumunu oluşturmaya başla.</div>
+      <button id="new-presentation-btn-empty" class="pres-create-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        Yeni Sunum
+      </button>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ─────────── BLOCKS TAB (Phase 6.5 BlockStore) ─────────── -->
+  <div class="pres-tabpanel" data-tabpanel="blocks">
+    <form class="pres-blocks-filters" id="blocks-filter-form" onsubmit="return false;">
+      <input type="search" name="q" id="blocks-filter-q"
+             placeholder="🔍 Ara (başlık, açıklama, etiket, dokümantasyon)"
+             class="pres-blocks-filters__search"/>
+      <input type="text" name="team" id="blocks-filter-team" placeholder="Ekip"
+             list="blocks-team-options"/>
+      <datalist id="blocks-team-options"></datalist>
+      <div class="pres-blocks-tags" id="blocks-filter-tag-wrap">
+        <input type="text" name="tag" id="blocks-filter-tag"
+               placeholder="Etiket (chip ile ekle)"
+               list="blocks-tag-options"/>
+        <datalist id="blocks-tag-options"></datalist>
       </div>
-      <div class="pres-card-actions">
-        <a href="{{ url_for('presentations.editor', pid=p.id) }}" class="pres-card-btn pres-card-btn--primary">
-          {% if p.is_demo %}Aç{% else %}Düzenle{% endif %}
-        </a>
-        {% if not p.is_demo %}
-        <button class="pres-card-btn pres-card-btn--danger js-delete-pres" data-pid="{{ p.id }}" title="Sil">
-          🗑
-        </button>
-        {% endif %}
+      <select name="viz_type" id="blocks-filter-viz">
+        <option value="">— Tüm görseller —</option>
+        <option value="kpi">KPI</option>
+        <option value="kpi_grid">KPI Grid</option>
+        <option value="bar_chart">Çubuk grafik</option>
+        <option value="line_chart">Çizgi grafik</option>
+        <option value="area_chart">Alan grafiği</option>
+        <option value="pie_chart">Pasta grafik</option>
+        <option value="radial_bar">Radyal gösterge</option>
+        <option value="heatmap">Isı haritası</option>
+        <option value="data_table">Tablo</option>
+      </select>
+      <button type="button" class="pres-filter-btn pres-filter-btn--ghost"
+              id="blocks-clear-btn" title="Filtreleri temizle"
+              style="display:none;">✕ Temizle</button>
+      <button type="button" class="pres-filter-btn pres-filter-btn--ghost" id="blocks-refresh-btn"
+              title="Listeyi yenile">↻ Yenile</button>
+    </form>
+    <div class="pres-active-tags" id="blocks-active-tags" style="display:none;"></div>
+    <div id="blocks-loading" class="pres-loading" style="display:none;">Bloklar yükleniyor…</div>
+    <div id="blocks-grid" class="pres-grid" style="display:none;"></div>
+    <div id="blocks-empty" class="pres-empty" style="display:none;">
+      <div class="pres-empty-title">Henüz blok yok</div>
+      <div class="pres-empty-subtitle">
+        Bir sunumda blok hazırla, Properties &rsaquo; Kütüphane &rsaquo;
+        <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle.
       </div>
     </div>
-    {% endfor %}
+    <!-- Server-prefetched listing. JS reads this on first paint; subsequent
+         interactions (search/filter/refresh) still hit /blocks/api/list. -->
+    <script id="blocks-initial-data" type="application/json">{{ blocks_initial_json | default('[]') | safe }}</script>
   </div>
-  {% else %}
-  <div class="pres-empty">
-    <div class="pres-empty-title">Henüz sunum yok</div>
-    <div class="pres-empty-subtitle">İlk sunumunu oluşturmaya başla.</div>
-    <button id="new-presentation-btn-empty" class="pres-create-btn">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor" stroke-width="2.5"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 5v14M5 12h14"/>
-      </svg>
-      Yeni Sunum
-    </button>
+</div>
+
+<!-- ─── Block preview modal ─── -->
+<div id="blk-preview-modal" class="blk-preview-backdrop" style="display:none;">
+  <div class="blk-preview-modal" onclick="event.stopPropagation();">
+    <div class="blk-preview-head">
+      <div class="blk-preview-title" id="blk-preview-title">Önizleme</div>
+      <button type="button" class="blk-preview-close" id="blk-preview-close" title="Kapat">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <iframe id="blk-preview-iframe" class="blk-preview-iframe" src="about:blank"></iframe>
   </div>
-  {% endif %}
 </div>
 
 <script>
 (function() {
-  async function createNewPresentation() {
+  // ── Tabs ──────────────────────────────────────────────
+  const tabs = document.querySelectorAll('.pres-tab');
+  const panels = document.querySelectorAll('.pres-tabpanel');
+  let blocksLoaded = false;
+
+  // Hash-aware tab activation: /presentations/#blocks opens the Bloklar tab directly.
+  function activateTab(target) {
+    tabs.forEach((x) => x.classList.toggle('is-active', x.dataset.tab === target));
+    panels.forEach((p) => p.classList.toggle('is-active', p.dataset.tabpanel === target));
+    if (target === 'blocks') {
+      // First activation: render the server-prefetched list synchronously
+      // (zero network round-trip). Subsequent activations re-fetch since
+      // the user may have just saved a new block from a presentation.
+      if (!blocksLoaded && _initialBlocks !== null) {
+        blocksLoaded = true;
+        renderBlocks(_initialBlocks);
+      } else {
+        loadBlocks();
+      }
+    }
+    // Tab-aware create button label.
+    const lbl = document.getElementById('new-create-label');
+    if (lbl) lbl.textContent = target === 'blocks' ? 'Yeni Blok' : 'Yeni Sunum';
+  }
+
+  // Re-fetch when the page regains focus (user switches back from another
+  // browser tab where they may have saved a new block).
+  window.addEventListener('focus', () => {
+    if (document.querySelector('.pres-tab.is-active')?.dataset.tab === 'blocks') {
+      loadBlocks();
+    }
+  });
+
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    activateTab(t.dataset.tab);
+    // Reflect tab in URL hash so deep-links + back/forward work.
+    history.replaceState(null, '', '#' + t.dataset.tab);
+  }));
+
+  // Initial activation: respect ?tab= or #blocks from the URL.
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialTab = urlParams.get('tab') || (window.location.hash || '').replace(/^#/, '');
+  if (initialTab === 'blocks') activateTab('blocks');
+
+  // ── Phase 6.5 BlockStore fetch + render ────────────────
+  // Card shape matches `BlockSummary.to_dict()` from blocks/store.py.
+  const TYPE_ICONS = {
+    kpi: '📈', kpi_grid: '📊', bar_chart: '📊', line_chart: '📉', area_chart: '📈',
+    pie_chart: '🥧', pie: '🥧', heatmap: '🟧', radial_bar: '⏱',
+    data_table: '📋', table: '📋', narrative: '📝',
+  };
+
+  // ── Filter state ───────────────────────────────────────
+  // Selected tag chips. Multi-select: each chip filters AND (block must have
+  // all selected tags). Backend `?tag=` is single-value, so when >1 chip is
+  // active we filter the first via query string and the rest client-side.
+  const filterState = { tags: [], allBlocks: [], allTags: new Set(), allTeams: new Set() };
+
+  function blocksApiUrl() {
+    // Build a slash-safe base. window.location.pathname might be:
+    //   '/presentations/'              → strip trailing → '/presentations'
+    //   '/proxy/8080/presentations/'   → same idea, leading proxy prefix preserved
+    // Result + '/blocks/api/list' = correct concat regardless of trailing slash.
+    const base = window.location.pathname.replace(/\/+$/, '');
+    const params = new URLSearchParams();
+    const q     = document.getElementById('blocks-filter-q').value.trim();
+    const team  = document.getElementById('blocks-filter-team').value.trim();
+    const viz   = document.getElementById('blocks-filter-viz').value;
+    if (q)    params.set('q', q);
+    if (team) params.set('team', team);
+    // Only the first selected tag goes server-side; remaining chips filter
+    // the response client-side (server-side endpoint is single-tag in v0).
+    if (filterState.tags.length > 0) params.set('tag', filterState.tags[0]);
+    if (viz)  params.set('viz_type', viz);
+    const qs = params.toString();
+    return `${base}/blocks/api/list${qs ? '?' + qs : ''}`;
+  }
+
+  function blockEditUrl(team, id) {
+    const base = window.location.pathname.replace(/\/+$/, '');
+    return `${base}/blocks/edit/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+  }
+
+  function blockPreviewUrl(team, id) {
+    const base = window.location.pathname.replace(/\/+$/, '');
+    return `${base}/blocks/preview/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+  }
+
+  function refreshActiveTagsRow() {
+    const row = document.getElementById('blocks-active-tags');
+    if (filterState.tags.length === 0) {
+      row.style.display = 'none';
+      row.innerHTML = '';
+      return;
+    }
+    row.style.display = 'flex';
+    row.innerHTML = '<span class="pres-active-tags__label">Etiket:</span>' +
+      filterState.tags.map((t, i) =>
+        `<span class="pres-active-tag">${escapeHtml(t)}` +
+        `<button type="button" class="pres-active-tag__x" data-tag-idx="${i}" title="Kaldır">×</button></span>`
+      ).join('');
+  }
+
+  function refreshClearBtn() {
+    const btn = document.getElementById('blocks-clear-btn');
+    const hasFilter =
+      document.getElementById('blocks-filter-q').value.trim() ||
+      document.getElementById('blocks-filter-team').value.trim() ||
+      document.getElementById('blocks-filter-viz').value ||
+      filterState.tags.length > 0;
+    btn.style.display = hasFilter ? 'inline-flex' : 'none';
+  }
+
+  function populateDatalists(items) {
+    // Aggregate every tag + team across the response so the user gets
+    // autocomplete on the next keystroke.
+    const tagSet = new Set();
+    const teamSet = new Set();
+    for (const m of items) {
+      teamSet.add(m.team);
+      for (const t of (m.tags || [])) tagSet.add(t);
+    }
+    filterState.allTags = tagSet;
+    filterState.allTeams = teamSet;
+    const tagDL = document.getElementById('blocks-tag-options');
+    const teamDL = document.getElementById('blocks-team-options');
+    if (tagDL) tagDL.innerHTML = Array.from(tagSet).sort()
+      .map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
+    if (teamDL) teamDL.innerHTML = Array.from(teamSet).sort()
+      // value: pretty form (user types this and backend's fuzzy match
+      // handles slug ↔ pretty). Browsers also surface the raw slug as
+      // a tooltip via the optional label attribute.
+      .map(t => `<option value="${escapeHtml(prettyTeam(t))}" label="${escapeHtml(t)}"></option>`).join('');
+  }
+
+  function applyClientSideTagFilter(items) {
+    if (filterState.tags.length <= 1) return items;
+    // First tag was server-filtered; intersect remaining client-side.
+    const extra = filterState.tags.slice(1);
+    return items.filter(m => {
+      const blockTags = new Set(m.tags || []);
+      return extra.every(t => blockTags.has(t));
+    });
+  }
+
+  // Render a pre-fetched items array — pure UI. Used by both the
+  // server-prefetched first paint AND the post-fetch render.
+  function renderBlocks(items) {
+    const loading = document.getElementById('blocks-loading');
+    const grid    = document.getElementById('blocks-grid');
+    const empty   = document.getElementById('blocks-empty');
+    const count   = document.getElementById('blocks-count');
+    const filtered = applyClientSideTagFilter(items);
+    count.textContent = filtered.length;
+    loading.style.display = 'none';
+    populateDatalists(items);
+    if (filtered.length === 0) {
+      const hasActiveFilter =
+        document.getElementById('blocks-filter-q').value.trim() ||
+        document.getElementById('blocks-filter-team').value.trim() ||
+        document.getElementById('blocks-filter-viz').value ||
+        filterState.tags.length > 0;
+      const emptyEl = document.getElementById('blocks-empty');
+      if (hasActiveFilter) {
+        emptyEl.innerHTML =
+          `<div class="pres-empty-title">Sonuç yok</div>` +
+          `<div class="pres-empty-subtitle">Filtrelere uyan blok bulunamadı. ` +
+          `<button type="button" class="pres-filter-btn pres-filter-btn--ghost" id="empty-clear">` +
+          `Filtreleri temizle</button></div>`;
+        document.getElementById('empty-clear')?.addEventListener('click', clearAllFilters);
+      } else {
+        emptyEl.innerHTML =
+          `<div class="pres-empty-title">Henüz blok yok</div>` +
+          `<div class="pres-empty-subtitle">Bir sunumda blok hazırla, Properties &rsaquo; ` +
+          `Kütüphane &rsaquo; <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle.</div>`;
+      }
+      empty.style.display = 'block';
+      grid.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    grid.style.display = 'grid';
+    grid.innerHTML = filtered.map(renderCard).join('');
+  }
+
+  // Pull blocks from the server. Phase 6.5.d: tab activation no longer
+  // calls this unconditionally — server-prefetched data renders first,
+  // then fetch only fires on filter/search/refresh.
+  async function loadBlocks() {
+    blocksLoaded = true;
+    const loading = document.getElementById('blocks-loading');
+    const grid    = document.getElementById('blocks-grid');
+    const empty   = document.getElementById('blocks-empty');
+    // Don't show "yükleniyor" if we already have grid content — UX feels
+    // smoother if the existing list just refreshes in place. The first
+    // visit shows it because grid starts hidden.
+    if (grid.style.display === 'none' || grid.children.length === 0) {
+      loading.style.display = 'block';
+      grid.style.display    = 'none';
+      empty.style.display   = 'none';
+    }
+    const url = blocksApiUrl();
+    console.log('[Bloklar] fetching', url);
+    try {
+      const resp = await fetch(url, { cache: 'no-store' });
+      const items = resp.ok ? await resp.json() : [];
+      renderBlocks(items);
+    } catch (e) {
+      console.error('[Bloklar] load failed', e);
+      loading.textContent = 'Bloklar yüklenemedi: ' + e.message;
+    }
+  }
+
+  // Server prefetch — same shape as /blocks/api/list, embedded at render
+  // time. Renders synchronously before any fetch fires, eliminating the
+  // FOUC between tab switch and first paint.
+  function consumeInitialBlocks() {
+    try {
+      const el = document.getElementById('blocks-initial-data');
+      if (!el) return null;
+      const data = JSON.parse(el.textContent || '[]');
+      return Array.isArray(data) ? data : null;
+    } catch (e) {
+      console.warn('[Bloklar] initial-data parse failed', e);
+      return null;
+    }
+  }
+  const _initialBlocks = consumeInitialBlocks();
+
+  // ── Debounced filter — fires on every input keystroke after 300ms idle.
+  let _filterTimer = null;
+  function debouncedReload() {
+    clearTimeout(_filterTimer);
+    _filterTimer = setTimeout(() => {
+      refreshClearBtn();
+      loadBlocks();
+    }, 300);
+  }
+
+  function clearAllFilters() {
+    document.getElementById('blocks-filter-q').value = '';
+    document.getElementById('blocks-filter-team').value = '';
+    document.getElementById('blocks-filter-tag').value = '';
+    document.getElementById('blocks-filter-viz').value = '';
+    filterState.tags = [];
+    refreshActiveTagsRow();
+    refreshClearBtn();
+    loadBlocks();
+  }
+
+  // Tag chip add: Enter or comma commits the value as a chip.
+  document.getElementById('blocks-filter-tag').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const val = e.target.value.trim();
+      if (val && !filterState.tags.includes(val)) {
+        filterState.tags.push(val);
+        refreshActiveTagsRow();
+        refreshClearBtn();
+        loadBlocks();
+      }
+      e.target.value = '';
+    } else if (e.key === 'Backspace' && e.target.value === '' && filterState.tags.length > 0) {
+      // Pop the last chip on backspace when input is empty.
+      filterState.tags.pop();
+      refreshActiveTagsRow();
+      refreshClearBtn();
+      loadBlocks();
+    }
+  });
+  document.getElementById('blocks-filter-tag').addEventListener('change', (e) => {
+    // Datalist selection completes via change — auto-commit as chip.
+    const val = e.target.value.trim();
+    if (val && !filterState.tags.includes(val)) {
+      filterState.tags.push(val);
+      refreshActiveTagsRow();
+      refreshClearBtn();
+      loadBlocks();
+    }
+    e.target.value = '';
+  });
+  document.getElementById('blocks-active-tags').addEventListener('click', (e) => {
+    const btn = e.target.closest('.pres-active-tag__x');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.tagIdx, 10);
+    filterState.tags.splice(idx, 1);
+    refreshActiveTagsRow();
+    refreshClearBtn();
+    loadBlocks();
+  });
+
+  // Live debounce on text inputs; instant fire on select.
+  document.getElementById('blocks-filter-q').addEventListener('input', debouncedReload);
+  document.getElementById('blocks-filter-team').addEventListener('input', debouncedReload);
+  document.getElementById('blocks-filter-viz').addEventListener('change', () => {
+    refreshClearBtn();
+    loadBlocks();
+  });
+  document.getElementById('blocks-clear-btn')?.addEventListener('click', clearAllFilters);
+  document.getElementById('blocks-refresh-btn')?.addEventListener('click', loadBlocks);
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, (c) => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // Türkçe / okunabilir blok tipi etiketleri. Pre-Phase-6.5 raw kodlar:
+  // bar_chart, line_chart, area_chart, pie_chart, radial_bar, data_table,
+  // kpi, kpi_grid, heatmap. Phase 6.5 visualization.type bunlardan birini
+  // kullanır; fallback raw type'i title-case'leyip yazar.
+  const TYPE_LABELS = {
+    kpi: 'KPI', kpi_grid: 'KPI Grid',
+    bar_chart: 'Çubuk Grafik', line_chart: 'Çizgi Grafik',
+    area_chart: 'Alan Grafiği', pie_chart: 'Pasta Grafik',
+    radial_bar: 'Radyal Gösterge', data_table: 'Tablo',
+    heatmap: 'Isı Haritası', table: 'Tablo', pie: 'Pasta', bar: 'Çubuk', line: 'Çizgi',
+  };
+
+  function prettyType(t) {
+    if (!t) return 'Blok';
+    return TYPE_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  // Pretty team name: slug ("finansal_yapay_zeka_uygulamalari") →
+  // human ("Finansal Yapay Zeka Uygulamaları"). Title-case via locale-aware
+  // toLocaleUpperCase for Turkish dotted/dotless I handling.
+  function prettyTeam(slug) {
+    if (!slug) return '';
+    return String(slug)
+      .replace(/_+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter(Boolean)
+      .map(w => w.charAt(0).toLocaleUpperCase('tr-TR') + w.slice(1))
+      .join(' ');
+  }
+
+  function renderCard(m) {
+    // BlockSummary shape (presentations/blocks/store.py): team, id, version,
+    // title, description, tags, visualization_type, owner, created_at,
+    // updated_at, deprecated.
+    const icon = TYPE_ICONS[m.visualization_type] || '🧩';
+    const typeLabel = prettyType(m.visualization_type);
+    const tags = (m.tags || []).map(t => `<span class="pres-tag-chip">${escapeHtml(t)}</span>`).join('');
+    const dep = m.deprecated ? `<span class="pres-tag-chip pres-tag-chip--deprecated">deprecated</span>` : '';
+    const desc = m.description ? `<p class="pres-card-desc">${escapeHtml(m.description)}</p>` : '';
+    const dateStr = (m.updated_at || m.created_at || '').slice(0, 10);
+    const editHref = blockEditUrl(m.team, m.id);
+    // Hover action: Önizle. "Sunuma ekle" eskiden buradaydı; ileride
+    // veri katmanından (Stage 1 / Stage 2 discovery) yapılacağı için
+    // Bloklar listesinden kaldırıldı.
+    return `
+      <a class="pres-card" data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+         data-title="${escapeHtml(m.title)}"
+         href="${editHref}" style="text-decoration:none; color:inherit;">
+        <div class="pres-card-hover-actions">
+          <button type="button" class="pres-card-action js-blk-preview"
+                  data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+                  data-title="${escapeHtml(m.title)}"
+                  title="Önizle">👁</button>
+        </div>
+        <div class="pres-card-type-pill">${icon} ${escapeHtml(typeLabel)}</div>
+        <div class="pres-card-title">${escapeHtml(m.title)}</div>
+        ${desc}
+        ${(tags || dep) ? `<div class="pres-card-tags">${tags}${dep}</div>` : ''}
+        <div class="pres-card-footer">
+          <span class="pres-card-label" title="Sürüm">v${m.version}</span>
+          <span class="pres-card-label" title="Ekip: ${escapeHtml(m.team)}">📁 ${escapeHtml(prettyTeam(m.team))}</span>
+          ${m.owner ? `<span class="pres-card-label" title="Sahip">👤 ${escapeHtml(m.owner)}</span>` : ''}
+          ${dateStr ? `<span class="pres-card-label">📅 ${dateStr}</span>` : ''}
+        </div>
+      </a>
+    `;
+  }
+
+  // ── Block preview modal ────────────────────────────────
+  const previewModal  = document.getElementById('blk-preview-modal');
+  const previewFrame  = document.getElementById('blk-preview-iframe');
+  const previewTitle  = document.getElementById('blk-preview-title');
+  const previewClose  = document.getElementById('blk-preview-close');
+
+  function openPreview(team, id, name) {
+    previewTitle.textContent = name || 'Önizleme';
+    previewFrame.src = blockPreviewUrl(team, id);
+    previewModal.style.display = 'flex';
+  }
+  function closePreview() {
+    previewModal.style.display = 'none';
+    previewFrame.src = 'about:blank';
+  }
+  previewClose.addEventListener('click', closePreview);
+  previewModal.addEventListener('click', closePreview);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && previewModal.style.display === 'flex') closePreview();
+  });
+
+  // Event delegation — kartlar dinamik render olduğu için
+  // (Sunuma ekle aksiyonu kaldırıldı — Stage 1/2 data layer'da yapılacak.)
+  document.getElementById('blocks-grid')?.addEventListener('click', (e) => {
+    const preview = e.target.closest('.js-blk-preview');
+    if (preview) {
+      e.preventDefault();
+      e.stopPropagation();
+      openPreview(preview.dataset.team, preview.dataset.id, preview.dataset.title);
+      return;
+    }
+  });
+
+  // ── New presentation / new block / delete ─────────────
+  async function createNewPresentation(opts) {
     try {
       const resp = await fetch("{{ url_for('presentations.create_presentation') }}", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(opts || {}),
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
@@ -178,6 +893,17 @@
     } catch (e) {
       alert('Yeni sunum oluşturulamadı: ' + e.message);
     }
+  }
+
+  function createNewBlock() {
+    // Ayrı "yeni blok" editörüne git. Sunu OLUŞTURMAZ — boş bir şablon
+    // editörü açılır; kullanıcı SQL yazıp "Şablon olarak kaydet" ile doğrudan
+    // blok kütüphanesine (v1) yazar.
+    window.location.href = "{{ url_for('presentations.block_new') }}";
+  }
+
+  function activeTabKey() {
+    return document.querySelector('.pres-tab.is-active')?.dataset.tab || 'presentations';
   }
 
   async function deletePresentation(pid, card) {
@@ -189,14 +915,17 @@
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       card.remove();
-      // If no cards left, reload to show empty state
       if (!document.querySelector('.pres-card')) window.location.reload();
     } catch (e) {
       alert('Silinemedi: ' + e.message);
     }
   }
 
-  document.getElementById('new-presentation-btn')?.addEventListener('click', createNewPresentation);
+  function handleCreateClick() {
+    if (activeTabKey() === 'blocks') createNewBlock();
+    else createNewPresentation();
+  }
+  document.getElementById('new-presentation-btn')?.addEventListener('click', handleCreateClick);
   document.getElementById('new-presentation-btn-empty')?.addEventListener('click', createNewPresentation);
 
   document.querySelectorAll('.js-delete-pres').forEach((btn) => {
@@ -207,6 +936,9 @@
       deletePresentation(pid, card);
     });
   });
+
+  // Lazy load blocks count on first page load (optional — for the chip number)
+  // Şimdilik tab'a tıklayınca yükleniyor, count "…" kalıyor başlangıçta.
 })();
 </script>
 {% endblock %}

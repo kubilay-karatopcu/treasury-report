@@ -1,0 +1,41 @@
+table: NII_HIST
+schema: HIST
+description: |
+  Aylık net faiz geliri tarihçesi — 7 yıllık konsolide kayıt.
+  Faiz duyarlılık analizinin ana zaman serisi.
+partition_column: MONTH
+
+columns:
+  MONTH:
+    type: DATE
+    description: "Ay başı"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_month
+    suggested_semantic_tag: as_of_time
+
+  CURRENCY:
+    type: CHAR(3)
+    description: "Para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+
+  NII_TRY:
+    type: NUMBER(18,2)
+    description: "Net faiz geliri (TL)"
+    filterable: false
+    aggregatable: true
+
+  ASSETS_AVG:
+    type: NUMBER(18,2)
+    description: "Aylık ortalama aktif"
+    filterable: false
+    aggregatable: true
+
+  LIABILITIES_AVG:
+    type: NUMBER(18,2)
+    description: "Aylık ortalama pasif"
+    filterable: false
+    aggregatable: true

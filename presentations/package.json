@@ -2,7 +2,10 @@
   "private": true,
   "description": "Treasury Studio — presentations editor frontend",
   "dependencies": {
+    "@cosmograph/react": "^2.3.2",
+    "@xyflow/react": "^12.10.2",
     "ag-grid-community": "^31.3.2",
+    "ag-grid-enterprise": "^31.3.4",
     "ag-grid-react": "^31.3.2",
     "apexcharts": "^5.11.0",
     "lucide-react": "^1.14.0",
@@ -16,8 +19,11 @@
     "esbuild": "^0.21.5"
   },
   "scripts": {
-    "build": "npx esbuild static/js/editor/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js",
-    "build:dev": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js",
+    "build": "npx esbuild static/js/editor/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js && npx esbuild static/js/hazirlik/index.jsx --bundle --minify --target=es2020 --jsx=automatic --outfile=static/js/hazirlik.bundle.js && npx esbuild static/js/kesif/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --loader:.wasm=file --loader:.worker.js=file --asset-names=kesif-assets/[name]-[hash] --outfile=static/js/kesif.bundle.js && npx esbuild static/js/bloklar/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bloklar.bundle.js",
+    "build:dev": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js && npx esbuild static/js/hazirlik/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --outfile=static/js/hazirlik.bundle.js && npx esbuild static/js/kesif/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --loader:.wasm=file --loader:.worker.js=file --asset-names=kesif-assets/[name]-[hash] --outfile=static/js/kesif.bundle.js && npx esbuild static/js/bloklar/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bloklar.bundle.js",
+    "build:hazirlik": "npx esbuild static/js/hazirlik/index.jsx --bundle --minify --target=es2020 --jsx=automatic --outfile=static/js/hazirlik.bundle.js",
+    "build:kesif": "npx esbuild static/js/kesif/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --loader:.wasm=file --loader:.worker.js=file --asset-names=kesif-assets/[name]-[hash] --outfile=static/js/kesif.bundle.js",
+    "build:bloklar": "npx esbuild static/js/bloklar/index.jsx --bundle --minify --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bloklar.bundle.js",
     "watch": "npx esbuild static/js/editor/index.jsx --bundle --sourcemap --target=es2020 --jsx=automatic --loader:.css=empty --outfile=static/js/bundle.js --watch"
   }
 }

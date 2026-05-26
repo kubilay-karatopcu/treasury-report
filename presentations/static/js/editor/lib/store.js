@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { applyPatches as _applyPatches } from './patch.js';
-import { submitPatches, refreshBlockData } from './api.js';
+import {
+  submitPatches, refreshBlockData, runBlockManual,
+  applyDashboardFilters,
+} from './api.js';
 
 // ── Helpers for nested manifest navigation ─────────────────────────────────
 
@@ -69,8 +72,129 @@ function updateBlockInPlace(manifest, blockId, fn) {
 
 // ── Empty block templates (used when user manually adds blocks) ────────────
 
+/**
+ * Walk every leaf block in `manifest` and return the set of semantic_tags
+ * that are referenced by at least one variable. Used by the orphan filter
+ * cleanup to decide which filters still have a "purpose".
+ */
+function _collectUsedSemanticTags(manifest) {
+  const tags = new Set();
+  for (const section of manifest?.blocks || []) {
+    for (const child of section?.children || []) {
+      for (const v of (child.variables || [])) {
+        if (v.semantic_tag) tags.add(v.semantic_tag);
+      }
+      if (child.type === 'carousel') {
+        for (const slide of (child.children || [])) {
+          for (const v of (slide.variables || [])) {
+            if (v.semantic_tag) tags.add(v.semantic_tag);
+          }
+        }
+      }
+    }
+  }
+  return tags;
+}
+
+
+/**
+ * After a block delete, any filter whose semantic_tag is no longer referenced
+ * by ANY remaining block variable is an orphan. Return JSON-Patch remove ops
+ * that drop them. Run on the post-delete manifest.
+ *
+ * Walking back-to-front so list indices stay valid as we remove.
+ */
+function _computeOrphanFilterPatches(manifestAfter) {
+  const filters = manifestAfter?.filters;
+  if (!Array.isArray(filters) || filters.length === 0) return [];
+  const usedTags = _collectUsedSemanticTags(manifestAfter);
+  const patches = [];
+  for (let i = filters.length - 1; i >= 0; i--) {
+    const f = filters[i];
+    if (!usedTags.has(f.semantic_tag)) {
+      patches.push({ op: 'remove', path: `/filters/${i}` });
+    }
+  }
+  return patches;
+}
+
+
+/**
+ * Walk every leaf block in `manifest` and propose JSON-Patch operations
+ * that auto-bind matching variables to a newly-added dashboard filter.
+ *
+ * Match rules (mirror presentations/dashboards/binding.py:propose_auto_bindings):
+ * - variable.semantic_tag === filter.semantic_tag
+ * - variable.name has no existing binding
+ * - For date variables targeting a date_range filter, the variable's name
+ *   suffix (_from / _since / _start vs _to / _until / _end) picks the
+ *   accessor. Ambiguous date vars (no suffix) are left unbound — the
+ *   "Filter eklemek ister misiniz?" banner in 6.5.c.2.b will surface them.
+ * - For other types, types must match exactly (enum_multi ↔ enum_multi, etc.).
+ */
+function _computeAutoBindPatches(manifest, filterDef) {
+  if (!manifest) return [];
+  const out = [];
+
+  function visit(block, basePath) {
+    if (!block || block.type === 'section_header') return;
+    if (!Array.isArray(block.variables)) return;
+    const existing = block.variable_bindings || {};
+    const newBindings = { ...existing };
+    let changed = false;
+
+    for (const v of block.variables) {
+      if (v.semantic_tag !== filterDef.semantic_tag) continue;
+      if (newBindings[v.name]) continue;   // already bound, don't clobber
+      // Pairing rules:
+      if (v.type === 'date' && filterDef.type === 'date_range') {
+        const lower = v.name.toLowerCase();
+        let accessor = null;
+        if (/_(from|since|start)$/.test(lower)) accessor = 'from';
+        else if (/_(to|until|end)$/.test(lower)) accessor = 'to';
+        if (!accessor) continue;
+        newBindings[v.name] = { from_filter: filterDef.id, accessor };
+        changed = true;
+      } else if (v.type === filterDef.type) {
+        newBindings[v.name] = { from_filter: filterDef.id };
+        changed = true;
+      }
+    }
+    if (changed) {
+      const op = block.variable_bindings ? 'replace' : 'add';
+      out.push({ op, path: `${basePath}/variable_bindings`, value: newBindings });
+    }
+  }
+
+  const sections = manifest.blocks || [];
+  for (let si = 0; si < sections.length; si++) {
+    const sec = sections[si];
+    const children = sec.children || [];
+    for (let ci = 0; ci < children.length; ci++) {
+      const child = children[ci];
+      visit(child, `/blocks/${si}/children/${ci}`);
+      if (child.type === 'carousel' && Array.isArray(child.children)) {
+        for (let sli = 0; sli < child.children.length; sli++) {
+          visit(child.children[sli], `/blocks/${si}/children/${ci}/children/${sli}`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+
 function _emptyBlockTemplate(id, type) {
+  // Phase 6.5: every data-bound block carries `query` (raw SQL with :binds)
+  // and `variables` (per-bind metadata). Whether the SQL is authored by the
+  // user or by the LLM, the shape is identical — only one editor surface in
+  // Properties handles both.
   const base = { id, type, title: _defaultTitle(type), locked: false };
+  const dataBound = !['narrative', 'carousel'].includes(type);
+  if (dataBound) {
+    base.query = '';
+    base.variables = [];
+  }
   switch (type) {
     case 'kpi':
       return { ...base, data_source: { original_sql: '' },
@@ -132,19 +256,42 @@ const useStore = create((set) => ({
   loading:         false,
   flashIds:        new Set(),
   shareModal:      null,
+  saveModalOpen:   false,        // "Kaydet" tablı modal
+  saveBlockModal:  null,         // { blockId } — "Blok kütüphanesine kaydet" modal
+  userInfo:        null,         // { sicil, name, department, dashboard_maker }
+  addBlockPanel:   null,         // { sectionId } — sağ taraf "Blok Ekle" panel'i
   docsTable:       null,         // { table, domain } — side panel for catalog table docs
 
   setMode:          (mode)     => set({ mode }),
-  setManifest:      (manifest) => set({
-    manifest,
-    // Hydrate chat history from manifest on initial load / page refresh.
-    chatHistory: Array.isArray(manifest?.chat_history) ? manifest.chat_history : [],
-  }),
+  setManifest:      (manifest) => {
+    // Hydrate filter state from manifest (Phase 6.5.c).
+    let fs = {};
+    if (manifest?.filter_state && Object.keys(manifest.filter_state).length > 0) {
+      fs = { ...manifest.filter_state };
+    } else {
+      for (const f of (manifest?.filters || [])) {
+        if (f.default != null) fs[f.id] = f.default;
+      }
+    }
+    set({
+      manifest,
+      // Hydrate chat history from manifest on initial load / page refresh.
+      chatHistory: Array.isArray(manifest?.chat_history) ? manifest.chat_history : [],
+      filterState: fs,
+    });
+  },
   setViewMode:      (mode)     => set({ viewMode: mode }),
   setSelectedBlock: (id)       => set({ selectedBlockId: id }),
   setLoading:       (loading)  => set({ loading }),
   openShareModal:   (info)     => set({ shareModal: info }),
   closeShareModal:  ()         => set({ shareModal: null }),
+  openSaveModal:    ()         => set({ saveModalOpen: true }),
+  closeSaveModal:   ()         => set({ saveModalOpen: false }),
+  openSaveBlockModal:  (blockId) => set({ saveBlockModal: { blockId } }),
+  closeSaveBlockModal: ()        => set({ saveBlockModal: null }),
+  setUserInfo:      (info)     => set({ userInfo: info }),
+  openAddBlockPanel:  (sectionId) => set({ addBlockPanel: { sectionId } }),
+  closeAddBlockPanel: ()         => set({ addBlockPanel: null }),
   toggleLayoutEdit: ()         => set((s) => ({ layoutEditMode: !s.layoutEditMode })),
   setDocsTable:     (info)     => set({ docsTable: info }),
   closeDocsTable:   ()         => set({ docsTable: null }),
@@ -230,6 +377,105 @@ const useStore = create((set) => ({
       return { manifest: newManifest, selectedBlockId: id };
     });
     submitPatches([patch]).catch((e) => console.error('addSection persist failed:', e));
+    return id;
+  },
+
+  // Library bloğunu klonlayıp section.children sonuna ekle. ID yeniden üretilir,
+  // runtime alanları (rows/view_name) zaten library kaydında temizlenmişti.
+  addLibraryBlockToSection: (sectionId, libraryBlock) => {
+    const state = useStore.getState();
+    if (!state.manifest || !sectionId || !libraryBlock) return;
+    const loc = findBlockPath(state.manifest, sectionId);
+    if (!loc || loc.child) return;
+    const section = loc.section;
+    const childIdx = (section.children || []).length;
+
+    // Deep clone + new ID
+    const cloned = JSON.parse(JSON.stringify(libraryBlock));
+    const prefix = cloned.type === 'narrative' ? 't_' : 'b_';
+    cloned.id = prefix + Math.random().toString(36).slice(2, 8);
+    if (cloned.locked) cloned.locked = false;
+
+    const patch = {
+      op: 'add',
+      path: `${loc.path}/children/${childIdx}`,
+      value: cloned,
+    };
+    set((s) => {
+      if (!s.manifest) return {};
+      const newManifest = _applyPatches(s.manifest, [patch]);
+      newManifest.version = (newManifest.version || 0) + 1;
+      return { manifest: newManifest, selectedBlockId: cloned.id };
+    });
+    submitPatches([patch]).catch((e) => console.error('addLibraryBlock persist failed:', e));
+    return cloned.id;
+  },
+
+  // Phase 6.5.c — insert a saved BlockStore template into a section,
+  // auto-binding its variables against the dashboard's filters by
+  // matching semantic_tag (spec §3.5).
+  addBlockTemplateToSection: (sectionId, templatePayload, ref) => {
+    const state = useStore.getState();
+    if (!state.manifest || !sectionId || !templatePayload) return;
+    const loc = findBlockPath(state.manifest, sectionId);
+    if (!loc || loc.child) return;
+    const section = loc.section;
+    const childIdx = (section.children || []).length;
+
+    // Inline auto-binding by semantic_tag: mirrors propose_auto_bindings()
+    // in presentations/dashboards/binding.py. Single-match → bind; multiple
+    // or zero → leave unbound (UI banner takes over later).
+    const filters = state.manifest.filters || [];
+    const byTag = {};
+    for (const f of filters) {
+      (byTag[f.semantic_tag] = byTag[f.semantic_tag] || []).push(f);
+    }
+    const variable_bindings = {};
+    for (const v of (templatePayload.variables || [])) {
+      const candidates = byTag[v.semantic_tag] || [];
+      if (candidates.length !== 1) continue;
+      const f = candidates[0];
+      if (v.type === 'date' && f.type === 'date_range') {
+        const lower = v.name.toLowerCase();
+        let accessor = null;
+        if (/_(from|since|start)$/.test(lower)) accessor = 'from';
+        else if (/_(to|until|end)$/.test(lower)) accessor = 'to';
+        if (accessor) variable_bindings[v.name] = { from_filter: f.id, accessor };
+      } else if (v.type === f.type) {
+        variable_bindings[v.name] = { from_filter: f.id };
+      }
+    }
+
+    // Build the in-presentation block from the template.
+    const id = 'b_' + Math.random().toString(36).slice(2, 8);
+    const vizType = templatePayload.visualization?.type || 'kpi';
+    const newBlock = {
+      ..._emptyBlockTemplate(id, vizType === 'bar' ? 'bar_chart'
+                            : vizType === 'line' ? 'line_chart'
+                            : vizType === 'table' ? 'data_table'
+                            : vizType === 'pie' ? 'pie_chart'
+                            : vizType),
+      title: templatePayload.title || 'Yeni Şablon',
+      query: templatePayload.query || '',
+      variables: templatePayload.variables || [],
+      template_ref: ref,                     // {team, id, version}
+      variable_bindings,                     // auto-bound where unambiguous
+    };
+
+    const patch = {
+      op: 'add',
+      path: `${loc.path}/children/${childIdx}`,
+      value: newBlock,
+    };
+    set((s) => {
+      if (!s.manifest) return {};
+      const newManifest = _applyPatches(s.manifest, [patch]);
+      newManifest.version = (newManifest.version || 0) + 1;
+      return { manifest: newManifest, selectedBlockId: id };
+    });
+    submitPatches([patch]).catch((e) =>
+      console.error('addBlockTemplateToSection persist failed:', e),
+    );
     return id;
   },
 
@@ -419,24 +665,234 @@ const useStore = create((set) => ({
       console.warn('deleteBlock: block not found', blockId);
       return;
     }
-    const patch = { op: 'remove', path: loc.path };
+    const patches = [{ op: 'remove', path: loc.path }];
+
+    // Phase 6.5.c orphan filter cleanup: after removing the block, any
+    // dashboard filter whose semantic_tag is no longer represented by any
+    // remaining block's variables becomes "orphan" — keeping it would clutter
+    // the FilterBar AND make the "+ Filtre ekle" suggestions stale (the user
+    // can't re-add a tag that already has a filter). Drop them automatically.
+    // We compute against a hypothetical post-delete manifest.
+    try {
+      const after = _applyPatches(state.manifest, patches);
+      const orphanPatches = _computeOrphanFilterPatches(after);
+      patches.push(...orphanPatches);
+    } catch (e) {
+      console.warn('deleteBlock orphan scan failed:', e);
+    }
+
     try {
       set((s) => {
         if (!s.manifest) return {};
-        const newManifest = _applyPatches(s.manifest, [patch]);
+        const newManifest = _applyPatches(s.manifest, patches);
         newManifest.version = (newManifest.version || 0) + 1;
-        // Silinen blok seçiliyse selection'ı temizle.
-        // Slide silindiğinde carousel seçili olsa bile selection'ı koruyoruz
-        // (CarouselActions slide listesinde silinmiş slide olmadan re-render olur).
         const nextSelected = (s.selectedBlockId === blockId) ? null : s.selectedBlockId;
-        return { manifest: newManifest, selectedBlockId: nextSelected };
+        // Drop filter_state entries for filters we just removed.
+        const filterIds = new Set((newManifest.filters || []).map((f) => f.id));
+        const fs = {};
+        for (const [k, v] of Object.entries(s.filterState || {})) {
+          if (filterIds.has(k)) fs[k] = v;
+        }
+        return { manifest: newManifest, selectedBlockId: nextSelected, filterState: fs };
       });
     } catch (err) {
       console.error('deleteBlock local apply failed:', err);
-      // Manifest'i değiştirme — backend'e de gönderme
       return;
     }
-    submitPatches([patch]).catch((e) => console.error('deleteBlock persist failed:', e));
+    submitPatches(patches).catch((e) => console.error('deleteBlock persist failed:', e));
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Phase 6.5.c — dashboard filters
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // Local mutable filter state (form values); persisted to manifest on Save,
+  // applied to all blocks on Güncelle.
+  filterState: {},
+  filterStatus: {},   // {blockId: 'cache_hit'|'subset'|'refetching'|'refetched'|'error', ...}
+  // Detail for blocks whose apply-filters status was 'error' — drives the
+  // hover tooltip on the "N hata" indicator so failures aren't silent.
+  filterErrors: [],   // [{id, kind, error, title}]
+  // Phase 7 concept compilation per block (from apply-filters response):
+  //   {blockId: {blind: [conceptId,...], applied: [{filter_id,concept,sql}], injected: bool}}
+  conceptStatus: {},
+  filterBusy: false,
+
+  setFilterValue: (filterId, value) => {
+    set((s) => ({ filterState: { ...s.filterState, [filterId]: value } }));
+  },
+
+  initFilterStateFromManifest: () => {
+    const state = useStore.getState();
+    const m = state.manifest;
+    if (!m) return;
+    // Prefer the manifest's persisted filter_state (last user save).
+    // Otherwise compute from filter defaults.
+    if (m.filter_state && Object.keys(m.filter_state).length > 0) {
+      set({ filterState: { ...m.filter_state } });
+      return;
+    }
+    const initial = {};
+    for (const f of (m.filters || [])) {
+      if (f.default != null) initial[f.id] = f.default;
+    }
+    set({ filterState: initial });
+  },
+
+  // Non-destructive: seed defaults ONLY for filters not already in
+  // filterState. Used after a chat turn that seeded a new dashboard filter
+  // (Phase 7) so the new filter's default value populates the widget +
+  // flows to the backend, without clobbering the user's existing selections.
+  // Returns true if anything was added.
+  hydrateFilterDefaults: () => {
+    const state = useStore.getState();
+    const m = state.manifest;
+    if (!m) return false;
+    const next = { ...state.filterState };
+    let changed = false;
+    for (const f of (m.filters || [])) {
+      if (!(f.id in next) && f.default != null) {
+        next[f.id] = f.default;
+        changed = true;
+      }
+    }
+    if (changed) set({ filterState: next });
+    return changed;
+  },
+
+  addDashboardFilter: (filterDef) => {
+    const state = useStore.getState();
+    if (!state.manifest) return;
+    const existing = state.manifest.filters || [];
+    // Idempotent: if a filter with the same id already exists, REPLACE it
+    // instead of inserting (prevents accidental duplicates from fast clicks
+    // or stale closures). Caller can still pre-check existing for UX
+    // messaging, but the action itself is safe to retry.
+    const existingIdx = existing.findIndex((f) => f.id === filterDef.id);
+    const patches = [];
+    if (state.manifest.filters === undefined) {
+      patches.push({ op: 'add', path: '/filters', value: [] });
+    }
+    if (existingIdx >= 0) {
+      patches.push({
+        op: 'replace',
+        path: `/filters/${existingIdx}`,
+        value: filterDef,
+      });
+    } else {
+      const idx = existing.length;
+      patches.push({ op: 'add', path: `/filters/${idx}`, value: filterDef });
+    }
+
+    // ── Auto-bind matching block variables to this new filter ───────────
+    // Walk every leaf block; for each variable whose semantic_tag matches
+    // and which isn't already bound, write a variable_binding pointing at
+    // this filter.
+    const bindPatches = _computeAutoBindPatches(state.manifest, filterDef);
+    patches.push(...bindPatches);
+
+    set((s) => {
+      if (!s.manifest) return {};
+      const next = _applyPatches(s.manifest, patches);
+      next.version = (next.version || 0) + 1;
+      const fs = { ...s.filterState };
+      if (filterDef.default != null) fs[filterDef.id] = filterDef.default;
+      return { manifest: next, filterState: fs };
+    });
+    submitPatches(patches).catch((e) =>
+      console.error('addDashboardFilter persist failed:', e),
+    );
+  },
+
+  removeDashboardFilter: (filterId) => {
+    const state = useStore.getState();
+    if (!state.manifest) return;
+    const filters = state.manifest.filters || [];
+    const idx = filters.findIndex((f) => f.id === filterId);
+    if (idx < 0) return;
+    const patch = { op: 'remove', path: `/filters/${idx}` };
+    set((s) => {
+      if (!s.manifest) return {};
+      const next = _applyPatches(s.manifest, [patch]);
+      next.version = (next.version || 0) + 1;
+      const fs = { ...s.filterState };
+      delete fs[filterId];
+      return { manifest: next, filterState: fs };
+    });
+    submitPatches([patch]).catch((e) =>
+      console.error('removeDashboardFilter persist failed:', e),
+    );
+  },
+
+  applyFilters: async () => {
+    const state = useStore.getState();
+    if (!state.manifest) return;
+    set({ filterBusy: true, filterStatus: {}, conceptStatus: {}, filterErrors: [] });
+    try {
+      const result = await applyDashboardFilters(state.filterState);
+      // Refresh manifest from server (server wrote block.data_source +
+      // block.config + bumped version).
+      // We don't have a single-shot fetch helper in the store; the simplest
+      // path is to mark statuses, then trust the server's per-block data
+      // mutations by re-fetching manifest. For now we rely on the version
+      // bump and the existing manifest refresh on next mount, OR we walk
+      // the response and merge each block in-place by id.
+      const statusMap = {};
+      const conceptMap = {};
+      const errs = [];
+      for (const blk of result.blocks || []) {
+        statusMap[blk.id] = blk.status;
+        if (blk.status === 'error') {
+          const loc = findBlockPath(state.manifest, blk.id);
+          const title = blk.title || loc?.slide?.title || loc?.child?.title || loc?.section?.title;
+          errs.push({ id: blk.id, kind: blk.kind, error: blk.error, title });
+        }
+        // Phase 7: capture concept compilation outcome for the block badge.
+        if (blk.blind_filters || blk.applied_predicates || blk.concept_injected !== undefined) {
+          conceptMap[blk.id] = {
+            blind: blk.blind_filters || [],
+            applied: blk.applied_predicates || [],
+            injected: !!blk.concept_injected,
+          };
+        }
+      }
+      if (errs.length) {
+        // Surface the silent failures: the "N hata" chip only counts; the
+        // actual message lives here (and in console for quick copy-paste).
+        console.warn(
+          '[apply-filters] blok hataları:\n'
+          + errs.map((e) => `  • ${e.id} [${e.kind || '?'}]: ${e.error || '(mesaj yok)'}`).join('\n'),
+        );
+      }
+      set({ filterStatus: statusMap, conceptStatus: conceptMap, filterErrors: errs });
+      // Re-fetch manifest to pick up the per-block data_source/config that
+      // the server already wrote. The lightweight path: GET /manifest.
+      const refreshed = await fetch(`${window.location.pathname.replace(/\/$/, '')}/manifest`);
+      if (refreshed.ok) {
+        const m = await refreshed.json();
+        set({ manifest: m });
+      }
+      return result;
+    } finally {
+      set({ filterBusy: false });
+    }
+  },
+
+  // Phase 6.5 — run a manual-SQL block's query with declared variables.
+  // Returns {block, version, warnings}; throws on resolution / SQL errors.
+  runBlockManualSql: async (blockId, { query, variables, variableOverrides, scanOnly } = {}) => {
+    if (!blockId) throw new Error('blockId zorunlu.');
+    const result = await runBlockManual(blockId, { query, variables, variableOverrides, scanOnly });
+    set((s) => {
+      if (!s.manifest) return {};
+      return {
+        manifest: {
+          ...updateBlockInPlace(s.manifest, blockId, () => result.block),
+          version: result.version ?? s.manifest.version,
+        },
+      };
+    });
+    return result;
   },
 
   refreshBlock: async (blockId, newSql) => {

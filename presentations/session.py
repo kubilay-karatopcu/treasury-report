@@ -261,8 +261,14 @@ class SessionRegistry:
                 "title": manifest.get("meta", {}).get("title", ""),
                 "date": manifest.get("meta", {}).get("date", ""),
                 "blocks_count": _count_leaf_blocks(manifest),
+                "basket_count": len(manifest.get("basket") or []),
                 "updated_at": manifest.get("updated_at", ""),
                 "version": manifest.get("version", 1),
+                # Phase 12.workshops: classify the manifest into a workshop
+                # phase so the Atölye home + Şablonlar listing can show
+                # phase chips and route "Devam Et" to the right page.
+                "phase": _derive_workshop_phase(manifest),
+                "has_snapshot": bool(manifest.get("snapshot_id")),
             })
         # Newest first by updated_at
         items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
@@ -295,3 +301,22 @@ def _count_leaf_blocks(manifest: dict) -> int:
     for section in manifest.get("blocks", []):
         count += len(section.get("children") or [])
     return count
+
+
+def _derive_workshop_phase(manifest: dict) -> str:
+    """Phase 12.workshops — classify a presentation manifest into one of:
+
+      "kesif"    — basket only, no scope work yet (ER builder not opened)
+      "hazirlik" — scope draft saved or scope built but blocks empty
+      "sunum"    — has rendered blocks (the user is composing the deck)
+
+    These map 1:1 to the three Atölye pipeline pages and let the home
+    page route "Devam Et" to the right URL.
+    """
+    if not manifest:
+        return "kesif"
+    if _count_leaf_blocks(manifest) > 0:
+        return "sunum"
+    if manifest.get("scope_ref") or manifest.get("draft_scope"):
+        return "hazirlik"
+    return "kesif"

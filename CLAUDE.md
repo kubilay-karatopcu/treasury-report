@@ -449,4 +449,67 @@ Plus **block width / multi-column layout** (deferred from Phase 4):
 - Update LLM prompts so the model can pick a width when the user asks "yan yana" / "side by side".
 - Sliders, tabs, and conditional rendering stay out of scope (one-pager constraint).
 
+**Phase 6.5 — Variable Binding MVP** *(transitional, ships in parallel with team block production)*
+
+Full spec: **[`docs/PHASE_6_5_SPEC.md`](docs/PHASE_6_5_SPEC.md)** — read this before starting any work on Phase 6.5.
+
+This phase introduces a user-authored variable layer on top of the existing block-render engine, so the team can start producing and sharing reusable blocks while later phases (concept layer, scope contract, marketplace) are being built. It is **forward-compatible with Phase 7** by design — every variable carries a mandatory `semantic_tag` that becomes the migration key into the concept registry.
+
+Scope (high level):
+
+- Blocks carry a user-written SQL query with `:bind_var` placeholders and a `variables` array (name, type, semantic_tag, default, allowed_values).
+- Dashboards gain a top-level `filters` array; filters auto-bind to block variables by matching `semantic_tag`.
+- DuckDB gains a per-block cache keyed by resolved variables, with subset routing (narrower filter served from cached parent without an Oracle round-trip).
+- A Library MVP page lets the team browse, search, and insert saved blocks into dashboards.
+
+Sub-phases (each ships independently, in this order):
+
+- **6.5.a** — Block save and run (block schema, SQL validator, variable resolver, bind expansion, block editor UI, run endpoint). Acceptance: spec §10.a.
+- **6.5.b** — Table documentation enhancement (extended schema with `filterable`, `filter_role`, `suggested_variable`, `suggested_semantic_tag`, `distinct_values_sample`; LLM prompt integration; nightly distinct-values cron; data team migration of top 5 tables). Acceptance: spec §10.b.
+- **6.5.c** — Dashboard-level filter (dashboard schema extension, filter bar UI, auto-binding by semantic_tag, "filter eklemek ister misiniz?" prompt, block-level constant override, block cache + subset routing). Acceptance: spec §10.c.
+- **6.5.d** — Library MVP (browse, search, filter, preview, insert into dashboard with auto-binding). Acceptance: spec §10.d.
+
+Reference fixtures (representative blocks + dashboard + extended table doc + expected resolved SQL) live in `examples/phase_6_5/`. Use these as authoritative shape references when implementing.
+
+**Locked design decisions for Phase 6.5** (do NOT reopen — see spec §1–§4 for the full reasoning):
+
+1. **Variable bindings use a mandatory `semantic_tag` from a fixed allow-list** (spec §3.2). This tag is the forward-compatibility hook for Phase 7's concept registry. `semantic_tag: other` is the escape hatch and is flagged in the UI. Variable names themselves are user-chosen and not enforced.
+2. **Blocks are immutable per version.** Editing creates `version: N+1`; dashboards reference `{team, id, version}` triples. Deletion is soft (`deprecated: true`).
+3. **SQL whitelist is parser-based: only `SELECT` and `WITH` statements allowed.** All `:bind_var` references must match declared block variables. No DDL, no DML writes, no procedural blocks, no multi-statement queries. Validation runs at block save and before each execution. Implementation uses `sqlparse`.
+4. **Bind variable execution never concatenates values into SQL.** `enum_multi` is expanded to positional placeholders at execution time (`IN (:list_0, :list_1, ...)`).
+5. **Subset routing on block cache.** When a new resolved-variable set is a subset of a cached parent set, serve from DuckDB filter without re-fetching Oracle. Full refetch on superset miss. Incremental fetch (delta-only Oracle pull) is backlog.
+6. **Per-session DuckDB block cache with a 2 GB soft cap + LRU eviction.** Eviction runs lazily before each cache write.
+7. **Free-form text variables are not supported in v0.** Only `date`, `date_range`, `enum_single`, `enum_multi`, `number_range`.
+8. **Forward-compat with Phase 7 is contractual, not aspirational.** Spec §9 defines the migration from variables → concept-aware filters. Implementations in 6.5.a–6.5.d MUST preserve this contract; if a deviation is needed, update spec §9 in the same PR.
+
+Phase 6.5 does NOT change Phase 1–6 artifacts. Existing pre-6.5 blocks (with hardcoded queries and no variables) remain functional and unmodified. Existing dashboards without a `filters` array render exactly as before. Migration of existing artifacts to the variable layer is opt-in, never forced.
+
+**Phase 7 — Concept Foundation** *(backend complete — 7.a–7.d implemented + tested; full editor UI wiring is a follow-up)*
+
+Full spec: **[`docs/PHASE_7_SPEC.md`](docs/PHASE_7_SPEC.md)** — authoritative for all 7.a–7.d work. Read before starting any Phase 7 task.
+
+Phase 7 introduces a concept-aware filter layer between the user and the underlying tables: a versioned YAML concept registry (global / departmental / user scopes), per-table column bindings with five transform kinds (`identity`, `map`, `lookup`, `bucket_from_range`, `time_truncation`), and a pure deterministic filter compiler that converts concept-level filter expressions into per-table SQL predicates with parameterized binds.
+
+Sub-phases (ship independently, in order):
+
+- **7.a** — Concept Registry + schema infrastructure. ~5–7 days. Acceptance: spec §11.a.
+- **7.b** — Column Bindings + filter compiler. ~2–3 weeks. The heart of Phase 7. Acceptance: spec §11.b.
+- **7.c** — Binding Inference pipeline + review UI. ~2 weeks. Acceptance: spec §11.c.
+- **7.d** — User-scoped concepts + promotion flow. ~1 week. Ships independently after 7.b. Acceptance: spec §11.d.
+
+Reference fixtures (concept YAMLs, extended table docs, compiler golden snapshots) live in `examples/phase_7/`. Use these as authoritative shape references when implementing.
+
+**Locked design decisions for Phase 7** (do NOT reopen — see spec §10 for full list):
+
+1. **Concept storage scope split:** global/dept in YAML (git-versioned), user-scope in DB (per-presentation JSON). No exceptions.
+2. **Transform kinds frozen:** `identity`, `map`, `lookup`, `bucket_from_range`, `time_truncation`. New kinds require spec amendment.
+3. **Compiler determinism:** byte-identical output for identical inputs. Critical for cache keys + testability.
+4. **Confidence gating:** only `human_verified` bindings reach the compiler. No override flags. `llm_proposed` / `inferred_*` live in YAML but are gated until operator approval.
+5. **User concepts are extension-only:** cannot redefine global/departmental. Cannot mask. Promotion is the only path to scope expansion.
+6. **No SQL rewriting:** the compiler appends `AND` predicates. It does not parse the block's user-authored SQL.
+7. **Concept-blind charts render normally** with a "filter not applied here" badge. They do not error, do not hide.
+8. **LLM produces concept JSON, never SQL.** The compiler owns SQL emission. No LLM-direct-to-SQL path is acceptable in this phase.
+
+Phase 7 does NOT change Phase 6.5 artifacts. Blocks and dashboards remain valid; the compiler is purely additive (extra predicates appended). Backward compat: blocks without `concept_ref` fall back to `semantic_tag`, tables without `concept_bindings` are concept-blind, both render correctly.
+
 Each phase should leave the app deployable. No half-merged states.

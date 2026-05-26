@@ -1,0 +1,711 @@
+/* ═════════════════════════════════════════════════════════════════════════
+   Keşif dark theme — Phase 11.kesif
+
+   Override layer that tokenizes kesif.css's surfaces. Same pattern as
+   editor_dark.css; the legacy kesif.css stays untouched so Phase 11.light
+   later just stops loading this sheet.
+
+   Also styles the new `.kesif-graph-tabs` overlay (Tables/Blocks/Processes
+   pills that used to live in the now-removed kesif-topbar).
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* Defensive — old kesif-topbar gone but rule kept so any leftover render
+   from older bundles disappears immediately. */
+body.prisma .kesif-topbar { display: none !important; }
+
+/* Body + 3-column shell */
+body.prisma .kesif-body,
+body.prisma.canvas-bleed .canvas-bleed-mount {
+  background: var(--editor-surface);
+  color: var(--editor-ink-soft);
+}
+body.prisma .kesif-left,
+body.prisma .kesif-right {
+  background: var(--editor-surface);
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .kesif-canvas { background: var(--editor-surface); }
+body.prisma .kesif-left__heading,
+body.prisma .kesif-right__heading {
+  color: var(--editor-ink-mute);
+  border-bottom-color: var(--editor-border);
+}
+
+/* Search input */
+body.prisma .kesif-search input {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink);
+}
+body.prisma .kesif-search input::placeholder { color: var(--editor-ink-faint); }
+body.prisma .kesif-search input:focus { border-color: var(--editor-accent); }
+
+/* Filter groups + options */
+body.prisma .kesif-filter-group__title,
+body.prisma .kesif-filter-group__heading { color: var(--editor-ink-mute); }
+body.prisma .kesif-filter-option {
+  color: var(--editor-ink-soft);
+  background: transparent;
+}
+body.prisma .kesif-filter-option:hover { background: var(--editor-surface-2); }
+body.prisma .kesif-filter-option.is-active { background: var(--editor-surface-2); color: var(--editor-ink); }
+
+/* Phase 11.kesif polish — checkbox + count badges in gold */
+body.prisma .kesif-filter-option input[type="checkbox"] {
+  accent-color: var(--editor-accent);
+  /* Webkit's accent-color affects modern browsers; older fall back via filter */
+}
+body.prisma .kesif-filter-option__count {
+  background: transparent;
+  color: var(--editor-accent);
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+/* Phase 11.kesif polish — "+N daha göster" smaller + softer */
+body.prisma .kesif-filter-group__more {
+  color: var(--editor-link);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  padding: 6px 0;
+}
+body.prisma .kesif-filter-group__more:hover { color: var(--editor-accent); }
+
+/* Filter apply bar — Uygula/Sıfırla butonları her ikisi de gold tonu */
+body.prisma .kesif-filter-apply { background: var(--editor-surface-1); border-color: var(--editor-border); }
+
+/* All .kesif-btn buttons get a consistent dark + gold treatment.
+   `kesif-btn--primary` = filled gold; bare `.kesif-btn` = gold outline. */
+body.prisma .kesif-btn {
+  background: transparent !important;
+  color: var(--editor-accent) !important;
+  border: 1px solid var(--editor-accent) !important;
+  /* Phase 11.kesif polish-2: button typography normalized. The legacy
+     `font-weight: 600` + Inter rendered weird on the dark bg with the
+     gold border — drop to 500 + tighter letter-spacing for a finance-y feel. */
+  font-weight: 500 !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.02em !important;
+  font-family: var(--sans) !important;
+  text-transform: none !important;
+}
+body.prisma .kesif-btn:hover:not(:disabled) {
+  background: var(--editor-accent-soft) !important;
+  color: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .kesif-btn--primary {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+}
+body.prisma .kesif-btn--primary:hover:not(:disabled) {
+  background: var(--gold-soft) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .kesif-btn--ghost {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .kesif-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Tree (left-rail table list grouped by schema) */
+body.prisma .kesif-tree { background: transparent; }
+body.prisma .kesif-tree__section {
+  border-bottom-color: var(--editor-border);
+  color: var(--editor-ink-mute);
+  background: transparent;
+}
+
+/* Schema row — clickable group header (ALM, CDM, EDW…). Phase 11.kesif
+   polish: gold-tinted hover instead of white. */
+body.prisma .kesif-tree__dept {
+  color: var(--editor-ink);
+  background: transparent;
+  border-color: var(--editor-border);
+}
+body.prisma .kesif-tree__dept:hover {
+  background: var(--editor-accent-soft);
+  color: var(--editor-ink);
+}
+body.prisma .kesif-tree__dept-caret { color: var(--editor-ink-mute); }
+body.prisma .kesif-tree__tables { background: transparent; }
+
+/* Individual table row inside a schema — readable light-white text. */
+body.prisma .kesif-tree__table {
+  color: var(--editor-ink) !important;       /* match the filter-checkbox label tone */
+  background: transparent;
+  /* Phase 11.kesif polish-2: room for the cart icon on the right. */
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding-right: 4px !important;
+}
+body.prisma .kesif-tree__table:hover {
+  background: var(--editor-accent-soft);
+  color: var(--editor-ink);
+}
+body.prisma .kesif-tree__table.is-selected {
+  background: var(--editor-accent-soft);
+  color: var(--editor-ink);
+  border-left: 2px solid var(--editor-accent);
+}
+/* Sepetteki tablolar — gold tinted bg + left accent border so the user
+   sees their selection at a glance even without expanding the basket panel. */
+body.prisma .kesif-tree__table.is-in-basket {
+  background: rgba(212, 166, 86, 0.10);
+  color: var(--gold-soft);
+  border-left: 2px solid var(--editor-accent);
+}
+
+/* Cart icon button on each tree row */
+.kesif-tree__cart {
+  background: transparent;
+  border: 1px solid var(--editor-border);
+  color: var(--editor-ink-faint);
+  width: 22px; height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  padding: 0;
+}
+.kesif-tree__cart:hover {
+  background: var(--editor-accent-soft);
+  border-color: var(--editor-accent);
+  color: var(--editor-accent);
+}
+.kesif-tree__cart.is-in {
+  background: var(--editor-accent);
+  border-color: var(--editor-accent);
+  color: var(--editor-surface);
+}
+.kesif-tree__cart.is-in:hover {
+  background: var(--editor-danger);
+  border-color: var(--editor-danger);
+  color: #fff;
+}
+body.prisma .kesif-tree__count,
+body.prisma .kesif-tree__meta { color: var(--editor-ink-faint); }
+
+/* Right rail (table detail card) — Phase 11.kesif polish-2: light-white
+   titles + soft-gray meta + readable monospace columns. The legacy
+   .kesif-card__* selectors hardcoded dark navy + slate; flip them. */
+body.prisma .kesif-card,
+body.prisma .kesif-basket { color: var(--editor-ink-soft); }
+body.prisma .kesif-card__title { color: var(--editor-ink) !important; }
+body.prisma .kesif-card__schema,
+body.prisma .kesif-card__metaline { color: var(--editor-ink-mute) !important; }
+body.prisma .kesif-card__source-badge {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .kesif-card__source-badge.is-user {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .kesif-card__section { border-top-color: var(--editor-border) !important; }
+body.prisma .kesif-card__section-title { color: var(--editor-ink-mute) !important; }
+body.prisma .kesif-card__description { color: var(--editor-ink-soft) !important; }
+body.prisma .kesif-card__empty { color: var(--editor-ink-faint); }
+
+/* Concepts / Lookups / Columns blocks inside the detail card */
+body.prisma .kesif-concept { color: var(--editor-ink-soft); }
+body.prisma .kesif-concept.is-bound .kesif-concept__icon { color: var(--editor-success) !important; }
+body.prisma .kesif-concept.is-unbound { color: var(--editor-ink-faint); }
+body.prisma .kesif-concept.is-unbound .kesif-concept__icon { color: var(--editor-border-strong) !important; }
+body.prisma .kesif-lookups { color: var(--editor-ink-soft) !important; }
+body.prisma .kesif-lookup__from { color: var(--editor-ink-faint) !important; }
+body.prisma .kesif-columns { color: var(--editor-ink-soft) !important; }
+
+/* Graph canvas backgrounds (Cosmograph bg also set via prop) */
+body.prisma .kesif-graph,
+body.prisma .kesif-graph__empty,
+body.prisma .kesif-graph__loading {
+  background: var(--editor-surface);
+  color: var(--editor-ink-mute);
+}
+
+/* Legend overlay — Phase 12.light: token-driven so it flips with theme. */
+body.prisma .kesif-legend {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+body.prisma .kesif-legend__title { color: var(--editor-ink-mute); }
+body.prisma .kesif-legend__label { color: var(--editor-ink-soft); }
+
+/* Sim panel — keep visible but recolor (cheap; nobody opens it in prod) */
+body.prisma .kesif-sim__toggle,
+body.prisma .kesif-sim__panel {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border-strong);
+  color: var(--editor-ink-soft);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Multi-select bar (bottom of graph) */
+body.prisma .kesif-multi-select {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border-strong);
+  color: var(--editor-ink-soft);
+}
+
+/* Phase 11.workbench — Bloklar view dark surfaces (card grid + bottom
+   panel). Lives inside the same kesif shell now; the legacy bloklar.css
+   hardcoded white surfaces, override them here. */
+body.prisma .bloklar-shell {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-soft);
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* When bloklar view is mounted, override .kesif-canvas's legacy flex
+   centering so .bloklar-center can fill the box and host an absolutely
+   positioned slide-up panel. */
+body.prisma .kesif-canvas--graph:has(.bloklar-center) {
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  padding: 0 !important;
+  position: relative;
+  overflow: hidden;
+}
+body.prisma .bloklar-center {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-soft);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;  /* clip the slide-up animation */
+}
+body.prisma .bloklar-canvas {
+  background: var(--editor-surface) !important;
+  color: var(--editor-ink-soft);
+  /* Phase 11.polish: leave headroom for the floating tabs overlay so
+     the first row of cards doesn't slide under them. Tabs sit at
+     top: 12px with ~32px height → 56px total clearance. */
+  padding-top: 56px !important;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Phase 11.polish-final: when the bottom panel is open, the grid
+   needs scroll headroom so the rows hidden behind the panel reach
+   the visible area on scroll. */
+body.prisma .bloklar-center:has(.bloklar-bottom) .bloklar-canvas {
+  padding-bottom: calc(min(60vh, 560px) + 24px) !important;
+}
+
+/* Bottom panel: slide up from below, overlaying the grid. Fixed dvh height
+   so it always fits inside the canvas regardless of parent percentages. */
+body.prisma .bloklar-center .bloklar-bottom {
+  position: absolute !important;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: min(60vh, 560px) !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  z-index: 5;
+  box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.35);
+  animation: bloklar-slide-up 0.22s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+@keyframes bloklar-slide-up {
+  from { transform: translateY(100%); opacity: 0.4; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+body.prisma .bloklar-bottom__body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+body.prisma .bloklar-canvas__empty { color: var(--editor-ink-faint) !important; }
+
+body.prisma .bloklar-card {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .bloklar-card:hover {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-border-strong) !important;
+}
+body.prisma .bloklar-card.is-selected {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+}
+/* Phase 11.basket-blocks: card in sepet — subtle gold border so the user
+   sees "already added" at a glance without re-opening the panel. Same
+   treatment as .kesif-tree__table.is-in-basket for the table tree. */
+body.prisma .bloklar-card.is-in-basket {
+  border-color: var(--editor-accent) !important;
+  box-shadow: inset 3px 0 0 var(--editor-accent);
+}
+body.prisma .bloklar-card.is-in-basket .bloklar-card__name {
+  color: var(--gold-soft) !important;
+}
+body.prisma .bloklar-card__name { color: var(--editor-ink) !important; }
+body.prisma .bloklar-card__viz {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .bloklar-card__meta { color: var(--editor-ink-mute) !important; }
+body.prisma .bloklar-card__desc { color: var(--editor-ink-soft) !important; }
+body.prisma .bloklar-card__tag {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .bloklar-card__tag--more {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+
+/* Bottom panel (block detail with iframe preview) */
+body.prisma .bloklar-bottom {
+  background: var(--editor-surface) !important;
+  border-color: var(--editor-border-strong) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .bloklar-bottom__header {
+  background: var(--editor-surface-1) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .bloklar-bottom__title { color: var(--editor-ink) !important; }
+body.prisma .bloklar-bottom__subtitle { color: var(--editor-ink-mute) !important; }
+body.prisma .bloklar-bottom__close {
+  color: var(--editor-ink-faint) !important;
+  background: transparent !important;
+}
+body.prisma .bloklar-bottom__close:hover {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .bloklar-bottom__preview {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .bloklar-bottom__meta { color: var(--editor-ink-soft); }
+
+/* Phase 11.workbench — center placeholder rendered for bloklar/surecler
+   views until they're fully integrated (next iteration). */
+.kesif-workbench-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--editor-surface);
+  color: var(--editor-ink-soft);
+  padding: 64px 32px;
+}
+.kesif-workbench-placeholder__inner {
+  text-align: center;
+  max-width: 520px;
+}
+.kesif-workbench-placeholder__eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--editor-accent);
+  margin-bottom: 18px;
+}
+.kesif-workbench-placeholder h2 {
+  font-size: 32px;
+  font-weight: 200;
+  letter-spacing: -0.015em;
+  color: var(--editor-ink);
+  margin: 0 0 12px;
+}
+.kesif-workbench-placeholder__sub {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--editor-ink-mute);
+  margin: 0 0 18px;
+  line-height: 1.55;
+}
+.kesif-workbench-placeholder__hint {
+  font-size: 12px;
+  color: var(--editor-ink-faint);
+  letter-spacing: 0.005em;
+}
+
+/* Phase 11.kesif — NEW Tables/Blocks/Süreçler tab overlay on graph.
+   Phase 12.light: backdrop uses --editor-surface-1 token so the pill
+   cluster flips between dark navy (over dark graph) and white (over
+   light graph). Slight opacity keeps the graph faintly visible behind. */
+.kesif-graph-tabs {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+  background: var(--editor-surface-1);
+  border: 1px solid var(--editor-border-strong);
+  border-radius: 2px;
+  padding: 3px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.kesif-graph-tab {
+  padding: 7px 14px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--editor-ink-mute);
+  text-decoration: none;
+  border-radius: 1px;
+  transition: all 0.18s;
+}
+.kesif-graph-tab:hover {
+  color: var(--editor-ink);
+  background: var(--editor-surface-2);
+}
+.kesif-graph-tab.is-active {
+  background: var(--editor-accent);
+  color: var(--editor-surface);
+}
+
+/* Chat drawer (Sohbet) — Phase 11.kesif polish: fully dark.
+   The chat uses generic `.chat-box / .chat-input / .chat-messages` classes
+   from editor.css (no `.kesif-chat__*` prefix), so we override those. */
+body.prisma .kesif-chat,
+body.prisma .kesif-chat .chat-box {
+  background: var(--editor-surface) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .kesif-chat .chat-box-header {
+  background: var(--editor-surface-1);
+  color: var(--editor-ink-mute);
+  border-bottom-color: var(--editor-border);
+}
+body.prisma .kesif-chat .chat-messages,
+body.prisma .kesif-chat .chat-empty {
+  background: var(--editor-surface);
+  color: var(--editor-ink-faint);
+}
+body.prisma .kesif-chat .chat-input {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink);
+}
+body.prisma .kesif-chat .chat-input::placeholder { color: var(--editor-ink-faint); }
+body.prisma .kesif-chat .chat-input:focus { border-color: var(--editor-accent); outline: none; }
+body.prisma .kesif-chat .chat-footer {
+  background: var(--editor-surface);
+  color: var(--editor-ink-faint);
+  border-top-color: var(--editor-border);
+}
+body.prisma .kesif-chat .chat-footer-hint { color: var(--editor-ink-faint); }
+
+/* Chat message bubbles, when populated */
+body.prisma .kesif-chat .chat-message,
+body.prisma .kesif-chat .chat-bubble {
+  background: var(--editor-surface-1);
+  border-color: var(--editor-border);
+  color: var(--editor-ink-soft);
+}
+body.prisma .kesif-chat .chat-message--user,
+body.prisma .kesif-chat .chat-bubble--user {
+  background: var(--editor-surface-2);
+  color: var(--editor-ink);
+}
+
+/* Chat "Gönder" button — Phase 11.kesif polish-2: normalize font + gold.
+   Legacy .btn-primary inherits InterVar 500/13px from editor.css which
+   reads oddly heavy when set against the gold accent. Tighten + gold-tint. */
+body.prisma .kesif-chat .btn-primary,
+body.prisma .kesif-chat .btn-primary:hover:not(:disabled) {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+  font-weight: 500;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  padding: 6px 14px;
+}
+body.prisma .kesif-chat .btn-primary:hover:not(:disabled) {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+body.prisma .kesif-chat .btn-primary:disabled {
+  opacity: 0.4;
+}
+
+/* Basket panel — Phase 11.kesif polish-3: full dark, light-white labels.
+   Shown in the right rail when no table is selected (or under the detail
+   card). The legacy .kesif-basket__* selectors hardcoded slate-900 / blue
+   badges; flip them to PRISMA tokens. */
+body.prisma .kesif-basket {
+  border-top-color: var(--editor-border) !important;
+}
+body.prisma .kesif-basket__title {
+  color: var(--editor-ink) !important;
+}
+body.prisma .kesif-basket__count {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+}
+body.prisma .kesif-basket__cta { padding-top: 8px; border-top: 1px solid var(--editor-border); }
+body.prisma .kesif-basket__item,
+body.prisma .kesif-basket__row {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .kesif-basket__item.is-clickable { cursor: pointer; }
+body.prisma .kesif-basket__item:hover {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-border-strong) !important;
+}
+body.prisma .kesif-basket__item.is-selected {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+}
+body.prisma .kesif-basket__item.is-selected .kesif-basket__item-name {
+  color: var(--gold-soft) !important;
+}
+body.prisma .kesif-basket__item-name {
+  color: var(--editor-ink) !important;
+}
+body.prisma .kesif-basket__item-schema {
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .kesif-basket__empty,
+body.prisma .kesif-card__empty {
+  color: var(--editor-ink-faint) !important;
+}
+body.prisma .kesif-basket__remove {
+  color: var(--editor-ink-faint) !important;
+  background: transparent !important;
+}
+body.prisma .kesif-basket__remove:hover {
+  background: var(--editor-danger-soft) !important;
+  color: var(--red-soft) !important;
+}
+body.prisma .kesif-basket__concepts { color: var(--editor-ink-soft) !important; }
+body.prisma .kesif-basket__concept-chip {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+
+/* Phase 12.kesif-header — workshop title strip above the 3-column body.
+   Sits in flow (not overlay) so it pushes kesif-body down by its height.
+   Same dark token system as the rest of Keşif. */
+.kesif-workshop-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 18px;
+  background: var(--editor-surface-1);
+  border-bottom: 1px solid var(--editor-border);
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.kesif-workshop-header__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.kesif-workshop-header__title {
+  flex: 0 1 480px;
+  min-width: 200px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--editor-ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  padding: 4px 10px;
+  border-radius: 2px;
+  outline: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.kesif-workshop-header__title::placeholder {
+  color: var(--editor-ink-faint);
+  font-style: italic;
+}
+.kesif-workshop-header__title:hover {
+  background: var(--editor-surface-2);
+}
+.kesif-workshop-header__title:focus {
+  background: var(--editor-surface);
+  border-color: var(--editor-accent);
+}
+.kesif-workshop-header__pid {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--editor-ink-faint);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.kesif-workshop-header__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.kesif-workshop-header__toast {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--editor-accent);
+  padding: 2px 8px;
+  border-radius: 2px;
+  background: var(--editor-accent-soft);
+  animation: kesif-workshop-toast-in 0.18s ease-out;
+}
+.kesif-workshop-header__toast.is-error {
+  color: var(--red-soft);
+  background: var(--editor-danger-soft);
+}
+@keyframes kesif-workshop-toast-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.kesif-workshop-header__save {
+  /* Inherits .kesif-btn--primary styling — gold filled. */
+  padding: 5px 14px !important;
+}
+.kesif-workshop-header__save .kesif-spin { animation: kesif-spin 0.6s linear infinite; }
+@keyframes kesif-spin { to { transform: rotate(360deg); } }
+
+/* Phase 11.basket-blocks — Tablolar / Bloklar group subtitles inside the
+   Sepet panel. Mono caps in soft-gray, with a small gold count badge. */
+body.prisma .kesif-basket__group-title {
+  color: var(--editor-ink-mute) !important;
+  font-family: var(--mono);
+}
+body.prisma .kesif-basket__group-count {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+  font-family: var(--mono);
+}

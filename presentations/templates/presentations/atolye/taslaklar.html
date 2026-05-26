@@ -1,0 +1,203 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Kütüphane · Şablonlar" %}
+{% set sidebar_active = "taslaklar" %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}Atölye / Şablonlar — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  /* Phase 12.workshops — Şablonlar (in-progress) listing.
+     Same general aesthetic as Süreçler but each card carries a phase
+     chip (Keşif / Hazırlık / Sunum) + a "Devam Et" CTA pointing at the
+     right pipeline page. */
+  .workshops-page { padding: 48px 64px 96px; }
+  .workshops-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 36px; gap: 32px;
+  }
+  .workshops-head h2 {
+    font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+    color: var(--ink); margin: 0 0 6px;
+  }
+  .workshops-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 14px;
+  }
+  .workshops-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 14px; color: var(--ink-mute);
+    line-height: 1.55; max-width: 600px;
+  }
+  .workshops-meta {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .workshops-cta {
+    margin-top: 14px;
+    display: inline-block;
+    padding: 8px 18px;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .workshops-cta:hover { background: var(--gold); color: var(--bg-0); }
+
+  .workshops-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+  }
+  .workshop-card {
+    background: var(--bg-1);
+    padding: 24px 22px 20px;
+    transition: background 0.2s;
+    position: relative;
+    min-height: 200px;
+    display: flex; flex-direction: column;
+    text-decoration: none; color: inherit;
+  }
+  .workshop-card:hover { background: var(--bg-2); }
+  .workshop-card .wc-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .workshop-card .wc-num {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.04em; color: var(--gold);
+  }
+  .workshop-card .wc-phase {
+    font-family: var(--mono); font-size: 9px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    color: var(--ink-mute);
+  }
+  .workshop-card .wc-phase--kesif    { color: var(--ink-mute); border-color: var(--border); }
+  .workshop-card .wc-phase--hazirlik { color: var(--gold);     border-color: var(--gold); background: rgba(212, 166, 86, 0.10); }
+  .workshop-card .wc-phase--sunum    { color: var(--bg-0);     border-color: var(--gold); background: var(--gold); }
+
+  .workshop-card .wc-name {
+    font-size: 18px; font-weight: 300;
+    letter-spacing: -0.005em; color: var(--ink);
+    margin-bottom: 8px; line-height: 1.3;
+    /* Long auto-titles like "Adsız çalışma · p_abc123" need to wrap. */
+    overflow-wrap: anywhere;
+  }
+  .workshop-card .wc-meta {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12.5px; line-height: 1.5;
+    color: var(--ink-mute); margin-bottom: 18px;
+    flex: 1;
+  }
+  .workshop-card .wc-foot {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono); font-size: 9.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .workshop-card .wc-cta {
+    color: var(--gold);
+    text-decoration: none;
+    letter-spacing: 0.18em;
+  }
+  .workshop-card .wc-cta:hover { color: var(--ink); }
+
+  .empty-state {
+    padding: 64px 24px; text-align: center;
+    border: 1px solid var(--border-soft);
+    color: var(--ink-faint);
+  }
+  .empty-state h3 {
+    font-size: 18px; font-weight: 300; color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  .empty-state p {
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px; line-height: 1.6; max-width: 540px;
+    margin: 0 auto;
+  }
+  .empty-state .empty-cta {
+    margin-top: 24px; display: inline-block;
+    padding: 10px 22px;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .empty-state .empty-cta:hover {
+    background: var(--gold); color: var(--bg-0);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="workshops-page">
+    <div class="workshops-head">
+      <div>
+        <div class="eyebrow">A · Kütüphane · ◇</div>
+        <h2>Şablonlar</h2>
+        <p class="sub">
+          Keşif, Hazırlık veya Sunum aşamasında olan tüm çalışmalarınız —
+          henüz sürece dönüşmemiş olanlar. Bir satıra "Devam Et" deyip
+          kaldığınız yerden ilerleyin.
+        </p>
+        <a class="workshops-cta" href="{{ url_for('presentations.atolye_kesif') }}">
+          ＋ Yeni Keşif başlat
+        </a>
+      </div>
+      <div class="workshops-meta">
+        {{ total }} çalışma
+      </div>
+    </div>
+
+    {% if workshops %}
+      <div class="workshops-grid">
+        {% for w in workshops %}
+          <div class="workshop-card">
+            <div class="wc-head">
+              <div class="wc-num">{{ '%02d' % loop.index }}</div>
+              <span class="wc-phase wc-phase--{{ w.phase }}">{{ w.phase_label }}</span>
+            </div>
+            <div class="wc-name">{{ w.title }}</div>
+            <div class="wc-meta">
+              {% if w.phase == 'sunum' %}
+                {{ w.blocks_count }} blok · v{{ w.version }}
+              {% elif w.phase == 'hazirlik' %}
+                Scope düzenleniyor · {{ w.basket_count }} tablo sepette
+              {% else %}
+                {{ w.basket_count }} tablo sepette
+              {% endif %}
+            </div>
+            <div class="wc-foot">
+              <span>{{ (w.updated_at or '')[:10] or '—' }}</span>
+              <a class="wc-cta" href="{{ w.continue_url }}">Devam Et →</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>Henüz şablon yok</h3>
+        <p>
+          Şablonlar, Keşif/Hazırlık/Sunum aşamasında devam eden tüm
+          çalışmalarınızdır. Önce bir Keşif başlatın, sepet ve sunum
+          oluşturduğunuzda satırınız burada gözükecek.
+        </p>
+        <a class="empty-cta" href="{{ url_for('presentations.atolye_kesif') }}">
+          Yeni Keşif başlat
+        </a>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

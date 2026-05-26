@@ -1,0 +1,26 @@
+{# Reusable expert "cell" — 5-up grid on landing.
+   Vars expected in caller scope:
+   - expert (Expert dataclass / dict view)
+   - tone   ("calm" | "warm" | "alert") — optional, defaults to "calm"
+   - status_text — optional, e.g. "2 anormallik" / "Sakin" / "Fırsat Bildirisi"
+#}
+{% set tone = tone | default('calm') %}
+{% set status_text = status_text | default('Sakin') %}
+<a class="expert-cell" data-domain="{{ expert.id }}"
+   href="{{ url_for('prisma_home.expert_detail', code=expert.id) }}">
+  <div class="code">{{ expert.code }}</div>
+  <div class="name">{{ expert.domain_label }}</div>
+  <div class="role">
+    {% if expert.persona and expert.persona.get('voice_examples') %}
+      {{ expert.persona.voice_examples[0][:36] }}{% if expert.persona.voice_examples[0]|length > 36 %}…{% endif %}
+    {% else %}
+      {{ expert.short_description }}
+    {% endif %}
+  </div>
+  <div class="tone">{{ expert.short_description }}</div>
+  <div class="status {{ tone }}">
+    <span class="dot"></span>
+    <span class="text">{{ status_text }}</span>
+  </div>
+  <div class="accent-line" style="background: {{ expert.ui.accent_color }};"></div>
+</a>

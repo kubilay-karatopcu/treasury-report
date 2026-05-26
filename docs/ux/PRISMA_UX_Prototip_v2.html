@@ -1,0 +1,3819 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>PRISMA — UX Tasarım Prototipi</title>
+<meta name="viewport" content="width=1280">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens — locked to PRISMA deck
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg-0: #0A0E1A;
+  --bg-1: #0E1320;
+  --bg-2: #131826;
+  --bg-3: #131F33;
+  --bg-card: #1A2842;
+  --bg-elev: #243248;
+
+  /* Borders */
+  --border-soft: #1F2433;
+  --border: #2A3043;
+
+  /* Text */
+  --ink: #E8ECF1;
+  --ink-soft: #C8D0DD;
+  --ink-mute: #A8B2C4;
+  --ink-faint: #6B768A;
+  --ink-dim: #5A6478;
+
+  /* Accents */
+  --gold: #D4A656;
+  --gold-soft: #E8C190;
+  --gold-dim: #C49545;
+
+  /* Semantic */
+  --green: #4A9B6E;
+  --red: #B85450;
+  --red-soft: #E89898;
+  --blue: #6B8AFD;
+
+  /* Domains */
+  --liq: #6B8AFD;
+  --dep: #4A9B6E;
+  --fnd: #D4A656;
+  --nii: #B6BECD;
+  --sec: #B85450;
+  --krd: #E8C190;
+
+  --serif: 'Inter', sans-serif;
+  --sans:  'Inter', sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: var(--bg-0); color: var(--ink); font-family: var(--sans); font-weight: 300; -webkit-font-smoothing: antialiased; }
+body { min-height: 100vh; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   App shell — top bar always present
+   ───────────────────────────────────────────────────────────────────────── */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: 56px;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-0);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+}
+.brand-mark {
+  font-size: 13px;
+  font-weight: 300;
+  letter-spacing: 0.45em;
+  color: var(--ink);
+}
+.brand-mark .i, .brand-mark .a { color: var(--gold); }
+.brand-tag {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.crumb .sep { color: var(--border); }
+.crumb .here { color: var(--ink-soft); }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.mode-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.mode-toggle button {
+  padding: 6px 14px;
+  color: var(--ink-faint);
+  transition: all 0.2s;
+}
+.mode-toggle button.on {
+  background: var(--ink);
+  color: var(--bg-0);
+}
+.mode-toggle button:hover:not(.on) {
+  color: var(--ink-soft);
+  background: var(--bg-2);
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+.user-chip .avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--gold);
+  border: 1px solid var(--border);
+}
+.user-chip .meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.user-chip .meta .role {
+  font-size: 9px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Main canvas
+   ───────────────────────────────────────────────────────────────────────── */
+.canvas {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 64px 64px 96px;
+  flex: 1;
+  position: relative;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Landing — greeting + featured expert + grid + ask bar
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Greeting block */
+.greeting {
+  margin-bottom: 72px;
+}
+.greeting-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+.greeting h1 {
+  font-size: 56px;
+  font-weight: 200;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--ink);
+  margin-bottom: 18px;
+}
+.greeting h1 .accent {
+  font-style: italic;
+  color: var(--gold-soft);
+  font-weight: 200;
+}
+.greeting .sub {
+  font-size: 16px;
+  color: var(--ink-mute);
+  font-weight: 300;
+  max-width: 640px;
+  line-height: 1.6;
+  letter-spacing: 0.005em;
+}
+.gold-rule {
+  display: block;
+  width: 80px;
+  height: 1px;
+  background: var(--gold);
+  margin: 32px 0;
+  opacity: 0.7;
+}
+
+.pulse-strip {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  font-size: 12px;
+  color: var(--ink-mute);
+  letter-spacing: 0.04em;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.pulse-strip .item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pulse-strip .num {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 400;
+}
+.pulse-strip .label {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 9.5px;
+  color: var(--ink-faint);
+}
+.pulse-strip .ts {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* Section eyebrow */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  margin: 72px 0 28px;
+}
+.section-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+.section-title {
+  font-size: 13px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.section-tail {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Featured expert card */
+.expert-featured {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  gap: 48px;
+  padding: 40px 40px 36px;
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%);
+  border: 1px solid var(--border-soft);
+  border-left: 2px solid var(--liq);
+  position: relative;
+  cursor: pointer;
+  transition: all 0.4s;
+}
+.expert-featured:hover {
+  border-color: var(--border);
+  transform: translateX(2px);
+}
+
+.expert-featured .glyph {
+  font-size: 96px;
+  font-weight: 200;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  line-height: 1;
+  font-family: var(--sans);
+}
+.expert-featured .glyph .domain-letters { color: var(--liq); }
+.expert-featured .glyph-meta {
+  margin-top: 18px;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+.expert-featured .glyph-meta .name {
+  display: block;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.expert-featured .voice {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 200;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  font-style: italic;
+}
+.expert-featured .voice::before {
+  content: "“";
+  color: var(--gold);
+  font-size: 56px;
+  font-style: normal;
+  line-height: 0;
+  vertical-align: -22px;
+  margin-right: 8px;
+  margin-left: -12px;
+  opacity: 0.7;
+}
+.expert-featured .footnotes {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.footnote-label {
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-right: 4px;
+}
+.cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  border-bottom: 1px solid rgba(212, 166, 86, 0.3);
+  transition: border-color 0.2s;
+}
+.cite::before {
+  content: '◧';
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+.cite:hover { border-color: var(--gold); }
+.cite.num {
+  color: var(--ink-soft);
+}
+.cite.num::before { content: none; }
+
+.expert-featured .rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-left: 32px;
+  border-left: 1px solid var(--border-soft);
+}
+.rail-item {
+  font-size: 11px;
+  color: var(--ink-mute);
+  letter-spacing: 0.04em;
+}
+.rail-item .k {
+  display: block;
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+.rail-item .v { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.rail-item .v.neg { color: var(--red-soft); }
+.rail-item .v.pos { color: var(--green); }
+.rail-item .v .unit { color: var(--ink-mute); font-size: 11px; margin-left: 4px; }
+
+.expert-cta {
+  position: absolute;
+  bottom: 24px;
+  right: 32px;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.expert-cta::after {
+  content: "→";
+  font-family: var(--mono);
+  transition: transform 0.2s;
+}
+.expert-featured:hover .expert-cta::after { transform: translateX(4px); }
+
+/* Other experts grid */
+.experts-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.expert-cell {
+  padding: 28px 24px;
+  border-right: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background 0.3s;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+}
+.expert-cell:last-child { border-right: none; }
+.expert-cell:hover { background: var(--bg-2); }
+
+.expert-cell .code {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  margin-bottom: 10px;
+}
+.expert-cell .name {
+  font-size: 16px;
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.expert-cell .role {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 24px;
+}
+.expert-cell .tone {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-mute);
+  flex: 1;
+}
+.expert-cell .status {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.expert-cell .status .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+.expert-cell .status .text { color: var(--ink-mute); }
+.expert-cell .status.calm .dot { background: var(--green); }
+.expert-cell .status.calm .text { color: var(--green); }
+.expert-cell .status.alert .dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
+.expert-cell .status.alert .text { color: var(--red-soft); }
+.expert-cell .status.warm .dot { background: var(--gold); }
+.expert-cell .status.warm .text { color: var(--gold-soft); }
+
+.expert-cell .accent-line {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  opacity: 0.5;
+}
+
+/* Ask bar — global question */
+.ask-bar {
+  margin: 88px 0 0;
+  padding: 32px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.ask-bar .label {
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+  white-space: nowrap;
+}
+.ask-bar input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 18px;
+  padding: 4px 0;
+  outline: none;
+  letter-spacing: -0.005em;
+}
+.ask-bar input::placeholder { color: var(--ink-faint); }
+.ask-bar .send {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink-faint);
+  padding: 8px;
+}
+
+/* Footer producer link */
+.footer-producer {
+  margin-top: 96px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.footer-producer a {
+  color: var(--ink-mute);
+  transition: color 0.2s;
+}
+.footer-producer a:hover { color: var(--gold); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Expert detail view
+   ───────────────────────────────────────────────────────────────────────── */
+.expert-page { display: none; }
+.expert-page.active { display: block; }
+
+.expert-hero {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 64px;
+  margin-bottom: 72px;
+}
+
+.expert-id {
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
+  margin-bottom: 32px;
+}
+.expert-glyph-big {
+  font-size: 132px;
+  font-weight: 200;
+  letter-spacing: 0.06em;
+  line-height: 0.9;
+  color: var(--liq);
+}
+.expert-id .meta { padding-top: 12px; }
+.expert-id .domain-label {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+}
+.expert-id h2 {
+  font-size: 44px;
+  font-weight: 200;
+  letter-spacing: -0.015em;
+  margin-bottom: 8px;
+}
+.expert-id .subtitle {
+  font-size: 14px;
+  color: var(--ink-mute);
+  letter-spacing: 0.02em;
+  font-style: italic;
+}
+
+.briefing-prose {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+  font-weight: 300;
+  letter-spacing: -0.005em;
+  max-width: 640px;
+}
+.briefing-prose p { margin-bottom: 22px; }
+.briefing-prose .lead {
+  font-size: 22px;
+  color: var(--ink);
+  font-style: italic;
+}
+.briefing-prose sup {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--gold);
+  margin-left: 2px;
+  font-style: normal;
+  cursor: pointer;
+}
+.briefing-prose strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.expert-sidebar {
+  border-left: 1px solid var(--border-soft);
+  padding-left: 48px;
+}
+.expert-sidebar .panel + .panel { margin-top: 48px; }
+.panel-title {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.metric-row:last-child { border-bottom: none; }
+.metric-row .k { font-size: 11px; color: var(--ink-mute); letter-spacing: 0.02em; }
+.metric-row .v { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.metric-row .v.neg { color: var(--red-soft); }
+.metric-row .v.pos { color: var(--green); }
+.metric-row .v .delta {
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-left: 6px;
+}
+
+/* Citation gallery — the dashboards/blocks */
+.citations {
+  margin-top: 24px;
+}
+.citation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+}
+.citation-card {
+  background: var(--bg-1);
+  padding: 22px 22px 20px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+}
+.citation-card:hover { background: var(--bg-2); }
+.citation-card .ref {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+}
+.citation-card .title {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.citation-card .src {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+.citation-card .preview {
+  margin-top: 14px;
+  height: 56px;
+  border-radius: 1px;
+  position: relative;
+  overflow: hidden;
+}
+.citation-card .preview svg { width: 100%; height: 100%; display: block; }
+.citation-card .badges {
+  margin-top: 12px;
+  display: flex;
+  gap: 6px;
+}
+.citation-card .badge {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  background: var(--bg-3);
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+.expert-question {
+  margin-top: 64px;
+  padding: 32px 0 0;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.expert-question .label {
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.expert-question input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 17px;
+  padding: 8px 0;
+  outline: none;
+}
+.expert-question input:focus { border-color: var(--gold); }
+
+/* Related experts at bottom of detail */
+.related {
+  margin-top: 72px;
+}
+.related-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+.related-card {
+  padding: 20px;
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.related-card:hover { border-color: var(--border); }
+.related-card .code { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: 0.18em; margin-bottom: 8px; }
+.related-card .name { font-size: 14px; color: var(--ink); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Atölye view — producer mode pipeline
+   ───────────────────────────────────────────────────────────────────────── */
+.atolye-page { display: none; }
+.atolye-page.active { display: block; }
+
+.atolye-intro {
+  margin-bottom: 56px;
+}
+.atolye-intro .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 20px;
+}
+.atolye-intro h2 {
+  font-size: 48px;
+  font-weight: 200;
+  letter-spacing: -0.015em;
+  margin-bottom: 18px;
+}
+.atolye-intro .sub {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--ink-mute);
+  max-width: 720px;
+  line-height: 1.65;
+}
+
+.pipeline {
+  margin: 0 0 48px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  position: relative;
+}
+
+.pipeline-arrow {
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 1px;
+  background: var(--gold);
+  transform: translateY(-50%);
+}
+.pipeline-arrow.a1 { left: 33.33%; transform: translate(-50%, -50%); }
+.pipeline-arrow.a2 { left: 66.66%; transform: translate(-50%, -50%); }
+.pipeline-arrow::after {
+  content: '';
+  position: absolute;
+  right: -1px; top: -3px;
+  border-left: 6px solid var(--gold);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+}
+
+.stage {
+  padding: 36px 32px 32px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: all 0.3s;
+  position: relative;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+.stage + .stage { border-left: none; }
+.stage:hover {
+  background: var(--bg-2);
+}
+.stage.current {
+  background: var(--bg-2);
+  border-color: var(--gold);
+}
+
+.stage-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+  margin-bottom: 16px;
+}
+.stage-name {
+  font-size: 28px;
+  font-weight: 200;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+.stage-tag {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 24px;
+}
+.stage-desc {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-mute);
+  margin-bottom: 28px;
+  letter-spacing: 0.005em;
+  font-family: var(--serif);
+  font-style: italic;
+}
+.stage-items {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  border-top: 1px solid var(--border-soft);
+  flex: 1;
+}
+.stage-items li {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+}
+.stage-items li .when {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+.stage-items li .icon {
+  width: 14px; height: 14px;
+  border: 1px solid var(--border);
+  display: inline-block;
+  position: relative;
+}
+.stage-items li .icon.t-block::after {
+  content: ''; position: absolute; inset: 3px; background: var(--liq);
+}
+.stage-items li .icon.t-snap::after {
+  content: ''; position: absolute; inset: 0; background: transparent;
+  border-left: 14px solid var(--gold);
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  left: -1px;
+  width: 0; height: 0;
+}
+.stage-items li .icon.t-proc::after {
+  content: ''; position: absolute; inset: 2px; border: 1px solid var(--green); border-radius: 50%;
+}
+.stage-action {
+  padding: 10px 18px;
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-align: center;
+  transition: all 0.2s;
+}
+.stage-action:hover {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+
+/* Pipeline overview header */
+.atolye-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 56px;
+}
+.stat-cell {
+  padding: 24px 32px;
+  border-right: 1px solid var(--border-soft);
+}
+.stat-cell:last-child { border-right: none; }
+.stat-cell .label {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 10px;
+}
+.stat-cell .value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 300;
+  color: var(--ink);
+}
+.stat-cell .value .unit {
+  font-size: 12px;
+  color: var(--ink-mute);
+  margin-left: 4px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Save modal — Phase 10 bound_experts UI
+   ───────────────────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 26, 0.85);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 200;
+  padding: 64px 32px;
+  overflow-y: auto;
+}
+.modal-backdrop.active { display: flex; }
+
+.modal {
+  width: 640px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  position: relative;
+}
+
+.modal-head {
+  padding: 28px 32px 22px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.modal-head .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 10px;
+}
+.modal-head h3 {
+  font-size: 24px;
+  font-weight: 200;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.modal-close {
+  position: absolute;
+  top: 22px; right: 24px;
+  font-size: 18px;
+  color: var(--ink-faint);
+  padding: 6px;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--ink); }
+
+.modal-body {
+  padding: 28px 32px 16px;
+}
+.field { margin-bottom: 26px; }
+.field-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin-bottom: 10px;
+}
+.field-help {
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-top: 6px;
+  font-style: italic;
+  letter-spacing: 0.005em;
+}
+.field input[type="text"], .field textarea {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.field input[type="text"]:focus, .field textarea:focus { border-color: var(--gold); }
+.field textarea { min-height: 56px; resize: vertical; }
+
+/* bound_experts — the key field */
+.field.experts {
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%);
+  padding: 22px 22px 18px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--gold);
+  margin: 0 -8px 26px;
+}
+.field.experts .field-label {
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+.field.experts .field-intro {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-mute);
+  margin-bottom: 16px;
+  line-height: 1.55;
+}
+.expert-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.expert-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  font-size: 12px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.01em;
+}
+.expert-chip:hover { border-color: var(--border); color: var(--ink-soft); }
+.expert-chip.on {
+  background: var(--bg-3);
+  color: var(--ink);
+  border-color: var(--gold);
+}
+.expert-chip .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+.expert-chip .code {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+.expert-chip.on .code { color: var(--gold); }
+.expert-chip.suggested {
+  border-style: dashed;
+}
+.expert-chip .suggest-flag {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-left: 2px;
+}
+
+.modal-foot {
+  padding: 18px 32px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-0);
+}
+.modal-foot .skip {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.modal-foot .skip:hover { color: var(--ink-mute); }
+.modal-foot .actions { display: flex; gap: 12px; }
+.btn {
+  padding: 10px 22px;
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  color: var(--ink-mute);
+  transition: all 0.2s;
+}
+.btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+.btn.primary {
+  background: var(--gold);
+  color: var(--bg-0);
+  border-color: var(--gold);
+  font-weight: 500;
+}
+.btn.primary:hover { background: var(--gold-soft); border-color: var(--gold-soft); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Floating design-note overlay (devkit)
+   ───────────────────────────────────────────────────────────────────────── */
+.devkit {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  padding: 14px 18px;
+  z-index: 300;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+.devkit .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 8px var(--gold);
+}
+.devkit a { color: var(--ink-mute); padding: 4px 8px; }
+.devkit a:hover { color: var(--gold); }
+.devkit a.on { color: var(--gold); border-bottom: 1px solid var(--gold); }
+
+/* page transitions */
+.page { display: none; }
+.page.active { display: block; animation: fade 0.4s ease-out; }
+@keyframes fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Domain accent helpers */
+.expert-cell[data-domain="liq"] .accent-line { background: var(--liq); }
+.expert-cell[data-domain="dep"] .accent-line { background: var(--dep); }
+.expert-cell[data-domain="fnd"] .accent-line { background: var(--fnd); }
+.expert-cell[data-domain="nii"] .accent-line { background: var(--nii); }
+.expert-cell[data-domain="sec"] .accent-line { background: var(--sec); }
+.expert-cell[data-domain="krd"] .accent-line { background: var(--krd); }
+
+.expert-cell[data-domain="liq"] .code { color: var(--liq); }
+.expert-cell[data-domain="dep"] .code { color: var(--dep); }
+.expert-cell[data-domain="fnd"] .code { color: var(--fnd); }
+.expert-cell[data-domain="nii"] .code { color: var(--ink-soft); }
+.expert-cell[data-domain="sec"] .code { color: var(--sec); }
+.expert-cell[data-domain="krd"] .code { color: var(--krd); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Atölye sidebar — only visible in atolye mode
+   ───────────────────────────────────────────────────────────────────────── */
+.app.in-atolye { display: grid; grid-template-columns: 240px 1fr; grid-template-rows: 56px 1fr; }
+.app.in-atolye .topbar { grid-column: 1 / -1; }
+.app.in-atolye .atolye-sidebar { display: flex; }
+.app.in-atolye .canvas { padding: 48px 64px 96px; }
+
+.atolye-sidebar {
+  display: none;
+  flex-direction: column;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border-soft);
+  padding: 32px 0 32px;
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+}
+.sidebar-group { padding: 0 24px; margin-bottom: 28px; }
+.sidebar-label {
+  font-size: 9px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0 9px 8px;
+  margin-left: -8px;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 2px solid transparent;
+  letter-spacing: 0.005em;
+}
+.sidebar-item:hover { color: var(--ink); background: var(--bg-2); }
+.sidebar-item.on { color: var(--ink); border-left-color: var(--gold); background: var(--bg-2); }
+.sidebar-item .num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  width: 18px;
+}
+.sidebar-item.on .num { color: var(--gold); }
+.sidebar-item .label-text { flex: 1; }
+.sidebar-item .badge {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  background: var(--bg-3);
+  padding: 2px 6px;
+  letter-spacing: 0.04em;
+}
+.sidebar-item.on .badge { background: var(--bg-elev); color: var(--gold); }
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--border-soft);
+  margin: 12px 24px 20px;
+}
+
+.sidebar-back {
+  margin-top: auto;
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.sidebar-back:hover { color: var(--gold); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Library screens (Blok / Tablo / Şablon) — shared structure
+   ───────────────────────────────────────────────────────────────────────── */
+.lib-page { display: none; }
+.lib-page.active { display: block; animation: fade 0.4s ease-out; }
+
+.lib-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 36px;
+  gap: 32px;
+}
+.lib-head .lh-left h2 {
+  font-size: 38px;
+  font-weight: 200;
+  letter-spacing: -0.015em;
+  margin-bottom: 8px;
+}
+.lib-head .lh-left .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 14px;
+}
+.lib-head .lh-left .sub {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-mute);
+  line-height: 1.55;
+  max-width: 540px;
+}
+.lib-head .lh-right { display: flex; gap: 10px; align-items: center; }
+
+.lib-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  padding: 8px 14px;
+  background: var(--bg-1);
+  min-width: 260px;
+}
+.lib-search input {
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 12.5px;
+  outline: none;
+  flex: 1;
+  font-family: var(--sans);
+  letter-spacing: 0.005em;
+}
+.lib-search input::placeholder { color: var(--ink-faint); font-style: italic; }
+.lib-search .icon { color: var(--ink-faint); font-family: var(--mono); font-size: 13px; }
+
+.lib-cta {
+  padding: 9px 16px;
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.lib-cta:hover { background: var(--gold); color: var(--bg-0); }
+
+.lib-filters {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 32px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.filter-group { display: flex; align-items: center; gap: 10px; }
+.filter-group .gl {
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.filter-group .gp {
+  font-family: var(--mono);
+  color: var(--ink-mute);
+  padding: 3px 10px;
+  border: 1px solid var(--border-soft);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.filter-group .gp.on { border-color: var(--gold); color: var(--gold); }
+.filter-group .gp:hover { color: var(--ink-soft); }
+
+.lib-meta-bar {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin-left: auto;
+  letter-spacing: 0.04em;
+}
+
+/* Block grid (denser than citation grid) */
+.block-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+}
+.block-card {
+  background: var(--bg-1);
+  padding: 18px 18px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+.block-card:hover { background: var(--bg-2); }
+.block-card .bc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.block-card .bc-type {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.block-card .bc-dots { display: flex; gap: 4px; }
+.block-card .bc-dot { width: 7px; height: 7px; border-radius: 50%; }
+.block-card .bc-title {
+  font-size: 13px;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  margin-bottom: 6px;
+  line-height: 1.35;
+}
+.block-card .bc-id {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+}
+.block-card .bc-preview {
+  flex: 1;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.block-card .bc-preview svg { width: 100%; height: 60px; }
+.block-card .bc-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.block-card .bc-foot .live {
+  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.block-card .bc-foot .live::before {
+  content: ''; width: 5px; height: 5px; background: var(--green);
+  border-radius: 50%;
+}
+.block-card .bc-foot .draft { color: var(--ink-faint); }
+
+/* Table catalog list */
+.table-list {
+  border: 1px solid var(--border-soft);
+}
+.table-row {
+  display: grid;
+  grid-template-columns: 1fr 90px 110px 90px 100px 60px;
+  padding: 14px 22px;
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.table-row:hover { background: var(--bg-2); }
+.table-row:last-child { border-bottom: none; }
+.table-row.header {
+  background: var(--bg-0);
+  cursor: default;
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-family: var(--sans);
+  padding: 10px 22px;
+}
+.table-row.header:hover { background: var(--bg-0); }
+.table-row .tname {
+  font-family: var(--mono);
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.005em;
+}
+.table-row .tdesc {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  margin-top: 3px;
+}
+.table-row .tcell {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-mute);
+  letter-spacing: 0.04em;
+}
+.table-row .tdomain {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.table-row .freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--ink-mute);
+}
+.table-row .freshness .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+}
+.table-row .freshness .dot.fresh { background: var(--green); }
+.table-row .freshness .dot.stale { background: var(--gold); }
+.table-row .freshness .dot.old   { background: var(--red); }
+.table-row .tact { color: var(--gold); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; text-align: right; }
+
+.domain-divider {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 20px 22px 14px;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--border-soft);
+}
+.domain-divider .dcode {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--gold);
+  letter-spacing: 0.22em;
+}
+.domain-divider .dname {
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.domain-divider .dline { flex: 1; height: 1px; background: var(--border-soft); }
+
+/* Template grid */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+}
+.template-card {
+  background: var(--bg-1);
+  padding: 24px 22px 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+  position: relative;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.template-card:hover { background: var(--bg-2); }
+.template-card .tc-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  margin-bottom: 14px;
+}
+.template-card .tc-name {
+  font-size: 18px;
+  font-weight: 300;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+.template-card .tc-desc {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-mute);
+  margin-bottom: 18px;
+  flex: 1;
+}
+.template-card .tc-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.template-card .tc-foot .usage { color: var(--gold); }
+.template-card .tc-type {
+  position: absolute;
+  top: 18px; right: 22px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border: 1px solid var(--border-soft);
+  padding: 2px 7px;
+}
+
+/* Process Observatory (Süreç İzleme) */
+.process-stream {
+  position: relative;
+  padding-left: 24px;
+}
+.process-stream::before {
+  content: '';
+  position: absolute;
+  left: 9px; top: 0; bottom: 0;
+  width: 1px;
+  background: var(--border-soft);
+}
+.process-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 120px 140px 100px;
+  align-items: center;
+  padding: 18px 0 18px 24px;
+  border-bottom: 1px solid var(--border-soft);
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.process-row:hover { background: var(--bg-2); }
+.process-row::before {
+  content: '';
+  position: absolute;
+  left: -19px; top: 50%;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--bg-0);
+  border: 2px solid var(--border);
+  transform: translateY(-50%);
+}
+.process-row.active::before { border-color: var(--gold); background: var(--gold); }
+.process-row.done::before   { border-color: var(--green); background: var(--green); }
+.process-row.alert::before  { border-color: var(--red); background: var(--red); box-shadow: 0 0 10px var(--red); }
+
+.process-row .pwhen {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.process-row .ptitle .label {
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.process-row .ptitle .id {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.process-row .pstage {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.process-row .pstage.kesif    { color: var(--liq); }
+.process-row .pstage.hazirlik { color: var(--gold); }
+.process-row .pstage.sunum    { color: var(--dep); }
+
+.process-row .pwho {
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+.process-row .pwho .role {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  display: block;
+  margin-top: 2px;
+}
+.process-row .pstat {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.process-row.active .pstat { color: var(--gold); }
+.process-row.done .pstat   { color: var(--green); }
+.process-row.alert .pstat  { color: var(--red-soft); }
+
+/* "Takip Edilen Raporlar" section on expert detail */
+.followed-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+}
+.followed-card {
+  background: var(--bg-1);
+  padding: 18px 18px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+  position: relative;
+}
+.followed-card:hover { background: var(--bg-2); }
+.followed-card .fc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.followed-card .fc-source {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+.followed-card .fc-flag {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+}
+.followed-card .fc-flag.updated {
+  background: rgba(74, 155, 110, 0.15);
+  color: var(--green);
+}
+.followed-card .fc-flag.attention {
+  background: rgba(184, 84, 80, 0.15);
+  color: var(--red-soft);
+}
+.followed-card .fc-title {
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.followed-card .fc-meta {
+  display: flex;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-bottom: 14px;
+}
+.followed-card .fc-spark {
+  height: 32px;
+}
+.followed-card .fc-spark svg { width: 100%; height: 100%; }
+.followed-add {
+  background: var(--bg-0);
+  border: 1px dashed var(--border);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.followed-add:hover { border-color: var(--gold); color: var(--gold); }
+.followed-add .plus {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 200;
+  margin-bottom: 6px;
+}
+
+/* Stage card "view all" link */
+.stage-viewall {
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color 0.2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.stage-viewall:hover { color: var(--gold); }
+</style>
+</head>
+
+<body>
+
+<div class="app" id="appShell">
+
+  <!-- ─── Top Bar (always present) ──────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand" onclick="goto('landing')">
+      <div class="brand-mark">PR<span class="i">I</span>SM<span class="a">A</span></div>
+      <div class="brand-tag" id="brandCrumb">Hazine · Mayıs 2026</div>
+    </div>
+
+    <div class="crumb" id="centerCrumb"></div>
+
+    <div class="topbar-right">
+      <div class="mode-toggle">
+        <button id="modeConsumer" class="on" onclick="goto('landing')">Tüketici</button>
+        <button id="modeProducer" onclick="goto('atolye')">Atölye</button>
+      </div>
+      <div class="user-chip">
+        <div class="avatar">KK</div>
+        <div class="meta">
+          <div>Kubilay Karatopçu</div>
+          <div class="role">Bilanço Yönetimi · A16438</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ─── Atölye Sidebar (only visible when in atolye mode) ────────────── -->
+  <aside class="atolye-sidebar" id="atolyeSidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-label">Pipeline</div>
+      <div class="sidebar-item" data-target="atolye" onclick="goto('atolye')">
+        <span class="num">A·0</span>
+        <span class="label-text">Atölye Ana</span>
+      </div>
+      <div class="sidebar-item" data-target="kesif" onclick="goto('kesif')">
+        <span class="num">A·1</span>
+        <span class="label-text">Keşif</span>
+        <span class="badge">14</span>
+      </div>
+      <div class="sidebar-item" data-target="hazirlik" onclick="goto('hazirlik')">
+        <span class="num">A·2</span>
+        <span class="label-text">Hazırlık</span>
+        <span class="badge">6</span>
+      </div>
+      <div class="sidebar-item" data-target="sunum" onclick="goto('sunum')">
+        <span class="num">A·3</span>
+        <span class="label-text">Sunum</span>
+        <span class="badge">12</span>
+      </div>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-label">Kütüphane</div>
+      <div class="sidebar-item" data-target="tablolar" onclick="goto('tablolar')">
+        <span class="num">⊟</span>
+        <span class="label-text">Tablolar</span>
+        <span class="badge">47</span>
+      </div>
+      <div class="sidebar-item" data-target="bloklar" onclick="goto('bloklar')">
+        <span class="num">▦</span>
+        <span class="label-text">Bloklar</span>
+        <span class="badge">182</span>
+      </div>
+      <div class="sidebar-item" data-target="sablonlar" onclick="goto('sablonlar')">
+        <span class="num">◇</span>
+        <span class="label-text">Şablonlar</span>
+        <span class="badge">28</span>
+      </div>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-label">Meta</div>
+      <div class="sidebar-item" data-target="surec" onclick="goto('surec')">
+        <span class="num">∿</span>
+        <span class="label-text">Süreç İzleme</span>
+        <span class="badge">8</span>
+      </div>
+      <div class="sidebar-item">
+        <span class="num">◔</span>
+        <span class="label-text">Etki Paneli</span>
+      </div>
+    </div>
+
+    <div class="sidebar-back" onclick="goto('landing')">← Ana Ekran</div>
+  </aside>
+
+  <main class="canvas">
+
+    <!-- ─── PAGE: Landing ─────────────────────────────────────────────── -->
+    <section class="page page-landing active" id="page-landing">
+
+      <div class="greeting">
+        <div class="greeting-eyebrow">25 Mayıs 2026 · Pazartesi</div>
+        <h1>Günaydın, Kubilay.<br>Uzmanların <span class="accent">seni bekliyor.</span></h1>
+        <div class="sub">
+          Gece boyunca altı uzman 1047 veri yaprağını taradı.
+          Sabah brifingleri hazır — başlangıç için Likidite öncelikli, 5 anormallik bildirdi.
+        </div>
+        <span class="gold-rule"></span>
+        <div class="pulse-strip">
+          <div class="item"><span class="num">1047</span><span class="label">Aktif Agent</span></div>
+          <div class="item"><span class="num">312</span><span class="label">Yorum Bu Gece</span></div>
+          <div class="item"><span class="num">8</span><span class="label">Anormallik</span></div>
+          <div class="item"><span class="num">4</span><span class="label">Aksiyon Önerisi</span></div>
+          <span class="ts">son güncelleme · 06:42 TSI</span>
+        </div>
+      </div>
+
+      <!-- Featured expert (today's lead — LIQ for Bilanço Yönetimi role) -->
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <span class="section-title">Senin İçin Bu Sabah</span>
+        <span class="section-tail"></span>
+      </div>
+
+      <div class="expert-featured" onclick="goto('expert-liq')">
+        <div>
+          <div class="glyph"><span class="domain-letters">LIQ</span></div>
+          <div class="glyph-meta">
+            <span class="name">Likidite Uzmanı</span>
+            <span>178 veri yaprağı</span>
+          </div>
+        </div>
+
+        <div>
+          <p class="voice">
+            Gece boyunca LCR oranı %118'e geriledi — dün %125'ti.
+            Toplam tampon eksilişi 1.2 milyar TL, çoğunlukla
+            kurumsal mevduat çıkışından. Repo kanalı açık ama kısa vadeli
+            fiyatlama 50 baz puan yukarı kaydı. Sabah toplantına şu üç
+            başlığı hazırladım.
+          </p>
+          <div class="footnotes">
+            <span class="footnote-label">Kaynakça</span>
+            <span class="cite">lcr-trend-30d</span>
+            <span class="cite">repo-volume</span>
+            <span class="cite">tampon-decom</span>
+            <span class="cite">corp-deposit-out</span>
+          </div>
+        </div>
+
+        <div class="rail">
+          <div class="rail-item">
+            <span class="k">LCR</span>
+            <span class="v neg">%118.4 <span class="unit">−6.6pt</span></span>
+          </div>
+          <div class="rail-item">
+            <span class="k">Likidite Tamponu</span>
+            <span class="v">12.4 mlr TL</span>
+          </div>
+          <div class="rail-item">
+            <span class="k">Repo Maliyeti O/N</span>
+            <span class="v neg">%48.50 <span class="unit">+50bp</span></span>
+          </div>
+          <div class="rail-item">
+            <span class="k">Anormallik</span>
+            <span class="v neg">5</span>
+          </div>
+        </div>
+
+        <span class="expert-cta">Brifingi aç</span>
+      </div>
+
+      <!-- Other experts grid -->
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <span class="section-title">Diğer Uzmanlar</span>
+        <span class="section-tail"></span>
+      </div>
+
+      <div class="experts-grid">
+        <div class="expert-cell" data-domain="dep" onclick="goto('expert-dep')">
+          <div class="code">DEP</div>
+          <div class="name">Mevduat</div>
+          <div class="role">Pasif Yönetimi</div>
+          <div class="tone">
+            Kurumsal mevduat dünden %0.8 daldı, vade ortalaması 21 güne düştü.
+            Bireysel taraf sakin.
+          </div>
+          <div class="status alert">
+            <span class="dot"></span>
+            <span class="text">2 anormallik</span>
+          </div>
+          <div class="accent-line"></div>
+        </div>
+
+        <div class="expert-cell" data-domain="fnd" onclick="goto('expert-fnd')">
+          <div class="code">FND</div>
+          <div class="name">Fonlama</div>
+          <div class="role">Likidite Tedariki</div>
+          <div class="tone">
+            Eurobond piyasası gece açıldı, 5y spread −12bp. Yeni ihraç
+            penceresi bu hafta uygun görünüyor.
+          </div>
+          <div class="status warm">
+            <span class="dot"></span>
+            <span class="text">Fırsat Bildirisi</span>
+          </div>
+          <div class="accent-line"></div>
+        </div>
+
+        <div class="expert-cell" data-domain="nii" onclick="goto('expert-nii')">
+          <div class="code">NII</div>
+          <div class="name">NII</div>
+          <div class="role">Net Faiz Geliri</div>
+          <div class="tone">
+            +100bp paralel şokta üç aylık NII duyarlılığı %4.2'ye yükseldi.
+            Hassasiyet eşiği aşılmadı.
+          </div>
+          <div class="status calm">
+            <span class="dot"></span>
+            <span class="text">Sakin</span>
+          </div>
+          <div class="accent-line"></div>
+        </div>
+
+        <div class="expert-cell" data-domain="sec" onclick="goto('expert-sec')">
+          <div class="code">SEC</div>
+          <div class="name">Security</div>
+          <div class="role">Menkul Kıymet Portföyü</div>
+          <div class="tone">
+            Tutulan-vadeye portföy MtM −340 mio TL bandında. AFS bandı stabil.
+            HTM'e taşıma kararı bekliyor.
+          </div>
+          <div class="status alert">
+            <span class="dot"></span>
+            <span class="text">1 anormallik</span>
+          </div>
+          <div class="accent-line"></div>
+        </div>
+
+        <div class="expert-cell" data-domain="krd" onclick="goto('expert-krd')">
+          <div class="code">KRD</div>
+          <div class="name">Kredi</div>
+          <div class="role">Aktif Yönetimi</div>
+          <div class="tone">
+            TL kredi büyümesi haftalık %0.6, sektör ortalamasının altında.
+            Risk iştahı yatay seyrediyor.
+          </div>
+          <div class="status calm">
+            <span class="dot"></span>
+            <span class="text">Sakin</span>
+          </div>
+          <div class="accent-line"></div>
+        </div>
+      </div>
+
+      <!-- Ask bar -->
+      <div class="ask-bar">
+        <span class="label">Sor</span>
+        <input type="text" placeholder="Bütün uzmanlara sor — örneğin “fon maliyetimiz nereye gidiyor?”">
+        <button class="send">↵</button>
+      </div>
+
+      <!-- Producer footer link -->
+      <div class="footer-producer">
+        <span>Üretim tarafı</span>
+        <span><a href="#" onclick="goto('atolye'); return false;">Atölye →</a></span>
+        <span>· Bloklarım</span>
+        <span>· Snapshot'larım</span>
+        <span>· Veri Katoloğu</span>
+      </div>
+
+    </section>
+
+    <!-- ─── PAGE: Expert detail (LIQ) ─────────────────────────────────── -->
+    <section class="page page-expert" id="page-expert-liq">
+
+      <div class="expert-id">
+        <div class="expert-glyph-big">LIQ</div>
+        <div class="meta">
+          <div class="domain-label">L2 · Domain Curator</div>
+          <h2>Likidite Uzmanı</h2>
+          <div class="subtitle">178 veri yaprağı · son sentez 06:42 TSI</div>
+        </div>
+      </div>
+
+      <div class="expert-hero">
+
+        <div class="briefing-prose">
+          <p class="lead">
+            Bu sabah likidite tarafı kırmızı bir uyarıyla açıldı.
+            Önemli ama paniği gerektirmeyen bir durum — sana adım adım anlatayım.
+          </p>
+
+          <p>
+            Gece boyunca <strong>LCR oranı %118.4'e</strong> gerilemişti, dün kapanışta %125 seviyesindeydik.
+            Buradaki 6.6 puanlık düşüşün <strong>%70'i kurumsal mevduat çıkışından</strong>
+            geliyor — özellikle TL tarafta üç büyük müşterinin gece geçişinde
+            toplam 880 milyon TL'lik vade yenilememesi belirleyici oldu.<sup>1</sup>
+          </p>
+
+          <p>
+            <strong>Repo kanalı açık ve fonlanabilir</strong>, ancak fiyatlama uçtu —
+            gecelik repo maliyeti %48.50'ye, dünkü kapanışın 50 baz puan üzerine
+            kaydı. Yapılandırılmış swap havuzunda kullanılabilir limitin %62'si
+            hâlâ açık, acil kullanım gerekmiyor.<sup>2</sup>
+          </p>
+
+          <p>
+            <strong>Sabah toplantına şu üç başlığı önereceğim:</strong> tampon
+            yeniden inşa planı (haftalık 200 mio TL), kurumsal mevduat tarafında
+            müşteri ilişkileri ekibinin vade uzatma temasını gündeme alması,
+            ve repo fiyatlamasının sabit kalması halinde NII tarafına gelecek
+            yansımanın projeksiyonu.<sup>3</sup>
+          </p>
+
+          <p>
+            Bunların her birinin altındaki veri ve hesaplamalar sağda — istediğinde
+            daha derin bir kesite indirebilirim.
+          </p>
+        </div>
+
+        <aside class="expert-sidebar">
+          <div class="panel">
+            <div class="panel-title">Anahtar Göstergeler</div>
+            <div class="metric-row">
+              <span class="k">LCR</span>
+              <span class="v neg">%118.4 <span class="delta">−6.6pt</span></span>
+            </div>
+            <div class="metric-row">
+              <span class="k">NSFR</span>
+              <span class="v">%112.0 <span class="delta">±0</span></span>
+            </div>
+            <div class="metric-row">
+              <span class="k">Likidite Tamponu</span>
+              <span class="v">12.4 mlr TL</span>
+            </div>
+            <div class="metric-row">
+              <span class="k">Repo Maliyeti O/N</span>
+              <span class="v neg">%48.50 <span class="delta">+50bp</span></span>
+            </div>
+            <div class="metric-row">
+              <span class="k">Swap Havuzu Açık</span>
+              <span class="v pos">%62</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">İlişkili Uzmanlar</div>
+            <div class="metric-row">
+              <span class="k">DEP — Mevduat</span>
+              <span class="v" style="color:var(--gold)">↗ kaynak</span>
+            </div>
+            <div class="metric-row">
+              <span class="k">FND — Fonlama</span>
+              <span class="v" style="color:var(--gold)">↗ kaynak</span>
+            </div>
+            <div class="metric-row">
+              <span class="k">NII</span>
+              <span class="v" style="color:var(--gold)">↗ etki</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <span class="section-title">Kaynakça · Dayanak Bloklar</span>
+        <span class="section-tail"></span>
+      </div>
+
+      <div class="citations">
+        <div class="citation-grid">
+
+          <div class="citation-card">
+            <div class="ref">[01] · LCR-TREND-30D</div>
+            <div class="title">LCR — Son 30 Günlük Trend</div>
+            <div class="src">snapshot · likidite-haftalik · v12</div>
+            <div class="preview">
+              <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                <polyline points="0,18 30,16 60,14 90,16 120,12 150,18 180,28 210,40 240,46"
+                          stroke="#6B8AFD" stroke-width="1.5" fill="none"/>
+                <polyline points="0,8 240,8" stroke="#2A3043" stroke-dasharray="2,3" stroke-width="1" fill="none"/>
+              </svg>
+            </div>
+            <div class="badges">
+              <span class="badge">line</span>
+              <span class="badge">edw</span>
+              <span class="badge">v12</span>
+            </div>
+          </div>
+
+          <div class="citation-card">
+            <div class="ref">[02] · REPO-VOLUME</div>
+            <div class="title">Gecelik Repo İşlem Hacmi & Fiyat</div>
+            <div class="src">block · liq.repo_overnight · v4</div>
+            <div class="preview">
+              <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                <g fill="#D4A656">
+                  <rect x="10" y="30" width="18" height="22"/>
+                  <rect x="38" y="26" width="18" height="26"/>
+                  <rect x="66" y="34" width="18" height="18"/>
+                  <rect x="94" y="22" width="18" height="30"/>
+                  <rect x="122" y="18" width="18" height="34"/>
+                  <rect x="150" y="14" width="18" height="38"/>
+                  <rect x="178" y="20" width="18" height="32"/>
+                  <rect x="206" y="10" width="18" height="42"/>
+                </g>
+              </svg>
+            </div>
+            <div class="badges">
+              <span class="badge">bar</span>
+              <span class="badge">edw</span>
+              <span class="badge">v4</span>
+            </div>
+          </div>
+
+          <div class="citation-card">
+            <div class="ref">[03] · TAMPON-DECOM</div>
+            <div class="title">Likidite Tamponu — Bileşen Ayrışımı</div>
+            <div class="src">block · liq.buffer_decomp · v7</div>
+            <div class="preview">
+              <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                <rect x="0" y="20" width="92" height="20" fill="#4A9B6E"/>
+                <rect x="92" y="20" width="64" height="20" fill="#6B8AFD"/>
+                <rect x="156" y="20" width="48" height="20" fill="#D4A656"/>
+                <rect x="204" y="20" width="36" height="20" fill="#5A6478"/>
+              </svg>
+            </div>
+            <div class="badges">
+              <span class="badge">stack</span>
+              <span class="badge">edw</span>
+              <span class="badge">v7</span>
+            </div>
+          </div>
+
+          <div class="citation-card">
+            <div class="ref">[04] · CORP-DEPOSIT-OUT</div>
+            <div class="title">Kurumsal Mevduat Çıkışları — Müşteri Seviyesi</div>
+            <div class="src">block · dep.corp_outflow · v9</div>
+            <div class="preview">
+              <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                <g stroke="#B85450" stroke-width="1" fill="none">
+                  <line x1="0" y1="28" x2="240" y2="28" stroke="#2A3043"/>
+                </g>
+                <g fill="#B85450">
+                  <rect x="20" y="28" width="16" height="20"/>
+                  <rect x="60" y="28" width="16" height="14"/>
+                  <rect x="100" y="28" width="16" height="22"/>
+                  <rect x="140" y="14" width="16" height="14"/>
+                  <rect x="180" y="20" width="16" height="8"/>
+                  <rect x="220" y="22" width="16" height="6"/>
+                </g>
+              </svg>
+            </div>
+            <div class="badges">
+              <span class="badge">deviation</span>
+              <span class="badge">edw</span>
+              <span class="badge">v9</span>
+            </div>
+          </div>
+
+          <div class="citation-card">
+            <div class="ref">[05] · SWAP-LIMIT-USE</div>
+            <div class="title">Swap Havuzu Limit Kullanım Eğrisi</div>
+            <div class="src">block · fnd.swap_util · v3</div>
+            <div class="preview">
+              <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                <path d="M0,48 L40,42 L80,38 L120,30 L160,22 L200,18 L240,16" 
+                      stroke="#B6BECD" stroke-width="1.5" fill="none"/>
+                <path d="M0,48 L40,42 L80,38 L120,30 L160,22 L200,18 L240,16 L240,56 L0,56 Z"
+                      fill="url(#nii-grad)" opacity="0.2"/>
+                <defs>
+                  <linearGradient id="nii-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#B6BECD"/>
+                    <stop offset="100%" stop-color="#B6BECD" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <div class="badges">
+              <span class="badge">area</span>
+              <span class="badge">edw</span>
+              <span class="badge">v3</span>
+            </div>
+          </div>
+
+          <div class="citation-card">
+            <div class="ref">[06] · LCR-RECOVERY-PLAN</div>
+            <div class="title">Tampon Yeniden İnşa Senaryosu — 4 Hafta</div>
+            <div class="src">snapshot · sim.lcr_recovery · v2</div>
+            <div class="preview">
+              <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                <polyline points="0,40 60,32 120,22 180,16 240,10"
+                          stroke="#4A9B6E" stroke-width="1.5" fill="none" stroke-dasharray="3,2"/>
+                <polyline points="0,40 60,40 120,40 180,40 240,40"
+                          stroke="#5A6478" stroke-width="1" fill="none"/>
+              </svg>
+            </div>
+            <div class="badges">
+              <span class="badge">simulation</span>
+              <span class="badge">duckdb</span>
+              <span class="badge">v2</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="expert-question">
+        <span class="label">LIQ'ye sor</span>
+        <input type="text" placeholder="örneğin: bu çıkışlar haftalık ortalamayla kıyaslayınca neredeyiz?">
+      </div>
+
+      <!-- Takip Edilen Raporlar — user's bookmarked snapshots under this expert -->
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <span class="section-title">Takip Ettiğin Raporlar</span>
+        <span class="section-tail"></span>
+      </div>
+
+      <div class="followed-strip">
+        <div class="followed-card" onclick="alert('snapshot açılır → /presentations/snapshot/<sid>')">
+          <div class="fc-head">
+            <span class="fc-source">SNAPSHOT · S_8K2A</span>
+            <span class="fc-flag updated">Yenilendi</span>
+          </div>
+          <div class="fc-title">Haftalık Likidite Brifingi</div>
+          <div class="fc-meta">
+            <span>5 blok</span>
+            <span>her Pzt</span>
+            <span>v.18</span>
+          </div>
+          <div class="fc-spark">
+            <svg viewBox="0 0 240 32" preserveAspectRatio="none">
+              <polyline points="0,12 40,10 80,14 120,8 160,16 200,22 240,18"
+                        stroke="#6B8AFD" stroke-width="1.5" fill="none"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="followed-card" onclick="alert('snapshot açılır')">
+          <div class="fc-head">
+            <span class="fc-source">SNAPSHOT · S_3F9X</span>
+            <span class="fc-flag attention">Eşik Aşıldı</span>
+          </div>
+          <div class="fc-title">LCR Erken Uyarı Dashboard'u</div>
+          <div class="fc-meta">
+            <span>3 blok</span>
+            <span>günlük</span>
+            <span>v.42</span>
+          </div>
+          <div class="fc-spark">
+            <svg viewBox="0 0 240 32" preserveAspectRatio="none">
+              <polyline points="0,8 40,10 80,12 120,14 160,18 200,24 240,28"
+                        stroke="#B85450" stroke-width="1.5" fill="none"/>
+              <line x1="0" y1="20" x2="240" y2="20" stroke="#5A6478" stroke-dasharray="2,3" stroke-width="1"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="followed-card" onclick="alert('snapshot açılır')">
+          <div class="fc-head">
+            <span class="fc-source">SNAPSHOT · S_M2P1</span>
+            <span class="fc-flag updated">Aktif</span>
+          </div>
+          <div class="fc-title">Repo Piyasası · Gün İçi İzleme</div>
+          <div class="fc-meta">
+            <span>6 blok</span>
+            <span>15 dk</span>
+            <span>v.7</span>
+          </div>
+          <div class="fc-spark">
+            <svg viewBox="0 0 240 32" preserveAspectRatio="none">
+              <g fill="#D4A656">
+                <rect x="0" y="14" width="16" height="14"/>
+                <rect x="22" y="10" width="16" height="18"/>
+                <rect x="44" y="16" width="16" height="12"/>
+                <rect x="66" y="8" width="16" height="20"/>
+                <rect x="88" y="12" width="16" height="16"/>
+                <rect x="110" y="6" width="16" height="22"/>
+                <rect x="132" y="14" width="16" height="14"/>
+                <rect x="154" y="18" width="16" height="10"/>
+                <rect x="176" y="10" width="16" height="18"/>
+                <rect x="198" y="4" width="16" height="24"/>
+                <rect x="220" y="8" width="16" height="20"/>
+              </g>
+            </svg>
+          </div>
+        </div>
+
+        <div class="followed-add" onclick="alert('uzman altındaki diğer raporları gör')">
+          <span class="plus">+</span>
+          <span>Rapor Ekle</span>
+        </div>
+      </div>
+
+      <div class="related">
+        <div class="section-head">
+          <span class="section-num">05</span>
+          <span class="section-title">İlişkili Uzmanlar</span>
+          <span class="section-tail"></span>
+        </div>
+        <div class="related-list">
+          <div class="related-card" onclick="goto('expert-dep')">
+            <div class="code">DEP · Mevduat</div>
+            <div class="name">Bu sabahki çıkışların kaynağı burada — kurumsal vade yenilememe örüntüsü.</div>
+          </div>
+          <div class="related-card" onclick="goto('expert-fnd')">
+            <div class="code">FND · Fonlama</div>
+            <div class="name">Tamponu yeniden inşa için fonlama opsiyonları — eurobond penceresi açık.</div>
+          </div>
+          <div class="related-card" onclick="goto('expert-nii')">
+            <div class="code">NII</div>
+            <div class="name">Repo maliyetindeki 50bp sıçramanın NII'ye yansıması — duyarlılık tablosu.</div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ─── PAGE: Atölye (Producer) ───────────────────────────────────── -->
+    <section class="page atolye-page" id="page-atolye">
+
+      <div class="atolye-intro">
+        <div class="eyebrow">Atölye · Üretim Tarafı</div>
+        <h2>Uzmanların kaynakçaları burada üretiliyor.</h2>
+        <p class="sub">
+          Üç aşamada ilerlersin: <strong>Keşif</strong> ile tablo ve kavramları
+          dolaşırsın, <strong>Hazırlık</strong> ile bir scope çerçevesi kurarsın,
+          <strong>Sunum</strong>'da bloklarını ve snapshot'larını oluşturursun —
+          ve son adımda hangi uzmana bağlanacaklarını seçersin.
+        </p>
+      </div>
+
+      <div class="atolye-stats">
+        <div class="stat-cell">
+          <div class="label">Senin Bloklar</div>
+          <div class="value">47 <span class="unit">aktif</span></div>
+        </div>
+        <div class="stat-cell">
+          <div class="label">Snapshot'lar</div>
+          <div class="value">12 <span class="unit">paylaşılmış</span></div>
+        </div>
+        <div class="stat-cell">
+          <div class="label">Bağlı Uzman</div>
+          <div class="value">5 <span class="unit">/ 6</span></div>
+        </div>
+        <div class="stat-cell">
+          <div class="label">Toplam İzlenme</div>
+          <div class="value">3.2k <span class="unit">bu ay</span></div>
+        </div>
+      </div>
+
+      <div class="pipeline">
+
+        <div class="stage" onclick="goto('kesif')">
+          <div class="stage-num">A · 01</div>
+          <div class="stage-name">Keşif</div>
+          <div class="stage-tag">Tablo · Kavram · Graf</div>
+          <div class="stage-desc">
+            EDW kataloğunda dolaş. İlişkili tabloları, kavramları ve mevcut
+            blokları gör. Yeni bir görünüm fikrinin nereden besleneceğine
+            karar ver.
+          </div>
+          <ul class="stage-items">
+            <li><span class="icon t-block"></span>MEVDUAT_YETKILER · son 2 saat <span class="when">10:14</span></li>
+            <li><span class="icon t-block"></span>FX_POZ_GUNLUK <span class="when">dün</span></li>
+            <li><span class="icon t-block"></span>Kavram: "LCR_oranı" <span class="when">dün</span></li>
+            <li><span class="icon t-block"></span>Graf: kredi-mevduat ilişki <span class="when">2g önce</span></li>
+          </ul>
+          <div class="stage-viewall" onclick="event.stopPropagation(); goto('kesif')">
+            <span>Tümünü Gör · 14 oturum</span><span>→</span>
+          </div>
+          <div class="stage-action">Keşfe Devam</div>
+        </div>
+
+        <div class="stage" onclick="goto('hazirlik')">
+          <div class="stage-num">A · 02</div>
+          <div class="stage-name">Hazırlık</div>
+          <div class="stage-tag">Scope · Filtre · Yönlendirme</div>
+          <div class="stage-desc">
+            Çerçeveni kur — sabit filtreler, etkileşimli filtreler, projeksiyon,
+            join'ler. Sistem otomatik olarak Oracle ile DuckDB arasındaki
+            yönlendirmeyi belirler.
+          </div>
+          <ul class="stage-items">
+            <li><span class="icon t-snap"></span>Q1 Likidite Brifingi <span class="when">3g önce</span></li>
+            <li><span class="icon t-snap"></span>Kurumsal Mevduat Vade Analizi <span class="when">dün</span></li>
+            <li><span class="icon t-snap"></span>Repo Sensitivity Scope <span class="when">bugün</span></li>
+          </ul>
+          <div class="stage-viewall" onclick="event.stopPropagation(); goto('hazirlik')">
+            <span>Tümünü Gör · 6 scope</span><span>→</span>
+          </div>
+          <div class="stage-action">Yeni Çerçeve</div>
+        </div>
+
+        <div class="stage current" onclick="goto('sunum')">
+          <div class="stage-num">A · 03</div>
+          <div class="stage-name">Sunum</div>
+          <div class="stage-tag">Blok · Snapshot · Uzman Bağı</div>
+          <div class="stage-desc">
+            Bloklarını yarat ve diz. Sunum hazır olduğunda snapshot al ve
+            <strong>hangi uzmana bağlanacağını seç</strong> — kaynakça olarak
+            ana ekranda görünmesi için.
+          </div>
+          <ul class="stage-items">
+            <li><span class="icon t-block"></span>lcr-trend-30d <span class="when">canlı</span></li>
+            <li><span class="icon t-block"></span>repo-volume <span class="when">canlı</span></li>
+            <li><span class="icon t-block"></span>tampon-decom <span class="when">canlı</span></li>
+            <li><span class="icon t-snap"></span>Q1 Likidite Brifingi · v12 <span class="when">23 Mayıs</span></li>
+          </ul>
+          <div class="stage-viewall" onclick="event.stopPropagation(); goto('sunum')">
+            <span>Tümünü Gör · 12 sunum</span><span>→</span>
+          </div>
+          <div class="stage-action" onclick="event.stopPropagation(); openSaveModal();">Snapshot Al & Yayınla</div>
+        </div>
+
+        <span class="pipeline-arrow a1"></span>
+        <span class="pipeline-arrow a2"></span>
+      </div>
+
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <span class="section-title">Son Yayınladıkların</span>
+        <span class="section-tail"></span>
+      </div>
+
+      <div class="citation-grid">
+
+        <div class="citation-card">
+          <div class="ref">SNAPSHOT · 23.05.2026</div>
+          <div class="title">Q1 Likidite Brifingi</div>
+          <div class="src">5 blok · LIQ uzmanına bağlı · 412 izlenme</div>
+          <div class="preview">
+            <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+              <polyline points="0,30 60,24 120,18 180,28 240,22"
+                        stroke="#6B8AFD" stroke-width="1.5" fill="none"/>
+            </svg>
+          </div>
+          <div class="badges">
+            <span class="badge" style="background:rgba(107,138,253,0.15);color:#6B8AFD">liq</span>
+            <span class="badge">v12</span>
+          </div>
+        </div>
+
+        <div class="citation-card">
+          <div class="ref">SNAPSHOT · 21.05.2026</div>
+          <div class="title">Kurumsal Mevduat Vade Analizi</div>
+          <div class="src">8 blok · DEP uzmanına bağlı · 287 izlenme</div>
+          <div class="preview">
+            <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+              <g fill="#4A9B6E">
+                <rect x="20" y="20" width="20" height="32"/>
+                <rect x="55" y="14" width="20" height="38"/>
+                <rect x="90" y="22" width="20" height="30"/>
+                <rect x="125" y="28" width="20" height="24"/>
+                <rect x="160" y="16" width="20" height="36"/>
+                <rect x="195" y="26" width="20" height="26"/>
+              </g>
+            </svg>
+          </div>
+          <div class="badges">
+            <span class="badge" style="background:rgba(74,155,110,0.15);color:#4A9B6E">dep</span>
+            <span class="badge">v7</span>
+          </div>
+        </div>
+
+        <div class="citation-card">
+          <div class="ref">SNAPSHOT · 19.05.2026</div>
+          <div class="title">NII Duyarlılık · 100bp Şok</div>
+          <div class="src">3 blok · NII uzmanına bağlı · 156 izlenme</div>
+          <div class="preview">
+            <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+              <polyline points="0,10 60,16 120,28 180,38 240,42"
+                        stroke="#B6BECD" stroke-width="1.5" fill="none"/>
+              <polyline points="0,46 60,40 120,28 180,18 240,14"
+                        stroke="#D4A656" stroke-width="1.5" fill="none" stroke-dasharray="3,2"/>
+            </svg>
+          </div>
+          <div class="badges">
+            <span class="badge" style="background:rgba(182,190,205,0.15);color:#B6BECD">nii</span>
+            <span class="badge">v4</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-producer">
+        <span>Tüketici tarafı</span>
+        <span><a href="#" onclick="goto('landing'); return false;">← Ana Sayfa</a></span>
+        <span>· Block Marketplace (Yakında)</span>
+        <span>· Yardım & Komutlar</span>
+      </div>
+
+    </section>
+
+    <!-- ─── PAGE: Blok Kütüphanesi ────────────────────────────────────── -->
+    <section class="page lib-page" id="page-bloklar">
+      <div class="lib-head">
+        <div class="lh-left">
+          <div class="eyebrow">Atölye · Kütüphane · Bloklar</div>
+          <h2>Blok Kütüphanesi</h2>
+          <p class="sub">
+            Bütün yarattığın ve ekibin yarattığı görsel öğeler burada. Her blok bir
+            data_source taşır, bir uzmana bağlanabilir, sunum içine sürüklenebilir.
+            Yeniden kullanılacak olanları şablon olarak işaretle.
+          </p>
+        </div>
+        <div class="lh-right">
+          <div class="lib-search">
+            <span class="icon">⌕</span>
+            <input type="text" placeholder="blok adı, semantic_tag, kolon ara…">
+          </div>
+          <button class="lib-cta">+ Yeni Blok</button>
+        </div>
+      </div>
+
+      <div class="lib-filters">
+        <div class="filter-group">
+          <span class="gl">Uzman</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">LIQ</span>
+          <span class="gp">DEP</span>
+          <span class="gp">FND</span>
+          <span class="gp">NII</span>
+          <span class="gp">SEC</span>
+          <span class="gp">KRD</span>
+        </div>
+        <div class="filter-group">
+          <span class="gl">Tip</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">kpi</span>
+          <span class="gp">bar</span>
+          <span class="gp">line</span>
+          <span class="gp">table</span>
+        </div>
+        <div class="filter-group">
+          <span class="gl">Sahip</span>
+          <span class="gp on">Ben</span>
+          <span class="gp">Ekibim</span>
+          <span class="gp">Hepsi</span>
+        </div>
+        <span class="lib-meta-bar">182 blok · 47 senin · 28 şablon</span>
+      </div>
+
+      <div class="block-grid">
+
+        <div class="block-card" onclick="alert('block editor açılır → /presentations/blocks/lcr-trend-30d')">
+          <div class="bc-head">
+            <span class="bc-type">line · area</span>
+            <span class="bc-dots"><span class="bc-dot" style="background:var(--liq)"></span></span>
+          </div>
+          <div class="bc-title">LCR Trend · 30 Gün</div>
+          <div class="bc-id">b_lcr_trend_30d · v12</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60" preserveAspectRatio="none">
+              <polyline points="0,20 30,18 60,16 90,22 120,14 150,20 180,30 210,40 240,46"
+                        stroke="#6B8AFD" stroke-width="1.5" fill="none"/>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="live">canlı</span>
+            <span>dün 16:42</span>
+          </div>
+        </div>
+
+        <div class="block-card" onclick="alert('block editor açılır')">
+          <div class="bc-head">
+            <span class="bc-type">bar</span>
+            <span class="bc-dots"><span class="bc-dot" style="background:var(--liq)"></span></span>
+          </div>
+          <div class="bc-title">Gecelik Repo Hacmi & Fiyat</div>
+          <div class="bc-id">b_repo_overnight · v4</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60" preserveAspectRatio="none">
+              <g fill="#D4A656">
+                <rect x="10" y="32" width="18" height="22"/>
+                <rect x="38" y="28" width="18" height="26"/>
+                <rect x="66" y="36" width="18" height="18"/>
+                <rect x="94" y="24" width="18" height="30"/>
+                <rect x="122" y="20" width="18" height="34"/>
+                <rect x="150" y="14" width="18" height="40"/>
+                <rect x="178" y="22" width="18" height="32"/>
+                <rect x="206" y="10" width="18" height="44"/>
+              </g>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="live">canlı</span>
+            <span>bugün 09:12</span>
+          </div>
+        </div>
+
+        <div class="block-card" onclick="alert('block editor açılır')">
+          <div class="bc-head">
+            <span class="bc-type">stacked bar</span>
+            <span class="bc-dots">
+              <span class="bc-dot" style="background:var(--liq)"></span>
+              <span class="bc-dot" style="background:var(--dep)"></span>
+            </span>
+          </div>
+          <div class="bc-title">Tampon Bileşen Ayrışımı</div>
+          <div class="bc-id">b_buffer_decomp · v7</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60" preserveAspectRatio="none">
+              <rect x="0" y="22" width="92" height="22" fill="#4A9B6E"/>
+              <rect x="92" y="22" width="64" height="22" fill="#6B8AFD"/>
+              <rect x="156" y="22" width="48" height="22" fill="#D4A656"/>
+              <rect x="204" y="22" width="36" height="22" fill="#5A6478"/>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="live">canlı</span>
+            <span>dün</span>
+          </div>
+        </div>
+
+        <div class="block-card" onclick="alert('block editor açılır')">
+          <div class="bc-head">
+            <span class="bc-type">deviation bar</span>
+            <span class="bc-dots"><span class="bc-dot" style="background:var(--dep)"></span></span>
+          </div>
+          <div class="bc-title">Kurumsal Mevduat Çıkışları</div>
+          <div class="bc-id">b_corp_outflow · v9</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60" preserveAspectRatio="none">
+              <line x1="0" y1="30" x2="240" y2="30" stroke="#2A3043"/>
+              <g fill="#B85450">
+                <rect x="20" y="30" width="16" height="22"/>
+                <rect x="60" y="30" width="16" height="15"/>
+                <rect x="100" y="30" width="16" height="24"/>
+                <rect x="140" y="14" width="16" height="16"/>
+                <rect x="180" y="20" width="16" height="10"/>
+                <rect x="220" y="22" width="16" height="8"/>
+              </g>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="live">canlı</span>
+            <span>bugün 06:42</span>
+          </div>
+        </div>
+
+        <div class="block-card" onclick="alert('block editor açılır')">
+          <div class="bc-head">
+            <span class="bc-type">kpi</span>
+            <span class="bc-dots"><span class="bc-dot" style="background:var(--nii)"></span></span>
+          </div>
+          <div class="bc-title">NII Duyarlılık · +100bp</div>
+          <div class="bc-id">b_nii_sens_100bp · v4</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60">
+              <text x="20" y="38" font-family="JetBrains Mono" font-size="28" fill="#E8ECF1" font-weight="300">%4.2</text>
+              <text x="135" y="26" font-family="Inter" font-size="9" fill="#A8B2C4" letter-spacing="3">3 AYLIK</text>
+              <text x="135" y="42" font-family="JetBrains Mono" font-size="11" fill="#4A9B6E">+0.3pt</text>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="live">canlı</span>
+            <span>dün</span>
+          </div>
+        </div>
+
+        <div class="block-card" onclick="alert('block editor açılır')">
+          <div class="bc-head">
+            <span class="bc-type">area</span>
+            <span class="bc-dots"><span class="bc-dot" style="background:var(--fnd)"></span></span>
+          </div>
+          <div class="bc-title">Swap Havuzu Limit Kullanımı</div>
+          <div class="bc-id">b_swap_util · v3</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60" preserveAspectRatio="none">
+              <path d="M0,50 L40,44 L80,40 L120,32 L160,24 L200,20 L240,18"
+                    stroke="#B6BECD" stroke-width="1.5" fill="none"/>
+              <path d="M0,50 L40,44 L80,40 L120,32 L160,24 L200,20 L240,18 L240,60 L0,60 Z"
+                    fill="#B6BECD" opacity="0.15"/>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="live">canlı</span>
+            <span>2g önce</span>
+          </div>
+        </div>
+
+        <div class="block-card" onclick="alert('block editor açılır')">
+          <div class="bc-head">
+            <span class="bc-type">data table</span>
+            <span class="bc-dots"><span class="bc-dot" style="background:var(--krd)"></span></span>
+          </div>
+          <div class="bc-title">Kredi Büyüme · Sektör Karşılaştırma</div>
+          <div class="bc-id">b_credit_growth_peer · v2</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60">
+              <g stroke="#2A3043" stroke-width="1">
+                <line x1="0" y1="18" x2="240" y2="18"/>
+                <line x1="0" y1="32" x2="240" y2="32"/>
+                <line x1="0" y1="46" x2="240" y2="46"/>
+                <line x1="80" y1="6" x2="80" y2="56"/>
+                <line x1="160" y1="6" x2="160" y2="56"/>
+              </g>
+              <g font-family="JetBrains Mono" font-size="7" fill="#A8B2C4">
+                <text x="6" y="14">BANK</text><text x="86" y="14">%</text><text x="166" y="14">Δ</text>
+                <text x="6" y="28">QNB</text><text x="86" y="28">+0.6</text><text x="166" y="28" fill="#B85450">−</text>
+                <text x="6" y="42">SEKTÖR</text><text x="86" y="42">+0.8</text><text x="166" y="42" fill="#4A9B6E">+</text>
+              </g>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="draft">taslak</span>
+            <span>bugün</span>
+          </div>
+        </div>
+
+        <div class="block-card" onclick="alert('block editor açılır')">
+          <div class="bc-head">
+            <span class="bc-type">heatmap</span>
+            <span class="bc-dots"><span class="bc-dot" style="background:var(--sec)"></span></span>
+          </div>
+          <div class="bc-title">MtM Hassasiyeti · Vade × Faiz</div>
+          <div class="bc-id">b_mtm_sens_grid · v1</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60" preserveAspectRatio="none">
+              <g>
+                <rect x="0"   y="0"  width="48" height="20" fill="#4A9B6E" opacity="0.4"/>
+                <rect x="48"  y="0"  width="48" height="20" fill="#4A9B6E" opacity="0.6"/>
+                <rect x="96"  y="0"  width="48" height="20" fill="#D4A656" opacity="0.5"/>
+                <rect x="144" y="0"  width="48" height="20" fill="#D4A656" opacity="0.7"/>
+                <rect x="192" y="0"  width="48" height="20" fill="#B85450" opacity="0.6"/>
+                <rect x="0"   y="20" width="48" height="20" fill="#D4A656" opacity="0.4"/>
+                <rect x="48"  y="20" width="48" height="20" fill="#D4A656" opacity="0.6"/>
+                <rect x="96"  y="20" width="48" height="20" fill="#B85450" opacity="0.5"/>
+                <rect x="144" y="20" width="48" height="20" fill="#B85450" opacity="0.7"/>
+                <rect x="192" y="20" width="48" height="20" fill="#B85450" opacity="0.9"/>
+                <rect x="0"   y="40" width="48" height="20" fill="#B85450" opacity="0.4"/>
+                <rect x="48"  y="40" width="48" height="20" fill="#B85450" opacity="0.6"/>
+                <rect x="96"  y="40" width="48" height="20" fill="#B85450" opacity="0.8"/>
+                <rect x="144" y="40" width="48" height="20" fill="#B85450" opacity="1"/>
+                <rect x="192" y="40" width="48" height="20" fill="#7A1F1C" opacity="0.9"/>
+              </g>
+            </svg>
+          </div>
+          <div class="bc-foot">
+            <span class="live">canlı</span>
+            <span>haftalık</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── PAGE: Tablo Kütüphanesi ───────────────────────────────────── -->
+    <section class="page lib-page" id="page-tablolar">
+      <div class="lib-head">
+        <div class="lh-left">
+          <div class="eyebrow">Atölye · Kütüphane · Tablolar</div>
+          <h2>Tablo Kütüphanesi</h2>
+          <p class="sub">
+            Erişebildiğin EDW tabloları ve yüklediğin dosyalar. Tablonun üstüne tıkla
+            şemayı, son güncellenme zamanı ve bağlandığı blokları gör.
+            Yeni blok yaratmak için tablodan başla.
+          </p>
+        </div>
+        <div class="lh-right">
+          <div class="lib-search">
+            <span class="icon">⌕</span>
+            <input type="text" placeholder="tablo adı, kolon, açıklama ara…">
+          </div>
+          <button class="lib-cta">+ Dosya Yükle</button>
+        </div>
+      </div>
+
+      <div class="lib-filters">
+        <div class="filter-group">
+          <span class="gl">Kaynak</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">EDW</span>
+          <span class="gp">S3</span>
+          <span class="gp">Yüklenen</span>
+        </div>
+        <div class="filter-group">
+          <span class="gl">Tazelik</span>
+          <span class="gp">Bugün</span>
+          <span class="gp">Bu hafta</span>
+          <span class="gp on">Hepsi</span>
+        </div>
+        <span class="lib-meta-bar">47 tablo · 6 domain · son ETL 05:30 TSI</span>
+      </div>
+
+      <div class="table-list">
+
+        <div class="domain-divider">
+          <span class="dcode">LIQ</span>
+          <span class="dname">Likidite</span>
+          <span class="dline"></span>
+        </div>
+
+        <div class="table-row header">
+          <span>Tablo</span>
+          <span>Domain</span>
+          <span>Tazelik</span>
+          <span>Kolon</span>
+          <span>Bloklar</span>
+          <span></span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">EDW.LIQ_BUFFER_DAILY</div>
+            <div class="tdesc">Günlük likidite tamponu bileşen detayı</div>
+          </div>
+          <span class="tdomain" style="color:var(--liq)">LIQ</span>
+          <span class="freshness"><span class="dot fresh"></span>05:30 bugün</span>
+          <span class="tcell">14 kolon</span>
+          <span class="tcell">8 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">EDW.LIQ_LCR_SNAPSHOT</div>
+            <div class="tdesc">LCR oranı gün sonu kayıtları</div>
+          </div>
+          <span class="tdomain" style="color:var(--liq)">LIQ</span>
+          <span class="freshness"><span class="dot fresh"></span>05:30 bugün</span>
+          <span class="tcell">22 kolon</span>
+          <span class="tcell">12 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">EDW.REPO_TXN_INTRADAY</div>
+            <div class="tdesc">Gün içi repo işlemleri (15dk yenilenir)</div>
+          </div>
+          <span class="tdomain" style="color:var(--liq)">LIQ</span>
+          <span class="freshness"><span class="dot fresh"></span>10:15 bugün</span>
+          <span class="tcell">18 kolon</span>
+          <span class="tcell">4 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+        <div class="domain-divider">
+          <span class="dcode">DEP</span>
+          <span class="dname">Mevduat</span>
+          <span class="dline"></span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">A16438.MEVDUAT_YETKILER</div>
+            <div class="tdesc">Şube bazında mevduat yetkilendirme</div>
+          </div>
+          <span class="tdomain" style="color:var(--dep)">DEP</span>
+          <span class="freshness"><span class="dot fresh"></span>06:00 bugün</span>
+          <span class="tcell">28 kolon</span>
+          <span class="tcell">14 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">EDW.DEP_CORP_DAILY</div>
+            <div class="tdesc">Kurumsal mevduat günlük bakiyeler ve hareketler</div>
+          </div>
+          <span class="tdomain" style="color:var(--dep)">DEP</span>
+          <span class="freshness"><span class="dot fresh"></span>06:00 bugün</span>
+          <span class="tcell">31 kolon</span>
+          <span class="tcell">23 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">EDW.DEP_RETAIL_VINTAGE</div>
+            <div class="tdesc">Bireysel mevduat vintage analizi</div>
+          </div>
+          <span class="tdomain" style="color:var(--dep)">DEP</span>
+          <span class="freshness"><span class="dot stale"></span>3g önce</span>
+          <span class="tcell">19 kolon</span>
+          <span class="tcell">7 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+        <div class="domain-divider">
+          <span class="dcode">FND</span>
+          <span class="dname">Fonlama</span>
+          <span class="dline"></span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">EDW.FND_SWAP_POSITIONS</div>
+            <div class="tdesc">Açık swap pozisyonları ve limit kullanımı</div>
+          </div>
+          <span class="tdomain" style="color:var(--fnd)">FND</span>
+          <span class="freshness"><span class="dot fresh"></span>05:45 bugün</span>
+          <span class="tcell">24 kolon</span>
+          <span class="tcell">9 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+        <div class="table-row" onclick="alert('tablo detay açılır')">
+          <div>
+            <div class="tname">EDW.FND_EUROBOND_PRICE</div>
+            <div class="tdesc">Eurobond fiyat ve spread serisi</div>
+          </div>
+          <span class="tdomain" style="color:var(--fnd)">FND</span>
+          <span class="freshness"><span class="dot old"></span>1h önce</span>
+          <span class="tcell">12 kolon</span>
+          <span class="tcell">3 blok</span>
+          <span class="tact">→</span>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── PAGE: Şablonlar ───────────────────────────────────────────── -->
+    <section class="page lib-page" id="page-sablonlar">
+      <div class="lib-head">
+        <div class="lh-left">
+          <div class="eyebrow">Atölye · Kütüphane · Şablonlar</div>
+          <h2>Blok Şablonları</h2>
+          <p class="sub">
+            Sık tekrar eden blok örüntülerini şablon olarak işaretle. Şablonu seç,
+            tablonu ve filtrelerini ver — yeni blok hemen hazır. Şablonlar topluluk
+            tarafından kullanıldıkça popülerleşir.
+          </p>
+        </div>
+        <div class="lh-right">
+          <div class="lib-search">
+            <span class="icon">⌕</span>
+            <input type="text" placeholder="şablon ara…">
+          </div>
+          <button class="lib-cta">+ Mevcut Bloktan Şablon Yarat</button>
+        </div>
+      </div>
+
+      <div class="lib-filters">
+        <div class="filter-group">
+          <span class="gl">Tip</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">trend</span>
+          <span class="gp">karşılaştırma</span>
+          <span class="gp">decom</span>
+          <span class="gp">kpi</span>
+        </div>
+        <span class="lib-meta-bar">28 şablon · 12 senin · 6 ekibin</span>
+      </div>
+
+      <div class="template-grid">
+
+        <div class="template-card" onclick="alert('şablon detay')">
+          <span class="tc-type">trend</span>
+          <div class="tc-num">T · 01</div>
+          <div class="tc-name">30-Günlük Eşik Çizgisi</div>
+          <div class="tc-desc">
+            Bir metriği son 30 gün için çiz, üzerine alarm eşik çizgisini bindir.
+            LCR, NSFR, sermaye yeterliliği gibi düzenleyici göstergeler için.
+          </div>
+          <div class="tc-foot">
+            <span>line · v3</span>
+            <span class="usage">17 kullanım</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('şablon detay')">
+          <span class="tc-type">decom</span>
+          <div class="tc-num">T · 02</div>
+          <div class="tc-name">Bileşen Ayrışım Yığını</div>
+          <div class="tc-desc">
+            Bir toplam değeri alt bileşenlerine ayır, yatay yığın olarak göster.
+            Tampon, portföy, varlık dağılımları için ideal.
+          </div>
+          <div class="tc-foot">
+            <span>stacked · v2</span>
+            <span class="usage">11 kullanım</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('şablon detay')">
+          <span class="tc-type">karşılaştırma</span>
+          <div class="tc-num">T · 03</div>
+          <div class="tc-name">Bank vs. Sektör Çubuk</div>
+          <div class="tc-desc">
+            Bir metriğin senin ve sektör ortalamasının paralel çubuk
+            karşılaştırması, sapma rengi otomatik.
+          </div>
+          <div class="tc-foot">
+            <span>bar · v1</span>
+            <span class="usage">8 kullanım</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('şablon detay')">
+          <span class="tc-type">sensitivity</span>
+          <div class="tc-num">T · 04</div>
+          <div class="tc-name">Faiz Şok Duyarlılığı KPI</div>
+          <div class="tc-desc">
+            +100bp, +200bp, −100bp paralel şokların NII veya MtM
+            üzerindeki etkisinin üç kartlı KPI bloğu.
+          </div>
+          <div class="tc-foot">
+            <span>kpi · v4</span>
+            <span class="usage">23 kullanım</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('şablon detay')">
+          <span class="tc-type">deviation</span>
+          <div class="tc-num">T · 05</div>
+          <div class="tc-name">Müşteri-Seviye Sapma</div>
+          <div class="tc-desc">
+            Müşterilerin haftalık ortalamadan sapmalarını sıralı çubuklarla göster.
+            Anomalileri görsel olarak öne çıkarır.
+          </div>
+          <div class="tc-foot">
+            <span>bar · v2</span>
+            <span class="usage">6 kullanım</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('şablon detay')">
+          <span class="tc-type">simülasyon</span>
+          <div class="tc-num">T · 06</div>
+          <div class="tc-name">Senaryo Karşılaştırma Eğrisi</div>
+          <div class="tc-desc">
+            Baz senaryo ve alternatif senaryonun aynı grafikte gösterimi —
+            kesik çizgi senaryo, düz çizgi baz. NII simülasyonları için.
+          </div>
+          <div class="tc-foot">
+            <span>line · v1</span>
+            <span class="usage">4 kullanım</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── PAGE: Süreç İzleme ────────────────────────────────────────── -->
+    <section class="page lib-page" id="page-surec">
+      <div class="lib-head">
+        <div class="lh-left">
+          <div class="eyebrow">Atölye · Meta · Süreç İzleme</div>
+          <h2>Süreç İzleme</h2>
+          <p class="sub">
+            Atölye'de yürüyen her şey — keşif oturumları, taslak scope'lar,
+            yayına yakın sunumlar — burada zaman çizgisi olarak. Tıkla,
+            kaldığın yerden devam et.
+          </p>
+        </div>
+        <div class="lh-right">
+          <div class="lib-search">
+            <span class="icon">⌕</span>
+            <input type="text" placeholder="süreç ara…">
+          </div>
+        </div>
+      </div>
+
+      <div class="lib-filters">
+        <div class="filter-group">
+          <span class="gl">Aşama</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">Keşif</span>
+          <span class="gp">Hazırlık</span>
+          <span class="gp">Sunum</span>
+        </div>
+        <div class="filter-group">
+          <span class="gl">Sahip</span>
+          <span class="gp on">Ben</span>
+          <span class="gp">Ekibim</span>
+        </div>
+        <div class="filter-group">
+          <span class="gl">Durum</span>
+          <span class="gp on">Aktif</span>
+          <span class="gp">Yayınlanmış</span>
+          <span class="gp">Beklemede</span>
+        </div>
+        <span class="lib-meta-bar">8 aktif · 3 beklemede · son hareket 18 dk önce</span>
+      </div>
+
+      <div class="process-stream">
+
+        <div class="process-row active" onclick="goto('sunum')">
+          <span class="pwhen">18 dk önce</span>
+          <div class="ptitle">
+            <div class="label">Likidite Brifingi · 25 Mayıs 2026</div>
+            <div class="id">p_8K2AF · v.12 · 5 blok</div>
+          </div>
+          <span class="pstage sunum">Sunum · 03</span>
+          <div class="pwho">
+            Kubilay K.
+            <span class="role">Bilanço Yönetimi</span>
+          </div>
+          <span class="pstat">Düzenleniyor</span>
+        </div>
+
+        <div class="process-row alert" onclick="goto('hazirlik')">
+          <span class="pwhen">2 saat</span>
+          <div class="ptitle">
+            <div class="label">Repo Sensitivity Scope · v.3</div>
+            <div class="id">sc_9XR2 · 4 filtre · 2 join</div>
+          </div>
+          <span class="pstage hazirlik">Hazırlık · 02</span>
+          <div class="pwho">
+            Kubilay K.
+            <span class="role">Bilanço Yönetimi</span>
+          </div>
+          <span class="pstat">Geçersiz Filtre</span>
+        </div>
+
+        <div class="process-row active" onclick="goto('kesif')">
+          <span class="pwhen">3 saat</span>
+          <div class="ptitle">
+            <div class="label">FX Pozisyon Tabloları · Keşif</div>
+            <div class="id">ex_M4P · 6 tablo gezildi</div>
+          </div>
+          <span class="pstage kesif">Keşif · 01</span>
+          <div class="pwho">
+            Aslı T.
+            <span class="role">Hazine Satış</span>
+          </div>
+          <span class="pstat">Gezinme</span>
+        </div>
+
+        <div class="process-row done" onclick="alert('yayınlanmış snapshot')">
+          <span class="pwhen">dün 16:42</span>
+          <div class="ptitle">
+            <div class="label">Q1 Likidite Brifingi · Yayın</div>
+            <div class="id">s_3F9X · LIQ uzmanına bağlı · 412 izlenme</div>
+          </div>
+          <span class="pstage sunum">Sunum · 03</span>
+          <div class="pwho">
+            Kubilay K.
+            <span class="role">Bilanço Yönetimi</span>
+          </div>
+          <span class="pstat">Yayında</span>
+        </div>
+
+        <div class="process-row active" onclick="goto('hazirlik')">
+          <span class="pwhen">dün</span>
+          <div class="ptitle">
+            <div class="label">Kurumsal Mevduat Vade Analizi</div>
+            <div class="id">sc_8DEP · 8 blok hazır</div>
+          </div>
+          <span class="pstage hazirlik">Hazırlık · 02</span>
+          <div class="pwho">
+            Mert S.
+            <span class="role">Aktif Pasif Yönetimi</span>
+          </div>
+          <span class="pstat">İnceleme</span>
+        </div>
+
+        <div class="process-row done" onclick="alert('yayınlanmış snapshot')">
+          <span class="pwhen">23 May</span>
+          <div class="ptitle">
+            <div class="label">Eurobond Piyasa Fırsat Brifingi</div>
+            <div class="id">s_7BND · FND uzmanına bağlı · 89 izlenme</div>
+          </div>
+          <span class="pstage sunum">Sunum · 03</span>
+          <div class="pwho">
+            Mert S.
+            <span class="role">Aktif Pasif Yönetimi</span>
+          </div>
+          <span class="pstat">Yayında</span>
+        </div>
+
+        <div class="process-row active" onclick="goto('kesif')">
+          <span class="pwhen">22 May</span>
+          <div class="ptitle">
+            <div class="label">Kredi Vintage Analizi · Keşif</div>
+            <div class="id">ex_K7C · 4 tablo · 1 kavram önerisi</div>
+          </div>
+          <span class="pstage kesif">Keşif · 01</span>
+          <div class="pwho">
+            Burak A.
+            <span class="role">Finansal AI</span>
+          </div>
+          <span class="pstat">Bekleme</span>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── PAGE: Keşif (placeholder pointing to existing module) ──────── -->
+    <section class="page lib-page" id="page-kesif">
+      <div class="lib-head">
+        <div class="lh-left">
+          <div class="eyebrow">Atölye · Pipeline · 01</div>
+          <h2>Keşif</h2>
+          <p class="sub">
+            Tablo, kavram ve graf üzerinden EDW kataloğunu dolaş.
+            <em>Mevcut Phase 9 modülü burada açılacak.</em> Bu prototipte yer tutucu.
+          </p>
+        </div>
+        <div class="lh-right">
+          <button class="lib-cta">+ Yeni Keşif Oturumu</button>
+        </div>
+      </div>
+
+      <div class="lib-filters">
+        <div class="filter-group">
+          <span class="gl">Tip</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">Tablo</span>
+          <span class="gp">Kavram</span>
+          <span class="gp">Graf</span>
+        </div>
+        <span class="lib-meta-bar">14 oturum · 5 kavram önerisi bekliyor</span>
+      </div>
+
+      <div class="block-grid">
+        <div class="block-card" onclick="alert('existing keşif modülü → /presentations/<pid>/catalog vs.')">
+          <div class="bc-head"><span class="bc-type">tablo · keşif</span></div>
+          <div class="bc-title">MEVDUAT_YETKILER Şema İncelemesi</div>
+          <div class="bc-id">ex_M4P_001 · 28 kolon</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60">
+              <g stroke="#2A3043" fill="none">
+                <rect x="60" y="10" width="120" height="14"/>
+                <rect x="60" y="26" width="120" height="14"/>
+                <rect x="60" y="42" width="120" height="14"/>
+                <line x1="100" y1="10" x2="100" y2="56"/>
+              </g>
+              <g font-family="JetBrains Mono" font-size="7" fill="#A8B2C4">
+                <text x="66" y="20">sicil</text><text x="106" y="20">VARCHAR</text>
+                <text x="66" y="36">amount</text><text x="106" y="36">NUMBER</text>
+                <text x="66" y="52">date</text><text x="106" y="52">DATE</text>
+              </g>
+            </svg>
+          </div>
+          <div class="bc-foot"><span class="live">aktif</span><span>10:14</span></div>
+        </div>
+
+        <div class="block-card" onclick="alert('existing keşif modülü')">
+          <div class="bc-head"><span class="bc-type">graf · keşif</span></div>
+          <div class="bc-title">Kredi-Mevduat İlişki Grafı</div>
+          <div class="bc-id">ex_K2M · 12 düğüm</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60">
+              <g stroke="#5A6478" fill="none" stroke-width="1">
+                <line x1="40" y1="30" x2="100" y2="20"/>
+                <line x1="40" y1="30" x2="100" y2="40"/>
+                <line x1="100" y1="20" x2="160" y2="10"/>
+                <line x1="100" y1="20" x2="160" y2="30"/>
+                <line x1="100" y1="40" x2="160" y2="50"/>
+                <line x1="160" y1="30" x2="220" y2="30"/>
+              </g>
+              <g fill="#D4A656">
+                <circle cx="40" cy="30" r="4"/>
+                <circle cx="100" cy="20" r="3"/>
+                <circle cx="100" cy="40" r="3"/>
+                <circle cx="160" cy="10" r="3"/>
+                <circle cx="160" cy="30" r="4"/>
+                <circle cx="160" cy="50" r="3"/>
+                <circle cx="220" cy="30" r="4"/>
+              </g>
+            </svg>
+          </div>
+          <div class="bc-foot"><span class="live">aktif</span><span>dün</span></div>
+        </div>
+
+        <div class="block-card" onclick="alert('existing keşif modülü')">
+          <div class="bc-head"><span class="bc-type">kavram · keşif</span></div>
+          <div class="bc-title">"LCR_oranı" Kavram Önerisi</div>
+          <div class="bc-id">ex_LCR · sistem önerisi</div>
+          <div class="bc-preview">
+            <svg viewBox="0 0 240 60">
+              <text x="20" y="32" font-family="Inter" font-size="14" fill="#E8ECF1" font-weight="300">LCR_oranı</text>
+              <text x="20" y="48" font-family="JetBrains Mono" font-size="8" fill="#A8B2C4">HQLA / NET_OUTFLOW</text>
+              <rect x="180" y="20" width="40" height="22" fill="none" stroke="#D4A656"/>
+              <text x="186" y="34" font-family="JetBrains Mono" font-size="8" fill="#D4A656">ONAY</text>
+            </svg>
+          </div>
+          <div class="bc-foot"><span class="draft">öneri</span><span>2g önce</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── PAGE: Hazırlık (placeholder pointing to existing module) ──── -->
+    <section class="page lib-page" id="page-hazirlik">
+      <div class="lib-head">
+        <div class="lh-left">
+          <div class="eyebrow">Atölye · Pipeline · 02</div>
+          <h2>Hazırlık</h2>
+          <p class="sub">
+            Scope contract'lar — sabit ve etkileşimli filtreler, projeksiyon, join'ler.
+            <em>Mevcut Phase 8 modülü burada açılacak.</em> Bu prototipte yer tutucu.
+          </p>
+        </div>
+        <div class="lh-right">
+          <button class="lib-cta">+ Yeni Scope</button>
+        </div>
+      </div>
+
+      <div class="lib-filters">
+        <div class="filter-group">
+          <span class="gl">Durum</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">Taslak</span>
+          <span class="gp">Onaylı</span>
+          <span class="gp">Geçersiz</span>
+        </div>
+        <span class="lib-meta-bar">6 scope · 2 inceleme bekliyor</span>
+      </div>
+
+      <div class="template-grid">
+        <div class="template-card" onclick="alert('existing hazırlık modülü → /presentations/<pid>/scope')">
+          <span class="tc-type">onaylı</span>
+          <div class="tc-num">SC · 9XR2</div>
+          <div class="tc-name">Repo Sensitivity Scope</div>
+          <div class="tc-desc">
+            Gecelik repo + 7g + 14g vade, müşteri segment filtresi etkileşimli,
+            DuckDB cache hedefli. 4 filtre, 2 join.
+          </div>
+          <div class="tc-foot">
+            <span>v.3 · bugün</span>
+            <span class="usage">2 blok</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('existing hazırlık modülü')">
+          <span class="tc-type">inceleme</span>
+          <div class="tc-num">SC · 8DEP</div>
+          <div class="tc-name">Kurumsal Mevduat Vade Analizi</div>
+          <div class="tc-desc">
+            Sektör + müşteri büyüklüğü pinned, vade aralığı interactive,
+            son 90 gün. Oracle routing'e takıldı.
+          </div>
+          <div class="tc-foot">
+            <span>v.2 · dün</span>
+            <span class="usage">8 blok</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('existing hazırlık modülü')">
+          <span class="tc-type">taslak</span>
+          <div class="tc-num">SC · 7Q1L</div>
+          <div class="tc-name">Q1 Likidite Brifingi · Scope</div>
+          <div class="tc-desc">
+            Q1 dönem pinned, departman filter, LCR / NSFR / repo metrikleri
+            projeksiyonu. Yayına geçti, snapshot olarak donduruldu.
+          </div>
+          <div class="tc-foot">
+            <span>v.12 · 23 May</span>
+            <span class="usage">5 blok</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── PAGE: Sunum List (existing /presentations/) ────────────────── -->
+    <section class="page lib-page" id="page-sunum">
+      <div class="lib-head">
+        <div class="lh-left">
+          <div class="eyebrow">Atölye · Pipeline · 03</div>
+          <h2>Sunumlar</h2>
+          <p class="sub">
+            Yarattığın bütün sunumlar — taslak, canlı ve snapshot olarak yayınlanmış.
+            <em>Mevcut /presentations/ ekranı buraya bağlanacak.</em>
+          </p>
+        </div>
+        <div class="lh-right">
+          <button class="lib-cta">+ Yeni Sunum</button>
+        </div>
+      </div>
+
+      <div class="lib-filters">
+        <div class="filter-group">
+          <span class="gl">Durum</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">Taslak</span>
+          <span class="gp">Yayında</span>
+          <span class="gp">Snapshot</span>
+        </div>
+        <div class="filter-group">
+          <span class="gl">Uzman</span>
+          <span class="gp on">Hepsi</span>
+          <span class="gp">LIQ</span>
+          <span class="gp">DEP</span>
+          <span class="gp">FND</span>
+          <span class="gp">NII</span>
+        </div>
+        <span class="lib-meta-bar">12 sunum · 8 snapshot yayında · 4 taslak</span>
+      </div>
+
+      <div class="template-grid">
+
+        <div class="template-card" onclick="alert('editor açılır → /presentations/p_8K2AF')">
+          <span class="tc-type">düzenleniyor</span>
+          <div class="tc-num">P · 8K2AF</div>
+          <div class="tc-name">Likidite Brifingi · 25 Mayıs 2026</div>
+          <div class="tc-desc">
+            Gece sonrası LCR ve repo durumu. Sabah toplantısı için hazırlandı.
+            Hazır olunca LIQ uzmanına bağlanacak.
+          </div>
+          <div class="tc-foot">
+            <span>v.12 · 18 dk önce</span>
+            <span class="usage">5 blok</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('snapshot açılır')">
+          <span class="tc-type">yayında</span>
+          <div class="tc-num">S · 3F9X</div>
+          <div class="tc-name">Q1 Likidite Brifingi</div>
+          <div class="tc-desc">
+            Q1 dönem genel likidite görünümü. LIQ uzmanının ana
+            kaynakçalarından biri. 412 izlenme.
+          </div>
+          <div class="tc-foot">
+            <span>v.12 · 23 May</span>
+            <span class="usage">LIQ · 5 blok</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('snapshot açılır')">
+          <span class="tc-type">yayında</span>
+          <div class="tc-num">S · 7DEP</div>
+          <div class="tc-name">Kurumsal Mevduat Vade Analizi</div>
+          <div class="tc-desc">
+            Vade dağılımı, müşteri konsantrasyonu, yenileme oranı.
+            DEP uzmanı için merkez snapshot. 287 izlenme.
+          </div>
+          <div class="tc-foot">
+            <span>v.7 · 21 May</span>
+            <span class="usage">DEP · 8 blok</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('snapshot açılır')">
+          <span class="tc-type">yayında</span>
+          <div class="tc-num">S · M4NII</div>
+          <div class="tc-name">NII Duyarlılık · 100bp Şok</div>
+          <div class="tc-desc">
+            Paralel faiz şoklarının üç aylık ve yıllık NII'ye yansıması.
+            156 izlenme.
+          </div>
+          <div class="tc-foot">
+            <span>v.4 · 19 May</span>
+            <span class="usage">NII · 3 blok</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('editor açılır')">
+          <span class="tc-type">taslak</span>
+          <div class="tc-num">P · 9CRD</div>
+          <div class="tc-name">Kredi Vintage · Q2 Taslak</div>
+          <div class="tc-desc">
+            Vintage analizi ve segment kırılımı. Henüz scope'u oturmadı,
+            blok sayısı düşük.
+          </div>
+          <div class="tc-foot">
+            <span>v.2 · dün</span>
+            <span class="usage">2 blok</span>
+          </div>
+        </div>
+
+        <div class="template-card" onclick="alert('snapshot açılır')">
+          <span class="tc-type">yayında</span>
+          <div class="tc-num">S · 7BND</div>
+          <div class="tc-name">Eurobond Fırsat Brifingi</div>
+          <div class="tc-desc">
+            Spread sıkışması ve ihraç penceresi değerlendirmesi.
+            FND uzmanına bağlı. 89 izlenme.
+          </div>
+          <div class="tc-foot">
+            <span>v.3 · 23 May</span>
+            <span class="usage">FND · 4 blok</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+</div>
+
+<!-- ─── Save Modal (Phase 10 bound_experts) ─────────────────────────── -->
+<div class="modal-backdrop" id="saveModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="eyebrow">Atölye · Sunum · 03</div>
+      <h3>Snapshot Al & Yayınla</h3>
+      <button class="modal-close" onclick="closeSaveModal()">✕</button>
+    </div>
+
+    <div class="modal-body">
+
+      <div class="field">
+        <label class="field-label">Başlık</label>
+        <input type="text" value="Likidite Brifingi · 25 Mayıs 2026">
+      </div>
+
+      <div class="field">
+        <label class="field-label">Açıklama</label>
+        <textarea>Gece boyunca LCR oranındaki düşüş ve repo maliyetindeki kayma. Sabah toplantısı için hazırlandı.</textarea>
+      </div>
+
+      <div class="field experts">
+        <label class="field-label">Uzman Bağlantısı</label>
+        <p class="field-intro">
+          Bu snapshot hangi uzman(lar)ın <em>kaynakçasında</em> görünmeli?
+          Seçtiğin uzmanlar ana ekranda kullanıcılara bu içerikten yararlanarak
+          brifing verebilir. Sistem içerik analizine göre önerilerini gösterdi.
+        </p>
+
+        <div class="expert-chips">
+          <div class="expert-chip on" onclick="toggleChip(this)">
+            <span class="dot" style="background:var(--liq)"></span>
+            <span class="code">LIQ</span>
+            <span>Likidite</span>
+            <span class="suggest-flag">öneri ★</span>
+          </div>
+          <div class="expert-chip on suggested" onclick="toggleChip(this)">
+            <span class="dot" style="background:var(--dep)"></span>
+            <span class="code">DEP</span>
+            <span>Mevduat</span>
+            <span class="suggest-flag">öneri</span>
+          </div>
+          <div class="expert-chip suggested" onclick="toggleChip(this)">
+            <span class="dot" style="background:var(--fnd)"></span>
+            <span class="code">FND</span>
+            <span>Fonlama</span>
+            <span class="suggest-flag">öneri</span>
+          </div>
+          <div class="expert-chip" onclick="toggleChip(this)">
+            <span class="dot" style="background:var(--nii)"></span>
+            <span class="code">NII</span>
+            <span>NII</span>
+          </div>
+          <div class="expert-chip" onclick="toggleChip(this)">
+            <span class="dot" style="background:var(--sec)"></span>
+            <span class="code">SEC</span>
+            <span>Security</span>
+          </div>
+          <div class="expert-chip" onclick="toggleChip(this)">
+            <span class="dot" style="background:var(--krd)"></span>
+            <span class="code">KRD</span>
+            <span>Kredi</span>
+          </div>
+        </div>
+
+        <p class="field-help">
+          Bir uzmana bağlanan snapshot, o uzmanın briefing'inde kaynakça olarak
+          görünür ve cevap üretirken referans alınır. Birden fazla uzmana
+          bağlayabilirsin.
+        </p>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Görünürlük</label>
+        <div class="expert-chips">
+          <div class="expert-chip on">
+            <span>Departman · Bilanço Yönetimi</span>
+          </div>
+          <div class="expert-chip">
+            <span>Tüm Hazine</span>
+          </div>
+          <div class="expert-chip">
+            <span>Yalnız Ben</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="modal-foot">
+      <button class="skip" onclick="closeSaveModal()">Vazgeç</button>
+      <div class="actions">
+        <button class="btn" onclick="closeSaveModal()">Taslak Kaydet</button>
+        <button class="btn primary" onclick="closeSaveModal(); goto('landing');">Yayınla & Paylaş</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Devkit (prototype controls) ──────────────────────────────────── -->
+<div class="devkit">
+  <span class="dot"></span>
+  <span>PRISMA · UX prototip v2</span>
+  <a href="#" onclick="goto('landing'); return false;" id="nav-landing">landing</a>
+  <a href="#" onclick="goto('expert-liq'); return false;" id="nav-expert">uzman</a>
+  <a href="#" onclick="goto('atolye'); return false;" id="nav-atolye">atölye</a>
+  <a href="#" onclick="goto('bloklar'); return false;" id="nav-bloklar">bloklar</a>
+  <a href="#" onclick="goto('tablolar'); return false;" id="nav-tablolar">tablolar</a>
+  <a href="#" onclick="goto('sablonlar'); return false;" id="nav-sablonlar">şablonlar</a>
+  <a href="#" onclick="goto('surec'); return false;" id="nav-surec">süreç</a>
+  <a href="#" onclick="openSaveModal(); return false;">save-modal</a>
+</div>
+
+<script>
+// Page registry
+const PAGES = {
+  // consumer
+  'landing':    { mode: 'consumer', dom: 'page-landing',    crumb: '' },
+  'expert-liq': { mode: 'consumer', dom: 'page-expert-liq', crumb: 'Uzmanlar · <span class="here">Likidite</span>' },
+  'expert-dep': { mode: 'consumer', dom: 'page-expert-liq', crumb: 'Uzmanlar · <span class="here">Mevduat</span>' },
+  'expert-fnd': { mode: 'consumer', dom: 'page-expert-liq', crumb: 'Uzmanlar · <span class="here">Fonlama</span>' },
+  'expert-nii': { mode: 'consumer', dom: 'page-expert-liq', crumb: 'Uzmanlar · <span class="here">NII</span>' },
+  'expert-sec': { mode: 'consumer', dom: 'page-expert-liq', crumb: 'Uzmanlar · <span class="here">Security</span>' },
+  'expert-krd': { mode: 'consumer', dom: 'page-expert-liq', crumb: 'Uzmanlar · <span class="here">Kredi</span>' },
+
+  // atolye
+  'atolye':    { mode: 'atolye', dom: 'page-atolye',    crumb: 'Atölye · <span class="here">Ana</span>',          sb: 'atolye' },
+  'kesif':     { mode: 'atolye', dom: 'page-kesif',     crumb: 'Atölye · Pipeline · <span class="here">01 Keşif</span>',     sb: 'kesif' },
+  'hazirlik':  { mode: 'atolye', dom: 'page-hazirlik',  crumb: 'Atölye · Pipeline · <span class="here">02 Hazırlık</span>',  sb: 'hazirlik' },
+  'sunum':     { mode: 'atolye', dom: 'page-sunum',     crumb: 'Atölye · Pipeline · <span class="here">03 Sunum</span>',     sb: 'sunum' },
+  'tablolar':  { mode: 'atolye', dom: 'page-tablolar',  crumb: 'Atölye · Kütüphane · <span class="here">Tablolar</span>',    sb: 'tablolar' },
+  'bloklar':   { mode: 'atolye', dom: 'page-bloklar',   crumb: 'Atölye · Kütüphane · <span class="here">Bloklar</span>',     sb: 'bloklar' },
+  'sablonlar': { mode: 'atolye', dom: 'page-sablonlar', crumb: 'Atölye · Kütüphane · <span class="here">Şablonlar</span>',   sb: 'sablonlar' },
+  'surec':     { mode: 'atolye', dom: 'page-surec',     crumb: 'Atölye · Meta · <span class="here">Süreç İzleme</span>',     sb: 'surec' },
+};
+
+function goto(page) {
+  const conf = PAGES[page];
+  if (!conf) { console.warn('Unknown page', page); return; }
+
+  // Hide all pages, show target
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById(conf.dom);
+  if (target) target.classList.add('active');
+
+  // Shell layout — show/hide sidebar based on mode
+  const shell = document.getElementById('appShell');
+  shell.classList.toggle('in-atolye', conf.mode === 'atolye');
+
+  // Mode toggle
+  const isConsumer = conf.mode === 'consumer';
+  document.getElementById('modeConsumer').classList.toggle('on', isConsumer);
+  document.getElementById('modeProducer').classList.toggle('on', !isConsumer);
+
+  // Breadcrumb
+  document.getElementById('centerCrumb').innerHTML = conf.crumb || '';
+  document.getElementById('brandCrumb').textContent = isConsumer
+    ? 'Hazine · Mayıs 2026'
+    : 'Atölye · Üretim';
+
+  // Sidebar current item
+  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('on'));
+  if (conf.sb) {
+    const sbItem = document.querySelector('.sidebar-item[data-target="' + conf.sb + '"]');
+    if (sbItem) sbItem.classList.add('on');
+  }
+
+  // Devkit highlight
+  document.querySelectorAll('.devkit a').forEach(a => a.classList.remove('on'));
+  const navMap = {
+    'landing':    'nav-landing',
+    'atolye':     'nav-atolye',
+    'bloklar':    'nav-bloklar',
+    'tablolar':   'nav-tablolar',
+    'sablonlar':  'nav-sablonlar',
+    'surec':      'nav-surec',
+  };
+  if (page.startsWith('expert-')) {
+    document.getElementById('nav-expert').classList.add('on');
+  } else if (navMap[page]) {
+    document.getElementById(navMap[page]).classList.add('on');
+  } else if (conf.mode === 'atolye') {
+    document.getElementById('nav-atolye').classList.add('on');
+  }
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function openSaveModal() {
+  document.getElementById('saveModal').classList.add('active');
+}
+function closeSaveModal() {
+  document.getElementById('saveModal').classList.remove('active');
+}
+
+function toggleChip(el) {
+  el.classList.toggle('on');
+}
+
+// init
+goto('landing');
+</script>
+
+</body>
+</html>

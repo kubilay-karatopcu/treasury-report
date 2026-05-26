@@ -97,8 +97,28 @@ def migrate_to_nested(manifest: dict) -> dict:
     return out
 
 
+def ensure_bound_experts(manifest: dict) -> dict:
+    """Phase 10B: every manifest carries a ``bound_experts`` list.
+
+    Pre-Phase-10 manifests (without the field) get an empty list so the
+    snapshot save path + landing page can safely iterate without `None`
+    checks. Idempotent — re-running keeps the existing list intact.
+    """
+    if "bound_experts" not in manifest or manifest["bound_experts"] is None:
+        out = dict(manifest)
+        out["bound_experts"] = []
+        return out
+    return manifest
+
+
 def ensure_nested(manifest: dict | None) -> dict | None:
-    """Convenience: migrate if needed, pass through None."""
+    """Convenience: migrate if needed, pass through None.
+
+    Runs every load-time migration (currently: flat→nested blocks,
+    bound_experts default).
+    """
     if manifest is None:
         return None
-    return migrate_to_nested(manifest)
+    manifest = migrate_to_nested(manifest)
+    manifest = ensure_bound_experts(manifest)
+    return manifest

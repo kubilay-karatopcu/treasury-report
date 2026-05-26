@@ -1,0 +1,78 @@
+<header class="topbar">
+  <div class="brand">
+    {# Phase 11.polish: in atölye mode the brand links to Atölye Ana
+       (producer side); in consumer mode it links to the consumer landing
+       (Masa). Either way we stay on the same "side" of the app. #}
+    <a class="brand-link"
+       href="{% if mode == 'atolye' %}{{ url_for('prisma_home.atolye_home') }}{% else %}{{ url_for('prisma_home.landing') }}{% endif %}">
+      <img class="brand-icon" src="{{ url_for('static', filename='prisma_icon.png') }}" alt="">
+      <div class="brand-stack">
+        <div class="brand-name">PRISMA</div>
+        <div class="brand-subtitle">TREASURY</div>
+      </div>
+      <div class="brand-tag">{% if mode == 'atolye' %}Atölye · Üretim{% else %}Hazine · Mayıs 2026{% endif %}</div>
+    </a>
+  </div>
+
+  <div class="crumb" id="centerCrumb">{{ crumb|default('', true)|safe }}</div>
+
+  <div class="topbar-right">
+    {# Phase 11.topbar-v3 — contextual back button.
+       Three states, decided by the rendering endpoint + mode:
+       - On the Atölye landing (atolye_home)        → "← Masaya dön"
+       - Inside any Atölye sub-page (mode=atolye)   → "← Atölyeye dön"
+       - On the consumer Masa side (mode != atolye) → "Atölyeye geç →"
+       Single pill is easier to read at a glance than two equal-weight chips
+       and the arrow tells the user where they're going. #}
+    {% if request.endpoint == 'prisma_home.atolye_home' %}
+      <a class="mode-back" id="modeBack"
+         href="{{ url_for('prisma_home.landing') }}"
+         data-target="masa"
+         title="Tüketici / Masa görünümüne dön">← Masaya dön</a>
+    {% elif mode == 'atolye' %}
+      <a class="mode-back" id="modeBack"
+         href="{{ url_for('prisma_home.atolye_home') }}"
+         data-target="atolye"
+         title="Atölye ana ekranına dön">← Atölyeye dön</a>
+    {% else %}
+      <a class="mode-back mode-back--forward" id="modeBack"
+         href="{{ url_for('prisma_home.atolye_home') }}"
+         data-target="atolye"
+         title="Atölye / Üretim ekranına geç">Atölyeye geç →</a>
+    {% endif %}
+    {# Phase 12.light — theme toggle. Sun shows in light mode (click to
+       go dark), Moon shows in dark mode (click to go light). The visible
+       icon is chosen via CSS based on `<html data-theme>`. #}
+    <button type="button" class="theme-toggle" id="themeToggle"
+            aria-label="Tema değiştir"
+            title="Açık / Koyu tema arası geçiş">
+      <svg class="theme-toggle__icon theme-toggle__icon--moon" width="14" height="14"
+           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+      <svg class="theme-toggle__icon theme-toggle__icon--sun" width="14" height="14"
+           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"/>
+        <line x1="12" y1="2" x2="12" y2="4"/>
+        <line x1="12" y1="20" x2="12" y2="22"/>
+        <line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/>
+        <line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/>
+        <line x1="2" y1="12" x2="4" y2="12"/>
+        <line x1="20" y1="12" x2="22" y2="12"/>
+        <line x1="4.93" y1="19.07" x2="6.34" y2="17.66"/>
+        <line x1="17.66" y1="6.34" x2="19.07" y2="4.93"/>
+      </svg>
+    </button>
+    {% if current_user.is_authenticated %}
+    <div class="user-chip">
+      <div class="avatar">{{ (current_user.name or '?')[:1] }}{% if current_user.name and ' ' in current_user.name %}{{ current_user.name.split(' ',1)[1][:1] }}{% endif %}</div>
+      <div class="meta">
+        <div>{{ current_user.name }}</div>
+        <div class="role">{{ current_user.department }} · {{ current_user.sicil }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</header>

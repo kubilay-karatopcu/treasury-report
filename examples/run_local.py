@@ -68,6 +68,14 @@ def make_fake_data_client():
     SAMPLE_DATA = Path(__file__).parent / "sample_data"
     SAMPLE_DATA.mkdir(exist_ok=True)
 
+    # Filesystem-backed S3 stub so SessionRegistry.set_manifest /
+    # list_user_presentations actually persist in dev. Without these methods
+    # the prod-only S3 calls silently no-op, manifests are never written,
+    # and the redirect-to-recent + draft auto-save features look broken
+    # because there's nothing to read back.
+    FAKE_S3_ROOT = Path(__file__).parent / "fake_s3"
+    FAKE_S3_ROOT.mkdir(parents=True, exist_ok=True)
+
     class FakeDataClient:
         def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
             """Pretend to run SQL but read from CSVs. Match by table name in query."""
@@ -80,6 +88,40 @@ def make_fake_data_client():
                     return df
             print(f"  [FakeDataClient] no match for query: {(query or '')[:80]}...")
             return pd.DataFrame()
+
+        # ── S3-like ops (filesystem-backed; mirror the prod DataClient
+        #     surface that SessionRegistry / scope store call into). ──
+
+        def _path(self, key: str) -> Path:
+            p = FAKE_S3_ROOT / key.lstrip("/")
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return p
+
+        def _upload_bytes(self, key: str, body: bytes, content_type: str = None):
+            self._path(key).write_bytes(body)
+
+        def read_json(self, key: str):
+            import json as _json
+            p = self._path(key)
+            if not p.exists():
+                raise FileNotFoundError(key)
+            return _json.loads(p.read_text(encoding="utf-8"))
+
+        def list_prefix(self, prefix: str) -> list[str]:
+            base = FAKE_S3_ROOT / prefix.lstrip("/")
+            if not base.exists():
+                return []
+            out = []
+            for f in base.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(FAKE_S3_ROOT).as_posix()
+                    out.append(rel)
+            return out
+
+        def delete_file(self, key: str):
+            p = self._path(key)
+            if p.exists():
+                p.unlink()
 
     return FakeDataClient()
 
@@ -122,7 +164,8 @@ def create_app():
     # SessionRegistry — Phase 4. Holds per-(user, presentation) DuckDB sessions.
     from presentations.session import SessionRegistry
     app.config["SESSION_REGISTRY"] = SessionRegistry(
-        base_dir=app.config["PRESENTATIONS_SESSION_DIR"],
+        dc=app.config["DATA_CLIENT"],
+        duck_base_dir=app.config["PRESENTATIONS_SESSION_DIR"],
         idle_timeout=app.config["PRESENTATIONS_SESSION_IDLE_TIMEOUT"],
     )
 
@@ -131,6 +174,64 @@ def create_app():
     app.config["SNAPSHOT_STORE"] = LocalSnapshotStore(
         base_dir=app.config["PRESENTATIONS_LOCAL_SNAPSHOT_DIR"],
     )
+
+    # BlockStore — Phase 6.5.a. Local filesystem in dev; S3 in prod.
+    from presentations.blocks.store import LocalBlockStore
+    app.config["BLOCK_STORE"] = LocalBlockStore(
+        base_dir=Path(__file__).parent / "v2_blocks",
+    )
+
+    # LibraryStore — older block-library (separate from Phase 6.5.a
+    # BlockStore). Needed by /presentations/library which Atölye/Bloklar
+    # (Phase 9.e) consumes. Local filesystem stub in dev.
+    from presentations.store import LocalLibraryStore
+    app.config["LIBRARY_STORE"] = LocalLibraryStore(
+        base_dir=Path(__file__).parent / "library",
+    )
+
+    # DashboardStore — published reports. Atölye routes don't need it
+    # directly but other endpoints expect it in the config.
+    try:
+        from presentations.store import LocalDashboardStore
+        app.config["DASHBOARD_STORE"] = LocalDashboardStore(
+            base_dir=Path(__file__).parent / "dashboards",
+        )
+    except Exception as exc:
+        print(f"⚠ DASHBOARD_STORE setup skipped: {exc}")
+
+    # TableDocStore — Phase 6.5.b. Reads from examples/table_docs/<SCHEMA>/<TABLE>.yaml.
+    from presentations.table_docs.store import LocalTableDocStore, CachedTableDocStore
+    app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
+        LocalTableDocStore(base_dir=Path(__file__).parent / "table_docs"),
+    )
+
+    # ConceptRegistry — Phase 7.a. Reads YAML from presentations/catalog/concepts/.
+    # Needed by Keşif (Phase 9.c) for the concept-detail panel served on
+    # GET /catalog/concept/<id>. Empty registry falls back to a graceful
+    # 404; concept hubs still render on the graph regardless.
+    try:
+        from presentations.concepts.registry import ConceptRegistry
+        app.config["CONCEPT_REGISTRY"] = ConceptRegistry.from_dir(
+            Path(__file__).resolve().parent.parent / "presentations" / "catalog" / "concepts",
+        )
+    except Exception as exc:
+        print(f"⚠ CONCEPT_REGISTRY setup skipped: {exc}")
+        app.config["CONCEPT_REGISTRY"] = None
+
+    # ScopeStore — Phase 8.a. Needed so the Hazırlık page (which the Phase
+    # 9.a Keşif "Hazırlık'a geç" redirects into) can save / load contracts.
+    try:
+        from presentations.scope.store import LocalScopeStore
+        app.config["SCOPE_STORE"] = LocalScopeStore(
+            base_dir=Path(__file__).parent / "scopes",
+        )
+    except Exception as exc:
+        print(f"⚠ SCOPE_STORE setup skipped: {exc}")
+
+    # Phase 9.b.1 — Cosmograph license key, fed to the React component at
+    # mount time. None during development; populated once the commercial
+    # license is procured.
+    app.config["COSMOGRAPH_LICENSE_KEY"] = os.environ.get("COSMOGRAPH_LICENSE_KEY")
 
     # Inject LLM client. Provider precedence:
     #   1. OPENAI_API_KEY in env     → OpenAI (paid, best JSON discipline)

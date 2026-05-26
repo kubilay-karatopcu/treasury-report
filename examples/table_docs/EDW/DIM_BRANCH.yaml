@@ -1,0 +1,30 @@
+table: DIM_BRANCH
+schema: EDW
+description: |
+  Şube boyut tablosu — kod ↔ ad eşleşmesi. DEPOSITS_DAILY / DEPOSITS_BY_BRANCH
+  BRANCH_CODE üzerinden bu tabloyu lookup ile çağırır.
+estimated_daily_rows: 1300
+
+columns:
+  BRANCH_CODE:
+    type: VARCHAR2(10)
+    description: "Şube kodu (primary key)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: branch_codes
+    suggested_semantic_tag: branch
+
+  BRANCH_NAME:
+    type: VARCHAR2(100)
+    description: "Şube ismi"
+    filterable: false
+
+  REGION:
+    type: VARCHAR2(20)
+    description: "Bölge etiketi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: regions
+    suggested_semantic_tag: region
+    distinct_values_sample: [MARMARA, EGE, AKDENIZ, KARADENIZ, GAP, IC_ANADOLU]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z
