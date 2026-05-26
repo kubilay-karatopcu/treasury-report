@@ -37,7 +37,7 @@ export default function DataTable({ block }) {
   // (which has overflow-y: auto) handles overall page scroll. Combined with
   // the viewport-lock CSS this stays well-behaved.
   return (
-    <div className="ag-theme-alpine data-table-wrapper">
+    <div className="ag-theme-alpine-dark data-table-wrapper">
       <AgGridReact
         columnDefs={columnDefs}
         rowData={rows}

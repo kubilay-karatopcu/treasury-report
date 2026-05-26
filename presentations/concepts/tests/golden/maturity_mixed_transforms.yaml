@@ -1,0 +1,46 @@
+# Phase 7 compiler — golden snapshot for the maturity concept across
+# two tables with DIFFERENT transforms: one identity (bucket varchar),
+# one bucket_from_range (integer days).
+#
+# Exercises the heart of the concept layer: same business filter,
+# different SQL per table, no user awareness of the difference.
+
+filter_state:
+  - concept: maturity
+    operator: in
+    values: ["1M", "3M"]
+    filter_id: f0
+
+tables_in_play:
+  - schema: ODS_TREASURY
+    table: TRD_BRANCH_POSITION   # MATURITY_BUCKET varchar — identity
+  - schema: ODS_TREASURY
+    table: FX_SWAP_DEALS         # MATURITY_DAYS int     — bucket_from_range
+
+expected:
+  per_table_predicates:
+    - schema: ODS_TREASURY
+      table: TRD_BRANCH_POSITION
+      predicates:
+        - filter_id: f0
+          concept: maturity
+          blind: false
+          sql: "MATURITY_BUCKET IN (:f0_maturity_0, :f0_maturity_1)"
+          params:
+            f0_maturity_0: "1M"
+            f0_maturity_1: "3M"
+
+    - schema: ODS_TREASURY
+      table: FX_SWAP_DEALS
+      predicates:
+        - filter_id: f0
+          concept: maturity
+          blind: false
+          # bucket_from_range expands "1M"→[8,32) and "3M"→[32,95)
+          # into a chained OR of range checks (single-line canonical form).
+          sql: "((MATURITY_DAYS >= :f0_maturity_0_lo AND MATURITY_DAYS < :f0_maturity_0_hi) OR (MATURITY_DAYS >= :f0_maturity_1_lo AND MATURITY_DAYS < :f0_maturity_1_hi))"
+          params:
+            f0_maturity_0_lo: 8
+            f0_maturity_0_hi: 32
+            f0_maturity_1_lo: 32
+            f0_maturity_1_hi: 95

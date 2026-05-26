@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Database, Clock, AlertTriangle, Copy, Check, RefreshCw, Loader2 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import useStore from '../lib/store.js';
+import { copyToClipboard } from '../lib/clipboard.js';
 
 /**
  * Block source modal — shows the SQL that produced the block, plus preview
@@ -16,10 +17,19 @@ import useStore from '../lib/store.js';
  *   refreshing  : optional bool                  — shows loading state
  */
 export default function SourceModal({ open, onClose, block, onRefresh, refreshing = false }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState(null);  // null | "template" | "runnable"
+
+  // ALL hooks must run unconditionally, BEFORE any early return — otherwise
+  // a block whose data_source transitions empty→present changes the hook
+  // count between renders (React #310). Compute the runnable SQL up front;
+  // it yields '' when there's no data_source.
+  const ds = block && block.data_source;
+  const runnableSql = useMemo(
+    () => substituteBindParams((ds && (ds.sql || ds.original_sql)) || '', ds && ds.bind_params),
+    [ds && ds.sql, ds && ds.original_sql, ds && ds.bind_params],
+  );
 
   if (!block) return null;
-  const ds = block.data_source;
 
   // ── Gracefully handle "no data_source yet" (e.g. snapshot of an old block)
   if (!ds || (!ds.sql && !ds.original_sql)) {
@@ -33,15 +43,21 @@ export default function SourceModal({ open, onClose, block, onRefresh, refreshin
     );
   }
 
-  const sqlToCopy = ds.original_sql || ds.sql;
+  // Template = user-written SQL with `:binds` (original_sql preferred).
+  const templateSql = ds.original_sql || ds.sql;
   const showedRewritten = ds.rewritten && ds.sql && ds.sql !== ds.original_sql;
+  const hasResolved = ds.bind_params && Object.keys(ds.bind_params).length > 0;
 
-  function copy() {
-    if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(sqlToCopy).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    });
+  function doCopy(text, key) {
+    copyToClipboard(text)
+      .then(() => {
+        setCopied(key);
+        setTimeout(() => setCopied(null), 1600);
+      })
+      .catch((e) => {
+        console.error('clipboard copy failed:', e);
+        alert('Panoya kopyalanamadı: ' + (e.message || String(e)));
+      });
   }
 
   const footer = onRefresh && (
@@ -92,23 +108,42 @@ export default function SourceModal({ open, onClose, block, onRefresh, refreshin
       {/* ── SQL block ─────────────────────────────────────────────── */}
       <div className="src-section">
         <div className="src-section-title">
-          <span>SQL</span>
+          <span>SQL (şablon, :bind'li)</span>
           <button
             type="button"
             className="src-copy-btn"
-            onClick={copy}
-            title="SQL'i panoya kopyala"
+            onClick={() => doCopy(templateSql, 'template')}
+            title="Şablon SQL'i panoya kopyala"
           >
-            {copied
+            {copied === 'template'
               ? <><Check size={11} strokeWidth={2.2} />Kopyalandı</>
               : <><Copy size={11} strokeWidth={1.8} />Kopyala</>}
           </button>
         </div>
-        <pre className="src-sql ts-scroll">{sqlToCopy}</pre>
+        <pre className="src-sql ts-scroll">{templateSql}</pre>
+
+        {hasResolved && (
+          <>
+            <div className="src-section-title" style={{ marginTop: 14 }}>
+              <span>Çalıştırılabilir SQL (değerler yerleştirilmiş)</span>
+              <button
+                type="button"
+                className="src-copy-btn"
+                onClick={() => doCopy(runnableSql, 'runnable')}
+                title="Bind değerleri substitute edilmiş halini kopyala (SQL Developer / DBeaver'a yapıştırıp çalıştırabilirsin)"
+              >
+                {copied === 'runnable'
+                  ? <><Check size={11} strokeWidth={2.2} />Kopyalandı</>
+                  : <><Copy size={11} strokeWidth={1.8} />Kopyala</>}
+              </button>
+            </div>
+            <pre className="src-sql src-sql--runnable ts-scroll">{runnableSql}</pre>
+          </>
+        )}
 
         {showedRewritten && (
           <details className="src-rewritten">
-            <summary>Sistemin gerçek çalıştırdığı sürüm</summary>
+            <summary>Sistemin gerçek çalıştırdığı sürüm (positional bind'lerle)</summary>
             <pre className="src-sql src-sql--rewritten ts-scroll">{ds.sql}</pre>
           </details>
         )}
@@ -146,6 +181,51 @@ export default function SourceModal({ open, onClose, block, onRefresh, refreshin
       </div>
     </Modal>
   );
+}
+
+
+/**
+ * Substitute bind parameter values back into the SQL so the user can copy
+ * a directly-runnable query. Inverse of presentations/sql/binder.py's
+ * expansion.
+ *
+ * Per-type literal formatting:
+ *   - string  → 'TRY'  (single-quoted; embedded ' doubled per SQL escape rule)
+ *   - number  → 42 / 3.14   (as-is)
+ *   - bool    → 1 / 0  (Oracle has no boolean literal)
+ *   - null    → NULL
+ *   - ISO date string (YYYY-MM-DD) → DATE '2026-04-21'
+ *
+ * Matching uses the same `:name` regex as the binder (negative lookbehind
+ * for `::` to skip Postgres casts). enum_multi values are already
+ * positional (`:foo_0`, `:foo_1`) by the time we get here.
+ */
+export function substituteBindParams(sql, params) {
+  if (!sql) return '';
+  if (!params || typeof params !== 'object') return sql;
+  // Match :ident not preceded by ':' (skip Postgres ::cast).
+  return sql.replace(/(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match, name) => {
+    if (!(name in params)) return match;          // unknown bind — leave as-is
+    return _formatLiteral(params[name]);
+  });
+}
+
+
+function _formatLiteral(value) {
+  if (value === null || value === undefined) return 'NULL';
+  if (typeof value === 'boolean') return value ? '1' : '0';
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') {
+    // ISO date detection: "YYYY-MM-DD" or "YYYY-MM-DDT..." → emit DATE literal.
+    if (/^\d{4}-\d{2}-\d{2}(T|$)/.test(value)) {
+      const isoDate = value.slice(0, 10);
+      return `DATE '${isoDate}'`;
+    }
+    // Generic string: single-quote + escape embedded quotes.
+    return "'" + value.replace(/'/g, "''") + "'";
+  }
+  // Fallback (Date object, etc.) — toString then re-quote.
+  return "'" + String(value).replace(/'/g, "''") + "'";
 }
 
 

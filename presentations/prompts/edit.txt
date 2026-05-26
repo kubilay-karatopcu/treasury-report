@@ -29,8 +29,43 @@ Sadece şu JSON yapısında cevap ver — markdown, code fence, ek açıklama YO
   "patches": [
     {"op": "...", "path": "...", "value": ...}
   ],
-  "explanation": "Türkçe kısa açıklama"
+  "explanation": "Türkçe kısa açıklama",
+  "suggestions": []   // OPSIYONEL — sadece library önerisi varsa, aşağıya bak
 }
+
+# Blok Kütüphanesi önerisi (F.5 — KRİTİK)
+Bağlamda "## Blok Kütüphanesi" başlığı altında listelenen bloklar varsa ve
+kullanıcı YENİ BİR BLOK eklemek istiyorsa (mevcut bir bloğu düzenlemiyorsa):
+
+1. Önce listede uygun bir blok var mı kontrol et — eşleşme kriterleri:
+   - tables: kullanıcının bahsettiği tablo bu blokta var mı
+   - tags: kullanıcının kelimeleri tag'lerle örtüşüyor mu
+   - name/description: anlamsal benzerlik
+
+2. UYGUN VARSA → `patches: []` döndür ve `suggestions` doldur:
+   ```json
+   {
+     "patches": [],
+     "explanation": "Kütüphanende 'Şube Mevduat Top 10' adlı uygun bir blok var. Eklemek ister misin?",
+     "suggestions": [{
+       "type": "library_block",
+       "library_id": "lib_xxxxxxxx",
+       "reason": "İstediğin verinin aynısını gösteriyor — EDW.DEPOSITS_DAILY tablosunu kullanıyor.",
+       "target_path": "/blocks/0/children/-"
+     }]
+   }
+   ```
+   Frontend kullanıcıya kart gösterir, kullanıcı kabul ederse blok klonlanır.
+
+3. UYGUN YOKSA → normal flow (patches içinde yeni blok üret).
+
+4. Kullanıcı zaten "yeni baştan üret", "library kullanma", "yeni bir tane" gibi
+   ifadeler kullandıysa → suggestion ATMA, direkt patches üret.
+
+5. Kullanıcı mevcut bir bloğu düzenlemek istiyorsa (selected_block_id var, edit mode)
+   → suggestion YOK, patches ile güncelle.
+
+NOT: library_id'leri uydurma. Sadece bağlamda listelenmiş id'leri kullan.
 
 # Tutarlılık kuralı
 - "kaldırıldı / silindi / taşındı / eklendi / sıralandı / değiştirildi / güncellendi / dolduruldu" gibi
@@ -60,6 +95,135 @@ Veri bağımlı bloklar (kpi, bar_chart, line_chart, area_chart, pie_chart, heat
 - Tarih: TO_DATE('2026-01-01', 'YYYY-MM-DD'), SYSDATE, ADD_MONTHS, TRUNC(SYSDATE, 'Q')
 - Sadece `Mevcut katalog` altında listelenen tabloları kullan. Başka tablo adı uydurma.
 - Sadece o tabloların listelenen kolonlarını kullan. Başka kolon adı uydurma.
+
+# Phase 7 concept filtre sistemi (KULLANILDIĞINDA)
+"## Tablo dokümantasyonu" başlığı altında listelenen tablolar concept
+sistemine bağlı. Bu tabloları SQL'inde kullandığında **concept-native** yaz:
+
+1. **WHERE kısmına `{{concept_filters}}` yer tutucusunu koy.** Dashboard
+   filtreleri (para birimi, segment, vade, tarih, vs.) bu noktaya merkezi
+   binding kataloğundan DETERMİNİSTİK olarak enjekte edilir. Sen kolon adını
+   yazmazsın, bind tanımlamazsın — sistem doğru SQL'i üretir.
+2. **Block'a `source_tables: [{schema, table}, ...]` ekle** — FROM/JOIN'deki
+   HER tabloyu listele. Compiler bunu kullanarak her tablo için doğru
+   predicate'i üretir.
+3. **Filtrelenebilir boyutlar için `:isim` bind YAZMA, `variables` EKLEME.**
+   Para birimi / segment / tarih gibi her şey `{{concept_filters}}` üzerinden
+   gelir. (Bind + sentinel AYNI boyut için bir arada KULLANILMAZ — çift
+   filtreleme olur.)
+4. Filtrelenmeyen sabit iş koşulu gerekiyorsa (örn. `STATUS='ACTIVE'`) onu
+   düz literal olarak sentinel'in yanına yaz:
+   `WHERE STATUS='ACTIVE' AND {{concept_filters}}`.
+5. Hiç dashboard filtresi aktif değilse sentinel otomatik `1 = 1` olur
+   (no-op) — sorgu tüm veriyi döner (sistem ilk 5000 satıra sınırlar). Tarih
+   sınırı istiyorsan dashboard'a bir tarih filtresi eklenmesini öner.
+
+Başka tablodaki kolona göre filtre gerekiyorsa (örn. işlem tablosunu müşteri
+segmentine göre), JOIN yazmana gerek yok — o kolon kaynak tablonun FK'si
+üzerinden `lookup` binding ile zaten erişilebilir; sadece `{{concept_filters}}`
+koy. Çıktıda başka tablonun kolonu lazımsa JOIN'i elle yaz ve iki tabloyu da
+`source_tables`'a ekle.
+
+## Prompt'ta filtre DEĞERİ verildiğinde (KRİTİK kural)
+Kullanıcı bir kolona göre değer belirtirse (örn. "segmenti RETAIL olanlar",
+"USD işlemler", "şube 0123") karar şu:
+
+- O kolon **concept'e bağlıysa** (tablo doc'unda `suggested_semantic_tag` VAR):
+  query'ye HARDCODE ETME. Bunun yerine `/filters/-`'e o concept'in filtresini
+  `default` değeriyle TOHUMLA. Blok query'si `{{concept_filters}}` ile saf
+  kalır. Böylece değer concept compiler'dan geçer → kodlama çevirisi
+  (örn. kanonik "CORP" → tabloda "CORPORATE") ve interaktiflik kazanılır,
+  ayrıca kullanıcı sonradan değiştirebilir.
+- O kolon **concept'e bağlı DEĞİLSE** (`suggested_semantic_tag` YOK ya da tablo
+  dokümante değil): query'ye düz literal hardcode et
+  (`WHERE STATUS = 'ACTIVE' AND {{concept_filters}}`).
+
+Örnek — "segmenti RETAIL olanlardan bar chart" (SEGMENT concept'e bağlı →
+TOHUMLA, iki patch):
+```json
+[
+ {"op":"add","path":"/blocks/0/children/-","value":{
+   "type":"bar_chart","title":"Bireysel Segment Bakiye",
+   "query":"SELECT SEGMENT, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE {{concept_filters}} GROUP BY SEGMENT",
+   "source_tables":[{"schema":"EDW","table":"DEPOSITS_DAILY"}],
+   "config":{"categories":[],"series":[{"name":"Toplam","values":[]}]}}},
+ {"op":"add","path":"/filters/-","value":{
+   "id":"f_segment","semantic_tag":"segment","type":"enum_multi","label":"Segment",
+   "allowed_values":["RETAIL","CORP","SME","PRIVATE"],"default":["RETAIL"]}}
+]
+```
+
+Karşı örnek — "STATUS aktif olanlar" (STATUS dokümante değil → LİTERAL):
+`"query":"... WHERE STATUS = 'ACTIVE' AND {{concept_filters}} ..."` (filtre tohumlanmaz).
+
+## Kullanıcı bir boyutu FİLTRELERE eklemek isterse (interaktif filtre — KRİTİK)
+"X'i filtrelere ekle", "X için filtre koy", "üstte X filtresi olsun",
+"filtre olarak ekle", "X'e göre filtrelenebilsin" gibi ifadeler = dashboard'ın
+EN ÜSTÜNDEKİ filtre çubuğuna INTERAKTİF bir filtre eklemek demektir. Değer
+verilse de verilmese de tek bir `/filters/-` patch'i üret:
+
+- semantic_tag: O kolonun "## Tablo dokümantasyonu"da `semantic_tag=...` ile
+  görünen değeri. (Kolon orada semantic_tag ile listelenmemişse → aşağıdaki
+  "bağlı DEĞİLSE" kuralı.)
+- type: kategorik boyut → "enum_multi"; tarih (time_axis) → "date_range";
+  sayısal aralık → "number_range".
+- label: kısa Türkçe etiket ("Segment", "Ürün", "Şube", "Para Birimi").
+- allowed_values: dokümantasyondaki `allowed: [...]` listesi (enum tipleri için).
+- default: kullanıcı bir DEĞER de söylediyse onu koy (örn. "ürünü filtrele,
+  vadesizleri seç" → ["DD"]); sadece "filtre ekle" dediyse `default`'u BOŞ
+  bırak ([]). Boş default = filtre çubuğunda seçimsiz görünür, kullanıcı seçer.
+- id: "f_<kısa>" (örn. "f_product", "f_segment").
+
+Blok query'leri zaten `{{concept_filters}}` taşıdığından filtre eklenince
+ilgili bloklara OTOMATİK uygulanır — query'yi değiştirmene GEREK YOK. Yeni blok
++ filtre aynı istekte gelirse iki patch at (blok add + /filters/- add).
+
+Örnek — "Ürün koduna göre bakiye dağılımını pasta grafik yap ve ürünü filtrelere ekle"
+(PRODUCT_CODE dokümantasyonda semantic_tag=product_group, allowed=[TR,FX,VD,DD]):
+```json
+[
+ {"op":"add","path":"/blocks/0/children/-","value":{
+   "type":"pie_chart","title":"Ürün Bazında Bakiye Dağılımı",
+   "query":"SELECT PRODUCT_CODE, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE {{concept_filters}} GROUP BY PRODUCT_CODE",
+   "source_tables":[{"schema":"EDW","table":"DEPOSITS_DAILY"}],
+   "config":{"labels":[],"values":[]}}},
+ {"op":"add","path":"/filters/-","value":{
+   "id":"f_product","semantic_tag":"product_group","type":"enum_multi","label":"Ürün",
+   "allowed_values":["TR","FX","VD","DD"],"default":[]}}
+]
+```
+
+Kolon CONCEPT'E BAĞLI DEĞİLSE (dokümantasyonda semantic_tag YOK / tablo
+dokümante değil): interaktif filtre EKLENEMEZ — UYDURMA semantic_tag KULLANMA.
+İstenen bloğu yine üret, ama `/filters/-` patch'i ATMA ve explanation'da açıkla:
+"<KOLON> şu an bir concept'e bağlı olmadığı için filtre çubuğuna eklenemiyor
+(veri ekibi /concepts/review'dan bağlarsa interaktif filtre olur). İstersen
+SQL'e sabit bir koşul yazabilirim."
+
+Örnek çıktı (Phase 7 concept-native shape):
+```json
+{
+  "op": "add",
+  "path": "/blocks/0/children/-",
+  "value": {
+    "id": "b_xxx",
+    "type": "bar_chart",
+    "title": "...",
+    "query": "SELECT SEGMENT, SUM(BALANCE_TRY) AS T FROM EDW.DEPOSITS_DAILY WHERE {{concept_filters}} GROUP BY SEGMENT",
+    "source_tables": [{"schema": "EDW", "table": "DEPOSITS_DAILY"}],
+    "config": {"categories":[],"series":[{"name":"Toplam","values":[]}]}
+  }
+}
+```
+
+Not: bir tabloda filtrenin işlemesi için o tablonun concept binding'i
+onaylanmış olmalı (data ekibi /concepts/review'dan onaylar). Binding yoksa o
+filtre o bloğa uygulanmaz (blok "filtre uygulanmadı" rozetiyle filtresiz
+render olur) — bu bir hata değildir.
+
+Tablo dokümantasyonu BULUNMAYAN tablolar için: eski şekilde hardcoded SQL
+yaz (`data_source.original_sql` ile, sentinel olmadan). Concept-native shape
+sadece dokümante tablolar için.
 - Aggregation (GROUP BY, SUM, COUNT, AVG, MIN, MAX, DISTINCT) veya küçük limit (FETCH FIRST <=5000) ZORUNLU değil ama tavsiye edilir. Limitsiz raw query yazarsan sistem otomatik ilk 5000 satıra sınırlar.
 - Tek SELECT. ;, INSERT, UPDATE, DELETE, DDL YASAK.
 
@@ -493,6 +657,24 @@ Catalog: upload__u_xxx__musteri_bakiyeleri sheet'inde MUZAKERE_ORANI_PCT kolonu 
 ❌ ASLA path'te "children" yerine "blocks" yazma:
 - ✅ `/blocks/2/children/-`
 - ❌ `/blocks/2/blocks/-`  (section'lar `children` taşır, `blocks` değil)
+
+# Path syntax (JSON Pointer — RFC 6901)
+Path'te SADECE forward slash `/` ayraç. Nokta `.` YASAK.
+- ✅ `/blocks/0/children/0/config/series/0/values/2`
+- ❌ `/blocks/0/children/0/config.series/0/values/2`  (nokta YANLIŞ — apply çöker)
+
+# Veri filtreleme — SQL değiştir, config silme
+Kullanıcı "sadece X kalsın", "Y'leri çıkar", "filtre uygula" gibi şeyler isterse:
+- ✅ DOĞRU yol: `data_source/original_sql`'i WHERE clause ile güncelle
+  ```json
+  {"op":"replace","path":"/blocks/N/children/M/data_source/original_sql",
+   "value":"SELECT BANK_NAME, MAX(RATE) FROM EDW.COMPETITOR_RATES WHERE BANK_NAME IN ('TEB','QNB Finansbank') GROUP BY BANK_NAME"}
+  ```
+  Backend SQL'i çalıştırır, config otomatik dolar.
+
+- ❌ YANLIŞ: `config/categories`, `config/series/0/values/N` gibi tek tek
+  silme/değiştirme. Bu hem fragile (indeks kaymaları), hem de cache yenilenince
+  geri gelir. SQL kaynağı değiştirmek tek doğru yol.
 
 # Örnek — section taşıma
 [s0=Genel, s1=Şube, s2=NII] — Kullanıcı: "NII'ı Şube'den önceye taşı"

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import { fetchHelp } from '../lib/api.js';
+import { copyToClipboard } from '../lib/clipboard.js';
 
 /**
  * Plot help / command reference modal. Content is JSON-driven so it can be
@@ -178,10 +179,11 @@ function Limitations({ block }) {
 function CommandRow({ text }) {
   const [copied, setCopied] = useState(false);
   function copy() {
-    if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(text).then(() => {
+    copyToClipboard(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1400);
+    }).catch((e) => {
+      console.error('clipboard copy failed:', e);
     });
   }
   return (

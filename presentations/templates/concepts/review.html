@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Binding İnceleme — Treasury Studio{% endblock %}
+{% block filter_panel %}{% endblock %}
+
+{% block head %}
+<style>
+  .rev-page { padding: 28px 0; max-width: 1100px; margin: 0 auto; }
+  .rev-head { margin-bottom: 18px; }
+  .rev-head h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .rev-head p { color: #64748b; font-size: 0.85rem; margin: 0; }
+  .rev-pick { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 18px; }
+  .rev-pick select, .rev-pick button { font-size: 0.85rem; padding: 7px 12px;
+    border-radius: 6px; border: 1px solid #cbd5e1; }
+  .rev-btn { background: #2563eb; color: #fff; border-color: #2563eb;
+    cursor: pointer; font-weight: 500; }
+  .rev-btn:hover { background: #1d4ed8; }
+  .rev-btn--ghost { background: #fff; color: #334155; }
+  .rev-btn--ghost:hover { background: #f1f5f9; }
+  .rev-loading, .rev-empty { color: #64748b; padding: 24px; text-align: center; }
+  .rev-col { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 14px 16px; margin-bottom: 12px; }
+  .rev-col__head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .rev-col__name { font-family: ui-monospace, monospace; font-weight: 600;
+    font-size: 0.95rem; color: #0f172a; }
+  .rev-col__dtype { font-size: 0.72rem; color: #94a3b8; }
+  .rev-prop { display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    border-top: 1px dashed #eef2f7; }
+  .rev-prop:first-of-type { border-top: none; }
+  .rev-prop__concept { font-weight: 600; color: #1e3a8a; min-width: 130px; font-size: 0.85rem; }
+  .rev-prop__kind { font-family: ui-monospace, monospace; font-size: 0.74rem;
+    background: #eff6ff; color: #1e40af; padding: 2px 7px; border-radius: 10px; }
+  .rev-prop__conf { font-size: 0.7rem; padding: 2px 7px; border-radius: 10px; }
+  .conf-inferred_sample { background: #dcfce7; color: #166534; }
+  .conf-inferred_regex { background: #fef9c3; color: #854d0e; }
+  .conf-llm_proposed { background: #ede9fe; color: #5b21b6; }
+  .rev-prop__why { font-size: 0.74rem; color: #64748b; flex: 1; }
+  .rev-prop__actions { display: flex; gap: 6px; }
+  .rev-prop__actions button { font-size: 0.72rem; padding: 4px 10px; border-radius: 5px;
+    cursor: pointer; border: 1px solid; }
+  .rev-approve { background: #16a34a; color: #fff; border-color: #16a34a; }
+  .rev-approve:hover { background: #15803d; }
+  .rev-reject { background: #fff; color: #b91c1c; border-color: #fca5a5; }
+  .rev-reject:hover { background: #fef2f2; }
+  .rev-bar { display: flex; gap: 10px; align-items: center; margin: 14px 0; }
+  .rev-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px;
+    font-size: 0.85rem; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .rev-toast.show { opacity: 1; }
+  .is-done { opacity: .4; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rev-page">
+  <div class="rev-head">
+    <h1>Binding İnceleme</h1>
+    <p>Çıkarım önerilerini onayla → tablonun <code>concept_bindings</code>'ine
+       <code>human_verified</code> olarak yazılır. Sadece onaylananlar filter
+       compiler'a gider.</p>
+  </div>
+
+  <form class="rev-pick" id="rev-pick-form">
+    <label for="rev-table" style="font-size:.85rem;color:#475569;">Tablo:</label>
+    <select id="rev-table" name="table">
+      <option value="">— tablo seç —</option>
+      {% for t in tables %}
+      <option value="{{ t.schema }}|{{ t.table }}">{{ t.schema }}.{{ t.table }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="rev-btn">Tara</button>
+  </form>
+
+  <div class="rev-bar" id="rev-bar" style="display:none;">
+    <button type="button" class="rev-btn" id="rev-approve-all">Görünen tümünü onayla (en güçlü öneri)</button>
+    <span id="rev-count" style="font-size:.8rem;color:#64748b;"></span>
+  </div>
+
+  <div id="rev-loading" class="rev-loading" style="display:none;">Taranıyor…</div>
+  <div id="rev-empty" class="rev-empty" style="display:none;"></div>
+  <div id="rev-queue"></div>
+</div>
+
+<div class="rev-toast" id="rev-toast"></div>
+
+<script>
+(function () {
+  const base = window.location.pathname.replace(/\/concepts\/review.*$/, '');
+  const form = document.getElementById('rev-pick-form');
+  const sel = document.getElementById('rev-table');
+  const queueEl = document.getElementById('rev-queue');
+  const loadingEl = document.getElementById('rev-loading');
+  const emptyEl = document.getElementById('rev-empty');
+  const barEl = document.getElementById('rev-bar');
+  const countEl = document.getElementById('rev-count');
+  const toastEl = document.getElementById('rev-toast');
+  let current = { schema: '', table: '' };
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(() => toastEl.classList.remove('show'), 2200);
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  async function scan() {
+    const v = sel.value;
+    if (!v) return;
+    const [schema, table] = v.split('|');
+    current = { schema, table };
+    queueEl.innerHTML = '';
+    emptyEl.style.display = 'none';
+    barEl.style.display = 'none';
+    loadingEl.style.display = 'block';
+    try {
+      const url = `${base}/concepts/review/api/queue?schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`;
+      const resp = await fetch(url, { cache: 'no-store' });
+      const body = await resp.json();
+      loadingEl.style.display = 'none';
+      const queue = body.queue || [];
+      if (queue.length === 0) {
+        emptyEl.textContent = 'Bekleyen öneri yok — tüm kolonlar ya bağlı ya da reddedilmiş.';
+        emptyEl.style.display = 'block';
+        return;
+      }
+      countEl.textContent = `${queue.length} kolon`;
+      barEl.style.display = 'flex';
+      queueEl.innerHTML = queue.map(renderCol).join('');
+    } catch (e) {
+      loadingEl.style.display = 'none';
+      emptyEl.textContent = 'Tarama başarısız: ' + e.message;
+      emptyEl.style.display = 'block';
+    }
+  }
+
+  function renderCol(col) {
+    const props = col.proposals.map((p, i) => `
+      <div class="rev-prop" data-col="${esc(col.column)}" data-concept="${esc(p.concept)}"
+           data-transform='${esc(JSON.stringify(p.transform))}'>
+        <span class="rev-prop__concept">${esc(p.concept)}</span>
+        <span class="rev-prop__kind">${esc(p.transform.kind)}</span>
+        <span class="rev-prop__conf conf-${esc(p.confidence)}">${esc(p.confidence)} · ${p.score}</span>
+        <span class="rev-prop__why">${esc(p.rationale)}</span>
+        <span class="rev-prop__actions">
+          <button type="button" class="rev-approve">Onayla</button>
+          <button type="button" class="rev-reject">Reddet</button>
+        </span>
+      </div>`).join('');
+    return `<div class="rev-col" data-col="${esc(col.column)}">
+      <div class="rev-col__head">
+        <span class="rev-col__name">${esc(col.column)}</span>
+        <span class="rev-col__dtype">${esc(col.dtype)}</span>
+      </div>${props}</div>`;
+  }
+
+  async function approve(items) {
+    const resp = await fetch(`${base}/concepts/review/api/approve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schema: current.schema, table: current.table, bindings: items }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || !body.ok) throw new Error(body.error || 'onay başarısız');
+    return body.written;
+  }
+  async function reject(items) {
+    const resp = await fetch(`${base}/concepts/review/api/reject`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schema: current.schema, table: current.table, items }),
+    });
+    return (await resp.json()).rejected;
+  }
+
+  // Event delegation for approve / reject.
+  queueEl.addEventListener('click', async (e) => {
+    const row = e.target.closest('.rev-prop');
+    if (!row) return;
+    const item = {
+      column: row.dataset.col,
+      concept: row.dataset.concept,
+      transform: JSON.parse(row.dataset.transform),
+    };
+    try {
+      if (e.target.classList.contains('rev-approve')) {
+        await approve([item]);
+        row.closest('.rev-col').classList.add('is-done');
+        toast(`✓ ${item.column} → ${item.concept} onaylandı`);
+      } else if (e.target.classList.contains('rev-reject')) {
+        await reject([{ column: item.column, concept: item.concept }]);
+        row.classList.add('is-done');
+        toast(`${item.column} → ${item.concept} reddedildi`);
+      }
+    } catch (err) {
+      toast('Hata: ' + err.message);
+    }
+  });
+
+  document.getElementById('rev-approve-all').addEventListener('click', async () => {
+    const items = [];
+    queueEl.querySelectorAll('.rev-col').forEach((colEl) => {
+      const first = colEl.querySelector('.rev-prop');  // strongest (queue is ranked)
+      if (first) items.push({
+        column: first.dataset.col, concept: first.dataset.concept,
+        transform: JSON.parse(first.dataset.transform),
+      });
+    });
+    if (!items.length) return;
+    try {
+      const n = await approve(items);
+      toast(`✓ ${n} binding onaylandı`);
+      scan();
+    } catch (err) {
+      toast('Hata: ' + err.message);
+    }
+  });
+
+  form.addEventListener('submit', (e) => { e.preventDefault(); scan(); });
+})();
+</script>
+{% endblock %}

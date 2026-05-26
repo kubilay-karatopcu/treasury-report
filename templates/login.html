@@ -6,49 +6,211 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
   <title>Giriş — PRISMA Treasury</title>
 
-  <link rel="icon" href="{{ url_for('static', filename='prisma_icon.png') }}">
-  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/tabler.min.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles/login.css') }}?v=3">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='prisma_icon.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  {# Pull the design tokens (--bg-0, --gold, etc.) and shell typography. #}
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/prisma.css') }}?v=2">
 
   <style>
-    :root {
-      --tblr-font-sans-serif: 'InterVar', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* Login owns its own layout (no topbar/sidebar). Re-establish body bg
+       since prisma.css scopes it to body.prisma. */
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: var(--bg-0);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
     }
     body { font-feature-settings: "cv03", "cv04", "cv11"; }
+    * { box-sizing: border-box; }
+
+    .login-shell {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* Subtle gold/blue glow underneath to echo the prism's facets. */
+    .login-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 25% 30%, rgba(107, 138, 253, 0.07), transparent 55%),
+        radial-gradient(circle at 75% 70%, rgba(212, 166, 86, 0.07), transparent 55%);
+      pointer-events: none;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--bg-1);
+      border: 1px solid var(--border-soft);
+      border-top: 2px solid var(--gold);
+      padding: 44px 40px 36px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .login-logo-wrap {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      justify-content: center;
+      margin-bottom: 36px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .login-logo-icon {
+      height: 56px; width: auto;
+      filter: drop-shadow(0 0 12px rgba(212, 166, 86, 0.22));
+    }
+    .login-logo-text {
+      font-size: 15px;
+      letter-spacing: 0.42em;
+      font-weight: 400;
+      color: var(--ink);
+    }
+    .login-logo-text .tag {
+      display: block;
+      font-size: 9px;
+      letter-spacing: 0.32em;
+      color: var(--gold);
+      text-transform: uppercase;
+      margin-top: 6px;
+      font-weight: 300;
+    }
+
+    .login-form .form-row { margin-bottom: 22px; }
+    .login-form .form-label {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+      margin-bottom: 8px;
+    }
+    .login-form .form-control {
+      width: 100%;
+      background: var(--bg-2);
+      border: 1px solid var(--border-soft);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 14px;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .login-form .form-control::placeholder { color: var(--ink-faint); }
+    .login-form .form-control:focus {
+      border-color: var(--gold);
+      background: var(--bg-3);
+    }
+
+    .login-remember {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      font-size: 12px;
+      color: var(--ink-mute);
+      user-select: none;
+    }
+    .login-remember .form-check-input {
+      width: 14px; height: 14px;
+      accent-color: var(--gold);
+      margin: 0;
+      cursor: pointer;
+    }
+    .login-remember .form-check-label { cursor: pointer; }
+
+    .login-submit {
+      width: 100%;
+      padding: 12px 22px;
+      font-size: 11px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      font-weight: 500;
+      background: var(--gold);
+      color: var(--bg-0);
+      border: 1px solid var(--gold);
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+      font-family: var(--sans);
+    }
+    .login-submit:hover {
+      background: var(--gold-soft);
+      border-color: var(--gold-soft);
+    }
+    .login-submit:active { transform: translateY(1px); }
+
+    .login-footer {
+      margin: 36px 0 0;
+      font-size: 10px;
+      letter-spacing: 0.32em;
+      color: var(--ink-faint);
+      text-transform: uppercase;
+      font-weight: 400;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+    .login-footer .gold-rule {
+      display: block;
+      width: 40px;
+      height: 1px;
+      background: var(--gold);
+      opacity: 0.6;
+      margin: 0 auto 14px;
+    }
   </style>
 </head>
-<body class="login-page">
+<body>
   <main class="login-shell">
     <div class="login-card">
       <div class="login-logo-wrap">
-        <img src="{{ url_for('static', filename='prisma_logo_dikey.png') }}"
-             alt="PRISMA" class="login-logo">
+        <img src="{{ url_for('static', filename='prisma_icon.png') }}"
+             alt="" class="login-logo-icon">
+        <div class="login-logo-text">
+          PRISMA
+          <span class="tag">Treasury</span>
+        </div>
       </div>
 
       <form action="" method="post" class="login-form" novalidate>
         {{ form.hidden_tag() }}
 
-        <div class="mb-3">
+        <div class="form-row">
           <label class="form-label" for="sicil">Sicil</label>
-          {{ form.sicil(class_='form-control form-control-lg', placeholder='A12345', autocomplete='username', autofocus='autofocus') }}
+          {{ form.sicil(class_='form-control', placeholder='A12345', autocomplete='username', autofocus='autofocus') }}
         </div>
 
-        <div class="mb-3">
+        <div class="form-row">
           <label class="form-label" for="password">Şifre</label>
-          {{ form.password(class_='form-control form-control-lg', placeholder='••••••••', autocomplete='current-password') }}
+          {{ form.password(class_='form-control', placeholder='••••••••', autocomplete='current-password') }}
         </div>
 
-        <div class="form-check mb-4 login-remember">
+        <div class="login-remember">
           {{ form.remember_me(class_='form-check-input') }}
           {{ form.remember_me.label(class_='form-check-label') }}
         </div>
 
-        {{ form.submit(class_='btn btn-primary w-100 btn-lg login-submit') }}
+        {{ form.submit(class_='login-submit') }}
       </form>
     </div>
 
-    <p class="login-footer">PRISMA · Treasury</p>
+    <p class="login-footer">
+      <span class="gold-rule"></span>
+      PRISMA · Hazine Yönetim Platformu
+    </p>
   </main>
 </body>
 </html>

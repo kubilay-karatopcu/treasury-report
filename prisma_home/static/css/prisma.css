@@ -1,0 +1,1424 @@
+/* ═════════════════════════════════════════════════════════════════════════
+   PRISMA shell + page styles — Phase 10A
+   Lifted from docs/ux/PRISMA_UX_Prototip_v2.html (single source of truth).
+   Page-specific selectors (landing/expert/library) are kept so Phase 10C+
+   can render them without rewriting CSS.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens — locked to PRISMA deck.
+
+   Phase 11.dark-editor establishes a **two-track token system**:
+     Track A — PRISMA shell tokens (--bg-0, --ink, --gold etc.)
+                 used by topbar / sidebar / consumer pages.
+     Track B — editor surface tokens (--editor-surface,
+                 --editor-ink, etc.) used by the producer
+                 surfaces (editor, list, snapshot, library).
+
+   Both tracks resolve to the **same dark palette today**. When Phase 11.light
+   ships, only the `[data-theme="light"]` override block (also defined below)
+   needs new values — no component edits required.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg-0: #0A0E1A;
+  --bg-1: #0E1320;
+  --bg-2: #131826;
+  --bg-3: #131F33;
+  --bg-card: #1A2842;
+  --bg-elev: #243248;
+
+  /* Borders */
+  --border-soft: #1F2433;
+  --border: #2A3043;
+
+  /* Text */
+  --ink: #E8ECF1;
+  --ink-soft: #C8D0DD;
+  --ink-mute: #A8B2C4;
+  --ink-faint: #6B768A;
+  --ink-dim: #5A6478;
+
+  /* Accents */
+  --gold: #D4A656;
+  --gold-soft: #E8C190;
+  --gold-dim: #C49545;
+
+  /* Semantic */
+  --green: #4A9B6E;
+  --red: #B85450;
+  --red-soft: #E89898;
+  --blue: #6B8AFD;
+
+  /* Domains */
+  --liq: #6B8AFD;
+  --dep: #4A9B6E;
+  --fnd: #D4A656;
+  --nii: #B6BECD;
+  --sec: #B85450;
+  --krd: #E8C190;
+
+  --serif: 'Inter', sans-serif;
+  --sans:  'Inter', sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Track B — editor surface tokens (Phase 11.dark-editor) ────────── */
+  /* These are *semantic* names so the light theme can flip them in one
+     override block without touching component CSS. Today they all resolve
+     to the dark PRISMA palette. */
+  --editor-surface:    var(--bg-0);   /* page body, canvas */
+  --editor-surface-1:  var(--bg-1);   /* cards, blocks */
+  --editor-surface-2:  var(--bg-2);   /* hover, raised panels */
+  --editor-surface-3:  var(--bg-3);   /* nested cards inside blocks */
+  --editor-ink:        var(--ink);
+  --editor-ink-soft:   var(--ink-soft);
+  --editor-ink-mute:   var(--ink-mute);
+  --editor-ink-faint:  var(--ink-faint);
+  --editor-border:     var(--border-soft);
+  --editor-border-strong: var(--border);
+  --editor-accent:     var(--gold);
+  --editor-accent-soft:#3a2d1a;       /* gold's dark cousin for tinted bg */
+  --editor-link:       var(--liq);    /* "blue" accent for action buttons */
+  --editor-success:    var(--green);
+  --editor-danger:     var(--red);
+  --editor-danger-soft:#3a1f1f;
+}
+
+/* ── Light theme override (Phase 12.light) ─────────────────────────────
+   Activate by setting `<html data-theme="light">` or `body.theme-light`.
+   The toggle in topbar.html flips this attribute; prisma_shell.js
+   persists the choice in localStorage('prisma-theme') and an inline
+   <head> script reads it before paint to prevent FOUC.
+
+   Every component CSS file pulls colors through these tokens; flipping
+   the values here is enough to repaint the entire app. */
+[data-theme="light"], body.theme-light {
+  /* Backgrounds — page canvas + raised surfaces */
+  --bg-0:    #F7F8FA;   /* page wash */
+  --bg-1:    #FFFFFF;   /* cards / blocks */
+  --bg-2:    #F1F3F7;   /* hover, raised panels */
+  --bg-3:    #E9ECF2;   /* nested surfaces */
+  --bg-card: #FFFFFF;
+  --bg-elev: #FFFFFF;
+
+  /* Borders — slate-200 / slate-300 */
+  --border-soft: #E5E7EB;
+  --border:      #D1D5DB;
+
+  /* Text — slate scale (inverted from dark ink scale) */
+  --ink:       #1E293B;
+  --ink-soft:  #334155;
+  --ink-mute:  #64748B;
+  --ink-faint: #94A3B8;
+  --ink-dim:   #CBD5E1;
+
+  /* Accents — brand gold stays; soft variants get cream backgrounds */
+  --gold:      #B07A2A;   /* darker gold for AA contrast on white */
+  --gold-soft: #D4A656;   /* the original brand gold reads as the "soft" hover tone */
+  --gold-dim:  #8E5E1A;
+
+  /* Semantic — red/green stay readable on light */
+  --green:    #2F855A;
+  --red:      #B91C1C;
+  --red-soft: #DC2626;
+  --blue:     #2563EB;
+
+  /* Domains — keep brand identity but a touch deeper for light contrast */
+  --liq: #2563EB;
+  --dep: #2F855A;
+  --fnd: #B07A2A;
+  --nii: #475569;
+  --sec: #B91C1C;
+  --krd: #8E5E1A;
+
+  /* Track B — flip the editor-surface tokens. Most resolve via var()
+     to the Track-A tokens above; we only need explicit values for the
+     ones that were hardcoded to dark hex (accent-soft, danger-soft). */
+  --editor-accent-soft: #FBF4E6;   /* light cream — gold-tinted bg on white */
+  --editor-danger-soft: #FEF2F2;   /* red-50 */
+
+  /* Color scheme hint — lets native controls (scrollbars, form inputs)
+     adopt the light system theme without extra CSS. */
+  color-scheme: light;
+}
+/* Dark stays the default — set color-scheme so native UI matches. */
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Scope global resets to body.prisma so the new shell doesn't bleed into
+   legacy pages (rates, competitor, home) that still extend templates/base.html. */
+body.prisma { background: var(--bg-0); color: var(--ink); font-family: var(--sans); font-weight: 300; -webkit-font-smoothing: antialiased; min-height: 100vh; overflow-x: hidden; margin: 0; padding: 0; }
+body.prisma * { box-sizing: border-box; }
+body.prisma a { color: inherit; text-decoration: none; }
+body.prisma button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   App shell — top bar always present
+   ───────────────────────────────────────────────────────────────────────── */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: 56px;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-0);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.brand-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: inherit;
+}
+.brand-icon {
+  /* Prism PNG is transparent + colorful — drops onto any background.
+     Slight drop shadow gives definition on near-black bg-0. */
+  height: 30px;
+  width: auto;
+  display: block;
+  filter: drop-shadow(0 0 6px rgba(212, 166, 86, 0.18));
+  transition: filter 0.25s;
+}
+.brand-link:hover .brand-icon {
+  filter: drop-shadow(0 0 12px rgba(212, 166, 86, 0.35));
+}
+.brand-mark {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.42em;
+  color: var(--ink);
+}
+.brand-mark .i, .brand-mark .a { color: var(--gold); }
+
+/* Phase 11.kesif — stacked PRISMA / TREASURY brand text mimics
+   prisma_logo.png's typography without inlining the image (which has
+   navy text that's invisible on the dark topbar). */
+.brand-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+  gap: 2px;
+  white-space: nowrap;
+}
+.brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  color: var(--ink);
+}
+.brand-subtitle {
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.46em;
+  color: var(--gold);
+  text-transform: uppercase;
+  padding-left: 1px;
+}
+.brand-tag {
+  white-space: nowrap;
+}
+/* Center crumb shouldn't grow into the right pill cluster; truncate gracefully. */
+.crumb {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
+.brand-tag {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.crumb .sep { color: var(--border); }
+.crumb .here { color: var(--ink-soft); }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.mode-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.mode-toggle button,
+.mode-toggle a {
+  padding: 6px 14px;
+  color: var(--ink-faint);
+  transition: all 0.2s;
+  display: inline-block;
+  text-decoration: none;
+}
+.mode-toggle button.on,
+.mode-toggle a.on {
+  background: var(--ink);
+  color: var(--bg-0);
+}
+.mode-toggle button:hover:not(.on),
+.mode-toggle a:hover:not(.on) {
+  color: var(--ink-soft);
+  background: var(--bg-2);
+}
+
+/* Phase 11.polish: dual mode pills — Masa | Atölye. Current side gets
+   gold tint instead of stark white-on-dark so neither pill reads as
+   "main screen / back to home". (Legacy — kept for any callers that
+   still emit the dual-pill markup.) */
+.mode-toggle-dual a {
+  letter-spacing: 0.20em;
+  font-weight: 500;
+}
+.mode-toggle-dual a.on {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+.mode-toggle-dual a:not(.on) {
+  color: var(--ink-mute);
+}
+.mode-toggle-dual a:not(.on):hover {
+  background: var(--bg-2);
+  color: var(--ink);
+}
+.mode-toggle.mode-toggle-dual { border-color: var(--gold); }
+
+/* Phase 11.topbar-v3 — single contextual back button.
+   One pill that always reads as "go to the other side". The arrow
+   direction in the label tells the user what's happening; the chip
+   itself is a gold-outlined ghost button so it doesn't compete with
+   the active page header. */
+.mode-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--gold);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--gold);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: background 0.18s, color 0.18s;
+}
+.mode-back:hover {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+.mode-back--forward { letter-spacing: 0.20em; }
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+
+/* Phase 12.light — theme toggle (sun / moon) sits between the mode-back
+   chip and the user-chip in topbar-right. */
+.theme-toggle {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.theme-toggle:hover {
+  background: var(--bg-2);
+  color: var(--gold);
+  border-color: var(--gold);
+}
+.theme-toggle__icon { display: block; }
+/* Default (dark): show moon. Light: show sun. */
+.theme-toggle__icon--sun  { display: none; }
+[data-theme="light"] .theme-toggle__icon--moon { display: none; }
+[data-theme="light"] .theme-toggle__icon--sun  { display: block; }
+.user-chip .avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--gold);
+  border: 1px solid var(--border);
+}
+.user-chip .meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.user-chip .meta .role {
+  font-size: 9px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Main canvas
+   ───────────────────────────────────────────────────────────────────────── */
+.canvas {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 64px 64px 96px;
+  flex: 1;
+  position: relative;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   `canvas-bleed` opt-in — pages whose body is a fullscreen React mount
+   (kesif, hazirlik, bloklar, surecler). The mount fills the canvas grid
+   cell completely so the PRISMA topbar + sidebar stay visible without
+   overlapping the React app.
+   ───────────────────────────────────────────────────────────────────────── */
+body.prisma.canvas-bleed .canvas {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: #f6f7f9;
+  color: #1e293b;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* In atolye grid, the canvas sits at row 2 of `56px 1fr` → fills the
+     remaining viewport. The `min-height: 0` lets flex children shrink. */
+  min-height: 0;
+}
+body.prisma.canvas-bleed.in-atolye .canvas {
+  /* When sidebar is present, the grid already constrains us — no extra padding. */
+  padding: 0;
+}
+body.prisma.canvas-bleed:not(.in-atolye) .canvas {
+  /* Consumer-mode bleed pages still leave room for the topbar. */
+  height: calc(100vh - 56px);
+}
+body.prisma.canvas-bleed .canvas-bleed-mount {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   `light-content` opt-in — pages whose inner markup was built for the old
+   Tabler / light theme (presentations list, snapshot — when not full-screen
+   overlay). Topbar + sidebar stay dark; the canvas becomes a light surface
+   so existing card / button CSS reads correctly.
+   ───────────────────────────────────────────────────────────────────────── */
+body.prisma.light-content {
+  background: #f7f8fb;
+}
+body.prisma.light-content .canvas {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: #f7f8fb;
+  color: #1d273b;
+  min-height: calc(100vh - 56px);
+}
+body.prisma.light-content.in-atolye .canvas {
+  /* When the sidebar is also visible, the canvas already sits in column 2
+     of the grid. Restore the prototype's left-aligned padding. */
+  padding: 0;
+}
+/* Re-allow Tabler / inner card text colors. The dark theme's body color
+   would otherwise override card text via inheritance. */
+body.prisma.light-content .pres-list-page,
+body.prisma.light-content .pres-card,
+body.prisma.light-content .pres-empty,
+body.prisma.light-content .container-xl,
+body.prisma.light-content .container,
+body.prisma.light-content .card {
+  color: #1d273b;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Landing — greeting + featured expert + grid + ask bar
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Greeting block */
+.greeting {
+  margin-bottom: 72px;
+}
+.greeting-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+.greeting h1 {
+  font-size: 56px;
+  font-weight: 200;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--ink);
+  margin-bottom: 18px;
+}
+.greeting h1 .accent {
+  font-style: italic;
+  color: var(--gold-soft);
+  font-weight: 200;
+}
+.greeting .sub {
+  font-size: 16px;
+  color: var(--ink-mute);
+  font-weight: 300;
+  max-width: 640px;
+  line-height: 1.6;
+  letter-spacing: 0.005em;
+}
+.gold-rule {
+  display: block;
+  width: 80px;
+  height: 1px;
+  background: var(--gold);
+  margin: 32px 0;
+  opacity: 0.7;
+}
+
+.pulse-strip {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  font-size: 12px;
+  color: var(--ink-mute);
+  letter-spacing: 0.04em;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.pulse-strip .item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pulse-strip .num {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 400;
+}
+.pulse-strip .label {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 9.5px;
+  color: var(--ink-faint);
+}
+.pulse-strip .ts {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* Section eyebrow */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  margin: 72px 0 28px;
+}
+.section-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+.section-title {
+  font-size: 13px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.section-tail {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Featured expert card */
+.expert-featured {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  gap: 48px;
+  padding: 40px 40px 36px;
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%);
+  border: 1px solid var(--border-soft);
+  border-left: 2px solid var(--liq);
+  position: relative;
+  cursor: pointer;
+  transition: all 0.4s;
+}
+.expert-featured:hover {
+  border-color: var(--border);
+  transform: translateX(2px);
+}
+
+.expert-featured .glyph {
+  font-size: 96px;
+  font-weight: 200;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  line-height: 1;
+  font-family: var(--sans);
+}
+.expert-featured .glyph .domain-letters { color: var(--liq); }
+.expert-featured .glyph-meta {
+  margin-top: 18px;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+.expert-featured .glyph-meta .name {
+  display: block;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.expert-featured .voice {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 200;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  font-style: italic;
+}
+.expert-featured .voice::before {
+  content: "\201C";
+  color: var(--gold);
+  font-size: 56px;
+  font-style: normal;
+  line-height: 0;
+  vertical-align: -22px;
+  margin-right: 8px;
+  margin-left: -12px;
+  opacity: 0.7;
+}
+.expert-featured .footnotes {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.footnote-label {
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-right: 4px;
+}
+.cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  border-bottom: 1px solid rgba(212, 166, 86, 0.3);
+  transition: border-color 0.2s;
+}
+.cite::before {
+  content: '◧';
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+.cite:hover { border-color: var(--gold); }
+.cite.num { color: var(--ink-soft); }
+.cite.num::before { content: none; }
+
+.expert-featured .rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-left: 32px;
+  border-left: 1px solid var(--border-soft);
+}
+.rail-item {
+  font-size: 11px;
+  color: var(--ink-mute);
+  letter-spacing: 0.04em;
+}
+.rail-item .k {
+  display: block;
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+.rail-item .v { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.rail-item .v.neg { color: var(--red-soft); }
+.rail-item .v.pos { color: var(--green); }
+.rail-item .v .unit { color: var(--ink-mute); font-size: 11px; margin-left: 4px; }
+
+.expert-cta {
+  position: absolute;
+  bottom: 24px;
+  right: 32px;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.expert-cta::after {
+  content: "→";
+  font-family: var(--mono);
+  transition: transform 0.2s;
+}
+.expert-featured:hover .expert-cta::after { transform: translateX(4px); }
+
+/* Other experts grid */
+.experts-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.expert-cell {
+  padding: 28px 24px;
+  border-right: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background 0.3s;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+}
+.expert-cell:last-child { border-right: none; }
+.expert-cell:hover { background: var(--bg-2); }
+
+.expert-cell .code {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  margin-bottom: 10px;
+}
+.expert-cell .name {
+  font-size: 16px;
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.expert-cell .role {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 24px;
+}
+.expert-cell .tone {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-mute);
+  flex: 1;
+}
+.expert-cell .status {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.expert-cell .status .dot { width: 6px; height: 6px; border-radius: 50%; }
+.expert-cell .status .text { color: var(--ink-mute); }
+.expert-cell .status.calm .dot { background: var(--green); }
+.expert-cell .status.calm .text { color: var(--green); }
+.expert-cell .status.alert .dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
+.expert-cell .status.alert .text { color: var(--red-soft); }
+.expert-cell .status.warm .dot { background: var(--gold); }
+.expert-cell .status.warm .text { color: var(--gold-soft); }
+
+.expert-cell .accent-line {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  opacity: 0.5;
+}
+
+/* Ask bar — global question */
+.ask-bar {
+  margin: 88px 0 0;
+  padding: 32px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.ask-bar .label {
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+  white-space: nowrap;
+}
+.ask-bar input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 18px;
+  padding: 4px 0;
+  outline: none;
+  letter-spacing: -0.005em;
+}
+.ask-bar input::placeholder { color: var(--ink-faint); }
+.ask-bar .send {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink-faint);
+  padding: 8px;
+}
+
+/* Footer producer link */
+.footer-producer {
+  margin-top: 96px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.footer-producer a { color: var(--ink-mute); transition: color 0.2s; }
+.footer-producer a:hover { color: var(--gold); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Expert detail view (Phase 10C — kept for forward use)
+   ───────────────────────────────────────────────────────────────────────── */
+.expert-page { display: none; }
+.expert-page.active { display: block; }
+
+.expert-hero {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 64px;
+  margin-bottom: 72px;
+}
+.expert-id { display: flex; align-items: flex-start; gap: 32px; margin-bottom: 32px; }
+.expert-glyph-big {
+  font-size: 132px;
+  font-weight: 200;
+  letter-spacing: 0.06em;
+  line-height: 0.9;
+  color: var(--liq);
+}
+.expert-id .meta { padding-top: 12px; }
+.expert-id .domain-label {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+}
+.expert-id h2 {
+  font-size: 44px;
+  font-weight: 200;
+  letter-spacing: -0.015em;
+  margin-bottom: 8px;
+}
+.expert-id .subtitle {
+  font-size: 14px;
+  color: var(--ink-mute);
+  letter-spacing: 0.02em;
+  font-style: italic;
+}
+
+.briefing-prose {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+  font-weight: 300;
+  letter-spacing: -0.005em;
+  max-width: 640px;
+}
+.briefing-prose p { margin-bottom: 22px; }
+.briefing-prose .lead { font-size: 22px; color: var(--ink); font-style: italic; }
+.briefing-prose sup {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--gold);
+  margin-left: 2px;
+  font-style: normal;
+  cursor: pointer;
+}
+.briefing-prose strong { color: var(--ink); font-weight: 500; }
+
+.expert-sidebar { border-left: 1px solid var(--border-soft); padding-left: 48px; }
+.expert-sidebar .panel + .panel { margin-top: 48px; }
+.panel-title {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.metric-row:last-child { border-bottom: none; }
+.metric-row .k { font-size: 11px; color: var(--ink-mute); letter-spacing: 0.02em; }
+.metric-row .v { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.metric-row .v.neg { color: var(--red-soft); }
+.metric-row .v.pos { color: var(--green); }
+.metric-row .v .delta { font-size: 10px; color: var(--ink-faint); margin-left: 6px; }
+
+/* Citation gallery */
+.citations { margin-top: 24px; }
+.citation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+}
+.citation-card {
+  background: var(--bg-1);
+  padding: 22px 22px 20px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+}
+.citation-card:hover { background: var(--bg-2); }
+.citation-card .ref { font-family: var(--mono); font-size: 10px; color: var(--gold); letter-spacing: 0.04em; margin-bottom: 12px; }
+.citation-card .title { font-size: 13px; font-weight: 400; color: var(--ink); letter-spacing: -0.005em; margin-bottom: 8px; line-height: 1.4; }
+.citation-card .src { font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); letter-spacing: 0.04em; text-transform: lowercase; }
+.citation-card .preview { margin-top: 14px; height: 56px; border-radius: 1px; position: relative; overflow: hidden; }
+.citation-card .preview svg { width: 100%; height: 100%; display: block; }
+.citation-card .badges { margin-top: 12px; display: flex; gap: 6px; }
+.citation-card .badge { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.06em; padding: 2px 6px; background: var(--bg-3); color: var(--ink-faint); text-transform: uppercase; }
+
+.expert-question {
+  margin-top: 64px;
+  padding: 32px 0 0;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.expert-question .label { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); }
+.expert-question input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 17px;
+  padding: 8px 0;
+  outline: none;
+}
+.expert-question input:focus { border-color: var(--gold); }
+
+.related { margin-top: 72px; }
+.related-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.related-card {
+  padding: 20px;
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.related-card:hover { border-color: var(--border); }
+.related-card .code { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: 0.18em; margin-bottom: 8px; }
+.related-card .name { font-size: 14px; color: var(--ink); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Atölye view — producer mode pipeline
+   ───────────────────────────────────────────────────────────────────────── */
+.atolye-page { display: none; }
+.atolye-page.active { display: block; }
+
+.atolye-intro { margin-bottom: 56px; }
+.atolye-intro .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 20px;
+}
+.atolye-intro h2 {
+  font-size: 48px;
+  font-weight: 200;
+  letter-spacing: -0.015em;
+  margin-bottom: 18px;
+}
+.atolye-intro .sub {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--ink-mute);
+  max-width: 720px;
+  line-height: 1.65;
+}
+
+.pipeline {
+  margin: 0 0 48px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  position: relative;
+}
+.pipeline-arrow {
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 1px;
+  background: var(--gold);
+  transform: translateY(-50%);
+}
+.pipeline-arrow.a1 { left: 33.33%; transform: translate(-50%, -50%); }
+.pipeline-arrow.a2 { left: 66.66%; transform: translate(-50%, -50%); }
+.pipeline-arrow::after {
+  content: '';
+  position: absolute;
+  right: -1px; top: -3px;
+  border-left: 6px solid var(--gold);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+}
+
+.stage {
+  padding: 36px 32px 32px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: all 0.3s;
+  position: relative;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+.stage + .stage { border-left: none; }
+.stage:hover { background: var(--bg-2); }
+.stage.current { background: var(--bg-2); border-color: var(--gold); }
+
+.stage-num { font-family: var(--mono); font-size: 11px; color: var(--gold); letter-spacing: 0.04em; margin-bottom: 16px; }
+.stage-name { font-size: 28px; font-weight: 200; letter-spacing: -0.01em; margin-bottom: 6px; }
+.stage-tag { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 24px; }
+.stage-desc {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-mute);
+  margin-bottom: 28px;
+  letter-spacing: 0.005em;
+  font-family: var(--serif);
+  font-style: italic;
+}
+.stage-items {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  border-top: 1px solid var(--border-soft);
+  flex: 1;
+}
+.stage-items li {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+}
+.stage-items li .when {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+.stage-items li .icon {
+  width: 14px; height: 14px;
+  border: 1px solid var(--border);
+  display: inline-block;
+  position: relative;
+}
+.stage-action {
+  padding: 10px 18px;
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-align: center;
+  transition: all 0.2s;
+}
+.stage-action:hover { background: var(--gold); color: var(--bg-0); }
+
+.atolye-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 56px;
+}
+.stat-cell {
+  padding: 24px 32px;
+  border-right: 1px solid var(--border-soft);
+}
+.stat-cell:last-child { border-right: none; }
+.stat-cell .label { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
+.stat-cell .value { font-family: var(--mono); font-size: 24px; font-weight: 300; color: var(--ink); }
+.stat-cell .value .unit { font-size: 12px; color: var(--ink-mute); margin-left: 4px; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Save modal (Phase 10D placeholder — kept for forward use)
+   ───────────────────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 26, 0.85);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 200;
+  padding: 64px 32px;
+  overflow-y: auto;
+}
+.modal-backdrop.active { display: flex; }
+
+.modal {
+  width: 640px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  position: relative;
+}
+.modal-head { padding: 28px 32px 22px; border-bottom: 1px solid var(--border-soft); }
+.modal-head .eyebrow { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--gold); margin-bottom: 10px; }
+.modal-head h3 { font-size: 24px; font-weight: 200; letter-spacing: -0.01em; color: var(--ink); }
+.modal-close {
+  position: absolute;
+  top: 22px; right: 24px;
+  font-size: 18px;
+  color: var(--ink-faint);
+  padding: 6px;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--ink); }
+
+.modal-body { padding: 28px 32px 16px; }
+.field { margin-bottom: 26px; }
+.field-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin-bottom: 10px;
+}
+.field-help { font-size: 11px; color: var(--ink-faint); margin-top: 6px; font-style: italic; letter-spacing: 0.005em; }
+.field input[type="text"], .field textarea {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.field input[type="text"]:focus, .field textarea:focus { border-color: var(--gold); }
+.field textarea { min-height: 56px; resize: vertical; }
+
+.field.experts {
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%);
+  padding: 22px 22px 18px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--gold);
+  margin: 0 -8px 26px;
+}
+.field.experts .field-label { color: var(--gold); margin-bottom: 8px; }
+.field.experts .field-intro {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-mute);
+  margin-bottom: 16px;
+  line-height: 1.55;
+}
+.expert-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.expert-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  font-size: 12px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.01em;
+}
+.expert-chip:hover { border-color: var(--border); color: var(--ink-soft); }
+.expert-chip.on { background: var(--bg-3); color: var(--ink); border-color: var(--gold); }
+.expert-chip .dot { width: 6px; height: 6px; border-radius: 50%; }
+.expert-chip .code { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--ink-faint); }
+.expert-chip.on .code { color: var(--gold); }
+.expert-chip.suggested { border-style: dashed; }
+.expert-chip .suggest-flag {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-left: 2px;
+}
+
+.modal-foot {
+  padding: 18px 32px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-0);
+}
+.modal-foot .skip { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); }
+.modal-foot .skip:hover { color: var(--ink-mute); }
+.modal-foot .actions { display: flex; gap: 12px; }
+.btn {
+  padding: 10px 22px;
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  color: var(--ink-mute);
+  transition: all 0.2s;
+}
+.btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+.btn.primary {
+  background: var(--gold);
+  color: var(--bg-0);
+  border-color: var(--gold);
+  font-weight: 500;
+}
+.btn.primary:hover { background: var(--gold-soft); border-color: var(--gold-soft); }
+
+/* Page transition (kept for in-page prototype use; Flask routes don't need it) */
+@keyframes fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Domain accent helpers */
+.expert-cell[data-domain="liq"] .accent-line { background: var(--liq); }
+.expert-cell[data-domain="dep"] .accent-line { background: var(--dep); }
+.expert-cell[data-domain="fnd"] .accent-line { background: var(--fnd); }
+.expert-cell[data-domain="nii"] .accent-line { background: var(--nii); }
+.expert-cell[data-domain="sec"] .accent-line { background: var(--sec); }
+.expert-cell[data-domain="krd"] .accent-line { background: var(--krd); }
+
+.expert-cell[data-domain="liq"] .code { color: var(--liq); }
+.expert-cell[data-domain="dep"] .code { color: var(--dep); }
+.expert-cell[data-domain="fnd"] .code { color: var(--fnd); }
+.expert-cell[data-domain="nii"] .code { color: var(--ink-soft); }
+.expert-cell[data-domain="sec"] .code { color: var(--sec); }
+.expert-cell[data-domain="krd"] .code { color: var(--krd); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Atölye sidebar — only visible in atolye mode
+   ───────────────────────────────────────────────────────────────────────── */
+.app.in-atolye { display: grid; grid-template-columns: 240px 1fr; grid-template-rows: 56px 1fr; }
+.app.in-atolye .topbar { grid-column: 1 / -1; }
+.app.in-atolye .atolye-sidebar { display: flex; }
+.app.in-atolye .canvas { padding: 48px 64px 96px; }
+
+/* Phase 11.kesif — pages that own their internal nav (Keşif, Hazırlık,
+   Editor) opt out of the left PRISMA sidebar via `no_atolye_sidebar`. */
+.app.in-atolye.no-sidebar { grid-template-columns: 1fr; }
+.app.in-atolye.no-sidebar .atolye-sidebar { display: none; }
+
+.atolye-sidebar {
+  display: none;
+  flex-direction: column;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border-soft);
+  padding: 32px 0 32px;
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+}
+.sidebar-group { padding: 0 24px; margin-bottom: 28px; }
+.sidebar-label {
+  font-size: 9px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0 9px 8px;
+  margin-left: -8px;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 2px solid transparent;
+  letter-spacing: 0.005em;
+  text-decoration: none;
+}
+.sidebar-item:hover { color: var(--ink); background: var(--bg-2); }
+.sidebar-item.on { color: var(--ink); border-left-color: var(--gold); background: var(--bg-2); }
+.sidebar-item .num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  width: 18px;
+}
+.sidebar-item.on .num { color: var(--gold); }
+.sidebar-item .label-text { flex: 1; }
+.sidebar-item .badge {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  background: var(--bg-3);
+  padding: 2px 6px;
+  letter-spacing: 0.04em;
+}
+.sidebar-item.on .badge { background: var(--bg-elev); color: var(--gold); }
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--border-soft);
+  margin: 12px 24px 20px;
+}
+
+.sidebar-back {
+  margin-top: auto;
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color 0.2s;
+  text-decoration: none;
+  display: block;
+}
+.sidebar-back:hover { color: var(--gold); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Library screens (Phase 11) — shared structure kept for forward use
+   ───────────────────────────────────────────────────────────────────────── */
+.lib-page { display: none; }
+.lib-page.active { display: block; animation: fade 0.4s ease-out; }
+
+.lib-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 36px;
+  gap: 32px;
+}
+.lib-head .lh-left h2 {
+  font-size: 38px;
+  font-weight: 200;
+  letter-spacing: -0.015em;
+  margin-bottom: 8px;
+}
+.lib-head .lh-left .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 14px;
+}
+.lib-head .lh-left .sub {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-mute);
+  line-height: 1.55;
+  max-width: 540px;
+}

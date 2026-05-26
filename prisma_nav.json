@@ -27,6 +27,7 @@
         "title": "Raporlar",
         "items": [
           { "label": "Tarihsel Veriler", "url": "/historic", "icon": "calendar" },
+          { "label": "Hazırlık", "url": "/presentations/hazirlik", "icon": "adjustments" },
           { "label": "Rapor Şablonları", "url": "/presentations/", "icon": "doc" }
         ]
       }

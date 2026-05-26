@@ -1,0 +1,107 @@
+{% extends "home/_base_prisma.html" %}
+{% block title %}Ana Ekran — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  /* Landing-only tweaks. The shared .expert-featured / .experts-grid /
+     .expert-cell classes from prisma.css carry the prototype's design. */
+  .landing-featured-tone {
+    /* The .expert-featured component has a hardcoded `border-left: 2px solid var(--liq)`
+       in prisma.css. We override per-expert via a CSS custom prop. */
+    border-left-color: var(--landing-featured-accent, var(--liq)) !important;
+  }
+  .landing-featured-tone .glyph .domain-letters {
+    color: var(--landing-featured-accent, var(--liq));
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="greeting">
+    {% if current_user.is_authenticated and current_user.department %}
+    <div class="greeting-eyebrow">Hazine · {{ current_user.department }}</div>
+    {% else %}
+    <div class="greeting-eyebrow">Hazine</div>
+    {% endif %}
+    <h1>
+      Günaydın{% if current_user.is_authenticated %},
+      <span class="accent">{{ current_user.name.split(' ')[0] }}</span>{% endif %}.<br>
+      Uzmanların <span class="accent">seni bekliyor.</span>
+    </h1>
+    <p class="sub">
+      Altı uzman, kurumun günlük hazine resmini farklı pencerelerden çekiyor.
+      Bu sabah için {{ featured_expert.domain_label }} öne çıkıyor; diğerleri sakin.
+    </p>
+    <span class="gold-rule"></span>
+  </div>
+
+  {# ── Featured expert ────────────────────────────────────────────────── #}
+  <div class="section-head">
+    <span class="section-num">01</span>
+    <span class="section-title">Senin İçin Bu Sabah</span>
+    <span class="section-tail"></span>
+  </div>
+
+  <a class="expert-featured landing-featured-tone"
+     href="{{ url_for('prisma_home.expert_detail', code=featured_expert.id) }}"
+     style="--landing-featured-accent: {{ featured_expert.ui.accent_color }};
+            text-decoration: none; color: inherit;">
+    <div>
+      <div class="glyph"><span class="domain-letters">{{ featured_expert.code }}</span></div>
+      <div class="glyph-meta">
+        <span class="name">{{ featured_expert.name }}</span>
+        <span>{{ featured_snapshots|length }} kaynakça</span>
+      </div>
+    </div>
+
+    <div>
+      <p class="voice">
+        {% if featured_expert.persona.voice_examples %}{{ featured_expert.persona.voice_examples[0] }}{% endif %}
+      </p>
+      {% if featured_snapshots %}
+      <div class="footnotes">
+        <span class="footnote-label">Kaynakça</span>
+        {% for snap in featured_snapshots[:4] %}
+          <span class="cite">{{ snap.title[:32] if snap.title else snap.snapshot_id[-6:] }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="rail">
+      {% if featured_briefing.metrics %}
+        {% for m in featured_briefing.metrics[:4] %}
+        <div class="rail-item">
+          <span class="k">{{ m.k }}</span>
+          <span class="v {% if m.tone == 'neg' %}neg{% elif m.tone == 'pos' %}pos{% endif %}">
+            {{ m.v }}{% if m.delta %} <span class="unit">{{ m.delta }}</span>{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <span class="expert-cta">Brifingi aç</span>
+  </a>
+
+  {# ── Other experts (5 cells) ──────────────────────────────────────────── #}
+  <div class="section-head">
+    <span class="section-num">02</span>
+    <span class="section-title">Diğer Uzmanlar</span>
+    <span class="section-tail"></span>
+  </div>
+
+  <div class="experts-grid">
+    {% for expert in other_experts %}
+      {% include "home/partials/expert_card.html" %}
+    {% endfor %}
+  </div>
+
+  {# ── Footer link to producer side ─────────────────────────────────────── #}
+  <div class="footer-producer">
+    <span>Üretim tarafı</span>
+    <span><a href="{{ url_for('prisma_home.atolye_home') }}">Atölye →</a></span>
+    <span>·</span>
+    <span><a href="{{ url_for('presentations.list_presentations') }}">Sunumlarım</a></span>
+  </div>
+{% endblock %}

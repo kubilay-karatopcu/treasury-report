@@ -1,0 +1,631 @@
+/* Hazırlık (Phase 8.b) page styles. Reuses .ts-modal / .ts-btn from editor.css. */
+
+.hz-wrap { max-width: 920px; margin: 0 auto; padding: 24px 20px 80px; }
+
+.hz-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 16px; margin-bottom: 8px; border-bottom: 1px solid #e6e7e9;
+}
+.hz-back { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: #64748b; text-decoration: none; margin-bottom: 4px; }
+.hz-back:hover { color: #206bc4; }
+.hz-eyebrow { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #6c757d; }
+.hz-title { margin: 2px 0 0; font-size: 22px; font-weight: 650; color: #1e293b; }
+.hz-go { font-size: 14px; }
+
+.hz-error {
+  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+  padding: 10px 14px; border-radius: 8px; margin: 12px 0; font-size: 13px;
+}
+
+.hz-section { margin-top: 26px; }
+.hz-section > h2 { font-size: 15px; font-weight: 600; color: #334155; margin: 0 0 10px; }
+.hz-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.hz-section-head h2 { margin: 0; font-size: 15px; font-weight: 600; color: #334155; }
+
+.hz-card {
+  background: #fff; border: 1px solid #e6e7e9; border-radius: 10px;
+  padding: 14px 16px; margin-bottom: 10px;
+}
+.hz-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.hz-alias { display: flex; align-items: center; gap: 6px; font-weight: 600; color: #1e293b; }
+.hz-table { font-size: 12px; color: #6c757d; font-family: ui-monospace, Menlo, Consolas, monospace; margin-top: 2px; }
+.hz-card-actions { display: flex; align-items: center; gap: 6px; }
+.hz-cols { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hz-cols-label { font-size: 12px; color: #6c757d; margin-right: 4px; }
+
+.hz-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  background: #eef2f7; color: #334155; font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-chip--click { cursor: pointer; border: 1px solid transparent; }
+.hz-chip--click:hover { border-color: #206bc4; background: #e8f0fa; }
+
+.hz-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 2px 9px; border-radius: 999px; font-weight: 500;
+}
+.hz-badge .hz-dot { width: 7px; height: 7px; border-radius: 50%; }
+.hz-badge--cached { background: #e8f5ee; color: #166534; }
+.hz-badge--cached .hz-dot { background: #16a34a; }
+.hz-badge--lazy { background: #fef9e7; color: #854d0e; }
+.hz-badge--lazy .hz-dot { background: #ca8a04; }
+
+.hz-icon-btn {
+  border: 1px solid #e6e7e9; background: #fff; border-radius: 6px;
+  padding: 4px; cursor: pointer; color: #475569; line-height: 0;
+}
+.hz-icon-btn:hover { background: #f1f5f9; }
+.hz-danger:hover { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+
+.hz-filter-group { margin-bottom: 12px; }
+.hz-filter-group-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
+.hz-filter-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #fff; border: 1px solid #e6e7e9; border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+}
+.hz-filter-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+
+.hz-dist-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.hz-dist-label { font-size: 13px; font-weight: 600; color: #334155; min-width: 110px; }
+
+.hz-muted { color: #94a3b8; font-size: 13px; }
+
+/* Modal form bits */
+.hz-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; font-size: 13px; font-weight: 500; color: #334155; }
+.hz-field input[type=text], .hz-field input[type=date], .hz-field select {
+  border: 1px solid #d6dae0; border-radius: 6px; padding: 7px 9px; font-size: 13px; font-weight: 400;
+}
+.hz-row { display: flex; gap: 12px; }
+.hz-row .hz-field { flex: 1; }
+.hz-check { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 400; color: #334155; margin-bottom: 6px; cursor: pointer; }
+.hz-col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 14px; margin-top: 4px; }
+
+.hz-toggle { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid #d6dae0; border-radius: 8px; overflow: hidden; }
+.hz-toggle button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px; border: none; background: #fff; cursor: pointer; font-size: 13px; color: #64748b;
+}
+.hz-toggle button.active { background: #206bc4; color: #fff; font-weight: 600; }
+
+.hz-search { width: 100%; box-sizing: border-box; border: 1px solid #d6dae0; border-radius: 8px; padding: 9px 12px; font-size: 14px; margin-bottom: 12px; }
+.hz-results { max-height: 420px; overflow: auto; }
+.hz-result { padding: 10px 12px; border: 1px solid #eef0f3; border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+.hz-result:hover { border-color: #206bc4; background: #f8fafc; }
+
+/* Minimal .ts-btn fallback in case editor.css load order differs. */
+.ts-btn { border: 1px solid #d6dae0; background: #fff; color: #334155; border-radius: 7px; padding: 7px 13px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.ts-btn:hover { background: #f1f5f9; }
+.ts-btn--primary { background: #206bc4; border-color: #206bc4; color: #fff; }
+.ts-btn--primary:hover { background: #1a5aa8; }
+.ts-btn--sm { padding: 4px 9px; font-size: 12px; }
+.ts-btn:disabled { opacity: .6; cursor: default; }
+
+/* ════════════════════════════════════════════════════════════════════
+   ER editor (Phase 8.b redesign — React Flow / ChartDB style)
+   ════════════════════════════════════════════════════════════════════ */
+/* Phase 11.hazirlik-polish-2: parent (canvas-bleed-mount + #hazirlik-root)
+   already flex-fills the canvas slot below the 56px PRISMA topbar — we
+   must NOT use 100vh here or the bottom 56px (incl. minimap + zoom
+   controls) gets pushed below the viewport. */
+.hz-app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+
+.hz-topbar {
+  flex: 0 0 auto; height: 52px; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 16px; background: #fff;
+  border-bottom: 1px solid #e6e7e9;
+}
+.hz-topbar-left { display: flex; align-items: center; gap: 12px; }
+.hz-topbar .hz-title { font-size: 16px; font-weight: 650; color: #1e293b; }
+.hz-topbar .hz-eyebrow { font-size: 11px; letter-spacing: .05em; color: #94a3b8; }
+.hz-error--bar { margin: 0; border-radius: 0; }
+
+.hz-body { flex: 1 1 auto; display: flex; min-height: 0; }
+
+.hz-left {
+  flex: 0 0 300px; border-right: 1px solid #e6e7e9; background: #fbfbfc;
+  display: flex; flex-direction: column; gap: 16px; padding: 12px; overflow: auto;
+}
+.hz-left-section { display: flex; flex-direction: column; gap: 8px; }
+.hz-left-section > strong { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #64748b; }
+.hz-basket-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 9px; border: 1px solid #e6e7e9; border-radius: 6px; background: #fff;
+  cursor: pointer; font-size: 13px;
+}
+.hz-basket-row span { display: flex; align-items: center; gap: 6px; }
+.hz-basket-row:hover { border-color: #206bc4; }
+.hz-filter-mini {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  font-size: 12px; background: #fff; border: 1px solid #eef0f3; border-radius: 6px; padding: 4px 8px;
+}
+.hz-filter-mini span { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hz-chat { margin-top: auto; }
+.hz-chat-log { font-size: 12px; padding: 8px; background: #fff; border: 1px solid #eef0f3; border-radius: 6px; min-height: 50px; }
+.hz-chat-input { width: 100%; box-sizing: border-box; resize: none; height: 46px; border: 1px solid #d6dae0; border-radius: 6px; padding: 6px; font-size: 12px; margin-top: 6px; }
+
+.hz-right { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.hz-canvas { flex: 1 1 auto; min-height: 0; position: relative; background: #f6f7f9; }
+.hz-canvas .react-flow { height: 100%; width: 100%; }
+
+.hz-preview { flex: 0 0 240px; border-top: 1px solid #e6e7e9; background: #fff; display: flex; flex-direction: column; min-height: 0; }
+.hz-preview-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #eef0f3; font-size: 13px; font-weight: 600; color: #334155; }
+.hz-preview-head span { display: flex; align-items: center; gap: 6px; }
+.hz-preview-body { flex: 1 1 auto; overflow: auto; padding: 8px 12px; }
+.hz-table-grid { border-collapse: collapse; font-size: 12px; }
+.hz-table-grid th, .hz-table-grid td { border: 1px solid #eef0f3; padding: 3px 8px; text-align: left; white-space: nowrap; }
+.hz-table-grid th { background: #f8fafc; position: sticky; top: 0; }
+
+/* Table node */
+.hz-node { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; min-width: 210px; font-size: 12px; box-shadow: 0 1px 4px rgba(15,23,42,.1); overflow: hidden; }
+.hz-node-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #206bc4; color: #fff; font-weight: 600; }
+.hz-node-alias { display: flex; align-items: center; gap: 5px; }
+.hz-node-head .hz-badge { font-size: 10px; padding: 1px 7px; background: rgba(255,255,255,.22); color: #fff; cursor: help; }
+.hz-badge-user-mark { font-size: 9px; opacity: 0.85; margin-left: 2px; }
+
+/* Join modal: concept badges next to each selected column + match hint */
+.hz-join-concept {
+  display: inline-block; margin-top: 4px; align-self: flex-start;
+}
+.hz-join-concept--match { background: #d1fae5; color: #065f46; }
+.hz-join-concept-hint {
+  margin: 8px 0 0; padding: 6px 9px; border-radius: 4px;
+  font-size: 11px; line-height: 1.4;
+}
+.hz-join-concept-hint.is-match { background: #ecfdf5; color: #065f46; }
+.hz-join-concept-hint.is-mismatch { background: #fef3c7; color: #92400e; }
+
+/* Routing override (lazy/cached toggle) + Kolonlar button */
+.hz-node-routing {
+  display: flex; justify-content: flex-end; gap: 4px; padding: 2px 8px 0;
+  border-bottom: 1px solid #eef0f3; background: #fafbfc;
+}
+.hz-route-override, .hz-route-btn {
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  background: transparent; color: #475569; border: 1px solid #cbd5e1;
+  cursor: pointer; font-family: inherit;
+}
+.hz-route-override:hover:not(:disabled),
+.hz-route-btn:hover:not(:disabled) { background: #f1f5f9; color: #1f2937; }
+.hz-route-override:disabled,
+.hz-route-btn:disabled { color: #cbd5e1; cursor: not-allowed; border-color: #e5e7eb; }
+
+/* Projection count chip on the node card (read-only — projection is edited
+   by hiding columns in the AG Grid preview and clicking "Görünümü kaydet") */
+.hz-proj-count {
+  font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace;
+  padding: 1px 6px; align-self: center;
+}
+
+/* AG Grid custom header — column name + concept chip on a single line PLUS
+   a sort indicator and a filter menu button (we replaced the default header
+   so we have to re-render these ourselves). */
+.hz-grid-header {
+  display: flex; align-items: center; gap: 4px;
+  min-width: 0; width: 100%;
+}
+.hz-grid-header-label {
+  display: flex; align-items: center; gap: 5px;
+  min-width: 0; flex: 1 1 auto;
+  cursor: pointer; user-select: none;
+}
+.hz-grid-header-name {
+  font-weight: 600; color: #1f2937;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hz-grid-header-concept {
+  font-size: 9px; padding: 0 4px; line-height: 1.5;
+  flex-shrink: 0;
+}
+.hz-grid-header-sort {
+  font-size: 9px; color: #64748b; flex-shrink: 0;
+}
+.hz-grid-header-menu {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 3px;
+  cursor: pointer; color: #94a3b8; font-size: 14px;
+  flex-shrink: 0;
+}
+.hz-grid-header-menu:hover { background: #e2e8f0; color: #1f2937; }
+.hz-grid-header-menu.is-active { color: #2563eb; background: #dbeafe; }
+.hz-node-sub { padding: 3px 10px; font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace; border-bottom: 1px solid #eef0f3; }
+.hz-node-col { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-bottom: 1px solid #f5f7fa; cursor: pointer; position: relative; }
+.hz-node-col:last-child { border-bottom: none; }
+.hz-node-col:hover { background: #eff6ff; }
+.hz-col-name { flex: 1; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.hz-col-concept { font-size: 10px; color: #166534; background: #e8f5ee; border-radius: 4px; padding: 0 5px; }
+.hz-col-concept--none { color: #cbd5e1; background: transparent; padding: 0; }
+.hz-handle { width: 9px !important; height: 9px !important; background: #94a3b8 !important; border: 1.5px solid #fff !important; }
+.hz-handle:hover { background: #206bc4 !important; }
+
+/* Edges */
+.hz-edge--confirmed .react-flow__edge-path { stroke: #206bc4; stroke-width: 2; }
+.hz-edge--suggested .react-flow__edge-path { stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 5 4; }
+.react-flow__edge-text { font-size: 10px; fill: #64748b; }
+
+.hz-pop-meta { margin-bottom: 12px; font-size: 13px; color: #334155; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Redesign v2 — Sunum sidebar reuse, description nodes, AG Grid drawer
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Reuse Sunum's .editor-sidebar inside the Hazırlık flex body.
+   Width matches --ts-sidebar-w from editor.css (320px) so the inner
+   .sidebar-inner (which is `width: var(--ts-sidebar-w)`) fits without
+   overflowing — otherwise the chat input + Gönder button get clipped. */
+.hz-app .editor-sidebar.hz-sidebar {
+  position: static; height: 100%;
+  flex: 0 0 var(--ts-sidebar-w, 320px);
+  border-right: 1px solid #e6e7e9;
+}
+.hz-app .editor-sidebar.hz-sidebar .sidebar-inner {
+  height: 100%; display: flex; flex-direction: column;
+}
+
+/* Phase 11.hazirlik-polish — basket-only sidebar:
+   Tablolar / Bloklar groups + per-group search input + flat list. */
+.hz-basket-group {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 16px;
+}
+.hz-basket-group__title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: #64748b;
+  padding: 4px 4px 2px;
+}
+.hz-basket-group__count {
+  margin-left: auto;
+  font-size: 10px;
+  background: #e2e8f0; color: #475569;
+  padding: 1px 6px; border-radius: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 600;
+}
+.hz-basket-search {
+  width: 100%; box-sizing: border-box;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  background: #fff;
+  border: 1px solid #d6dae0; border-radius: 4px;
+  color: #1f2937;
+  font-family: inherit;
+}
+.hz-basket-search::placeholder { color: #94a3b8; }
+.hz-basket-search:focus { border-color: #206bc4; outline: none; }
+
+.hz-basket-list {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.hz-basket-row {
+  display: flex; align-items: stretch;
+  border: 1px solid #e2e8f0; border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+.hz-basket-row__main {
+  flex: 1 1 auto;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  background: transparent; border: none;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.hz-basket-row__main:hover { background: #f8fafc; }
+.hz-basket-row--block .hz-basket-row__main { cursor: default; }
+.hz-basket-row--block .hz-basket-row__main:hover { background: transparent; }
+/* Visibility toggle icon (eye / eye-off) — Phase 11.polish-2 replaces the
+   old trash button. Hidden rows fade so the user can see at a glance
+   which tables are on the canvas. */
+.hz-basket-row__viz {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; color: #94a3b8;
+}
+.hz-basket-row.is-hidden .hz-basket-row__main { opacity: 0.45; }
+.hz-basket-row.is-hidden .hz-basket-row__viz { color: #d1d5db; }
+.hz-basket-row.is-derived .hz-basket-row__main { font-style: italic; }
+
+.hz-basket-empty {
+  font-size: 11.5px;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 8px 4px;
+  line-height: 1.5;
+}
+.hz-basket-empty--mini { padding: 6px 4px; font-size: 11px; }
+
+/* Sticky bottom CTA — "Sunum'a geç" lives here now that hz-topbar is gone. */
+.hz-sidebar-cta {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-top: 1px solid #e6e7e9;
+  background: #fbfbfc;
+}
+.hz-sidebar-cta__btn {
+  width: 100%;
+  justify-content: center;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+
+/* Node body shows the description instead of a column list. */
+.hz-node-desc { padding: 8px 10px; font-size: 11px; color: #475569; line-height: 1.45; max-width: 240px; }
+
+.hz-canvas-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; font-size: 14px; pointer-events: none;
+}
+
+/* Resizable AG Grid preview drawer (overrides the earlier .hz-preview rule). */
+.hz-preview { flex: 0 0 auto; position: relative; border-top: 1px solid #e6e7e9; background: #fff; display: flex; flex-direction: column; min-height: 0; }
+.hz-preview-resize { position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; z-index: 5; }
+.hz-preview-resize:hover { background: #cbd5e1; }
+.hz-preview-actions { display: flex; align-items: center; gap: 8px; }
+.hz-preview-body { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
+.hz-preview-body .ag-theme-alpine { --ag-grid-size: 4px; --ag-font-size: 12px; }
+
+.hz-toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: #1e293b; color: #fff; padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; z-index: 200; box-shadow: 0 4px 14px rgba(0,0,0,.2);
+}
+
+/* ── Node card v3: schema.name header, meta, join-key cols, "Diğer Kolonlar" ── */
+.hz-node { max-width: 280px; }
+.hz-node-alias { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.hz-node-meta { padding: 3px 10px; font-size: 10px; color: #64748b; border-bottom: 1px solid #eef0f3; }
+.hz-node-keys { }
+.hz-node-col--other { background: #fafbfc; }
+.hz-node-col--other .hz-col-name { font-style: italic; }
+.hz-handle--other { background: #cbd5e1 !important; }
+/* Derived (aggregate) tables */
+.hz-node--derived .hz-node-head { background: #7c3aed; }
+.hz-badge--derived { background: rgba(255,255,255,.22); color: #fff; }
+
+/* Active filters footer on the node card */
+.hz-node-filters {
+  padding: 5px 10px; border-top: 1px solid #eef0f3;
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 10px; color: #475569; background: #fafbfc;
+}
+.hz-node-filter {
+  display: flex; align-items: center; gap: 4px; padding: 1px 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-node-filter svg { color: #94a3b8; flex-shrink: 0; }
+
+/* Sidebar table row: split into a main toggle button + a hover-revealed Eye
+   button that opens the docs modal. editor.css already styles
+   .sources-table-wrap as a flex container; we just need the .sources-table
+   inside it not to claim the full width so the Eye fits on the right. */
+.hz-sidebar .sources-table-wrap {
+  display: flex; align-items: stretch;
+}
+.hz-sidebar .sources-table { flex: 1 1 auto; padding-right: 4px; }
+.hz-sidebar .sources-table-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; color: #94a3b8; flex-shrink: 0; margin-left: 4px;
+}
+.hz-sidebar .sources-table-wrap:hover .sources-table-toggle { color: #1f2937; }
+.hz-sidebar .sources-table-eye {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; flex-shrink: 0; padding: 0;
+  background: transparent; border: none; cursor: pointer; color: #94a3b8;
+  border-left: 1px solid transparent;
+}
+.hz-sidebar .sources-table-eye:hover {
+  background: #eff6ff; color: #1d4ed8; border-left-color: #cbd5e1;
+}
+
+/* Table docs side panel — slides in to the right of the sidebar when the
+   user clicks the eye on a sources-table row. Click outside or hit ESC to
+   close. Sits inside .hz-body so the rest of the layout flexes around it. */
+.hz-docs-panel {
+  /* Phase 11.polish-3 — was 360px. Wide concept tags
+     ("instrument_type", "scenario_label") + common-values list need
+     more room or they truncate. 440px is the sweet spot — still leaves
+     room for the ER canvas + AG Grid preview. */
+  flex: 0 0 440px; min-width: 0; height: 100%;
+  background: #fff; border-right: 1px solid #e5e7eb;
+  display: flex; flex-direction: column;
+  box-shadow: 2px 0 12px rgba(15, 23, 42, .06);
+  animation: hz-docs-slide-in 160ms ease-out;
+}
+@keyframes hz-docs-slide-in {
+  from { transform: translateX(-12px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+.hz-docs-panel-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb; background: #f8fafc;
+}
+.hz-docs-panel-title {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: #1f2937;
+  word-break: break-all;
+}
+.hz-docs-panel-sub {
+  font-size: 11px; color: #64748b; line-height: 1.4; margin-top: 2px;
+}
+.hz-docs-panel-body { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; }
+
+.hz-docs-section { margin-bottom: 14px; }
+.hz-docs-section-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; color: #475569;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.hz-docs-cols {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;
+}
+.hz-docs-cols th {
+  text-align: left; padding: 6px 8px; background: #f8fafc;
+  font-weight: 600; color: #475569; font-size: 10px; letter-spacing: 0.04em;
+  text-transform: uppercase; border-bottom: 1px solid #e5e7eb;
+}
+.hz-docs-cols td {
+  padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top;
+}
+.hz-docs-cols tr:last-child td { border-bottom: none; }
+.hz-docs-col-name {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 600; color: #1f2937;
+}
+.hz-docs-col-type {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px;
+  color: #64748b;
+}
+/* Phase 11.polish-3 — let the İşaretler cell wrap so long concept names +
+   common-values lists don't get clipped. Each pill/chip is its own flex
+   item; flex-basis: 100% on .hz-docs-vals forces it onto its own line. */
+.hz-docs-col-marks {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  align-items: flex-start; align-content: flex-start;
+}
+.hz-docs-pill {
+  display: inline-block; padding: 0 5px; border-radius: 3px;
+  font-size: 9px; line-height: 1.5; letter-spacing: 0.04em;
+  background: #f1f5f9; color: #64748b; text-transform: uppercase;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+.hz-docs-pill--req { background: #fef3c7; color: #92400e; }
+.hz-docs-pill--key { background: #ddd6fe; color: #5b21b6; }
+.hz-docs-cols .hz-col-concept {
+  /* concept chips in the docs table get their own line if the cell is
+     narrow; no truncation. */
+  white-space: nowrap;
+  max-width: 100%;
+}
+.hz-docs-vals {
+  flex: 1 1 100%;
+  font-size: 10px; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace;
+  /* Allow soft wrap on whitespace so the list of common values isn't clipped. */
+  white-space: normal; word-break: normal; overflow-wrap: anywhere;
+  max-width: none;
+  margin-top: 2px;
+}
+.hz-docs-filters { display: flex; flex-direction: column; gap: 5px; }
+.hz-docs-filter {
+  padding: 6px 9px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 4px;
+}
+.hz-docs-filter-label { font-weight: 600; font-size: 11px; color: #1f2937; margin-bottom: 2px; }
+.hz-docs-filter-expr {
+  display: block; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10.5px; color: #475569; background: transparent; padding: 0;
+  word-break: break-all;
+}
+
+/* Build-confirm modal — re-entry warning (8.e) */
+.hz-build-diff {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 12px;
+}
+.hz-build-diff-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 8px; background: #f8fafc; border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+.hz-build-diff-label {
+  font-size: 11px; font-weight: 600; color: #475569;
+  flex-shrink: 0; min-width: 130px;
+}
+.hz-build-diff-items { display: flex; flex-wrap: wrap; gap: 4px; }
+.hz-build-diff-chip {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10.5px; padding: 1px 6px; border-radius: 3px;
+  background: #e0e7ff; color: #3730a3;
+}
+
+.hz-build-affected {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed #cbd5e1;
+}
+.hz-build-affected-head {
+  font-size: 12px; font-weight: 600; color: #1f2937;
+  margin-bottom: 8px; display: flex; gap: 6px; align-items: center;
+}
+.hz-build-pill {
+  display: inline-block; padding: 1px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 600;
+}
+.hz-build-pill--break { background: #fee2e2; color: #b91c1c; }
+.hz-build-pill--warn  { background: #fef3c7; color: #92400e; }
+.hz-build-affected-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.hz-build-block {
+  padding: 7px 10px; border-radius: 5px;
+  border-left: 3px solid transparent;
+}
+.hz-build-block--breaking { background: #fef2f2; border-left-color: #dc2626; }
+.hz-build-block--warning { background: #fffbeb; border-left-color: #f59e0b; }
+.hz-build-block-head {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; color: #1f2937;
+}
+.hz-build-block-type {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  background: #fff; border: 1px solid #e5e7eb; color: #64748b;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-build-block-title { font-weight: 600; }
+.hz-build-block-reasons {
+  margin: 4px 0 0 0; padding-left: 18px;
+  font-size: 11px; color: #475569; line-height: 1.45;
+}
+.hz-build-affected-note {
+  margin: 10px 0 0; padding: 8px 10px;
+  background: #fef3c7; color: #78350f; border-radius: 4px;
+  font-size: 11.5px; line-height: 1.45;
+}
+.ts-btn--danger { background: #dc2626; color: #fff; }
+.ts-btn--danger:hover { background: #b91c1c; }
+
+/* Stage-2 LLM chat: turn bubbles + suggestion cards (8.f) */
+.chat-turn { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; min-width: 0; }
+.chat-turn--user .chat-bubble { align-self: flex-end; background: #2563eb; color: #fff; }
+.chat-turn--assistant .chat-bubble { align-self: flex-start; background: #f1f5f9; color: #0f172a; }
+.chat-bubble {
+  max-width: 88%; padding: 7px 10px; border-radius: 10px;
+  font-size: 11.5px; line-height: 1.4; white-space: pre-wrap;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;     /* break long aliases / SQL strings cleanly */
+}
+/* Editor's .chat-input / .chat-msg use content-box; their padding then
+   blows out the 100%/85% width and the bubble visually clips against the
+   sidebar's right edge. Force border-box inside the Hazırlık sidebar so
+   100% width *includes* padding. */
+.hz-sidebar .chat-input,
+.hz-sidebar .chat-msg,
+.hz-sidebar .chat-bubble { box-sizing: border-box; max-width: 100%; }
+.hz-sidebar .chat-messages {
+  padding-right: 2px; padding-left: 2px; overflow-x: hidden; min-width: 0;
+}
+.hz-sidebar .chat-box, .hz-sidebar .sidebar-section--chat { min-width: 0; }
+
+.hz-sugg {
+  align-self: stretch;
+  border: 1px solid #d6dae0; border-radius: 8px; background: #fff;
+  padding: 7px 9px; margin: 4px 0; display: flex; flex-direction: column; gap: 4px;
+}
+.hz-sugg-head { display: flex; align-items: center; gap: 6px; }
+.hz-sugg-kind {
+  display: inline-block; padding: 1px 7px; border-radius: 10px;
+  background: #ede9fe; color: #6d28d9; font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.hz-sugg-body {
+  font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: #1f2937; word-break: break-all;
+}
+.hz-sugg-rationale { font-size: 11px; color: #475569; line-height: 1.4; }
+.hz-sugg-actions { display: flex; gap: 6px; }

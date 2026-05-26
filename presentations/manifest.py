@@ -65,7 +65,7 @@ BLOCK_TYPES = LEAF_BLOCK_TYPES | CONTAINER_BLOCK_TYPES
 
 IMMUTABLE_BLOCK_FIELDS = frozenset({"id", "type", "locked"})
 
-ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/")
+ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/", "/filters", "/filter_state", "/user_concepts")
 
 # Block width — Phase 6.
 WIDTH_VALUES = frozenset({"full", "1/2", "1/3", "2/3"})
@@ -211,6 +211,31 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
         errors.append(f"Block {bid!r}: unknown type {btype!r}")
         return errors
 
+    # ── Phase 6.5 query + variables (shape-loose) ──────────────────────────
+    # All data-bound blocks may carry `query` (raw SQL with :binds) and
+    # `variables` (Phase 6.5 schema). Strict variable validation runs in
+    # presentations.blocks.schema.Variable when a block is saved as a
+    # template; here we only enforce the gross shape so the renderer
+    # doesn't crash on malformed leaves.
+    q = block.get("query")
+    if q is not None and not isinstance(q, str):
+        errors.append(f"Block {bid!r}: block.query must be a string")
+    vs = block.get("variables")
+    if vs is not None:
+        if not isinstance(vs, list):
+            errors.append(f"Block {bid!r}: block.variables must be a list")
+        else:
+            for i, v in enumerate(vs):
+                if not isinstance(v, dict):
+                    errors.append(
+                        f"Block {bid!r}: variables[{i}] must be an object"
+                    )
+                    continue
+                if not v.get("name"):
+                    errors.append(
+                        f"Block {bid!r}: variables[{i}] missing 'name'"
+                    )
+
     if btype == "section_header" and not allow_section:
         errors.append(
             f"Block {bid!r}: section_header sadece üst seviyede olabilir"
@@ -316,6 +341,19 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
 
 
 def validate_manifest(manifest: dict) -> list[str]:
+    """Validate a presentation/dashboard manifest.
+
+    Optional top-level fields (all backwards-compatible — absence preserves
+    pre-existing behaviour):
+
+    - ``filters`` (Phase 6.5.c): list of dashboard filters.
+    - ``scope_ref`` (Phase 8.a): ``{presentation_id, scope_version}`` pointing
+      at a scope contract (``s3://.../scope_v<N>.yaml``). When present, Sunum
+      surfaces the scope's interactive filters and enforces its pinned filters
+      (see ``presentations/scope`` + ``nodes/validate_patch.py``). When absent,
+      the dashboard behaves exactly as in Phase 6.5/7: all filters interactive,
+      all tables cached.
+    """
     errors: list[str] = []
 
     if "meta" not in manifest:
@@ -332,6 +370,64 @@ def validate_manifest(manifest: dict) -> list[str]:
             )
             continue
         errors.extend(validate_block(block, allow_section=True))
+
+    # ── Phase 6.5.c: top-level filters[] (optional) ───────────────────────
+    filters = manifest.get("filters")
+    if filters is not None:
+        if not isinstance(filters, list):
+            errors.append("manifest.filters must be a list")
+        else:
+            from presentations.dashboards.schema import DashboardFilter
+            seen_ids: set[str] = set()
+            for i, f in enumerate(filters):
+                if not isinstance(f, dict):
+                    errors.append(f"filters[{i}] must be an object")
+                    continue
+                try:
+                    df = DashboardFilter.model_validate(f)
+                except Exception as exc:
+                    errors.append(f"filters[{i}]: {exc}")
+                    continue
+                if df.id in seen_ids:
+                    errors.append(f"filters[{i}]: duplicate id {df.id!r}")
+                seen_ids.add(df.id)
+
+    # ── Phase 8.a: optional scope_ref ─────────────────────────────────────
+    scope_ref = manifest.get("scope_ref")
+    if scope_ref is not None:
+        from presentations.scope.schema import ScopeRef
+        try:
+            ScopeRef.model_validate(scope_ref)
+        except Exception as exc:
+            errors.append(f"scope_ref: {exc}")
+
+    # ── Phase 10B: optional bound_experts ─────────────────────────────────
+    # Migration always defaults to [] so this field is present on every
+    # manifest after load; the typecheck still has to work for raw input
+    # from the API (snapshot save body, direct PATCH, etc.).
+    bound = manifest.get("bound_experts")
+    if bound is not None:
+        if not isinstance(bound, list):
+            errors.append("manifest.bound_experts must be a list of expert IDs")
+        else:
+            for i, x in enumerate(bound):
+                if not isinstance(x, str):
+                    errors.append(f"bound_experts[{i}] must be a string")
+                    continue
+            # Existence check is done against the live ExpertStore when one
+            # is reachable via current_app.config. Keep the import lazy so
+            # this module stays importable in tests that build a bare app.
+            try:
+                from flask import current_app
+                store = current_app.config.get("EXPERT_STORE") if current_app else None
+            except RuntimeError:
+                store = None
+            if store is not None:
+                for i, eid in enumerate(bound):
+                    if isinstance(eid, str) and not store.exists(eid):
+                        errors.append(
+                            f"bound_experts[{i}]: unknown expert id {eid!r}"
+                        )
 
     return errors
 
@@ -405,7 +501,7 @@ def _validate_data_source(block: dict) -> list[str]:
         errors.append(f"Block {bid!r}: data_source.columns must be a list")
     if "preview_rows" in ds and not isinstance(ds["preview_rows"], list):
         errors.append(f"Block {bid!r}: data_source.preview_rows must be a list")
- 
+
     return errors
 
     

@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Blok Editörü — Treasury Studio{% endblock %}
+
+{% block filter_panel %}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/eclipse.min.css">
+<style>
+  .block-editor {
+    display: grid;
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(320px, 380px);
+    gap: 16px;
+    padding: 16px;
+    height: calc(100vh - 64px);
+    box-sizing: border-box;
+  }
+  .be-panel {
+    background: #ffffff;
+    border: 1.5px solid #e6e7e9;
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .be-panel h3 { font-size: 13px; font-weight: 700; color: #475569;
+    text-transform: uppercase; letter-spacing: .06em; margin: 0 0 8px; }
+  .be-panel h4 { font-size: 13px; font-weight: 600; color: #1e293b; margin: 0; }
+  .be-field { display: flex; flex-direction: column; gap: 4px; }
+  .be-field label { font-size: 12px; font-weight: 600; color: #475569; }
+  .be-field input, .be-field textarea, .be-field select {
+    border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px;
+    font-size: 13px; font-family: inherit;
+  }
+  .be-field input:focus, .be-field textarea:focus, .be-field select:focus {
+    outline: 2px solid #2563eb; outline-offset: -1px; border-color: #2563eb;
+  }
+  .be-field textarea { font-family: ui-monospace, 'JetBrains Mono', Menlo, monospace; }
+  .be-field .be-hint { font-size: 11px; color: #94a3b8; }
+  .be-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .be-center { display: grid; grid-template-rows: auto 1fr auto; gap: 12px; min-width: 0; }
+  .be-card { border: 1.5px solid #e6e7e9; border-radius: 8px; background: #ffffff;
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .be-card-header { display: flex; align-items: center; justify-content: space-between; }
+  .be-sql-wrap { min-height: 200px; height: 320px; border: 1px solid #cbd5e1;
+    border-radius: 6px; overflow: hidden; }
+  .be-sql-wrap .CodeMirror { height: 100% !important; font-size: 13px; }
+  .be-var-list { display: flex; flex-direction: column; gap: 10px; }
+  .be-var-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px;
+    background: #f8fafc; display: flex; flex-direction: column; gap: 8px; }
+  .be-var-card.is-other-tag { border-color: #f59e0b; background: #fffbeb; }
+  .be-var-card-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .be-var-card-head input { flex: 1; min-width: 120px; }
+  .be-var-card-head select { min-width: 140px; }
+  .be-var-card-head .be-remove { background: #fee2e2; color: #991b1b;
+    border: 1px solid #fca5a5; border-radius: 4px; padding: 2px 8px;
+    cursor: pointer; font-size: 11px; }
+  .be-add-var { background: #eff6ff; color: #1e3a8a; border: 1px dashed #93c5fd;
+    border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+    font-weight: 600; align-self: flex-start; }
+  .be-actions { display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+  .be-btn { background: #2563eb; color: white; border: none; border-radius: 6px;
+    padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .be-btn.secondary { background: #f1f5f9; color: #1e293b; border: 1px solid #cbd5e1; }
+  .be-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .be-messages { display: flex; flex-direction: column; gap: 6px; }
+  .be-msg { padding: 8px 10px; border-radius: 4px; font-size: 12px; }
+  .be-msg.is-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  .be-msg.is-warning { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+  .be-msg.is-success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .be-preview-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+    font-size: 11px; color: #475569; }
+  .be-preview-meta dt { font-weight: 600; color: #1e293b; }
+  .be-preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .be-preview-table th, .be-preview-table td {
+    padding: 4px 8px; border-bottom: 1px solid #e2e8f0; text-align: left;
+    white-space: nowrap;
+  }
+  .be-preview-table thead th { background: #f1f5f9; font-weight: 700; color: #1e293b; }
+  .be-preview-scroll { overflow: auto; max-height: 320px;
+    border: 1px solid #e2e8f0; border-radius: 6px; }
+  .be-sql-preview { font-family: ui-monospace, monospace; font-size: 11px;
+    color: #334155; background: #f8fafc; padding: 8px; border-radius: 4px;
+    border: 1px solid #e2e8f0; white-space: pre-wrap; }
+  details summary { cursor: pointer; font-size: 12px; color: #2563eb; font-weight: 600; }
+  .be-allowed-values { display: flex; flex-wrap: wrap; gap: 4px; }
+  .be-allowed-values input { flex: 1; min-width: 80px; }
+  .be-pill { display: inline-block; background: #e0e7ff; color: #3730a3;
+    padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .be-tag-other-warning { font-size: 11px; color: #b45309; font-style: italic; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="block-editor">
+  <!-- LEFT: metadata + documentation -->
+  <aside class="be-panel" id="be-meta">
+    <h3>Blok bilgileri</h3>
+    <div class="be-field">
+      <label for="be-team">Ekip</label>
+      <input id="be-team" type="text" placeholder="ör. retail_banking">
+      <div class="be-hint">Küçük harf + alt çizgi. Blok bu ekip altında saklanır.</div>
+    </div>
+    <div class="be-field">
+      <label for="be-id">Blok kimliği</label>
+      <input id="be-id" type="text" placeholder="ör. branch_position_kpi">
+      <div class="be-hint">3-60 karakter, [a-z0-9_].</div>
+    </div>
+    <div class="be-field">
+      <label for="be-title">Başlık</label>
+      <input id="be-title" type="text" placeholder="ör. Şube Net Pozisyon">
+    </div>
+    <div class="be-field">
+      <label for="be-description">Kısa açıklama</label>
+      <textarea id="be-description" rows="2"></textarea>
+    </div>
+    <div class="be-field">
+      <label for="be-tags">Etiketler</label>
+      <input id="be-tags" type="text" placeholder="virgülle ayırın">
+    </div>
+    <h3 style="margin-top: 8px;">Dokümantasyon</h3>
+    <div class="be-field">
+      <label for="be-doc-purpose">Amaç</label>
+      <textarea id="be-doc-purpose" rows="3"></textarea>
+    </div>
+    <div class="be-field">
+      <label for="be-doc-context">İş bağlamı</label>
+      <textarea id="be-doc-context" rows="2"></textarea>
+    </div>
+    <div class="be-field">
+      <label for="be-doc-decision">Karar desteği</label>
+      <textarea id="be-doc-decision" rows="2"></textarea>
+    </div>
+    <div class="be-field">
+      <label for="be-doc-limit">Bilinen kısıtlar</label>
+      <textarea id="be-doc-limit" rows="2"></textarea>
+    </div>
+  </aside>
+
+  <!-- CENTER: SQL + variables + viz config -->
+  <section class="be-center">
+    <div class="be-card">
+      <div class="be-card-header">
+        <h4>SQL sorgusu</h4>
+        <span class="be-pill" id="be-sql-bindcount">0 bind</span>
+      </div>
+      <div class="be-hint">
+        <code>:isim</code> yer tutucuları kullanın; her biri aşağıdaki
+        <strong>Değişkenler</strong> listesinde tanımlı olmalı.
+      </div>
+      <div class="be-sql-wrap"><textarea id="be-sql"></textarea></div>
+    </div>
+
+    <div class="be-card" style="overflow: auto;">
+      <div class="be-card-header">
+        <h4>Değişkenler</h4>
+        <button class="be-add-var" id="be-add-var" type="button">+ Değişken ekle</button>
+      </div>
+      <div class="be-hint">
+        Her değişken için bir <strong>semantic_tag</strong> seçin. Bu, Phase 7
+        konsept kayıtlarına geçişin anahtarıdır.
+      </div>
+      <div class="be-var-list" id="be-var-list"></div>
+    </div>
+
+    <!-- Phase 6.5.a: visualization tipi blok eklenirken seçilir, burada gizli.
+         Tip değişimi sunum içindeki Properties panelinden yapılır. -->
+    <input type="hidden" id="be-viz-type" value="bar_chart">
+    <input type="hidden" id="be-viz-config" value="{}">
+  </section>
+
+  <!-- RIGHT: actions + preview -->
+  <aside class="be-panel" id="be-preview">
+    <h3>Önizleme</h3>
+    <div class="be-actions">
+      <button class="be-btn" id="be-run" type="button">Çalıştır</button>
+      <button class="be-btn secondary" id="be-validate" type="button">Doğrula</button>
+    </div>
+    <div class="be-actions">
+      <button class="be-btn" id="be-save" type="button">Kaydet</button>
+      <button class="be-btn secondary" id="be-bump" type="button">Yeni sürüm olarak kaydet</button>
+    </div>
+    <div class="be-messages" id="be-messages"></div>
+    <details>
+      <summary>Çözümlenmiş SQL</summary>
+      <pre class="be-sql-preview" id="be-resolved-sql">(henüz çalıştırılmadı)</pre>
+    </details>
+    <details>
+      <summary>Bind parametreleri</summary>
+      <pre class="be-sql-preview" id="be-bind-params">{}</pre>
+    </details>
+    <h3>Sonuç</h3>
+    <dl class="be-preview-meta">
+      <dt>Satır</dt><dd id="be-meta-rows">—</dd>
+      <dt>Süre</dt><dd id="be-meta-duration">—</dd>
+      <dt>Kolonlar</dt><dd id="be-meta-cols">—</dd>
+    </dl>
+    <div class="be-preview-scroll">
+      <table class="be-preview-table" id="be-preview-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </aside>
+</div>
+
+<script id="block-data" type="application/json">{{ block_json | safe }}</script>
+<script id="semantic-tags-data" type="application/json">{{ semantic_tags_json | safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+<script src="{{ url_for('presentations.static', filename='js/block_editor.js') }}?v=1"></script>
+{% endblock %}

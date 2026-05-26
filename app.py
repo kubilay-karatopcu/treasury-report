@@ -25,8 +25,19 @@ from deposit import deposit_bp
 import re
 from deposit_panel import deposit_panel_bp, init_app as deposit_panel_init
 from presentations import presentations_bp
+from prisma_home import prisma_home_bp
+from prisma_home.experts import LocalExpertStore
+from prisma_home.briefing import BriefingEngine
 from presentations.session import SessionRegistry
-from presentations.store import S3SnapshotStore
+from presentations.store import S3SnapshotStore, S3DashboardStore, S3LibraryStore
+from presentations.scope.store import S3ScopeStore
+from presentations.blocks.store import S3BlockStore, LocalBlockStore
+from presentations.table_docs.store import (
+    S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
+)
+from presentations.concepts.registry import CachedConceptRegistry
+from presentations.concepts.bindings import CachedBindingCatalog
+from presentations.variables.semantic_tags import set_active_registry
 from presentations.llm import QwenClient
 import prisma_nav
 from pathlib import Path
@@ -177,7 +188,17 @@ if DEV_MODE:
             # Path 2: LLM block SQL — execute via DuckDB
             if query:
                 rewritten = _rewrite_oracle_for_duckdb(query)
+                # Phase 6.5: Oracle :name binds → DuckDB $name binds.
+                # Block engine emits :ident style; DuckDB's parser uses $ident.
+                if query_params:
+                    rewritten = _re.sub(
+                        r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)\b",
+                        r"$\1",
+                        rewritten,
+                    )
                 try:
+                    if query_params:
+                        return self._get_duck().execute(rewritten, query_params).fetchdf()
                     return self._get_duck().execute(rewritten).fetchdf()
                 except Exception as exc:
                     # Surface the actual DuckDB error so the LLM retry loop can
@@ -442,7 +463,8 @@ app.config["SESSION_REGISTRY"] = SessionRegistry(
 
 if DEV_MODE:
     from presentations.llm import FakeLLM
-    from presentations.store import LocalSnapshotStore
+    from presentations.store import LocalSnapshotStore, LocalDashboardStore, LocalLibraryStore
+    from presentations.scope.store import LocalScopeStore
 
     _openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if _openai_key:
@@ -459,7 +481,15 @@ if DEV_MODE:
         logging.info("DEV_MODE: OPENAI_API_KEY yok → FakeLLM stub.")
         app.config["LLM_CLIENT"] = FakeLLM()
 
-    app.config["SNAPSHOT_STORE"] = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
+    app.config["SNAPSHOT_STORE"]  = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
+    app.config["DASHBOARD_STORE"] = LocalDashboardStore(base_dir=_DUCK_BASE_DIR / "dashboards")
+    app.config["LIBRARY_STORE"]   = LocalLibraryStore(base_dir=_DUCK_BASE_DIR / "library")
+    app.config["BLOCK_STORE"]     = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
+    app.config["SCOPE_STORE"]     = LocalScopeStore(base_dir=_DUCK_BASE_DIR / "scopes")
+    app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
+        LocalTableDocStore(base_dir=Path(__file__).parent / "examples" / "table_docs")
+    )
+    app.config["DEV_MODE"]        = True  # presentations/directory.py için bayrak
     # DEV catalog → fake_db ile aynı tablolar (examples/sample_catalog.json).
     app.config["CATALOG_PATH"] = str(Path(__file__).parent / "examples" / "sample_catalog.json")
 else:
@@ -470,12 +500,66 @@ else:
         verify_ssl=False,
         force_json=False,
     )
-    app.config["SNAPSHOT_STORE"] = S3SnapshotStore(dc=dc)
+    app.config["SNAPSHOT_STORE"]  = S3SnapshotStore(dc=dc)
+    app.config["DASHBOARD_STORE"] = S3DashboardStore(dc=dc)
+    app.config["LIBRARY_STORE"]   = S3LibraryStore(dc=dc)
+    app.config["BLOCK_STORE"]     = S3BlockStore(dc=dc)
+    app.config["SCOPE_STORE"]     = S3ScopeStore(dc=dc)
+    app.config["TABLE_DOC_STORE"] = CachedTableDocStore(S3TableDocStore(dc=dc))
 
  
 app.config["S3_GET"]    = _s3_get
 app.config["S3_PUT"]    = _s3_put
 app.config["S3_DELETE"] = _s3_delete
+
+# Phase 10B — Expert registry. Fixtures live in examples/phase_10/experts/
+# (git-versioned per spec §10.2 for global/dept scope). Same path in DEV and
+# prod for parity; production deploys ship the YAMLs alongside the code.
+_EXPERTS_DIR = Path(__file__).parent / "examples" / "phase_10" / "experts"
+app.config["EXPERT_STORE"] = LocalExpertStore(base_dir=_EXPERTS_DIR)
+logging.info("EXPERT_STORE loaded from %s", _EXPERTS_DIR)
+
+# Phase 10E — Briefing engine. In-process content-hash cache (Phase 12 spec
+# §10.4 calls for Redis when multi-pod consistency matters). Falls back to
+# the StaticBriefing when LLM_CLIENT is missing or returns garbage so the
+# consumer experience degrades gracefully.
+app.config["BRIEFING_ENGINE"] = BriefingEngine(
+    expert_store=app.config["EXPERT_STORE"],
+    snapshot_store=app.config["SNAPSHOT_STORE"],
+    llm_client=app.config.get("LLM_CLIENT"),
+)
+logging.info("BRIEFING_ENGINE wired (cache=in-process, fallback=static MD)")
+
+# Phase 8.a — routing override ceiling. A user may force a system-decided
+# `lazy` table to `cached`, but never above this size (DuckDB would thrash).
+# See presentations/scope/routing.py::apply_user_override.
+from presentations.scope.routing import DEFAULT_HARD_CEILING_BYTES as _ROUTING_CEILING
+app.config["PRESENTATIONS_ROUTING_HARD_CEILING_BYTES"] = int(
+    os.environ.get("PRESENTATIONS_ROUTING_HARD_CEILING_BYTES", _ROUTING_CEILING)
+)
+
+
+# ── Phase 7.a — concept registry ──────────────────────────────────────────
+# Hand-authored knowledge docs live under presentations/catalog/ (spec §3.1:
+# system/dept concepts are git-versioned). concepts/ holds the registry;
+# tables/ holds per-table concept bindings (read by the 7.b compiler). Same
+# path in DEV and prod for parity. The cached registry hot-reloads on YAML
+# mtime change so the data team can edit without a restart.
+_CONCEPT_DIR = Path(__file__).parent / "presentations" / "catalog" / "concepts"
+concept_registry = CachedConceptRegistry(_CONCEPT_DIR)
+app.config["CONCEPT_REGISTRY"] = concept_registry
+# Back the semantic-tag allow-list (block validation + UI dropdown) with the
+# registry; SEMANTIC_TAGS_V0 stays as the baseline floor (zero regression).
+set_active_registry(concept_registry)
+logging.info("CONCEPT_REGISTRY loaded: %d concepts from %s",
+             len(concept_registry), _CONCEPT_DIR)
+
+# Phase 7.b — per-table concept bindings (read by the filter compiler in the
+# dashboard apply-filters path). catalog/tables/<SCHEMA>/<TABLE>.yaml.
+_BINDING_DIR = Path(__file__).parent / "presentations" / "catalog" / "tables"
+app.config["CONCEPT_BINDING_CATALOG"] = CachedBindingCatalog(_BINDING_DIR)
+logging.info("CONCEPT_BINDING_CATALOG loaded: %d tables from %s",
+             len(app.config["CONCEPT_BINDING_CATALOG"]), _BINDING_DIR)
 
 
 data_ops = DataOperations(dc)
@@ -511,6 +595,9 @@ class User(UserMixin):
         self.ip = user_json["ip"]
         self.department = user_json["department"]
         self.password = user_json["password"]
+        # Dashboard maker yetkisi — LDAP tablosundan gelecek. Şimdilik 1.
+        # Tabloya kolon eklendiğinde user_json["dashboard_maker"] olarak okunur.
+        self.dashboard_maker = int(user_json.get("dashboard_maker", 1)) == 1
 
     def get_id(self):
         object_id = self.user_json.get('user_id')
@@ -555,6 +642,9 @@ deposit_panel_init(dc, get_current_df_copy)
 app.register_blueprint(deposit_panel_bp, url_prefix="/deposit-panel")
 app.register_blueprint(deposit_bp, url_prefix="/deposit-assistant")
 app.register_blueprint(presentations_bp, url_prefix="/presentations")
+# Phase 10A: PRISMA shell blueprint owns "/" (consumer landing) and "/atolye/*".
+# Spec §3 — pre-existing index route is replaced by prisma_home.landing.
+app.register_blueprint(prisma_home_bp, url_prefix="")
 
 _user_cache = {}
 
@@ -752,26 +842,25 @@ def inject_sidebar_visibility():
  
     return {"sidebar_visible": visibility}
                                                 
-@app.route('/')
-def index():
-    if app.config.get("LOGIN_DISABLED"):
-        return redirect(url_for('home'))
-    return redirect(url_for('login'))
+# Phase 10A: "/" is now served by prisma_home_bp.landing (registered above).
+# The legacy index() redirect is removed; flask_login redirects unauthenticated
+# users to the login page automatically via LoginManager.login_view = "login".
 
 
 @app.route('/login', methods=["GET", "POST"])
 def login():
     # DEV preview: ?preview=1 ile login sayfasını DEV_MODE'da bile render et.
     is_preview = request.args.get("preview") == "1"
+    # Phase 10A: login sonrası yeni PRISMA landing'e gidiyoruz (eski /home değil).
     if app.config.get("LOGIN_DISABLED") and not is_preview:
-        return redirect(url_for('.home'))
+        return redirect(url_for('prisma_home.landing'))
     if current_user.is_authenticated and not is_preview:
-        return redirect(url_for('.home', sicil=current_user.sicil))
+        return redirect(url_for('prisma_home.landing'))
     form = LoginForm()
     if form.validate_on_submit():
 
         PARAMS = {"sicil": form.sicil.data}
-        
+
         data = dc.get_data(
                 base_prefix="ldap",
                 dataset = "login",
@@ -785,52 +874,35 @@ def login():
              "department": data["DEPARTMENT"].values[0],
              "password": data["PASSW"].values[0],
              "user_id": data["USER_ID"].values[0]}
-        
+
 
         if not u:
             user = None
         else:
             user = User(u)
-            
+
         if user is None or not user.check_password(form.password.data):
             return redirect(url_for('login'))
         login_user(user, remember=form.remember_me.data)
-        return redirect(url_for('.home', sicil=user.sicil))
+        return redirect(url_for('prisma_home.landing'))
     return render_template('login.html', title='Sign In', form=form)
 
 
 @app.route('/logout')
 def logout():
     logout_user()
-    return redirect(url_for('index'))
+    # Phase 10A: legacy `index` endpoint was replaced by prisma_home.landing.
+    return redirect(url_for('prisma_home.landing'))
 
 
 @app.route('/home')
 @login_required
 def home():
-    if app.config.get("LOGIN_DISABLED"):
-        username = "Test User"
-    else:
-        username = current_user.name
-    words = username.split()
-    result = []
-
-    for word in words:
-        lower_word = word.replace('I', 'ı').replace('İ', 'i').lower()
-
-        first_letter = lower_word[0]
-        if first_letter == 'i':
-            first_letter = 'İ'
-        elif first_letter == 'ı':
-            first_letter = 'I'
-        else:
-            first_letter = first_letter.upper()
-
-        result.append(first_letter + lower_word[1:])
-
-    username = " ".join(result)
-
-    return render_template('index.html', username=username)
+    # Phase 10A: legacy `/home` (templates/index.html with letter rail) is
+    # superseded by the new PRISMA landing. Redirect preserves the `home`
+    # endpoint name for templates/base.html links and `/home` bookmarks while
+    # routing users to the new shell.
+    return redirect(url_for('prisma_home.landing'))
 
 
 @app.route('/oranlar', methods=['GET'])

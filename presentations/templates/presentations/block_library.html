@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Blok Kütüphanesi — Treasury Studio{% endblock %}
+
+{% block filter_panel %}{% endblock %}
+
+{% block head %}
+<style>
+  .bl-page { padding: 28px 0; }
+  .bl-header { display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+  .bl-title { font-size: 22px; font-weight: 600; color: #1d273b; margin: 0; }
+  .bl-subtitle { font-size: 13px; color: #94a3b8; margin-top: 2px; }
+  .bl-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .bl-filters input, .bl-filters select {
+    border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
+  .bl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px; }
+  .bl-card { background: #fff; border: 1.5px solid #e6e7e9; border-radius: 8px;
+    padding: 16px; display: flex; flex-direction: column; gap: 8px;
+    transition: border-color 0.12s, box-shadow 0.12s; }
+  .bl-card:hover { border-color: #2563eb; box-shadow: 0 4px 14px rgba(32, 107, 196, 0.10); }
+  .bl-card-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .07em;
+    color: #2563eb; text-transform: uppercase; }
+  .bl-card-title { font-size: 15px; font-weight: 600; color: #0f172a; margin: 0; }
+  .bl-card-desc { font-size: 12px; color: #475569; flex-grow: 1; }
+  .bl-card-footer { display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; color: #94a3b8; padding-top: 6px; border-top: 1px solid #f1f5f9; }
+  .bl-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+  .bl-tag { background: #f1f5f9; color: #475569; padding: 1px 8px;
+    border-radius: 10px; font-size: 11px; font-weight: 500; }
+  .bl-deprecated { background: #fef3c7; color: #92400e;
+    padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .bl-empty { padding: 36px; text-align: center; color: #94a3b8; font-size: 13px;
+    background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; }
+  .bl-newbtn { background: #2563eb; color: white; border: none; border-radius: 6px;
+    padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+    text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+  .bl-newbtn:hover { background: #1d4ed8; color: white; text-decoration: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl bl-page">
+  <div class="bl-header">
+    <div>
+      <h1 class="bl-title">Blok Kütüphanesi</h1>
+      <div class="bl-subtitle">
+        Phase 6.5 — değişken bağlamalı blok şablonları
+      </div>
+    </div>
+    <a class="bl-newbtn" href="{{ url_for('presentations.block_new') }}">+ Yeni blok</a>
+  </div>
+
+  <form class="bl-filters" method="get">
+    <input type="text" name="q" placeholder="Ara (başlık, açıklama, etiket)" value="{{ active_filters.q }}">
+    <input type="text" name="team" placeholder="Ekip" value="{{ active_filters.team }}">
+    <input type="text" name="tag" placeholder="Etiket" value="{{ active_filters.tag }}">
+    <select name="viz_type">
+      <option value="">— Tüm görseller —</option>
+      {% for opt in ['kpi', 'kpi_grid', 'bar_chart', 'line_chart', 'table', 'pie'] %}
+      <option value="{{ opt }}" {% if active_filters.viz_type == opt %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="bl-newbtn" style="background:#475569;">Filtrele</button>
+  </form>
+
+  {% if blocks %}
+  <div class="bl-grid">
+    {% for b in blocks %}
+    <a class="bl-card" href="{{ url_for('presentations.block_edit', team=b.team, block_id=b.id) }}" style="text-decoration:none;">
+      <div class="bl-card-eyebrow">{{ b.team }} · {{ b.visualization_type }}</div>
+      <h3 class="bl-card-title">{{ b.title }}</h3>
+      <p class="bl-card-desc">{{ b.description or '—' }}</p>
+      <div class="bl-tags">
+        {% for t in b.tags %}<span class="bl-tag">{{ t }}</span>{% endfor %}
+        {% if b.deprecated %}<span class="bl-deprecated">Deprecated</span>{% endif %}
+      </div>
+      <div class="bl-card-footer">
+        <span>v{{ b.version }} · {{ b.owner }}</span>
+        <span>{{ b.created_at[:10] }}</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bl-empty">
+    Henüz blok yok. <a href="{{ url_for('presentations.block_new') }}">İlk bloğu oluştur</a>.
+  </div>
+  {% endif %}
+</div>
+
+<script id="blocks-data" type="application/json">{{ blocks_json | safe }}</script>
+{% endblock %}

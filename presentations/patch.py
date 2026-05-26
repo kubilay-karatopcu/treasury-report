@@ -178,7 +178,10 @@ def validate_patches(state: dict, patches: list[dict]) -> list[str]:
             continue
 
         if not any(path.startswith(p) for p in ALLOWED_PATCH_PREFIXES):
-            errors.append(f"patch[{i}]: path {path!r} is outside allowed scope (/blocks/ or /meta/)")
+            errors.append(
+                f"patch[{i}]: path {path!r} outside allowed scope "
+                "(/blocks/, /meta/, /filters, /filter_state)"
+            )
             continue
 
         parts = _parse_path(path)

@@ -1,0 +1,10 @@
+# Shell scripts must keep Unix line endings on every checkout. Without
+# this, Windows clones with `core.autocrlf=true` rewrite build.sh's
+# newlines to CRLF, and bash refuses to parse it ("$'\r': command not
+# found"). Pinning the eol attribute makes git ignore autocrlf for
+# these paths.
+*.sh text eol=lf
+
+# Python source: same reasoning — keep LF so any shebang lines + heredocs
+# stay valid on Unix runtime, regardless of who checked them out.
+*.py text eol=lf

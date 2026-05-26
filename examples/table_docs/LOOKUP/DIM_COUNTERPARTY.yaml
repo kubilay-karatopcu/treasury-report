@@ -1,0 +1,39 @@
+table: DIM_COUNTERPARTY
+schema: LOOKUP
+description: |
+  Karşı taraf boyut tablosu — bankalar, brokerler, kurumsal müşteriler.
+  Counterparty exposure raporlamasının ana boyutu.
+
+columns:
+  COUNTERPARTY_ID:
+    type: VARCHAR2(12)
+    description: "Karşı taraf kimliği"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: counterparties
+    suggested_semantic_tag: counterparty
+
+  COUNTERPARTY_NAME:
+    type: VARCHAR2(100)
+    description: "Tüzel kişi adı"
+    filterable: false
+
+  COUNTRY:
+    type: CHAR(2)
+    description: "ISO ülke kodu"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: countries
+    suggested_semantic_tag: region
+    distinct_values_sample: [TR, US, DE, GB, FR, NL, CH]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z
+
+  CP_TYPE:
+    type: VARCHAR2(20)
+    description: "Tip (BANKA, BROKER, KURUMSAL, FON)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: cp_types
+    suggested_semantic_tag: instrument_type
+    distinct_values_sample: [BANKA, BROKER, KURUMSAL, FON, CENTRAL_BANK]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z

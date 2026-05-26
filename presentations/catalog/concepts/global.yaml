@@ -1,0 +1,111 @@
+# Phase 7 — Concept Registry: GLOBAL scope (deployable, git-tracked).
+#
+# This is the LIVE registry the Flask app loads (config["CONCEPT_REGISTRY"]).
+# Distinct from examples/phase_7/concepts/*.yaml, which are spec fixtures /
+# shape references (and gitignored under examples/).
+#
+# System-owned: bank-wide concepts every department consumes. Edits go
+# through PR + review. NOT user-editable at runtime.
+#
+# Invariant: this registry is a SUPERSET of the Phase 6.5 SEMANTIC_TAGS_V0
+# allow-list — every v0 tag exists here so pre-Phase-7 blocks keep validating.
+
+version: 1
+scope: global
+owners:
+  department: data_platform
+  contact: data.platform@qnbfb.com
+
+concepts:
+  - id: currency
+    name: "Para Birimi"
+    type: enum
+    description: |
+      Para birimi (ISO 4217 canonical). FX işlemlerinde işlemin para
+      birimi; pozisyon raporlarında pozisyonun para birimi.
+    canonical_values:
+      - code: TRY
+        label: "Türk Lirası"
+        aliases: [TL, TRL, "Turkish Lira"]
+      - code: USD
+        label: "US Doları"
+        aliases: ["US Dollar", "American Dollar"]
+      - code: EUR
+        label: "Euro"
+        aliases: ["EUR Currency", "Avro"]
+      - code: GBP
+        label: "İngiliz Sterlini"
+        aliases: ["British Pound", "Sterling"]
+      - code: CHF
+        label: "İsviçre Frangı"
+        aliases: ["Swiss Franc"]
+      - code: JPY
+        label: "Japon Yeni"
+        aliases: ["Japanese Yen"]
+    related_concepts: [counterparty, instrument_type]
+
+  - id: as_of_time
+    name: "Snapshot Zamanı"
+    type: time
+    description: |
+      Pozisyon snapshot tarihi (gün sonu raporlama). Filtre uygulayan
+      dashboard'lar varsayılan olarak son 30 günü ister.
+    granularity_default: day
+
+  - id: trade_time
+    name: "İşlem Zamanı"
+    type: time
+    description: "İşlemin gerçekleştiği tarih/zaman (deal/booking)."
+    granularity_default: day
+
+  - id: value_time
+    name: "Valör Zamanı"
+    type: time
+    description: "Valör (etkili) tarihi."
+    granularity_default: day
+
+  - id: settle_time
+    name: "Takas Zamanı"
+    type: time
+    description: "Takasın tamamlandığı tarih."
+    granularity_default: day
+
+  - id: counterparty
+    name: "Karşı Taraf"
+    type: enum
+    description: |
+      Karşı taraf (banka, müşteri, kurum). Canonical değerler için ilgili
+      dim tablosuna (DIM_COUNTERPARTY) lookup yapılır.
+    related_concepts: [currency, instrument_type]
+
+  - id: user_id
+    name: "Kullanıcı Kimliği"
+    type: enum
+    description: "Sicil veya sistem kullanıcı kimliği."
+
+  - id: deal_id
+    name: "İşlem Kimliği"
+    type: enum
+    description: "İşlem (deal) kimliği — eşsiz işlem referansı."
+
+  - id: instrument_type
+    name: "Enstrüman Tipi"
+    type: enum
+    description: "Enstrüman tipi (bond, swap, forward, vs.)."
+    canonical_values:
+      - { code: BOND,    label: "Bono / Tahvil" }
+      - { code: SWAP,    label: "Swap" }
+      - { code: FORWARD, label: "Forward" }
+      - { code: OPTION,  label: "Opsiyon" }
+      - { code: REPO,    label: "Repo" }
+      - { code: DEPOSIT, label: "Mevduat" }
+      - { code: LOAN,    label: "Kredi" }
+
+  # Escape hatch — preserved from SEMANTIC_TAGS_V0. A variable tagged "other"
+  # has no concept semantics; the binding inference review (7.c) flags these
+  # for manual reclassification. Kept here so the live registry stays a
+  # superset of the v0 baseline.
+  - id: other
+    name: "Diğer (kategorisiz)"
+    type: scalar
+    description: "Kategorisiz — ilerde elle gözden geçirilecek."
