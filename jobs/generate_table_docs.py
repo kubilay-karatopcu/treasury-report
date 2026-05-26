@@ -1,8 +1,8 @@
 """generate_table_docs.py — bootstrap TableDoc YAMLs from Oracle metadata.
 
 Pulls ALL_TABLES, ALL_TAB_COLUMNS, ALL_TAB_COMMENTS, ALL_COL_COMMENTS, and
-ALL_PART_KEY_COLUMNS for the given owners (default: EDW, HIST, A16438) and
-writes one Phase 6.5.b-shaped YAML per table to:
+ALL_PART_KEY_COLUMNS for the configured owners (default: EDW, HIST, A16438)
+and writes one Phase 6.5.b-shaped YAML per table to:
 
     presentations/catalog/tables/<SCHEMA>/<TABLE>.yaml
 
@@ -19,19 +19,13 @@ Filterability hints, semantic tags, lookups, and concept_bindings are LEFT
 EMPTY — the data team fills them in by hand on top of this backbone.
 
 Default behavior is **skip-if-exists** so re-running never clobbers a hand-
-edited YAML; pass --overwrite to force a rebuild.
+edited YAML; flip OVERWRITE = True below to force a rebuild.
 
-Invocation (corporate machine where DataClient can reach Oracle):
-
-    python -m jobs.generate_table_docs                          # all default owners
-    python -m jobs.generate_table_docs --owners EDW             # one owner
-    python -m jobs.generate_table_docs --schema EDW --table FOO # one table
-    python -m jobs.generate_table_docs --dry-run                # preview only
-    python -m jobs.generate_table_docs --overwrite              # rebuild existing
+To run from Spyder: scroll to the CONFIG block at the bottom, edit the
+values you want, then press F5.
 """
 from __future__ import annotations
 
-import argparse
 import logging
 import re
 import sys
@@ -398,40 +392,28 @@ def run(
     return 0 if errors == 0 else 1
 
 
-def _main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
-
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--owners",
-        default=",".join(DEFAULT_OWNERS),
-        help=f"Comma-separated Oracle owners. Default: {','.join(DEFAULT_OWNERS)}",
-    )
-    parser.add_argument("--schema", default=None, help="Restrict to one owner.")
-    parser.add_argument("--table", default=None, help="Restrict to one table (requires --schema).")
-    parser.add_argument("--dry-run", action="store_true", help="Preview without writing.")
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Rebuild YAMLs that already exist (default: skip, so hand-edits survive).",
-    )
-    args = parser.parse_args()
-
-    if args.table and not args.schema:
-        parser.error("--table requires --schema")
-
-    owners = tuple(s.strip() for s in args.owners.split(",") if s.strip())
-    if not owners:
-        parser.error("--owners is empty")
-
-    return run(
-        owners=owners,
-        only_schema=args.schema,
-        only_table=args.table,
-        dry_run=args.dry_run,
-        overwrite=args.overwrite,
-    )
+# ── CONFIG (edit these before pressing F5 in Spyder) ──────────────────────
+#
+# OWNERS         which Oracle owners to walk
+# ONLY_SCHEMA    set to a single owner (e.g. "EDW") to restrict, else None
+# ONLY_TABLE     set to a single table name to restrict; requires ONLY_SCHEMA
+# DRY_RUN        True → log what would be written without touching disk
+# OVERWRITE      False → skip tables whose YAML already exists (default; safe)
+#                True  → rewrite from scratch (loses any hand-edits!)
+#
+OWNERS: tuple[str, ...] = DEFAULT_OWNERS
+ONLY_SCHEMA: str | None = None
+ONLY_TABLE:  str | None = None
+DRY_RUN:    bool = False
+OVERWRITE:  bool = False
 
 
 if __name__ == "__main__":
-    sys.exit(_main())
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
+    sys.exit(run(
+        owners=OWNERS,
+        only_schema=ONLY_SCHEMA,
+        only_table=ONLY_TABLE,
+        dry_run=DRY_RUN,
+        overwrite=OVERWRITE,
+    ))
