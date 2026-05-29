@@ -45,56 +45,13 @@ _CHAT_JOBS: dict[str, dict] = {}
 @presentations_bp.route("/")
 @login_required
 def list_presentations():
-    """List all presentations owned by this user, plus the demo seed.
-    Now reads from S3 via the SessionRegistry."""
-    registry = current_app.config["SESSION_REGISTRY"]
-    items = registry.list_user_presentations(current_user.sicil)
-
-    # Mark the demo entry if it exists
-    for it in items:
-        it["is_demo"] = (it.get("id") == "p_demo")
-
-    # Always surface the demo seed if the user has never opened it.
-    if not any(i["id"] == "p_demo" for i in items):
-        items.append({
-            "id": "p_demo",
-            "title": "Q4 2025 Hazine Performans Raporu (örnek)",
-            "date": "Aralık 2025",
-            "blocks_count": None,
-            "updated_at": "",
-            "is_demo": True,
-        })
-
-    # ── Phase 6.5.d: prefetch BlockStore listing server-side so the Bloklar
-    # tab is hydrated on first paint. Without this, JS fires /blocks/api/list
-    # after page parse + IIFE init, with a visible "Bloklar yükleniyor…"
-    # message during the cold-call to S3/local block dir. Embedding the
-    # initial listing in the HTML eliminates that ~500ms FOUC.
-    blocks_initial: list[dict] = []
-    try:
-        block_store = current_app.config.get("BLOCK_STORE")
-        if block_store is not None:
-            blocks_initial = [s.to_dict() for s in block_store.list_blocks()]
-    except Exception:
-        current_app.logger.exception("prefetch BlockStore listing failed")
-        blocks_initial = []
-
-    resp = Response(
-        render_template(
-            "presentations/list.html",
-            presentations=items,
-            blocks_initial=blocks_initial,
-            blocks_initial_json=json.dumps(blocks_initial, ensure_ascii=False, default=str),
-        ),
-        mimetype="text/html",
-    )
-    # Prevent aggressive caching — when a user saves a new block and comes
-    # back to /presentations/ they need the latest JS that re-fetches the
-    # listing on every tab activation. Without this, browsers can serve a
-    # stale HTML doc whose embedded JS still has the old `blocksLoaded`
-    # gating logic. Re-validate on each navigation.
-    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
-    return resp
+    """Legacy alias — old /presentations/ now lands on the Sunum pipeline
+    checkpoint page. The previous tabbed UI (Sunumlar + Bloklar) was
+    retired; presentation cards live under Pipeline > Sunum and blocks
+    under Kütüphane > Bloklar.
+    """
+    from flask import redirect, url_for
+    return redirect(url_for("presentations.pipeline_sunum"))
 
 
 @presentations_bp.route("/", methods=["POST"])
@@ -503,6 +460,62 @@ def view_snapshot(sid: str):
     )
 
 
+@presentations_bp.route("/snapshot/<sid>", methods=["DELETE"])
+@login_required
+def delete_snapshot(sid: str):
+    """Permanently remove a snapshot (manifest + meta).
+
+    Auth: only the owner can delete. If the snapshot is bound to one or
+    more experts, those experts' briefing caches are invalidated so the
+    next render no longer cites the dead snapshot. Returns 404 if the
+    snapshot is gone, 403 if the caller isn't the owner.
+    """
+    store = current_app.config["SNAPSHOT_STORE"]
+    payload = store.load(sid)
+    if payload is None:
+        return Response(
+            json.dumps({"error": "Snapshot bulunamadı."}, ensure_ascii=False),
+            status=404, mimetype="application/json",
+        )
+
+    meta = payload.get("meta") or {}
+    owner = meta.get("owner_id")
+    if owner and owner != current_user.sicil:
+        return Response(
+            json.dumps({
+                "error": "Bu snapshot'ı sadece sahibi silebilir.",
+                "owner": owner,
+            }, ensure_ascii=False),
+            status=403, mimetype="application/json",
+        )
+
+    ok = store.delete(sid)
+    if not ok:
+        return Response(
+            json.dumps({"error": "Silme başarısız."}, ensure_ascii=False),
+            status=500, mimetype="application/json",
+        )
+
+    # Invalidate briefing cache for every expert this snapshot was bound
+    # to — otherwise a freshly-deleted snapshot lingers in cited citations
+    # until the per-expert TTL expires.
+    engine = current_app.config.get("BRIEFING_ENGINE")
+    bound = meta.get("bound_experts") or []
+    if engine is not None and hasattr(engine, "invalidate"):
+        for eid in bound:
+            try:
+                engine.invalidate(eid)
+            except Exception:
+                log.warning("delete_snapshot: cache invalidate failed for expert=%s",
+                            eid, exc_info=True)
+
+    log.info("snapshot deleted: %s (owner=%s, bound_experts=%s)", sid, owner, bound)
+    return Response(
+        json.dumps({"ok": True, "snapshot_id": sid}, ensure_ascii=False),
+        mimetype="application/json",
+    )
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Dashboard publishing — R > Ekip Raporları
 # ════════════════════════════════════════════════════════════════════════════
@@ -796,8 +809,8 @@ def _execute_preview_sql(block: dict) -> None:
     """Library preview için SQL'i çalıştırıp block.config'i doldur.
     Bağımsız bir DuckDB connection kullanır — session kontaminasyonu yok."""
     from presentations.duck import execute_block_sql
+
     from presentations.nodes.execute_block_sqls import apply_data_to_config
-    import duckdb
 
     ds = block.get("data_source") or {}
     sql = (ds.get("original_sql") or ds.get("sql") or "").strip()
@@ -808,7 +821,7 @@ def _execute_preview_sql(block: dict) -> None:
     if dc is None:
         return
 
-    conn = duckdb.connect(":memory:")
+    conn = duck.connect_duckdb(":memory:")
     try:
         new_ds = execute_block_sql(dc, conn, block.get("id", "preview"), sql)
         block["data_source"] = {**ds, **new_ds}
@@ -891,6 +904,21 @@ def add_library_block_to_draft(bid: str):
     # Clone the block with a fresh id so repeat clicks don't collide.
     cloned = json.loads(json.dumps(block_template))
     cloned["id"] = "b_" + secrets.token_urlsafe(6)
+
+    # Phase B — stamp provenance + carry over refresh_policy. The apply-filters
+    # loop reads ``imported_from.library_id`` to decide whether this leaf can
+    # hit the shared library-block cache, and uses
+    # ``library_updated_at`` as a synthetic version stamp (the legacy library
+    # format has no integer version field).
+    cloned["imported_from"] = {
+        "library_id": bid,
+        "library_updated_at": (meta.get("updated_at") or meta.get("created_at") or ""),
+    }
+    # If the library block carries a refresh_policy (lazy_ttl opt-in), honor
+    # it. Default ``on_open`` means: no shared cache — same as pre-B blocks.
+    src_policy = block_template.get("refresh_policy")
+    if isinstance(src_policy, dict):
+        cloned["refresh_policy"] = dict(src_policy)
 
     blocks = manifest.setdefault("blocks", [])
     # Find or create a target section. Manifest is in nested form post-migration.
@@ -986,14 +1014,14 @@ def duckdb_preview(pid: str, view_name: str):
     """Return columns + first 10 rows of a DuckDB view (for the basket UI)."""
     session = _get_session(pid)
     try:
-        conn = session.get_duck_conn()
-        # Lazy refetch if the basket isn't loaded yet.
-        manifest = session.get_manifest()
-        if manifest and session.needs_refetch(manifest.get("basket", [])):
-            dc = current_app.config.get("DATA_CLIENT")
-            if dc is not None:
-                session.fetch_basket(dc, manifest.get("basket", []))
-        preview = duck.preview_view(conn, view_name)
+        with session.duck_conn() as conn:
+            # Lazy refetch if the basket isn't loaded yet.
+            manifest = session.get_manifest()
+            if manifest and session.needs_refetch(manifest.get("basket", [])):
+                dc = current_app.config.get("DATA_CLIENT")
+                if dc is not None:
+                    session.fetch_basket(dc, manifest.get("basket", []))
+            preview = duck.preview_view(conn, view_name)
     except ValueError as exc:
         return Response(json.dumps({"error": str(exc)}, ensure_ascii=False),
                         status=400, mimetype="application/json")
@@ -1026,7 +1054,6 @@ def table_preview(pid: str):
         )
 
     session = _get_session(pid)
-    conn = session.get_duck_conn()
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return Response(
@@ -1047,17 +1074,18 @@ def table_preview(pid: str):
             sql = f"SELECT * FROM {table_id} FETCH FIRST 5000 ROWS ONLY"
 
         preview_block_id = f"preview_{table_id.replace('.', '_')}"
-        ds = duck.execute_block_sql(
-            dc, conn, preview_block_id, sql,
-            upload_lookup=upload_lookup,
-            s3_get=s3_get,
-        )
-        # Preview view'ı LLM'in tablo sanmasını önlemek için temizle.
-        # `execute_block_sql` `block_<id>` adıyla view register etti.
-        try:
-            conn.unregister(f"block_{preview_block_id}")
-        except Exception:
-            pass
+        with session.duck_conn() as conn:
+            ds = duck.execute_block_sql(
+                dc, conn, preview_block_id, sql,
+                upload_lookup=upload_lookup,
+                s3_get=s3_get,
+            )
+            # Preview view'ı LLM'in tablo sanmasını önlemek için temizle.
+            # `execute_block_sql` `block_<id>` adıyla view register etti.
+            try:
+                conn.unregister(f"block_{preview_block_id}")
+            except Exception:
+                pass
     except GateError as exc:
         return Response(
             json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
@@ -1231,7 +1259,6 @@ def execute_block_sql_route(pid: str):
         )
  
     session = _get_session(pid)
-    conn = session.get_duck_conn()
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return Response(
@@ -1243,11 +1270,12 @@ def execute_block_sql_route(pid: str):
         manifest = session.get_manifest() or {}
         upload_lookup = duck.build_upload_lookup(manifest)
         s3_get = current_app.config.get("S3_GET")
-        data_source = duck.execute_block_sql(
-            dc, conn, block_id, sql,
-            upload_lookup=upload_lookup,
-            s3_get=s3_get,
-        )
+        with session.duck_conn() as conn:
+            data_source = duck.execute_block_sql(
+                dc, conn, block_id, sql,
+                upload_lookup=upload_lookup,
+                s3_get=s3_get,
+            )
     except GateError as exc:
         return Response(
             json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
@@ -1310,8 +1338,7 @@ def refresh_block_data(pid: str, bid: str):
             }, ensure_ascii=False),
             status=400, mimetype="application/json",
         )
- 
-    conn = session.get_duck_conn()
+
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return Response(
@@ -1323,11 +1350,12 @@ def refresh_block_data(pid: str, bid: str):
     try:
         upload_lookup = duck.build_upload_lookup(manifest)
         s3_get = current_app.config.get("S3_GET")
-        new_ds = duck.execute_block_sql(
-            dc, conn, bid, sql,
-            upload_lookup=upload_lookup,
-            s3_get=s3_get,
-        )
+        with session.duck_conn() as conn:
+            new_ds = duck.execute_block_sql(
+                dc, conn, bid, sql,
+                upload_lookup=upload_lookup,
+                s3_get=s3_get,
+            )
     except GateError as exc:
         return Response(
             json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
@@ -1349,7 +1377,33 @@ def refresh_block_data(pid: str, bid: str):
 
     manifest["version"] = manifest.get("version", 0) + 1
     session.set_manifest(manifest)
- 
+
+    # Phase B+ — if this block is library-cache eligible, push the fresh
+    # rows into the shared cache so other viewers see them too. Default-vars
+    # cache key is used (refresh from this endpoint does NOT carry the
+    # caller's filter overlays).
+    lib_cache = current_app.config.get("LIBRARY_BLOCK_CACHE")
+    if lib_cache is not None:
+        try:
+            from .cache.library_block_integration import maybe_write_library_cache
+            import pandas as _pd
+            df_for_cache = _pd.DataFrame(
+                new_ds.get("rows") or [], columns=new_ds.get("columns") or [],
+            )
+            wrote = maybe_write_library_cache(
+                block=block, resolved_vars={}, df=df_for_cache,
+                sql=new_ds.get("original_sql") or sql, cache=lib_cache,
+            )
+            if wrote:
+                current_app.logger.info(
+                    "library cache warmed via manual refresh: block=%s lib=%s",
+                    bid, (block.get("imported_from") or {}).get("library_id"),
+                )
+        except Exception:
+            current_app.logger.warning(
+                "library cache warm on manual refresh failed", exc_info=True,
+            )
+
     return Response(
         json.dumps({
             "ok": True,
@@ -1587,7 +1641,6 @@ def run_block_manual(pid: str, bid: str):
             status=400, mimetype="application/json",
         )
 
-    conn = session.get_duck_conn()
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return Response(
@@ -1748,8 +1801,10 @@ def apply_dashboard_filters(pid: str):
     # duplicate filter ids that slipped through earlier patch races.
     _dedupe_filters(manifest)
 
-    conn = session.get_duck_conn()
-    cache = BlockCache(conn)
+    # All DuckDB work below holds the per-session execution lock (reentrant)
+    # via session.duck_conn(); the connection is shared and not thread-safe.
+    with session.duck_conn() as conn:
+        cache = BlockCache(conn)
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return Response(
@@ -1870,6 +1925,55 @@ def apply_dashboard_filters(pid: str):
             touched += 1
             continue
 
+        # ── Phase B — shared library-block cache (lazy TTL + serve-stale) ─
+        # Eligible blocks (imported_from + refresh_policy.kind=lazy_ttl) try
+        # the cross-user cache BEFORE concept injection / Oracle fetch. On
+        # stale hit the cache returns the old result AND enqueues a background
+        # refetch via the dispatcher — so a 2-minute query incurred once per
+        # 10-min window, even if 10 users open the dashboard simultaneously.
+        from .cache.library_block_integration import (
+            try_serve_from_library_cache as _lib_try_serve,
+            maybe_write_library_cache as _lib_maybe_write,
+        )
+        lib_cache = current_app.config.get("LIBRARY_BLOCK_CACHE")
+        lib_dispatcher = current_app.config.get("LIBRARY_REFRESH_DISPATCHER")
+        if lib_cache is not None and lib_dispatcher is not None:
+            try:
+                _bound_for_lib = expand_binds(stand_in, resolved)
+                _lib_sql = _bound_for_lib.sql
+                _lib_params = _bound_for_lib.params
+            except Exception:
+                _lib_sql = None
+                _lib_params = None
+
+            def _refetch_for_lib():
+                # Closure executed by the dispatcher in a worker thread.
+                import pandas as _pd
+                if _lib_sql is None:
+                    return _pd.DataFrame()
+                _df = dc.get_data(
+                    base_prefix=None,
+                    dataset=f"block::{block['id']}",
+                    query=_lib_sql,
+                    query_params=_lib_params,
+                )
+                return _df if _df is not None else _pd.DataFrame()
+
+            cache_result = _lib_try_serve(
+                block=block,
+                resolved_vars=resolved,
+                apply_df_to_block=_apply_df_to_block,
+                cache=lib_cache,
+                dispatcher=lib_dispatcher,
+                fetch_fn=_refetch_for_lib,
+                sql=_lib_sql or query,
+            )
+            if cache_result is not None:
+                cache_result["id"] = block["id"]
+                results.append(cache_result)
+                touched += 1
+                continue
+
         # ── Phase 7.b — concept predicate injection ──────────────────────
         # Only blocks that declare source_tables AND embed the
         # {{concept_filters}} sentinel opt in. When predicates are injected
@@ -1935,11 +2039,15 @@ def apply_dashboard_filters(pid: str):
                 }
 
         # ── Cache lookup ─────────────────────────────────────────────────
-        ck = _cache_key(stand_in.id, stand_in.version, resolved)
-        hit = cache.find_exact(ck)
+        # SQL is folded into the key so an in-place SQL edit (same id/version)
+        # can't serve the previous query's stale rows.
+        ck = _cache_key(stand_in.id, stand_in.version, resolved, stand_in.query)
+        with session.duck_conn() as conn:
+            hit = cache.find_exact(ck)
         if hit is not None:
             # Pull cached rows back into block.data_source for renderer.
-            df = conn.execute(f'SELECT * FROM "{hit.view_name}"').fetchdf()
+            with session.duck_conn() as conn:
+                df = conn.execute(f'SELECT * FROM "{hit.view_name}"').fetchdf()
             _apply_df_to_block(block, df, engine="cache_hit", query=query)
             results.append({
                 "id": block["id"], "status": "cache_hit",
@@ -1948,14 +2056,23 @@ def apply_dashboard_filters(pid: str):
             touched += 1
             continue
 
-        parent = cache.find_subset_parent(stand_in, resolved)
+        with session.duck_conn() as conn:
+            parent = cache.find_subset_parent(stand_in, resolved)
+        subset_df = None
         if parent is not None:
-            df = _derive_from_parent(conn, parent, stand_in, resolved)
-            cache.write(stand_in, resolved, df)
-            _apply_df_to_block(block, df, engine="subset", query=query)
+            with session.duck_conn() as conn:
+                subset_df = _derive_from_parent(conn, parent, stand_in, resolved)
+        # _derive_from_parent returns None when it can't safely narrow the
+        # parent (filter column absent from the cached result, or no mappable
+        # narrowing clause) — fall through to a fresh Oracle fetch rather than
+        # serving wrong/wider rows.
+        if subset_df is not None:
+            with session.duck_conn():
+                cache.write(stand_in, resolved, subset_df)
+            _apply_df_to_block(block, subset_df, engine="subset", query=query)
             results.append({
                 "id": block["id"], "status": "subset",
-                "row_count": int(len(df)), "parent_key": parent.key.short,
+                "row_count": int(len(subset_df)), "parent_key": parent.key.short,
             })
             touched += 1
             continue
@@ -1976,8 +2093,16 @@ def apply_dashboard_filters(pid: str):
             if df is None:
                 import pandas as _pd
                 df = _pd.DataFrame()
-            cache.write(stand_in, resolved, df)
+            with session.duck_conn():
+                cache.write(stand_in, resolved, df)
             _apply_df_to_block(block, df, engine="refetched", query=query)
+            # Phase B — warm the shared library cache too, so the next viewer
+            # is a hit. Eligibility is gated inside the helper.
+            if lib_cache is not None:
+                _lib_maybe_write(
+                    block=block, resolved_vars=resolved, df=df,
+                    sql=bound.sql, cache=lib_cache,
+                )
             results.append({
                 "id": block["id"], "status": "refetched",
                 "row_count": int(len(df)),
@@ -2119,9 +2244,14 @@ def _derive_from_parent(conn, parent, block, resolved):
     The mapping from variable name → column name is *not* explicit in the
     Phase 6.5 schema (the user writes raw SQL with :binds). We use a
     heuristic: scan the block's query for ``WHERE / AND <COL> = :<var>``
-    or ``IN (:<var>)`` to infer the column. Misses fall back to no filter
-    for that variable, which still yields a correct (possibly wider)
-    subset since the parent already contained the data.
+    or ``IN (:<var>)`` to infer the column.
+
+    Returns ``None`` when the subset can't be derived *correctly* — no
+    narrowing clause could be built, or an inferred column is absent from the
+    cached result (projected away / qualified name) — so the caller refetches
+    from Oracle rather than serving wider or wrong rows. ``find_subset_parent``
+    has already gated out aggregated / windowed / grouped / row-capped SQL,
+    whose cached result a row-level WHERE could never narrow correctly.
     """
     import re
     import pandas as pd
@@ -2144,6 +2274,7 @@ def _derive_from_parent(conn, parent, block, resolved):
     # Build WHERE filter from resolved values (only for vars we mapped).
     clauses: list[str] = []
     params: dict[str, object] = {}
+    used_cols: set[str] = set()
     for var in block.variables:
         col = col_for.get(var.name)
         if col is None:
@@ -2151,6 +2282,7 @@ def _derive_from_parent(conn, parent, block, resolved):
         val = resolved.get(var.name)
         if val is None:
             continue
+        used_cols.add(col.upper())
         if var.type == "date":
             clauses.append(f'"{col}" = ${var.name}_subset')
             params[f"{var.name}_subset"] = val
@@ -2175,10 +2307,26 @@ def _derive_from_parent(conn, parent, block, resolved):
             params[f"{var.name}_min_subset"] = val["min"]
             params[f"{var.name}_max_subset"] = val["max"]
 
-    sql = f'SELECT * FROM "{parent.view_name}"'
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
+    # find_exact already handled the equal case, so reaching here means a strict
+    # subset that MUST be narrowed. If nothing mapped to a narrowing clause, or a
+    # mapped column isn't present in the cached result (projected away, or the
+    # regex captured a qualified/aliased name), we cannot derive correctly —
+    # signal the caller to refetch from Oracle instead of serving parent rows.
+    if not clauses:
+        return None
+    try:
+        present_cols = {
+            str(d[0]).upper()
+            for d in conn.execute(
+                f'SELECT * FROM "{parent.view_name}" LIMIT 0'
+            ).description
+        }
+    except Exception:
+        return None
+    if not used_cols.issubset(present_cols):
+        return None
 
+    sql = f'SELECT * FROM "{parent.view_name}" WHERE ' + " AND ".join(clauses)
     if params:
         return conn.execute(sql, params).fetchdf()
     return conn.execute(sql).fetchdf()
@@ -2618,6 +2766,7 @@ def concept_filter_suggestions(pid: str):
     suggestions: list[dict] = []
     block_count: dict[str, int] = {}
 
+    # Walk blocks' source tables (concept-native flow).
     for block in iter_all_blocks(manifest):
         # Explicit source_tables, else derived from the block's FROM clause.
         for (schema, table) in derive_source_tables(block):
@@ -2632,6 +2781,24 @@ def concept_filter_suggestions(pid: str):
                 seen.add(cid)
                 suggestions.append(_filter_proposal_from_concept(concept))
 
+    # Hazırlık öncesi blok yoksa basket tablolarından da concept öner —
+    # böylece kullanıcı henüz blok eklemeden filtre seçeneklerini görür.
+    for item in (manifest.get("basket") or []):
+        ref = (item.get("table") or "").strip()
+        if not ref or "." not in ref:
+            continue
+        schema, _, table = ref.partition(".")
+        for b in cat.get_bindings(schema.strip(), table.strip()):
+            cid = b.concept
+            block_count[cid] = block_count.get(cid, 0) + 1
+            if cid in existing or cid in seen:
+                continue
+            concept = eff.get(cid)
+            if concept is None:
+                continue
+            seen.add(cid)
+            suggestions.append(_filter_proposal_from_concept(concept))
+
     for s in suggestions:
         s["block_count"] = block_count.get(s["semantic_tag"], 1)
 
@@ -2642,7 +2809,14 @@ def concept_filter_suggestions(pid: str):
 
 
 def _filter_proposal_from_concept(concept) -> dict:
-    """Build a dashboard-filter proposal dict from a concept definition."""
+    """Build a dashboard-filter proposal dict from a concept definition.
+
+    For enum concepts without ``canonical_values`` (e.g. ``branch`` —
+    ~400 rows in DIM_BRANCH, intentionally not enumerated in YAML), we
+    try to lazy-fetch distinct values from the lookup binding. Returns
+    a typeahead-flavoured proposal so the UI can render an autocomplete
+    instead of a useless empty multi-select.
+    """
     codes = [cv.code for cv in concept.canonical_values]
     if concept.type == "time":
         return {
@@ -2653,6 +2827,30 @@ def _filter_proposal_from_concept(concept) -> dict:
             "default": {"from": "today - 30d", "to": "today"},
             "source": "concept",
         }
+
+    if not codes:
+        # No canonical values authored — try fetching distinct values from
+        # one of the concept's bound lookup tables (capped). Falls back to
+        # an empty typeahead the user can free-text into.
+        sampled = _sample_concept_distinct_values(concept, limit=50)
+        return {
+            "id": "f_" + concept.id,
+            "semantic_tag": concept.id,
+            "type": "enum_typeahead",
+            "label": concept.name,
+            "allowed_values": sampled,
+            "default": [],
+            "source": "concept_lookup" if sampled else "concept",
+            "hint": (
+                f"{concept.name} için canonical değer listesi yok — "
+                f"{len(sampled)} örnek dimension tablosundan çekildi. "
+                f"Aradığını yaz, eşleşeni seç."
+            ) if sampled else (
+                f"{concept.name} için tanımlı değer listesi yok. "
+                f"Aradığını yaz, sistem birebir eşleşme arar."
+            ),
+        }
+
     # enum / bucket / scalar → enum_multi (multi-select); default = all codes
     # so the initial state shows everything and the user narrows.
     return {
@@ -2664,6 +2862,61 @@ def _filter_proposal_from_concept(concept) -> dict:
         "default": codes,
         "source": "concept",
     }
+
+
+def _sample_concept_distinct_values(concept, limit: int = 50) -> list[str]:
+    """Pull up to ``limit`` distinct values from a concept's lookup table.
+
+    Walks the active binding catalog for the first lookup binding tied to
+    this concept and issues a tiny ``SELECT DISTINCT ... LIMIT N`` via the
+    configured DataClient. Best-effort — exceptions are swallowed so the
+    UI never breaks because a sample fetch failed.
+    """
+    catalog = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    if catalog is None:
+        return []
+    snap = catalog.snapshot if hasattr(catalog, "snapshot") else catalog
+    # Find any human_verified lookup binding for this concept.
+    lookup_schema = lookup_table = lookup_col = None
+    try:
+        for table_doc in snap.iter_all_tables():
+            for b in snap.get_bindings(table_doc.schema, table_doc.table):
+                if b.concept != concept.id:
+                    continue
+                lk = getattr(b, "lookup", None)
+                if lk and lk.get("display"):
+                    lookup_schema = lk.get("schema") or table_doc.schema
+                    lookup_table  = lk["table"]
+                    lookup_col    = lk["display"]
+                    break
+            if lookup_table:
+                break
+    except Exception:
+        log.warning("sample distinct: catalog walk failed", exc_info=True)
+        return []
+    if not lookup_table:
+        return []
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return []
+    try:
+        sql = (
+            f"SELECT DISTINCT {lookup_col} AS v "
+            f"FROM {lookup_schema}.{lookup_table} "
+            f"WHERE {lookup_col} IS NOT NULL "
+            f"ORDER BY 1 FETCH FIRST {int(limit)} ROWS ONLY"
+        )
+        df = dc.get_data(query=sql)
+        if df is None or len(df) == 0:
+            return []
+        return [str(v) for v in df["V"].tolist() if v is not None][:limit]
+    except Exception:
+        log.warning(
+            "sample distinct: query failed for concept=%s lookup=%s.%s",
+            concept.id, lookup_schema, lookup_table, exc_info=True,
+        )
+        return []
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

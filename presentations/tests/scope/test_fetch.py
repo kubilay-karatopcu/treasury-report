@@ -86,6 +86,21 @@ def test_compose_partition_pushdown():
                      "positions_to": __import__("datetime").date(2025, 12, 31)}
 
 
+def test_compose_row_cap_opt_in():
+    # #27: the lazy path passes max_rows so an un-narrowed fetch can't OOM; the
+    # cached path leaves it None (routing keeps cached tables small) → no cap.
+    scope = _scope([{
+        "table_ref": {"schema": "ODS_TREASURY", "name": "TRD_BRANCH_POSITION"},
+        "alias": "positions",
+        "projection": {"columns": ["CCY"], "include_all": False},
+        "routing": {"decision": "lazy", "estimated_bytes": 9_000_000_000},
+    }])
+    capped, _ = compose_cached_sql(scope, scope.basket[0], max_rows=1000)
+    assert capped.endswith("FETCH FIRST 1000 ROWS ONLY")
+    uncapped, _ = compose_cached_sql(scope, scope.basket[0])
+    assert "FETCH FIRST" not in uncapped
+
+
 def test_compose_no_pushdown_without_catalog():
     scope = _scope(
         [{

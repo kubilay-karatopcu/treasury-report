@@ -582,7 +582,8 @@ def _build_data_summary(state) -> dict | None:
     if not views:
         return None
     try:
-        return summarize_views(state.session.get_duck_conn(), views)
+        with state.session.duck_conn() as conn:
+            return summarize_views(conn, views)
     except Exception as exc:
         log.warning("generate_patch: summarize_views failed: %s", exc)
         return None

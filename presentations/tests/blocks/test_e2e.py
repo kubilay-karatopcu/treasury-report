@@ -29,7 +29,10 @@ from presentations.blocks.store import LocalBlockStore
 class _FakeUser(UserMixin):
     name = "kubilay"
     sicil = "A16438"
-    department = "Treasury"
+    # Department slugifies to "retail_banking" — the sample block's team — so
+    # the block-write auth gate (_block_write_denied) admits the legitimate
+    # same-team save. See test_e2e_cross_team_save_denied for the deny path.
+    department = "Retail Banking"
 
     def get_id(self):  # noqa: D401
         return self.sicil
@@ -178,6 +181,41 @@ def test_e2e_version_bump(client, sample_block_dict):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["version"] == 2
+
+
+def test_e2e_cross_team_save_denied(client, sample_block_dict):
+    """The auth gate rejects writing a block under another team's namespace."""
+    other = dict(sample_block_dict)
+    other["block"] = dict(sample_block_dict["block"])
+    other["block"]["team"] = "some_other_team"
+
+    resp = _post_json(client, "/presentations/blocks/api/save", other)
+    assert resp.status_code == 403, resp.data
+    body = resp.get_json()
+    assert body["ok"] is False
+    assert body["phase"] == "auth"
+
+    # save_new_version is gated the same way.
+    resp = _post_json(client, "/presentations/blocks/api/save_new_version", other)
+    assert resp.status_code == 403, resp.data
+
+    # Nothing was persisted under the foreign team.
+    store = client.application.config["BLOCK_STORE"]
+    assert store.list_blocks(team="some_other_team", include_deprecated=True) == []
+
+
+def test_e2e_owner_stamped_server_side(client, sample_block_dict):
+    """owner is always the authenticated caller, never the payload value."""
+    spoof = dict(sample_block_dict)
+    spoof["block"] = dict(sample_block_dict["block"])
+    spoof["block"]["owner"] = "Z99999"  # attacker-supplied owner
+
+    resp = _post_json(client, "/presentations/blocks/api/save", spoof)
+    assert resp.status_code == 200, resp.data
+    saved = resp.get_json()
+    store = client.application.config["BLOCK_STORE"]
+    block = store.load(saved["team"], saved["id"], saved["version"])
+    assert block.owner == "A16438"  # current_user.sicil, not the spoofed value
 
 
 def test_e2e_preview_runs_without_persistence(client, sample_block_dict):

@@ -96,3 +96,41 @@ class TestSessionRegistry:
         reg.get_or_create("u2", "p1")
         reg.close_all()
         assert reg._sessions == {}
+
+
+# ── Per-session DuckDB execution lock (thread-safety) ────────────────────────
+
+def test_duck_conn_reentrant_and_thread_safe(tmp_path):
+    """duck_conn() must be reentrant (nested acquire on one thread) and must
+    serialise concurrent access to the non-thread-safe DuckDB connection so many
+    threads can't corrupt each other's in-flight results."""
+    import threading
+
+    sess = PresentationSession("u1", "p1", tmp_path, dc=object())
+
+    # Reentrancy: a nested acquire on the same thread must not deadlock, and the
+    # yielded connection is the same shared object both times.
+    with sess.duck_conn() as c1:
+        with sess.duck_conn() as c2:
+            assert c1 is c2
+            c1.execute("CREATE TABLE t (x INTEGER)")
+            c1.execute("INSERT INTO t VALUES (1), (2), (3)")
+
+    errors: list[Exception] = []
+
+    def worker():
+        try:
+            for _ in range(25):
+                with sess.duck_conn() as conn:
+                    assert conn.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 3
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, errors
+    sess.close()

@@ -44,16 +44,54 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional
 
+from presentations.aggregation_gate import MAX_RAW_ROWS
 from presentations.blocks.schema import Block, Variable
+from presentations.sql.validator import _strip_noise
 from presentations.variables.resolver import normalize_for_cache_key
 
 
 log = logging.getLogger(__name__)
+
+
+# ── Subset-routing safety ───────────────────────────────────────────────────
+# A block's result can only be subset-filtered from a cached parent (instead of
+# re-querying Oracle) when its SQL is a *pure row projection*. Applying a
+# row-level WHERE to a result that was aggregated / windowed / grouped / set-
+# combined / row-capped produces silently wrong numbers. We detect those shapes
+# conservatively — a false "unsafe" only costs a cache miss (an Oracle refetch),
+# never correctness — and disable subset routing for them.
+_SUBSET_UNSAFE_RE = re.compile(
+    r"\b(GROUP\s+BY|HAVING|UNION|INTERSECT|EXCEPT|MINUS|DISTINCT"
+    r"|LIMIT|FETCH\s+(?:FIRST|NEXT)|ROWNUM)\b|\bOVER\s*\(",
+    re.IGNORECASE,
+)
+_SUBSET_UNSAFE_AGG_RE = re.compile(
+    r"\b(COUNT|SUM|AVG|MIN|MAX|STDDEV|VARIANCE|MEDIAN|LISTAGG|STRING_AGG|ARRAY_AGG"
+    r"|PERCENTILE_CONT|PERCENTILE_DISC|FIRST_VALUE|LAST_VALUE|CORR"
+    r"|COVAR_POP|COVAR_SAMP|REGR_SLOPE|REGR_INTERCEPT)\s*\(",
+    re.IGNORECASE,
+)
+
+
+def is_subset_safe(sql: str) -> bool:
+    """True only when ``sql`` is a pure row projection whose cached result can
+    be correctly narrowed by a row-level WHERE (see ``_derive_from_parent`` in
+    routes). Comments and string literals are stripped first so a keyword inside
+    them doesn't trip the check."""
+    if not sql or not sql.strip():
+        return False
+    cleaned = _strip_noise(sql)
+    if _SUBSET_UNSAFE_RE.search(cleaned):
+        return False
+    if _SUBSET_UNSAFE_AGG_RE.search(cleaned):
+        return False
+    return True
 
 
 # ── Cache key ─────────────────────────────────────────────────────────────
@@ -71,16 +109,23 @@ class BlockCacheKey:
         return self.digest[:12]
 
 
-def cache_key(block_id: str, version: int, resolved: dict[str, Any]) -> BlockCacheKey:
+def cache_key(
+    block_id: str, version: int, resolved: dict[str, Any], sql: str = "",
+) -> BlockCacheKey:
     """Compute the canonical cache key.
 
     The resolved dict is normalised first (dates → ISO, enum_multi sorted,
     nested dict keys sorted), so equivalent value sets yield identical keys
-    regardless of caller-side ordering.
+    regardless of caller-side ordering. ``sql`` (the block's query text) is
+    folded in too: an in-presentation block can have its SQL edited without a
+    version bump, so two different queries with the same id/version/vars must
+    NOT collide on one key — otherwise a hit would serve the other query's
+    stale rows.
     """
     norm = normalize_for_cache_key(resolved)
     payload = json.dumps(
-        {"block_id": block_id, "version": int(version), "resolved": norm},
+        {"block_id": block_id, "version": int(version), "resolved": norm,
+         "sql": sql or ""},
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -218,6 +263,7 @@ class CacheEntry:
 
     key: BlockCacheKey
     resolved: dict[str, Any]      # normalised
+    sql: str                      # the block query that produced this result
     view_name: str
     row_count: int
     size_bytes: int
@@ -255,6 +301,7 @@ class BlockCache:
                 block_id          VARCHAR,
                 block_version     INTEGER,
                 resolved_json     VARCHAR,
+                sql               VARCHAR,
                 view_name         VARCHAR,
                 row_count         INTEGER,
                 size_bytes        BIGINT,
@@ -263,11 +310,19 @@ class BlockCache:
             )
             """
         )
+        # Defensive: a session DuckDB file created before the `sql` column was
+        # added still carries the old shape — add it so reads/writes don't fail.
+        try:
+            self.conn.execute(
+                f"ALTER TABLE {self._META_TABLE} ADD COLUMN IF NOT EXISTS sql VARCHAR"
+            )
+        except Exception:
+            pass
 
     # ── Lookup ───────────────────────────────────────────────────────
     def find_exact(self, key: BlockCacheKey) -> Optional[CacheEntry]:
         rows = self.conn.execute(
-            f"SELECT cache_key, block_id, block_version, resolved_json, view_name, "
+            f"SELECT cache_key, block_id, block_version, resolved_json, sql, view_name, "
             f"row_count, size_bytes, created_at, last_accessed_at "
             f"FROM {self._META_TABLE} WHERE cache_key = ?",
             [key.digest],
@@ -284,18 +339,33 @@ class BlockCache:
         resolved: dict[str, Any],
     ) -> Optional[CacheEntry]:
         """Walk cached entries for this block_id/version; return the most
-        recent one that contains ``resolved`` as a subset."""
+        recent one that contains ``resolved`` as a subset.
+
+        Returns None — forcing a fresh Oracle fetch — when the block's SQL is
+        not subset-safe (aggregation / window / grouping / set op / row cap), or
+        when the only candidate parents were themselves row-capped (possibly
+        truncated, so not a sound superset). Both guards prevent serving
+        silently-wrong numbers from a row-filtered cached result.
+        """
+        if not is_subset_safe(block.query):
+            return None
         norm = normalize_for_cache_key(resolved)
+        # Only parents produced by the SAME SQL are valid supersets — a different
+        # query with the same vars is unrelated data.
         candidates = self.conn.execute(
-            f"SELECT cache_key, block_id, block_version, resolved_json, view_name, "
+            f"SELECT cache_key, block_id, block_version, resolved_json, sql, view_name, "
             f"row_count, size_bytes, created_at, last_accessed_at "
             f"FROM {self._META_TABLE} "
-            f"WHERE block_id = ? AND block_version = ? "
+            f"WHERE block_id = ? AND block_version = ? AND sql = ? "
             f"ORDER BY last_accessed_at DESC",
-            [block.id, block.version],
+            [block.id, block.version, block.query],
         ).fetchall()
         for row in candidates:
             entry = _row_to_entry(row)
+            if entry.row_count >= MAX_RAW_ROWS:
+                # Parent hit the row cap → possibly truncated; a narrower filter
+                # could legitimately include rows the parent dropped.
+                continue
             if is_subset(norm, entry.resolved, block.variables):
                 self._touch(entry.key)
                 return entry
@@ -303,7 +373,7 @@ class BlockCache:
 
     def list_all(self) -> list[CacheEntry]:
         rows = self.conn.execute(
-            f"SELECT cache_key, block_id, block_version, resolved_json, view_name, "
+            f"SELECT cache_key, block_id, block_version, resolved_json, sql, view_name, "
             f"row_count, size_bytes, created_at, last_accessed_at "
             f"FROM {self._META_TABLE}"
         ).fetchall()
@@ -322,7 +392,7 @@ class BlockCache:
         new_size = _estimate_df_size(df)
         self.maybe_evict(reserve=new_size)
 
-        key = cache_key(block.id, block.version, resolved)
+        key = cache_key(block.id, block.version, resolved, block.query)
         view_name = f"v_cache_{key.short}"
         norm = normalize_for_cache_key(resolved)
         size_bytes = new_size
@@ -344,12 +414,13 @@ class BlockCache:
 
         self.conn.execute(
             f"INSERT OR REPLACE INTO {self._META_TABLE} "
-            f"(cache_key, block_id, block_version, resolved_json, view_name, "
+            f"(cache_key, block_id, block_version, resolved_json, sql, view_name, "
             f" row_count, size_bytes, created_at, last_accessed_at) "
-            f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 key.digest, block.id, int(block.version),
                 json.dumps(norm, ensure_ascii=False, sort_keys=True, default=str),
+                block.query,
                 view_name, row_count, size_bytes, now, now,
             ],
         )
@@ -358,8 +429,9 @@ class BlockCache:
             key.short, block.id, block.version, row_count, size_bytes // (1024 * 1024),
         )
         return CacheEntry(
-            key=key, resolved=norm, view_name=view_name, row_count=row_count,
-            size_bytes=size_bytes, created_at=now, last_accessed_at=now,
+            key=key, resolved=norm, sql=block.query, view_name=view_name,
+            row_count=row_count, size_bytes=size_bytes,
+            created_at=now, last_accessed_at=now,
         )
 
     # ── Eviction ─────────────────────────────────────────────────────
@@ -429,7 +501,7 @@ class BlockCache:
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 def _row_to_entry(row) -> CacheEntry:
-    (cache_key_digest, block_id, block_version, resolved_json, view_name,
+    (cache_key_digest, block_id, block_version, resolved_json, sql, view_name,
      row_count, size_bytes, created_at, last_accessed_at) = row
     return CacheEntry(
         key=BlockCacheKey(
@@ -438,6 +510,7 @@ def _row_to_entry(row) -> CacheEntry:
             digest=cache_key_digest,
         ),
         resolved=json.loads(resolved_json) if resolved_json else {},
+        sql=sql or "",
         view_name=view_name,
         row_count=int(row_count or 0),
         size_bytes=int(size_bytes or 0),

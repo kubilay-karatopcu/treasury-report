@@ -18,13 +18,14 @@ import logging
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 import duckdb
 
-from presentations.duck import populate_basket, list_views
+from presentations.duck import populate_basket, list_views, connect_duckdb
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,10 @@ class PresentationSession:
     _last_basket_signature: Optional[str] = field(default=None, init=False)
     _last_used: float = field(default_factory=time.time, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
+    # Serialises actual query execution on the shared DuckDB connection, which
+    # is NOT thread-safe. Reentrant so nested helpers (BlockCache, populate_*)
+    # can re-acquire. Distinct from _lock, which only guards connection create.
+    _exec_lock: threading.RLock = field(default_factory=threading.RLock, init=False)
 
     # ── Paths ────────────────────────────────────────────────────────────────
 
@@ -80,8 +85,26 @@ class PresentationSession:
         with self._lock:
             if self._conn is None:
                 self.duck_dir.mkdir(parents=True, exist_ok=True)
-                self._conn = duckdb.connect(str(self.duckdb_path))
+                self._conn = connect_duckdb(str(self.duckdb_path))
             return self._conn
+
+    @contextmanager
+    def duck_conn(self) -> Iterator[duckdb.DuckDBPyConnection]:
+        """Yield the session's DuckDB connection while holding the per-session
+        execution lock.
+
+        DuckDB connections are NOT safe for concurrent use across threads, and a
+        single session is shared by every request/SSE turn for one presentation.
+        All query execution and cache mutation must run inside this block so the
+        lock is held across the whole ``execute(...).fetch...()`` sequence — a
+        second thread's ``execute`` would otherwise clobber the first's pending
+        result on the shared connection. The lock is reentrant so nested helpers
+        (e.g. BlockCache) can re-enter without deadlock.
+        """
+        conn = self.get_duck_conn()
+        with self._exec_lock:
+            self.touch()
+            yield conn
 
     def close(self) -> None:
         with self._lock:
@@ -168,8 +191,8 @@ class PresentationSession:
         return self.basket_signature(basket) != self._last_basket_signature
 
     def fetch_basket(self, dc, basket: list[dict]) -> dict:
-        conn = self.get_duck_conn()
-        loaded = populate_basket(dc, conn, basket)
+        with self.duck_conn() as conn:
+            loaded = populate_basket(dc, conn, basket)
         self._last_basket_signature = self.basket_signature(basket)
         self.touch()
         log.info(
@@ -185,7 +208,8 @@ class PresentationSession:
         treating them as real tables."""
         if self._conn is None:
             return []
-        names = list_views(self._conn)
+        with self.duck_conn() as conn:
+            names = list_views(conn)
         return [n for n in names if not n.startswith("block_preview_")]
 
 
