@@ -29,7 +29,7 @@ from prisma_home import prisma_home_bp
 from prisma_home.experts import LocalExpertStore
 from prisma_home.briefing import BriefingEngine
 from presentations.session import SessionRegistry
-from presentations.store import S3SnapshotStore, S3DashboardStore, S3LibraryStore
+from presentations.store import S3SnapshotStore, S3DashboardStore
 from presentations.scope.store import S3ScopeStore
 from presentations.blocks.store import S3BlockStore, LocalBlockStore
 from presentations.table_docs.store import (
@@ -463,7 +463,7 @@ app.config["SESSION_REGISTRY"] = SessionRegistry(
 
 if DEV_MODE:
     from presentations.llm import FakeLLM
-    from presentations.store import LocalSnapshotStore, LocalDashboardStore, LocalLibraryStore
+    from presentations.store import LocalSnapshotStore, LocalDashboardStore
     from presentations.scope.store import LocalScopeStore
 
     _openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -483,7 +483,6 @@ if DEV_MODE:
 
     app.config["SNAPSHOT_STORE"]  = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
     app.config["DASHBOARD_STORE"] = LocalDashboardStore(base_dir=_DUCK_BASE_DIR / "dashboards")
-    app.config["LIBRARY_STORE"]   = LocalLibraryStore(base_dir=_DUCK_BASE_DIR / "library")
     app.config["BLOCK_STORE"]     = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
     app.config["SCOPE_STORE"]     = LocalScopeStore(base_dir=_DUCK_BASE_DIR / "scopes")
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
@@ -502,7 +501,6 @@ else:
     )
     app.config["SNAPSHOT_STORE"]  = S3SnapshotStore(dc=dc)
     app.config["DASHBOARD_STORE"] = S3DashboardStore(dc=dc)
-    app.config["LIBRARY_STORE"]   = S3LibraryStore(dc=dc)
     app.config["BLOCK_STORE"]     = S3BlockStore(dc=dc)
     app.config["SCOPE_STORE"]     = S3ScopeStore(dc=dc)
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(S3TableDocStore(dc=dc))
@@ -522,18 +520,10 @@ app.config["LIBRARY_BLOCK_CACHE"] = _LBC(
 )
 app.config["LIBRARY_REFRESH_DISPATCHER"] = _RD(max_workers=2)
 
-# Phase B+ — warm-cache scheduler. Lives only in the main process to avoid
-# duplicate fires under multi-worker WSGI; in prod gunicorn this should be
-# gated by ``worker_id == 0`` or moved to a dedicated sidecar service.
-from presentations.cache.scheduler import LibraryRefreshScheduler as _LRS
-app.config["LIBRARY_REFRESH_SCHEDULER"] = _LRS(
-    library_store=app.config["LIBRARY_STORE"],
-    cache=app.config["LIBRARY_BLOCK_CACHE"],
-    dispatcher=app.config["LIBRARY_REFRESH_DISPATCHER"],
-    data_client=dc,
-    poll_interval_seconds=60,
-)
-app.config["LIBRARY_REFRESH_SCHEDULER"].start()
+# NOT: Eski LibraryRefreshScheduler (LIBRARY_STORE warm-cache) kaldırıldı —
+# tek depo = BLOCK_STORE. Kütüphane bloklarının lazy_ttl önbelleği apply-filters
+# içinde per-request serve-stale + LIBRARY_REFRESH_DISPATCHER ile çalışmaya
+# devam eder; proaktif tarama yok. (DatasetScheduler dataset cron'unu yapar.)
 
 # Faz A — dataset-level refresh. Materialises cached scope datasets to S3
 # parquet on schedule; N Sunum charts reference ONE dataset → one query per

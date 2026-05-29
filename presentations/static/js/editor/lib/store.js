@@ -380,37 +380,6 @@ const useStore = create((set) => ({
     return id;
   },
 
-  // Library bloğunu klonlayıp section.children sonuna ekle. ID yeniden üretilir,
-  // runtime alanları (rows/view_name) zaten library kaydında temizlenmişti.
-  addLibraryBlockToSection: (sectionId, libraryBlock) => {
-    const state = useStore.getState();
-    if (!state.manifest || !sectionId || !libraryBlock) return;
-    const loc = findBlockPath(state.manifest, sectionId);
-    if (!loc || loc.child) return;
-    const section = loc.section;
-    const childIdx = (section.children || []).length;
-
-    // Deep clone + new ID
-    const cloned = JSON.parse(JSON.stringify(libraryBlock));
-    const prefix = cloned.type === 'narrative' ? 't_' : 'b_';
-    cloned.id = prefix + Math.random().toString(36).slice(2, 8);
-    if (cloned.locked) cloned.locked = false;
-
-    const patch = {
-      op: 'add',
-      path: `${loc.path}/children/${childIdx}`,
-      value: cloned,
-    };
-    set((s) => {
-      if (!s.manifest) return {};
-      const newManifest = _applyPatches(s.manifest, [patch]);
-      newManifest.version = (newManifest.version || 0) + 1;
-      return { manifest: newManifest, selectedBlockId: cloned.id };
-    });
-    submitPatches([patch]).catch((e) => console.error('addLibraryBlock persist failed:', e));
-    return cloned.id;
-  },
-
   // Phase 6.5.c — insert a saved BlockStore template into a section,
   // auto-binding its variables against the dashboard's filters by
   // matching semantic_tag (spec §3.5).
@@ -716,6 +685,10 @@ const useStore = create((set) => ({
   // Phase 7 concept compilation per block (from apply-filters response):
   //   {blockId: {blind: [conceptId,...], applied: [{filter_id,concept,sql}], injected: bool}}
   conceptStatus: {},
+  // Phase B — library cache freshness per block (only set when apply-filters
+  // served from / via the library cache):
+  //   {blockId: {source, freshness, fetchedAt, ageSeconds, refreshing}}
+  freshnessStatus: {},
   filterBusy: false,
 
   setFilterValue: (filterId, value) => {
@@ -839,6 +812,7 @@ const useStore = create((set) => ({
       // the response and merge each block in-place by id.
       const statusMap = {};
       const conceptMap = {};
+      const freshnessMap = {};
       const errs = [];
       for (const blk of result.blocks || []) {
         statusMap[blk.id] = blk.status;
@@ -855,6 +829,16 @@ const useStore = create((set) => ({
             injected: !!blk.concept_injected,
           };
         }
+        // Phase B — library cache freshness for the BlockCard badge.
+        if (blk.source === 'library_cache' || blk.freshness) {
+          freshnessMap[blk.id] = {
+            source: blk.source || null,
+            freshness: blk.freshness || null,     // 'fresh' | 'stale' | 'expired'
+            fetchedAt: blk.fetched_at || null,
+            ageSeconds: typeof blk.age_seconds === 'number' ? blk.age_seconds : null,
+            refreshing: !!blk.library_refreshing,
+          };
+        }
       }
       if (errs.length) {
         // Surface the silent failures: the "N hata" chip only counts; the
@@ -864,7 +848,12 @@ const useStore = create((set) => ({
           + errs.map((e) => `  • ${e.id} [${e.kind || '?'}]: ${e.error || '(mesaj yok)'}`).join('\n'),
         );
       }
-      set({ filterStatus: statusMap, conceptStatus: conceptMap, filterErrors: errs });
+      set({
+        filterStatus: statusMap,
+        conceptStatus: conceptMap,
+        freshnessStatus: freshnessMap,
+        filterErrors: errs,
+      });
       // Re-fetch manifest to pick up the per-block data_source/config that
       // the server already wrote. The lightweight path: GET /manifest.
       const refreshed = await fetch(`${window.location.pathname.replace(/\/$/, '')}/manifest`);

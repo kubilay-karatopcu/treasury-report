@@ -181,13 +181,23 @@ def create_app():
         base_dir=Path(__file__).parent / "v2_blocks",
     )
 
-    # LibraryStore — older block-library (separate from Phase 6.5.a
-    # BlockStore). Needed by /presentations/library which Atölye/Bloklar
-    # (Phase 9.e) consumes. Local filesystem stub in dev.
-    from presentations.store import LocalLibraryStore
-    app.config["LIBRARY_STORE"] = LocalLibraryStore(
-        base_dir=Path(__file__).parent / "library",
+    # Phase B — shared library-block cache + background refetch dispatcher.
+    from presentations.cache.library_block_cache import LibraryBlockCache
+    from presentations.cache.refresh_dispatcher import RefreshDispatcher
+    app.config["LIBRARY_BLOCK_CACHE"] = LibraryBlockCache(
+        db_path=Path(app.config["PRESENTATIONS_SESSION_DIR"]) / "library_block_cache.duckdb",
     )
+    app.config["LIBRARY_REFRESH_DISPATCHER"] = RefreshDispatcher(max_workers=2)
+
+    # NOT: Eski LibraryRefreshScheduler (LIBRARY_STORE warm-cache) kaldırıldı —
+    # tek depo = BLOCK_STORE. lazy_ttl önbelleği apply-filters içinde per-request
+    # serve-stale + LIBRARY_REFRESH_DISPATCHER ile çalışır.
+
+    @app.teardown_appcontext
+    def _shutdown_refresh_dispatcher(_):
+        # No-op per request — real shutdown happens when the process exits;
+        # we just guarantee the dispatcher exists in tests/dev.
+        pass
 
     # DashboardStore — published reports. Atölye routes don't need it
     # directly but other endpoints expect it in the config.

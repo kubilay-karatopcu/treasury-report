@@ -102,22 +102,20 @@ def generate_patch(state):
     data_summary = _build_data_summary(state)
     catalog = _load_catalog()
 
-    library = _load_library(state)
-
     # Phase 6.5.b: load extended TableDocs for tables referenced by the
     # manifest (or — if there's no basket yet — all migrated docs). Helps the
     # LLM pick suggested_variable / suggested_semantic_tag / allowed_values
     # consistently when authoring blocks with :params.
     table_docs = _load_table_docs(state)
 
-    patches, explanation, suggestions = llm.generate_patches(
+    patches, explanation, _suggestions = llm.generate_patches(
         system=system,
         user_message=user_message,
         manifest=state.manifest,
         selected_block_id=state.selected_block_id,
         data_summary=data_summary,
         catalog=catalog,
-        library=library,
+        library=None,   # library önerileri kaldırıldı — tek depo = BLOCK_STORE
         table_docs=table_docs,
     )
 
@@ -140,57 +138,8 @@ def generate_patch(state):
     state.pending_patches = patches
     state.explanation = explanation
     state.validation_errors = []
-    # F.5 — library suggestions: doğrula (var mıymış kontrolü)
-    state.suggestions = _validate_suggestions(suggestions, library) if suggestions else []
+    state.suggestions = []   # library önerileri kaldırıldı (tek depo = BLOCK_STORE)
     return state
-
-
-def _load_library(state) -> list[dict] | None:
-    """Kullanıcının görebildiği library bloklarının özet listesi."""
-    try:
-        store = current_app.config.get("LIBRARY_STORE")
-        if store is None:
-            return None
-        from flask_login import current_user
-        return store.list_visible(
-            user_sicil=getattr(current_user, "sicil", "") or "",
-            user_department=getattr(current_user, "department", "") or "",
-        )
-    except Exception as exc:
-        log.warning("generate_patch: library load failed: %s", exc)
-        return None
-
-
-def _validate_suggestions(suggestions, library) -> list[dict]:
-    """LLM'in önerdiği library_id'lerin gerçekten kullanıcı için görünür
-    olduğunu kontrol et (LLM hayal etmesin)."""
-    if not isinstance(suggestions, list):
-        return []
-    valid_ids = {(m.get("library_id") or "") for m in (library or [])}
-    out = []
-    for s in suggestions:
-        if not isinstance(s, dict):
-            continue
-        if s.get("type") != "library_block":
-            continue
-        lid = s.get("library_id")
-        if not lid or lid not in valid_ids:
-            log.warning("library suggestion rejected (id not visible): %s", lid)
-            continue
-        # Meta'dan name + description hidrat
-        meta = next((m for m in library if m.get("library_id") == lid), {})
-        out.append({
-            "type": "library_block",
-            "library_id": lid,
-            "name": meta.get("name", s.get("name", "")),
-            "description": meta.get("description", ""),
-            "block_type": meta.get("block_type", ""),
-            "tags": meta.get("tags", []),
-            "used_tables": meta.get("used_tables", []),
-            "reason": s.get("reason", ""),
-            "target_path": s.get("target_path", ""),
-        })
-    return out
 
 
 def _fill_missing_sqls(state, patches, llm, catalog):
