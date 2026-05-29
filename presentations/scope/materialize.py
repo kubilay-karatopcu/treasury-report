@@ -29,7 +29,11 @@ from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from presentations.duck import register_dataframe
-from presentations.scope.fetch import compose_cached_sql
+from presentations.scope.fetch import (
+    compile_aggregate_sql,
+    compile_calculated_sql,
+    compose_cached_sql,
+)
 from presentations.scope.schema import BasketItem, ScopeContract
 
 log = logging.getLogger(__name__)
@@ -125,19 +129,21 @@ def write_dataset(dc, pid: str, alias: str, df, *, sql: str) -> DatasetMeta:
     return meta
 
 
-def materialize_dataset(
+def _compute_dataset_df(
     dc, scope: ScopeContract, item: BasketItem, *,
-    catalog=None, concept_registry=None, binding_catalog=None,
-) -> DatasetMeta:
-    """Run a cached dataset's Oracle query and persist its parquet.
+    catalog, concept_registry, binding_catalog, visited: frozenset,
+):
+    """Compute a dataset's DataFrame WITHOUT persisting it. Returns ``(df, sql)``.
 
-    Handles two sources:
-    - ``table_ref`` — composed projection/pinned SQL via ``compose_cached_sql``.
-    - ``sql`` (Faz C) — the user/LLM-authored free-form query, re-validated
-      against the SELECT/WITH whitelist before it runs as the service account.
+    - ``sql`` / ``table_ref`` sources hit Oracle (the permitted cron/build trigger).
+    - ``derived`` (aggregate/calculated) sources compute on DuckDB over their
+      source aliases. Each source is taken from its materialised parquet when
+      present (cheap, no Oracle) and otherwise computed in-memory here — so a
+      derived dataset over a *lazy* source still works: the cron pulls the big
+      source once, aggregates, and only the small result is persisted.
 
-    Derived (aggregate/calculated) datasets compute on DuckDB over their source
-    aliases at read time, so they are NOT materialised here.
+    ``visited`` guards against a derivation cycle (defence in depth — the scope
+    validators already enforce a DAG).
     """
     import pandas as pd
 
@@ -149,25 +155,81 @@ def materialize_dataset(
                 f"materialize_dataset: dataset {item.alias!r} SQL rejected by "
                 f"whitelist: {'; '.join(check.errors)}"
             )
-        sql, binds = item.sql, {}
-    elif item.table_ref is not None:
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"dataset::{scope.presentation_id}/{item.alias}",
+            query=item.sql, query_params={},
+        )
+        return (df if df is not None else pd.DataFrame()), item.sql
+
+    if item.table_ref is not None:
         sql, binds = compose_cached_sql(
             scope, item, catalog,
             concept_registry=concept_registry, binding_catalog=binding_catalog,
         )
-    else:
-        raise ValueError(
-            f"materialize_dataset: dataset {item.alias!r} is derived "
-            "(computed in DuckDB from materialised sources, not materialised here)"
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"dataset::{scope.presentation_id}/{item.alias}",
+            query=sql, query_params=binds,
         )
+        return (df if df is not None else pd.DataFrame()), sql
 
-    df = dc.get_data(
-        base_prefix=None,
-        dataset=f"dataset::{scope.presentation_id}/{item.alias}",
-        query=sql, query_params=binds,
+    # Derived (aggregate/calculated): compute on DuckDB over the source aliases.
+    if item.alias in visited:
+        raise ValueError(f"materialize_dataset: derivation cycle through {item.alias!r}")
+    visited = visited | {item.alias}
+
+    from presentations.duck import connect_duckdb
+
+    d = item.derivation
+    src_aliases = [d.source_alias] if d.kind == "aggregate" else list(d.source_aliases)
+    by_alias = {b.alias: b for b in scope.basket}
+
+    conn = connect_duckdb(":memory:")
+    for src in src_aliases:
+        got = read_dataset(dc, scope.presentation_id, src)
+        if got is not None:
+            src_df = got[0]
+        else:
+            src_item = by_alias.get(src)
+            if src_item is None:
+                src_df = pd.DataFrame()
+            else:
+                src_df, _ = _compute_dataset_df(
+                    dc, scope, src_item, catalog=catalog,
+                    concept_registry=concept_registry, binding_catalog=binding_catalog,
+                    visited=visited,
+                )
+        register_dataframe(conn, src, src_df)
+
+    sql = (compile_aggregate_sql(item) if d.kind == "aggregate"
+           else compile_calculated_sql(item))
+    df = conn.execute(sql).fetchdf()
+    return df, sql
+
+
+def materialize_dataset(
+    dc, scope: ScopeContract, item: BasketItem, *,
+    catalog=None, concept_registry=None, binding_catalog=None,
+) -> DatasetMeta:
+    """Materialise a cached dataset to S3 parquet (single writer: cron / build).
+
+    Handles all three source kinds:
+    - ``table_ref`` — composed projection/pinned SQL via ``compose_cached_sql``.
+    - ``sql`` (Faz C) — the user/LLM-authored free-form query, re-validated
+      against the SELECT/WITH whitelist before it runs as the service account.
+    - ``derived`` (aggregate/calculated) — computed on DuckDB over the dataset's
+      source aliases (each resolved from its parquet, or in-memory if absent),
+      then the *result* is persisted so viewers read it like any other cached
+      dataset. This is what makes an aggregate/derived table cron-able: N charts
+      drawing from it read one small parquet, and the expensive source query
+      runs once per interval — never on a viewer's request.
+    """
+    df, sql = _compute_dataset_df(
+        dc, scope, item, catalog=catalog,
+        concept_registry=concept_registry, binding_catalog=binding_catalog,
+        visited=frozenset(),
     )
-    if df is None:
-        df = pd.DataFrame()
     return write_dataset(dc, scope.presentation_id, item.alias, df, sql=sql)
 
 
@@ -327,10 +389,10 @@ def load_into_duck(dc, conn, scope: ScopeContract) -> dict[str, dict[str, Any]]:
     for item in scope.basket:
         if item.routing.decision != "cached":
             continue
-        # table_ref + sql datasets are materialised to parquet; derived
-        # (aggregate/calculated) compute in DuckDB at read time, not here.
-        if item.table_ref is None and item.sql is None:
-            continue
+        # table_ref / sql / derived datasets all materialise to their own
+        # parquet now (a derived table's aggregate result is persisted by
+        # materialize_dataset), so each is read back by alias. Items with no
+        # parquet yet (cron hasn't run) are skipped — the viewer never fetches.
         got = read_dataset(dc, scope.presentation_id, item.alias)
         if got is None:
             continue
