@@ -190,6 +190,30 @@
 .hz-route-btn:hover:not(:disabled) { background: #f1f5f9; color: #1f2937; }
 .hz-route-override:disabled,
 .hz-route-btn:disabled { color: #cbd5e1; cursor: not-allowed; border-color: #e5e7eb; }
+/* Faz C — per-dataset cron/refresh toggle on the node card (inherits the
+   override-button look; tinted to read as a distinct "schedule" affordance). */
+.hz-refresh-btn { border-color: #c7d2fe; color: #4338ca; }
+.hz-refresh-btn:hover:not(:disabled) { background: #eef2ff; color: #3730a3; }
+
+/* Faz C — "Manuel SQL Tablo" + "Veri Yükle (Excel)" add affordances. */
+.hz-add-row { padding: 4px 0 8px; display: flex; flex-direction: column; gap: 6px; }
+.hz-add-btn {
+  width: 100%; display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; font-size: 12px;
+}
+
+/* Faz C — "SQL" badge on a manuel-SQL dataset node, and the SQL textarea in
+   the authoring modal. */
+.hz-sql-tag {
+  font-size: 9px; font-weight: 700; letter-spacing: .04em; color: #b45309;
+  background: #fef3c7; border-radius: 3px; padding: 0 4px; margin-left: 6px;
+  vertical-align: middle;
+}
+.hz-sql-textarea {
+  width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.5; padding: 8px;
+  border: 1px solid #cbd5e1; border-radius: 6px; resize: vertical;
+}
 
 /* Projection count chip on the node card (read-only — projection is edited
    by hiding columns in the AG Grid preview and clicking "Görünümü kaydet") */

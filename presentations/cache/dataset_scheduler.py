@@ -139,7 +139,7 @@ class DatasetScheduler:
             rp is None
             or rp.kind != "scheduled"
             or item.routing.decision != "cached"
-            or item.table_ref is None
+            or (item.table_ref is None and item.sql is None)
         ):
             return False
 

@@ -1128,6 +1128,54 @@ def scope_recompute_routing(pid: str):
     return _json({"ok": True, "scope": scope_to_dict(scope)["scope"]})
 
 
+@presentations_bp.route("/<pid>/scope/preview-sql", methods=["POST"])
+@login_required
+def scope_preview_sql(pid: str):
+    """Validate + run a free-form dataset SQL at AUTHORING time so the Hazırlık
+    'Manuel SQL Tablo' modal can confirm the query and surface its columns
+    before adding it to the basket. This is a *design-time* trigger (the only
+    place besides cron where a query runs). Whitelist-gated (SELECT/WITH only,
+    no DDL/DML); result is row-capped for a quick sample.
+    """
+    body = request.get_json(silent=True) or {}
+    sql = (body.get("sql") or "").strip()
+    if not sql:
+        return _json({"ok": False, "errors": ["SQL boş olamaz."]}, status=400)
+
+    from presentations.sql.validator import validate_sql
+    chk = validate_sql(sql)
+    if not chk.ok:
+        return _json({"ok": False, "phase": "sql", "errors": chk.errors,
+                      "warnings": chk.warnings}, status=400)
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
+
+    from presentations.aggregation_gate import validate_and_wrap, GateError
+    from presentations import duck
+    import pandas as pd
+    try:
+        gate = validate_and_wrap(sql)
+        df = dc.get_data(base_prefix=None, dataset=f"scope-preview::{pid}",
+                         query=gate.sql, query_params={})
+    except GateError as exc:
+        return _json({"ok": False, "phase": "gate", "errors": [str(exc)]}, status=400)
+    except Exception as exc:
+        msg = str(exc).strip().splitlines()[0][:240]
+        return _json({"ok": False, "phase": "oracle", "errors": [msg]}, status=502)
+
+    if df is None:
+        df = pd.DataFrame()
+    cols = [str(c) for c in df.columns]
+    rows = [[duck._jsonable(v) for v in r]
+            for r in df.head(50).itertuples(index=False, name=None)]
+    # `data_columns` is what the Hazırlık preview drawer's grid binds to; the
+    # SqlDatasetModal reads `columns`. Return both so one endpoint serves both.
+    return _json({"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
+                  "row_count": int(len(df)), "warnings": chk.warnings})
+
+
 @presentations_bp.route("/<pid>/scope/routing-override", methods=["POST"])
 @login_required
 def scope_routing_override(pid: str):

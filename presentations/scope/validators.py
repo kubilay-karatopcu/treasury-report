@@ -77,8 +77,8 @@ def rule_concept_coverage(scope: ScopeContract, catalog: Catalog):
             continue  # empty = "all tables that bind it"; nothing explicit to check.
         for alias in f.applies_to:
             item = scope.basket_item(alias)
-            if item is None:
-                continue  # alias not in basket — cannot verify here.
+            if item is None or item.table_ref is None:
+                continue  # alias absent, or a derived/sql dataset (no table to verify).
             bound = catalog.table_binds_concept(
                 item.table_ref.schema_name, item.table_ref.name, f.concept
             )
