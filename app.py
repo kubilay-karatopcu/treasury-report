@@ -535,6 +535,22 @@ app.config["LIBRARY_REFRESH_SCHEDULER"] = _LRS(
 )
 app.config["LIBRARY_REFRESH_SCHEDULER"].start()
 
+# Faz A — dataset-level refresh. Materialises cached scope datasets to S3
+# parquet on schedule; N Sunum charts reference ONE dataset → one query per
+# interval (block-level dedup the old model lacked). Same single-process caveat
+# as the library scheduler above (gate by worker_id==0 / sidecar in prod).
+from presentations.cache.dataset_scheduler import DatasetScheduler as _DSS
+app.config["DATASET_REFRESH_DISPATCHER"] = _RD(max_workers=2, name="dataset-refresh")
+app.config["DATASET_REFRESH_SCHEDULER"] = _DSS(
+    scope_store=app.config["SCOPE_STORE"],
+    data_client=dc,
+    dispatcher=app.config["DATASET_REFRESH_DISPATCHER"],
+    concept_registry=app.config.get("CONCEPT_REGISTRY"),
+    binding_catalog=app.config.get("CONCEPT_BINDING_CATALOG"),
+    poll_interval_seconds=60,
+)
+app.config["DATASET_REFRESH_SCHEDULER"].start()
+
 # Phase 10B — Expert registry. Fixtures live in examples/phase_10/experts/
 # (git-versioned per spec §10.2 for global/dept scope). Same path in DEV and
 # prod for parity; production deploys ship the YAMLs alongside the code.
