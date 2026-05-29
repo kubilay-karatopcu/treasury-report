@@ -129,24 +129,38 @@ def materialize_dataset(
     dc, scope: ScopeContract, item: BasketItem, *,
     catalog=None, concept_registry=None, binding_catalog=None,
 ) -> DatasetMeta:
-    """Run a cached ``table_ref`` dataset's Oracle SQL and persist its parquet.
+    """Run a cached dataset's Oracle query and persist its parquet.
+
+    Handles two sources:
+    - ``table_ref`` — composed projection/pinned SQL via ``compose_cached_sql``.
+    - ``sql`` (Faz C) — the user/LLM-authored free-form query, re-validated
+      against the SELECT/WITH whitelist before it runs as the service account.
 
     Derived (aggregate/calculated) datasets compute on DuckDB over their source
-    aliases at read time, so only ``table_ref``-backed cached datasets are
-    materialised here. ``max_rows`` is left unbounded — routing already keeps a
-    cached dataset under the byte threshold.
+    aliases at read time, so they are NOT materialised here.
     """
     import pandas as pd
 
-    if item.table_ref is None:
-        raise ValueError(
-            f"materialize_dataset: dataset {item.alias!r} has no table_ref "
-            "(derived datasets are computed in DuckDB from materialised sources)"
+    if item.sql is not None:
+        from presentations.sql.validator import validate_sql
+        check = validate_sql(item.sql)
+        if not check.ok:
+            raise ValueError(
+                f"materialize_dataset: dataset {item.alias!r} SQL rejected by "
+                f"whitelist: {'; '.join(check.errors)}"
+            )
+        sql, binds = item.sql, {}
+    elif item.table_ref is not None:
+        sql, binds = compose_cached_sql(
+            scope, item, catalog,
+            concept_registry=concept_registry, binding_catalog=binding_catalog,
         )
-    sql, binds = compose_cached_sql(
-        scope, item, catalog,
-        concept_registry=concept_registry, binding_catalog=binding_catalog,
-    )
+    else:
+        raise ValueError(
+            f"materialize_dataset: dataset {item.alias!r} is derived "
+            "(computed in DuckDB from materialised sources, not materialised here)"
+        )
+
     df = dc.get_data(
         base_prefix=None,
         dataset=f"dataset::{scope.presentation_id}/{item.alias}",
@@ -311,7 +325,11 @@ def load_into_duck(dc, conn, scope: ScopeContract) -> dict[str, dict[str, Any]]:
     """
     loaded: dict[str, dict[str, Any]] = {}
     for item in scope.basket:
-        if item.table_ref is None or item.routing.decision != "cached":
+        if item.routing.decision != "cached":
+            continue
+        # table_ref + sql datasets are materialised to parquet; derived
+        # (aggregate/calculated) compute in DuckDB at read time, not here.
+        if item.table_ref is None and item.sql is None:
             continue
         got = read_dataset(dc, scope.presentation_id, item.alias)
         if got is None:

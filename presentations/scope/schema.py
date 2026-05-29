@@ -341,26 +341,39 @@ class DatasetRefresh(BaseModel):
 
 
 class BasketItem(BaseModel):
-    """One table in the scope basket — either a real Oracle table
-    (``table_ref``) or a derived/aggregate table (``derivation``)."""
+    """One dataset in the scope basket — exactly one source of:
+
+    - ``table_ref``  — a real Oracle table (projected + filtered),
+    - ``derivation`` — an aggregate/calculated table computed in DuckDB,
+    - ``sql``        — a free-form Oracle ``SELECT``/``WITH`` (Faz C): the user
+      (or LLM) authors arbitrary query SQL in Hazırlık; the cron materialises
+      its result to parquet exactly like a cached table. Used for the big
+      bespoke queries (UNIONs, multi-step aggregates) that don't fit the
+      projection/derivation builders.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     table_ref: TableRef | None = None
     derivation: Derivation | None = None
+    sql: str | None = Field(default=None, max_length=20_000)
     alias: Alias
-    projection: Projection
+    projection: Projection = Field(default_factory=Projection)
     routing: Routing
     layout: NodePosition | None = None
     # Faz A: cron refresh for cached datasets. None = no scheduled refresh
     # (materialised once at scope build). Only meaningful when cached.
     refresh: DatasetRefresh | None = None
+    # Faz C: where an LLM-authored sql dataset came from (kaynakça/provenance).
+    provenance: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "BasketItem":
-        if (self.table_ref is None) == (self.derivation is None):
+        n = sum(s is not None for s in (self.table_ref, self.derivation, self.sql))
+        if n != 1:
             raise ValueError(
-                f"basket item {self.alias!r}: set exactly one of table_ref or derivation"
+                f"basket item {self.alias!r}: set exactly one of "
+                "table_ref, derivation, or sql"
             )
         return self
 

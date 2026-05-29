@@ -69,6 +69,18 @@ def _scope(routing="cached", refresh=None):
     })
 
 
+def _sql_scope(sql="SELECT 1 AS A", routing="cached", refresh=None):
+    item = {"sql": sql, "alias": "big_query",
+            "routing": {"decision": routing, "estimated_bytes": 1000}}
+    if refresh is not None:
+        item["refresh"] = refresh
+    return load_scope_from_dict({
+        "presentation_id": "p_mat", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [item], "filters": {"pinned": [], "interactive": []},
+    })
+
+
 # ── Schema: refresh requires cached ─────────────────────────────────────────
 
 def test_scheduled_refresh_allowed_on_cached():
@@ -125,6 +137,57 @@ def test_materialize_cached_table_ref():
     rdf, _ = read_dataset(dc, "p_mat", "positions")
     pd.testing.assert_frame_equal(rdf, df)
     assert meta.row_count == 1
+
+
+# ── Free-form SQL dataset source (Faz C) ────────────────────────────────────
+
+def test_materialize_sql_dataset():
+    df = pd.DataFrame({"A": [1, 2], "B": [10.0, 20.0]})
+    dc = _FakeDC(df)
+    scope = _sql_scope("SELECT a, b FROM big_union",
+                       refresh={"kind": "scheduled", "interval_seconds": 600})
+    materialize_dataset(dc, scope, scope.basket[0])
+    # The user's free-form SQL ran verbatim against Oracle.
+    assert dc.get_data_calls[-1]["query"] == "SELECT a, b FROM big_union"
+    rdf, _ = read_dataset(dc, "p_mat", "big_query")
+    pd.testing.assert_frame_equal(rdf, df)
+
+
+def test_materialize_sql_rejects_non_select():
+    dc = _FakeDC(pd.DataFrame())
+    scope = _sql_scope("DELETE FROM big_union")
+    with pytest.raises(ValueError):
+        materialize_dataset(dc, scope, scope.basket[0])
+    assert dc.get_data_calls == []  # rejected by whitelist before execution
+
+
+def test_sql_dataset_loads_and_projects():
+    df = pd.DataFrame({"CCY": ["TRY", "USD"], "TOTAL": [1.0, 2.0]})
+    dc = _FakeDC(df)
+    scope = _sql_scope("SELECT ccy, total FROM agg")
+    materialize_dataset(dc, scope, scope.basket[0])
+    conn = connect_duckdb(":memory:")
+    loaded = load_into_duck(dc, conn, scope)
+    assert "big_query" in loaded and loaded["big_query"]["rows"] == 2
+
+
+def test_basket_item_exactly_one_source():
+    # sql alone is valid.
+    _sql_scope("SELECT 1")
+    # table_ref + sql → reject (two sources).
+    with pytest.raises(ValidationError):
+        load_scope_from_dict({
+            "presentation_id": "p", "version": 1, "created_by": "A", "created_at": "2026-06-15T10:00:00Z",
+            "basket": [{"sql": "SELECT 1", "alias": "x",
+                        "table_ref": {"schema": "S", "name": "T"},
+                        "routing": {"decision": "cached", "estimated_bytes": 1}}],
+        })
+    # no source → reject.
+    with pytest.raises(ValidationError):
+        load_scope_from_dict({
+            "presentation_id": "p", "version": 1, "created_by": "A", "created_at": "2026-06-15T10:00:00Z",
+            "basket": [{"alias": "x", "routing": {"decision": "cached", "estimated_bytes": 1}}],
+        })
 
 
 # ── load_into_duck: parquet → DuckDB view, no Oracle ────────────────────────
