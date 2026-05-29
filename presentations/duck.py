@@ -32,6 +32,27 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# ── DuckDB connection hardening ─────────────────────────────────────────────
+# Block SQL is user-/LLM-authored. DuckDB's default config lets a plain SELECT
+# reach the filesystem and network (read_csv, read_text, read_blob, glob,
+# ATTACH, COPY, INSTALL/LOAD). This module only ever queries in-memory
+# relations registered from DataFrames plus the session database, so we disable
+# external access on every connection that may run block SQL — closing an
+# arbitrary file-read vector without removing any capability the app uses.
+def connect_duckdb(database: str = ":memory:", **kwargs):
+    """Open a DuckDB connection with external filesystem/network access off.
+
+    Use everywhere user- or LLM-authored block SQL may execute (the per-session
+    DB, library preview, the DEV stub). Callers may still pass extra ``config``
+    keys; ``enable_external_access`` defaults to ``"false"`` unless overridden.
+    """
+    import duckdb
+
+    config = dict(kwargs.pop("config", None) or {})
+    config.setdefault("enable_external_access", "false")
+    return duckdb.connect(database, config=config, **kwargs)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # LEGACY BASKET PATH — unchanged
 # ════════════════════════════════════════════════════════════════════════════

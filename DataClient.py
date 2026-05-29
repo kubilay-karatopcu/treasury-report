@@ -116,10 +116,16 @@ class DataClient:
     def _utc_ts(self) -> str:
         return datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
     
-    def _upload_bytes(self, key: str, data: bytes, content_type: str | None = None):
+    def _upload_bytes(self, key: str, data: bytes, content_type: str | None = None,
+                      *, if_none_match: bool = False):
         kwargs = {"Bucket": self.BUCKET_NAME, "Key": key, "Body": data}
         if content_type:
             kwargs["ContentType"] = content_type
+        if if_none_match:
+            # Conditional create: the PUT fails with 412 PreconditionFailed if
+            # the key already exists. Lets callers (the block store) make a
+            # versioned write atomic instead of a racy check-then-write.
+            kwargs["IfNoneMatch"] = "*"
         self.s3.put_object(**kwargs)
     
     def _head(self, key: str) -> dict:

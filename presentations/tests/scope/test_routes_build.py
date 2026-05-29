@@ -141,19 +141,34 @@ def test_build_validates_fetches_saves_and_redirects(client, app):
     data = resp.get_json()
     assert data["ok"] is True
     assert data["scope_version"] == 1
-    assert data["cached_tables"] == ["positions"]
-    assert data["lazy_tables"] == []
+    # `_catalog()` (CatalogLoader) can't size TRD_BRANCH_POSITION here, so routing
+    # correctly defers it to lazy (#27 — unsizeable tables are no longer eagerly
+    # cached). The cached materialisation path is covered by test_fetch.py.
+    assert data["cached_tables"] == []
+    assert data["lazy_tables"] == ["positions"]
     assert data["redirect"].endswith("/presentations/p_build")
 
-    # Scope persisted, status ready, cached view recorded.
+    # Scope persisted, status ready (the build still validates/saves/redirects).
     saved = app.config["SCOPE_STORE"].load_latest("p_build")
     assert saved.status.state == "ready"
-    assert saved.status.cached_tables == ["positions"]
+    assert saved.status.cached_tables == []
 
     # Manifest now carries scope_ref.
     sess = app.config["SESSION_REGISTRY"].get_or_create("A16438", "p_build")
     manifest = sess.get_manifest()
     assert manifest["scope_ref"] == {"presentation_id": "p_build", "scope_version": 1}
+
+
+def test_build_rejects_unentitled_schema(client):
+    # #31: a Treasury-department user must not fetch an ODS_RISK table. The
+    # schema→dept map gates it (ODS_RISK → "risk" != the caller's "treasury").
+    body = _scope_body()
+    body["scope"]["basket"][0]["table_ref"] = {"schema": "ODS_RISK", "name": "RISK_POSITIONS"}
+    resp = client.post("/presentations/p_build/scope/build", json=body)
+    assert resp.status_code == 403, resp.get_data(as_text=True)
+    data = resp.get_json()
+    assert data["phase"] == "entitlement"
+    assert any("ODS_RISK" in e for e in data["errors"])
 
 
 def test_build_rejects_invalid_scope(client):

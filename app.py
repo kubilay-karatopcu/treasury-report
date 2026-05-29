@@ -62,7 +62,6 @@ if DEV_MODE:
 
     import fake_db
     import re as _re
-    import duckdb as _duckdb
 
     _ORACLE_TO_STRFTIME = [
         ("YYYY", "%Y"), ("YY", "%y"),
@@ -159,7 +158,8 @@ if DEV_MODE:
 
         def _get_duck(self):
             if self._duck is None:
-                conn = _duckdb.connect(":memory:")
+                from presentations.duck import connect_duckdb
+                conn = connect_duckdb(":memory:")
                 seen_schemas = set()
                 for tid in fake_db.known_tables():
                     df = fake_db.get(tid)
@@ -511,6 +511,29 @@ else:
 app.config["S3_GET"]    = _s3_get
 app.config["S3_PUT"]    = _s3_put
 app.config["S3_DELETE"] = _s3_delete
+
+# Phase B — shared library-block cache + background refetch dispatcher.
+# Same backend (DuckDB on local FS) for both DEV and prod; the cache file
+# lives next to the per-session DuckDB files under PRESENTATIONS_SESSION_DIR.
+from presentations.cache.library_block_cache import LibraryBlockCache as _LBC
+from presentations.cache.refresh_dispatcher import RefreshDispatcher as _RD
+app.config["LIBRARY_BLOCK_CACHE"] = _LBC(
+    db_path=_DUCK_BASE_DIR / "library_block_cache.duckdb",
+)
+app.config["LIBRARY_REFRESH_DISPATCHER"] = _RD(max_workers=2)
+
+# Phase B+ — warm-cache scheduler. Lives only in the main process to avoid
+# duplicate fires under multi-worker WSGI; in prod gunicorn this should be
+# gated by ``worker_id == 0`` or moved to a dedicated sidecar service.
+from presentations.cache.scheduler import LibraryRefreshScheduler as _LRS
+app.config["LIBRARY_REFRESH_SCHEDULER"] = _LRS(
+    library_store=app.config["LIBRARY_STORE"],
+    cache=app.config["LIBRARY_BLOCK_CACHE"],
+    dispatcher=app.config["LIBRARY_REFRESH_DISPATCHER"],
+    data_client=dc,
+    poll_interval_seconds=60,
+)
+app.config["LIBRARY_REFRESH_SCHEDULER"].start()
 
 # Phase 10B — Expert registry. Fixtures live in examples/phase_10/experts/
 # (git-versioned per spec §10.2 for global/dept scope). Same path in DEV and

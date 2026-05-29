@@ -20,6 +20,7 @@ from presentations.cache.block_cache import (
     BlockCacheKey,
     cache_key,
     is_subset,
+    is_subset_safe,
 )
 
 
@@ -82,6 +83,60 @@ class TestCacheKey:
         a = cache_key("blk", 1, {"x": 1})
         b = cache_key("blk", 2, {"x": 1})
         assert a.digest != b.digest
+
+    def test_sql_differentiates(self):
+        # #20: same id/version/vars but different SQL must not collide, else a
+        # hit would serve the other query's stale rows.
+        a = cache_key("blk", 1, {"x": 1}, "SELECT a FROM t")
+        b = cache_key("blk", 1, {"x": 1}, "SELECT b FROM t")
+        assert a.digest != b.digest
+
+
+# ── Subset-safety gate (#11) ────────────────────────────────────────────────
+
+class TestSubsetSafety:
+    def test_pure_projection_is_safe(self):
+        assert is_subset_safe(
+            "SELECT branch, currency, bal FROM t WHERE currency IN (:c)")
+
+    @pytest.mark.parametrize("sql", [
+        "SELECT branch, SUM(bal) AS v FROM t WHERE ccy IN (:c) GROUP BY branch",
+        "SELECT COUNT(*) FROM t",
+        "SELECT branch, SUM(bal) OVER (PARTITION BY branch) FROM t",
+        "SELECT DISTINCT branch FROM t",
+        "SELECT a FROM t UNION ALL SELECT a FROM u",
+        "SELECT a FROM t WHERE x = :v GROUP BY a HAVING COUNT(*) > 1",
+        "SELECT a FROM t LIMIT 100",
+        "SELECT a FROM t FETCH FIRST 10 ROWS ONLY",
+        "SELECT a FROM t WHERE ROWNUM <= 50",
+    ])
+    def test_non_projection_is_unsafe(self, sql):
+        assert not is_subset_safe(sql)
+
+    def test_keyword_inside_string_literal_not_tripped(self):
+        # 'GROUP BY' inside a string literal must not flag the query unsafe.
+        assert is_subset_safe(
+            "SELECT note FROM t WHERE note = 'has GROUP BY text' AND ccy IN (:c)")
+
+    def test_aggregated_block_never_subset_routes(self, conn):
+        # #11: a GROUP BY block whose narrower request is a subset BY VARS must
+        # still refuse subset routing (row-filtering aggregated rows = wrong).
+        agg_block = Block(
+            id="agg_kpi", version=1, title="x", team="treasury", owner="x",
+            created_at="2026-05-21T10:00:00Z",
+            query=("SELECT branch, SUM(bal) AS v FROM t "
+                   "WHERE currency IN (:currency_list) GROUP BY branch"),
+            visualization={"type": "bar_chart", "config": {}},
+            variables=[Variable(name="currency_list", semantic_tag="currency",
+                                type="enum_multi", required=True,
+                                allowed_values=["TRY", "USD", "EUR"],
+                                default=["TRY", "USD", "EUR"])],
+        )
+        cache = BlockCache(conn)
+        cache.write(agg_block, {"currency_list": ["TRY", "USD", "EUR"]},
+                    pd.DataFrame({"branch": ["A", "B"], "v": [10, 20]}))
+        assert cache.find_subset_parent(
+            agg_block, {"currency_list": ["TRY"]}) is None
 
 
 # ── is_subset per type ────────────────────────────────────────────────────
@@ -159,11 +214,25 @@ class TestBlockCacheRoundtrip:
         entry = cache.write(block, resolved, df)
         assert entry.row_count == 2
         assert entry.view_name.startswith("v_cache_")
-        # Re-key the same resolved values and look up.
-        key = cache_key(block.id, block.version, resolved)
+        # Re-key the same resolved values + SQL and look up.
+        key = cache_key(block.id, block.version, resolved, block.query)
         hit = cache.find_exact(key)
         assert hit is not None
         assert hit.row_count == 2
+
+    def test_sql_edit_invalidates_exact_hit(self, conn, block):
+        # #20: editing a block's SQL in place (same id/version/vars, no version
+        # bump) must NOT return the previous query's cached rows.
+        cache = BlockCache(conn)
+        resolved = {
+            "as_of_from": date(2026, 4, 1),
+            "as_of_to": date(2026, 4, 30),
+            "currency_list": ["TRY"],
+        }
+        cache.write(block, resolved, pd.DataFrame({"x": [1, 2]}))
+        edited = block.model_copy(update={"query": "SELECT 2 FROM dual"})
+        key = cache_key(edited.id, edited.version, resolved, edited.query)
+        assert cache.find_exact(key) is None
 
     def test_find_subset_parent_returns_widest_match(self, conn, block):
         cache = BlockCache(conn)

@@ -104,12 +104,15 @@ def test_estimate_falls_back_to_horizon_without_pinned_range():
     assert size == 10 * 12000 * 200
 
 
-def test_unknown_table_estimates_zero_and_caches():
+def test_unknown_table_routes_lazy():
+    # A table the catalog can't size must NOT be assumed tiny and eagerly cached
+    # (that path materialised possibly-huge un-onboarded tables → OOM, #27).
+    # Unknown size is treated as over-threshold → lazy (fetched on demand, capped).
     cat = _catalog()
     tref = TableRef.model_validate({"schema": "ODS_TREASURY", "name": "NOT_IN_CATALOG"})
     d = decide_routing(tref, _proj(), [], catalog=cat)
-    assert d.estimated_bytes == 0
-    assert d.decision == "cached"
+    assert d.decision == "lazy"
+    assert d.estimated_bytes > d.threshold_bytes
 
 
 def test_default_hard_ceiling_is_10gb():

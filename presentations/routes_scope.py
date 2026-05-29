@@ -26,6 +26,8 @@ from flask_login import current_user, login_required
 from pydantic import ValidationError
 
 from presentations import presentations_bp
+from presentations.blocks.store import _normalize_team_token
+from presentations.catalog.loader import DEFAULT_SCHEMA_DEPARTMENT_MAP
 from presentations.scope.catalog import AppCatalog
 from presentations.scope.fetch import fetch_cached_tables
 from presentations.scope.diff import diff_scopes, serialise_diff
@@ -88,6 +90,44 @@ def _routing_threshold_bytes() -> int:
 def _routing_hard_ceiling_bytes() -> int:
     return int(current_app.config.get(
         "PRESENTATIONS_ROUTING_HARD_CEILING_BYTES", DEFAULT_HARD_CEILING_BYTES))
+
+
+def _unentitled_tables(scope: ScopeContract) -> list[str]:
+    """Return ``SCHEMA.TABLE`` strings the current user may NOT fetch (#31).
+
+    Entitlement is driven by the schema→department map (``PRESENTATIONS_SCHEMA_
+    DEPARTMENT_MAP`` override, else the default). A schema is gated only when it
+    is in the map AND the caller's department is one the map recognises; for a
+    department the map doesn't know (a team not yet onboarded, or DEV's fake
+    user) we allow + log rather than lock everyone out. Schemas absent from the
+    map (user uploads, ad-hoc) are not gated here. The app runs DataClient under
+    a single Oracle service account, so without this gate any authenticated user
+    could pull any mapped schema's tables.
+    """
+    raw_map = (current_app.config.get("PRESENTATIONS_SCHEMA_DEPARTMENT_MAP")
+               or DEFAULT_SCHEMA_DEPARTMENT_MAP)
+    dept_map = {str(k).upper(): v for k, v in raw_map.items()}
+    known_depts = {_normalize_team_token(d) for d in dept_map.values()}
+    user_dept = _normalize_team_token(getattr(current_user, "department", "") or "")
+    if user_dept not in known_depts:
+        log.warning(
+            "scope entitlement: department %r (user %s) is not in the schema-dept "
+            "map; allowing all schemas. Add it to PRESENTATIONS_SCHEMA_DEPARTMENT_"
+            "MAP to enforce.",
+            getattr(current_user, "department", None),
+            getattr(current_user, "sicil", None),
+        )
+        return []
+    denied: list[str] = []
+    for item in scope.basket:
+        if item.table_ref is None:
+            continue
+        owner = dept_map.get(item.table_ref.schema_name.upper())
+        if owner is None:
+            continue  # schema not gated by the map
+        if _normalize_team_token(owner) != user_dept:
+            denied.append(f"{item.table_ref.schema_name}.{item.table_ref.name}")
+    return denied
 
 
 def _refresh_routing(scope: ScopeContract, catalog: AppCatalog) -> None:
@@ -854,6 +894,15 @@ def build_scope(pid: str):
     scope.presentation_id = pid
     scope.created_by = getattr(current_user, "sicil", None) or scope.created_by
 
+    # #31 — table entitlement: refuse to fetch schemas the caller isn't entitled
+    # to (the fetch below runs under the app's Oracle service account).
+    denied = _unentitled_tables(scope)
+    if denied:
+        return _json({
+            "ok": False, "phase": "entitlement",
+            "errors": [f"Bu tablolara erişim yetkin yok: {', '.join(denied)}"],
+        }, status=403)
+
     catalog = _catalog()
     # Refresh routing so the fetch pass acts on the current estimate, not on
     # whatever the client posted (which is a hint but never authoritative).
@@ -871,7 +920,6 @@ def build_scope(pid: str):
 
     dc = current_app.config.get("DATA_CLIENT")
     session = _registry().get_or_create(current_user.sicil, pid)
-    conn = session.get_duck_conn()
     lazy = [b.alias for b in scope.basket
             if b.table_ref is not None and b.routing.decision == "lazy"]
 
@@ -886,14 +934,15 @@ def build_scope(pid: str):
         drop_aliases = set(diff.removed_aliases)
 
     try:
-        loaded = fetch_cached_tables(
-            dc, conn, scope,
-            catalog=catalog,
-            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
-            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
-            refetch_only=refetch_only,
-            drop_aliases=drop_aliases,
-        )
+        with session.duck_conn() as conn:
+            loaded = fetch_cached_tables(
+                dc, conn, scope,
+                catalog=catalog,
+                concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
+                binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+                refetch_only=refetch_only,
+                drop_aliases=drop_aliases,
+            )
     except Exception as exc:
         scope.status.state = "failed"
         scope.status.errors = [str(exc)]
