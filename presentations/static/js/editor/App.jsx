@@ -10,7 +10,7 @@ import SaveModal       from './components/SaveModal.jsx';
 import SaveBlockModal  from './components/SaveBlockModal.jsx';
 import AddBlockPanel   from './components/AddBlockPanel.jsx';
 import ReportTitle     from './components/ReportTitle.jsx';
-import PropertiesPanel from './components/PropertiesPanel.jsx';
+import PropertiesPanel, { RefreshPolicyControls } from './components/PropertiesPanel.jsx';
 import TableDocsPanel  from './components/TableDocsPanel.jsx';
 import ChatBox         from './components/ChatBox.jsx';
 import { Sparkles, Plus, HelpCircle } from 'lucide-react';
@@ -18,6 +18,7 @@ import useResizable from './lib/useResizable.js';
 import HelpModal from './components/HelpModal.jsx';
 import ManualSqlEditor from './components/ManualSqlEditor.jsx';
 import FilterBar from './components/FilterBar.jsx';
+import FixedDateFilter from './components/FixedDateFilter.jsx';
 
 const WIDTH_SPAN = {
   'full': 12,
@@ -164,6 +165,7 @@ export default function App({ initialManifest, mode = 'editor' }) {
           <AddBlockPanel width={propsW} onResizeStart={dragProps} />
         )}
       </div>
+      {!isSnapshot && <FixedDateFilter />}
       {!isSnapshot && <ShareModal />}
       {!isSnapshot && <SaveModal />}
       {!isSnapshot && <SaveBlockModal />}
@@ -606,6 +608,10 @@ function TemplateEditProperties({ block }) {
       </section>
 
       <TemplateManualEditor block={block} />
+
+      {/* Phase B — refresh policy editor. Same component used in the main
+          presentation editor's PropertiesPanel. */}
+      <RefreshPolicyControls block={block} />
     </div>
   );
 }

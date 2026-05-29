@@ -45,9 +45,12 @@ export default function FilterBar() {
   const [err, setErr] = useState(null);
 
   const filters = manifest?.filters || [];
-  // If neither filters declared nor in layout-edit mode, render nothing —
-  // keeps Phase 1-6 presentations visually unchanged.
-  if (filters.length === 0 && !(layoutEditMode && viewMode === 'edit')) {
+  // date_range filtreleri sağ-alt sabit FixedDateFilter widget'ında gösterilir;
+  // üst bar yalnız enum/sayı filtrelerini + ekle/güncelle aksiyonlarını taşır.
+  const barFilters = filters.filter((f) => f.type !== 'date_range');
+  // If no bar filters and not in layout-edit mode, render nothing — keeps
+  // Phase 1-6 presentations visually unchanged.
+  if (barFilters.length === 0 && !(layoutEditMode && viewMode === 'edit')) {
     return null;
   }
 
@@ -66,7 +69,7 @@ export default function FilterBar() {
     <>
       <div className="filter-bar" role="region" aria-label="Dashboard filtreleri">
         <div className="filter-bar__widgets">
-          {filters.map((f) => (
+          {barFilters.map((f) => (
             <FilterWidget
               key={f.id}
               filter={f}
@@ -103,7 +106,7 @@ export default function FilterBar() {
             </span>
           )}
           {err && <span className="filter-bar__err">{err}</span>}
-          {filters.length > 0 && (
+          {barFilters.length > 0 && (
             <button
               type="button"
               className="filter-bar__apply"
@@ -165,7 +168,7 @@ function _toIsoDate(d) {
  * server actually filters on. Returns '' when unparseable, so the input
  * renders empty instead of throwing the HTML5 "must be yyyy-MM-dd" error.
  */
-function _resolveDateExpr(v) {
+export function _resolveDateExpr(v) {
   if (!v || typeof v !== 'string') return '';
   const s = v.trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);   // ISO (date or datetime)
@@ -650,6 +653,7 @@ function ManualFilterForm({ onSave, onBack, err }) {
   const [defaultFromExpr, setDefaultFrom] = useState('today - 30d');
   const [defaultToExpr, setDefaultTo]     = useState('today');
   const [defaultSingleVal, setDefaultSingleVal] = useState('');
+  const [defaultSingleDate, setDefaultSingleDate] = useState('today');
   const [localErr, setLocalErr]           = useState(null);
 
   function handleSave() {
@@ -659,10 +663,16 @@ function ManualFilterForm({ onSave, onBack, err }) {
       return;
     }
     const cleanId = id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const isSingleDate = type === 'date_single';
     const def = {
-      id: cleanId, semantic_tag: semanticTag, type, label: label.trim(),
+      id: cleanId, semantic_tag: semanticTag,
+      type: isSingleDate ? 'date_range' : type, label: label.trim(),
     };
-    if (type === 'date_range') {
+    if (isSingleDate) {
+      const d = (defaultSingleDate || 'today').trim();
+      def.single = true;
+      def.default = { from: d, to: d };
+    } else if (type === 'date_range') {
       def.default = { from: defaultFromExpr.trim(), to: defaultToExpr.trim() };
     } else if (type === 'enum_multi' || type === 'enum_single') {
       const parsed = allowedValues.split(',').map((s) => s.trim()).filter(Boolean);
@@ -696,12 +706,18 @@ function ManualFilterForm({ onSave, onBack, err }) {
         </label>
         <label><span>Tip</span>
           <select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="date_single">Tarih (tek)</option>
             <option value="date_range">Tarih aralığı</option>
             <option value="enum_multi">Enum (çoklu)</option>
             <option value="enum_single">Enum (tek)</option>
             <option value="number_range">Sayı aralığı</option>
           </select>
         </label>
+        {type === 'date_single' && (
+          <label><span>Varsayılan tarih</span>
+            <input type="text" value={defaultSingleDate} onChange={(e) => setDefaultSingleDate(e.target.value)} placeholder="today"/>
+          </label>
+        )}
         {type === 'date_range' && (
           <>
             <label><span>Varsayılan: from</span>
