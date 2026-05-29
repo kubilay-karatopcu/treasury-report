@@ -277,3 +277,91 @@ def test_project_rejects_bad_identifier():
     out = project_block_from_dataset(conn, binding, {"if_x": "TRY"})
     assert out is not None and len(out) == 3  # bad column skipped, table intact
     assert _proj_conn() is not None
+
+
+# ── Derived (aggregate) dataset materialisation — cron-able (Faz C) ──────────
+
+def _derived_scope(routing="cached", refresh=None):
+    """A `sql` source + an aggregate derived item grouping it."""
+    src = {"sql": "SELECT ccy, total FROM big", "alias": "src",
+           "routing": {"decision": "cached", "estimated_bytes": 1000}}
+    der = {
+        "derivation": {"kind": "aggregate", "source_alias": "src",
+                       "group_by": ["CCY"],
+                       "measures": [{"column": "TOTAL", "fn": "sum", "as": "TOTAL_SUM"}]},
+        "alias": "agg",
+        "projection": {"columns": ["CCY", "TOTAL_SUM"], "include_all": False},
+        "routing": {"decision": routing, "decided_by": "system", "estimated_bytes": 0},
+    }
+    if refresh is not None:
+        der["refresh"] = refresh
+    return load_scope_from_dict({
+        "presentation_id": "p_mat", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [src, der], "filters": {"pinned": [], "interactive": []},
+    })
+
+
+def test_materialize_derived_pulls_source_in_memory():
+    # Source has no parquet yet → derived cron pulls it once (in-memory),
+    # aggregates in DuckDB, and persists ONLY the small result. The big source
+    # is NOT stored (a derived-on-lazy stays small).
+    df = pd.DataFrame({"CCY": ["TRY", "TRY", "USD"], "TOTAL": [1.0, 2.0, 5.0]})
+    dc = _FakeDC(df)
+    scope = _derived_scope()
+    materialize_dataset(dc, scope, scope.basket[1])
+    rdf, _ = read_dataset(dc, "p_mat", "agg")
+    assert {r.CCY: r.TOTAL_SUM for r in rdf.itertuples()} == {"TRY": 3.0, "USD": 5.0}
+    assert read_dataset(dc, "p_mat", "src") is None  # source not persisted
+
+
+def test_materialize_derived_reuses_source_parquet():
+    # Source already materialised → derived reuses its parquet, NO Oracle pull.
+    dc = _FakeDC()
+    write_dataset(dc, "p_mat", "src",
+                  pd.DataFrame({"CCY": ["TRY", "TRY", "USD"], "TOTAL": [1.0, 2.0, 5.0]}),
+                  sql="SELECT ...")
+    scope = _derived_scope()
+    materialize_dataset(dc, scope, scope.basket[1])
+    assert dc.get_data_calls == []  # parquet reused, no Oracle
+    rdf, _ = read_dataset(dc, "p_mat", "agg")
+    assert {r.CCY: r.TOTAL_SUM for r in rdf.itertuples()} == {"TRY": 3.0, "USD": 5.0}
+
+
+def test_load_into_duck_registers_derived_view():
+    # After materialisation a derived alias is a first-class parquet → the
+    # viewer registers it like any other cached dataset (no read-time recompute).
+    dc = _FakeDC()
+    write_dataset(dc, "p_mat", "src",
+                  pd.DataFrame({"CCY": ["TRY", "USD"], "TOTAL": [3.0, 5.0]}), sql="x")
+    scope = _derived_scope()
+    materialize_dataset(dc, scope, scope.basket[1])
+    conn = connect_duckdb(":memory:")
+    loaded = load_into_duck(dc, conn, scope)
+    assert "agg" in loaded   # derived view registered for viewers
+    assert conn.execute('SELECT COUNT(*) FROM agg').fetchone()[0] == 2
+
+
+def test_materialize_derived_calculated_single_source():
+    # calculated (single-source) derived: a row-level expression over a source.
+    dc = _FakeDC()
+    write_dataset(dc, "p_mat", "base",
+                  pd.DataFrame({"A": [10.0, 20.0], "B": [2.0, 4.0]}), sql="x")
+    der = {
+        "derivation": {"kind": "calculated", "source_aliases": ["base"],
+                       "columns": [{"name": "RATIO", "expr": "A / B"}]},
+        "alias": "calc",
+        "projection": {"columns": ["RATIO"], "include_all": False},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
+    }
+    scope = load_scope_from_dict({
+        "presentation_id": "p_mat", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [{"sql": "SELECT a, b FROM x", "alias": "base",
+                    "routing": {"decision": "cached", "estimated_bytes": 1}}, der],
+        "filters": {"pinned": [], "interactive": []},
+    })
+    materialize_dataset(dc, scope, scope.basket[1])  # 'base' parquet reused
+    assert dc.get_data_calls == []
+    rdf, _ = read_dataset(dc, "p_mat", "calc")
+    assert sorted(round(v, 2) for v in rdf["RATIO"]) == [5.0, 5.0]

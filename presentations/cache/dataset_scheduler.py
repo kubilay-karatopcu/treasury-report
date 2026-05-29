@@ -135,11 +135,14 @@ class DatasetScheduler:
 
     def _maybe_materialize(self, scope, item, *, now: datetime) -> bool:
         rp = item.refresh
+        # All three source kinds (table_ref / sql / derived aggregate) are
+        # materialisable: a derived dataset's aggregate result is persisted to
+        # its own parquet, resolving its sources from their parquet (or pulling
+        # them once if absent). So any cached + scheduled item is eligible.
         if (
             rp is None
             or rp.kind != "scheduled"
             or item.routing.decision != "cached"
-            or (item.table_ref is None and item.sql is None)
         ):
             return False
 

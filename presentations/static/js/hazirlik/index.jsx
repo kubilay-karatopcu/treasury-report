@@ -245,7 +245,7 @@ function TableNode({ data }) {
             className="hz-route-override"
             disabled={overrideDisabled}
             title={overrideTitle}
-            onClick={(e) => { e.stopPropagation(); onOverrideRouting && onOverrideRouting(item.alias, cached ? "lazy" : "cached"); }}
+            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onOverrideRouting && NODE_HANDLERS.onOverrideRouting(item.alias, cached ? "lazy" : "cached"); }}
           >
             {overrideLabel}
           </button>
@@ -254,11 +254,29 @@ function TableNode({ data }) {
               type="button"
               className="hz-route-override hz-refresh-btn"
               title="Yenileme (cron) ayarla — cached dataset ne sıklıkla tazelensin"
-              onClick={(e) => { e.stopPropagation(); onEditRefresh && onEditRefresh(item.alias); }}
+              onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
             >
               ⟳ {refreshLabel(item.refresh)}
             </button>
           )}
+        </div>
+      )}
+      {derived && (
+        <div className="hz-node-routing">
+          <span
+            className="hz-proj-count"
+            title="Türetilmiş tablo — kaynak(lar)ından DuckDB'de hesaplanıp parquet'e materialise edilir"
+          >
+            {colCount} kolon
+          </span>
+          <button
+            type="button"
+            className="hz-route-override hz-refresh-btn"
+            title="Yenileme (cron) ayarla — türetilmiş tablo ne sıklıkla yeniden hesaplanıp materialise edilsin"
+            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
+          >
+            ⟳ {refreshLabel(item.refresh)}
+          </button>
         </div>
       )}
       <div className="hz-node-meta">{size ? `${size} · ` : ""}{colCount} kolon</div>

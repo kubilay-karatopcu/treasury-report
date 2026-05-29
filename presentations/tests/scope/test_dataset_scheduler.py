@@ -135,3 +135,35 @@ def test_two_charts_one_dataset_one_fetch():
     sched.tick()
     # Exactly one Oracle materialisation for the single dataset.
     assert len(disp.runs) == 1
+
+
+def test_tick_materialises_scheduled_derived():
+    # A derived (aggregate) table with a scheduled refresh is now cron-able: the
+    # tick materialises it (pulling its source in-memory once), persisting the
+    # small aggregate result. Same N-charts → one-fetch dedup, for aggregates.
+    df = pd.DataFrame({"CCY": ["TRY", "TRY", "USD"], "TOTAL": [1.0, 2.0, 5.0]})
+    dc = _FakeDC(df)
+    src = {"sql": "SELECT ccy, total FROM big", "alias": "src",
+           "routing": {"decision": "cached", "estimated_bytes": 1000}}
+    der = {
+        "derivation": {"kind": "aggregate", "source_alias": "src",
+                       "group_by": ["CCY"],
+                       "measures": [{"column": "TOTAL", "fn": "sum", "as": "TOTAL_SUM"}]},
+        "alias": "agg",
+        "projection": {"columns": ["CCY", "TOTAL_SUM"], "include_all": False},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
+        "refresh": {"kind": "scheduled", "interval_seconds": 600},
+    }
+    scope = load_scope_from_dict({
+        "presentation_id": "pderv", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [src, der], "filters": {"pinned": [], "interactive": []},
+    })
+    disp = _SyncDispatcher()
+    sched = DatasetScheduler(scope_store=_FakeScopeStore({"pderv": scope}),
+                             data_client=dc, dispatcher=disp)
+    # Only the derived item is scheduled (source is manual) → exactly 1 enqueue.
+    assert sched.tick() == 1
+    assert disp.runs == ["dataset:pderv:agg"]
+    rdf, _ = read_dataset(dc, "pderv", "agg")
+    assert {r.CCY: r.TOTAL_SUM for r in rdf.itertuples()} == {"TRY": 3.0, "USD": 5.0}
