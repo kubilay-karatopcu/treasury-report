@@ -1813,6 +1813,20 @@ def apply_dashboard_filters(pid: str):
             status=500, mimetype="application/json",
         )
 
+    # Faz B — register the dashboard scope's materialised cached datasets as
+    # DuckDB views (read from S3 parquet, NEVER Oracle). Dataset-bound blocks in
+    # the loop below project their columns from these views locally.
+    from .routes_scope import load_scope_for_manifest
+    _scope = load_scope_for_manifest(manifest)
+    if _scope is not None:
+        try:
+            from .scope.materialize import load_into_duck
+            with session.duck_conn() as conn:
+                load_into_duck(dc, conn, _scope)
+        except Exception:
+            current_app.logger.warning(
+                "apply-filters: load_into_duck failed", exc_info=True)
+
     # ── Phase 7.b — concept filter compilation (additive) ────────────────
     # Bridge the dashboard's filters into concept-level ResolvedFilters once,
     # up front. Per-block injection happens inside the loop. When the registry
@@ -1851,6 +1865,33 @@ def apply_dashboard_filters(pid: str):
     for block in iter_all_blocks(manifest):
         if block.get("type") == "section_header":
             continue
+
+        # ── Faz B: dataset-bound block ────────────────────────────────────
+        # Reads from the materialised DuckDB view (S3 parquet) — no Oracle, no
+        # cache key, no bind expansion. N charts sharing one dataset alias all
+        # project from the single parquet. This is the viewer-read-only path.
+        binding = block.get("dataset_binding")
+        if isinstance(binding, dict) and binding.get("alias"):
+            from .scope.materialize import project_block_from_dataset
+            with session.duck_conn() as conn:
+                df = project_block_from_dataset(conn, binding, filter_state)
+            if df is None:
+                results.append({
+                    "id": block["id"], "status": "empty",
+                    "reason": f"dataset '{binding.get('alias')}' not materialised yet",
+                })
+            else:
+                _apply_df_to_block(
+                    block, df, engine="dataset",
+                    query=f"SELECT * FROM {binding.get('alias')}",
+                )
+                results.append({
+                    "id": block["id"], "status": "dataset",
+                    "row_count": int(len(df)), "alias": binding.get("alias"),
+                })
+                touched += 1
+            continue
+
         # Data-bound blocks participate if they EITHER declare variables
         # (Phase 6.5) OR are concept-native (source_tables + active concept
         # filters, Phase 7). Concept-native blocks have no `variables`, so the
