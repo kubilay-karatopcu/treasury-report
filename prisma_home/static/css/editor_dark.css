@@ -1453,4 +1453,148 @@ body.prisma .toc-item.is-active {
   border-left-color: var(--editor-accent);
 }
 
+/* ═════════════════════════════════════════════════════════════════════
+   Carousel block — editor.css hardcodes #ffffff / #fafbfc / #f1f5f9 /
+   #cbd5e1 on the carousel container, header bar, nav buttons, dots and
+   slide-list rows, so the token redirect at body.prisma can't reach them
+   and the whole block renders light-on-dark. Paint them with the PRISMA
+   surfaces here (same pattern as block-card above).
+   ═════════════════════════════════════════════════════════════════════ */
+body.prisma .carousel {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .carousel.is-locked { background: var(--editor-surface) !important; }
+body.prisma .carousel.is-selected {
+  border-color: var(--editor-accent) !important;
+  box-shadow: 0 0 0 1px var(--editor-accent) !important;
+}
+body.prisma .carousel-header,
+body.prisma .carousel-toolbar {
+  background: var(--editor-surface-2) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .carousel-title-btn { color: var(--editor-ink) !important; }
+body.prisma .carousel-title-btn:hover:not(:disabled) {
+  background: var(--editor-surface-3) !important;
+  border-color: var(--editor-border-strong) !important;
+}
+body.prisma .carousel.is-selected .carousel-title-btn {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .carousel-title-count {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .carousel-counter { color: var(--editor-ink-mute) !important; }
+body.prisma .carousel-nav-btn {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .carousel-nav-btn:hover:not(:disabled) {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .carousel-dot { background: var(--editor-border-strong) !important; }
+body.prisma .carousel-dot:hover { background: var(--editor-ink-faint) !important; }
+body.prisma .carousel-dot.is-active { background: var(--editor-accent) !important; }
+body.prisma .carousel-empty { color: var(--editor-ink-faint) !important; }
+/* Slide list (carousel properties panel) */
+body.prisma .carousel-slide-row {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .carousel-slide-row__label { color: var(--editor-ink-soft) !important; }
+body.prisma .carousel-slide-row__label:hover {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .carousel-slide-idx { color: var(--editor-ink-faint) !important; }
+body.prisma .carousel-slide-title { color: var(--editor-ink-soft) !important; }
+body.prisma .carousel-slide-type {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   "Blok Ekle" panel (AddBlockPanel) + library cards — editor.css uses a
+   fully hardcoded light palette (#ffffff / #e2e8f0 / #f8fafc / #0f172a …)
+   with no token references, so this panel stayed white on the dark editor.
+   ═════════════════════════════════════════════════════════════════════ */
+body.prisma .add-block-panel {
+  background: var(--editor-surface) !important;
+  border-left-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft);
+}
+body.prisma .add-block-panel__header {
+  background: var(--editor-surface-1) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .add-block-panel__title { color: var(--editor-ink) !important; }
+body.prisma .add-block-tabs {
+  background: var(--editor-surface) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .add-block-tab { color: var(--editor-ink-mute) !important; }
+body.prisma .add-block-tab:hover { color: var(--editor-ink) !important; }
+body.prisma .add-block-tab.is-active {
+  color: var(--editor-accent) !important;
+  border-bottom-color: var(--editor-accent) !important;
+}
+body.prisma .lib-search-icon { color: var(--editor-ink-faint) !important; }
+body.prisma .lib-search-input,
+body.prisma .lib-tag-select {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .lib-search-input::placeholder { color: var(--editor-ink-faint) !important; }
+body.prisma .lib-search-input:focus {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-accent) !important;
+  box-shadow: 0 0 0 2px var(--editor-accent-soft) !important;
+}
+body.prisma .lib-card {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .lib-card:hover {
+  border-color: var(--editor-border-strong) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+}
+body.prisma .lib-card-icon {
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .lib-card-title { color: var(--editor-ink) !important; }
+body.prisma .lib-card-desc { color: var(--editor-ink-mute) !important; }
+body.prisma .lib-card-meta,
+body.prisma .lib-card-tables { color: var(--editor-ink-faint) !important; }
+body.prisma .lib-tag-chip {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .lib-btn {
+  background: transparent !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .lib-btn:hover {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--gold-soft) !important;
+  color: var(--gold-soft) !important;
+}
+body.prisma .lib-loading,
+body.prisma .lib-empty { color: var(--editor-ink-faint) !important; }
+body.prisma .lib-detail-meta { color: var(--editor-ink-mute) !important; }
+body.prisma .lib-detail-meta code {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-accent) !important;
+}
+
 /* ── Login + helper messages already dark via login.html — no overrides ── */
