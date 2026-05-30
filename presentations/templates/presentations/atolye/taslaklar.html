@@ -112,6 +112,33 @@
   }
   .workshop-card .wc-cta:hover { color: var(--ink); }
 
+  /* Çöp kutusu — Süreçler (sablonlar.html) kartındaki kalıbın aynısı: hep
+     görünür + soluk (opacity:0.55), hover'da tam belirginleşir. Hover-only UI
+     hem keşfedilmesi zor hem preview tooling'inde her zaman tetiklenmiyor.
+     Faz çipinin yanında, wc-head'in sağ tarafında durur. */
+  .workshop-card .wc-head-right {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .workshop-card .wc-trash {
+    width: 26px; height: 26px; padding: 0; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg-0);
+    color: var(--ink-mute);
+    border: 1px solid var(--border-soft);
+    cursor: pointer; font-size: 13px; line-height: 1;
+    opacity: 0.55;
+    transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .workshop-card:hover .wc-trash { opacity: 1; }
+  .workshop-card .wc-trash:hover {
+    opacity: 1; color: #fca5a5; border-color: #fca5a5;
+    background: rgba(252, 165, 165, 0.08);
+  }
+  .workshop-card .wc-trash:focus-visible {
+    opacity: 1; outline: none; color: #fca5a5; border-color: #fca5a5;
+  }
+  .workshop-card.is-deleting { opacity: 0.4; pointer-events: none; }
+
   .empty-state {
     padding: 64px 24px; text-align: center;
     border: 1px solid var(--border-soft);
@@ -162,12 +189,16 @@
     </div>
 
     {% if workshops %}
-      <div class="workshops-grid">
+      <div class="workshops-grid" id="workshops-grid">
         {% for w in workshops %}
-          <div class="workshop-card">
+          <div class="workshop-card" data-pid="{{ w.id }}"
+               data-title="{{ (w.title or 'Adsız çalışma')|e }}">
             <div class="wc-head">
               <div class="wc-num">{{ '%02d' % loop.index }}</div>
-              <span class="wc-phase wc-phase--{{ w.phase }}">{{ w.phase_label }}</span>
+              <div class="wc-head-right">
+                <span class="wc-phase wc-phase--{{ w.phase }}">{{ w.phase_label }}</span>
+                <button type="button" class="wc-trash" title="Bu çalışmayı sil" aria-label="Bu çalışmayı sil">🗑</button>
+              </div>
             </div>
             <div class="wc-name">{{ w.title }}</div>
             <div class="wc-meta">
@@ -200,4 +231,69 @@
       </div>
     {% endif %}
   </div>
+
+  {% if workshops %}
+  <script>
+  (function () {
+    // Tek delegated handler — kart sayısı dinamik olsa bile tek bağlama.
+    const grid = document.getElementById('workshops-grid');
+    if (!grid) return;
+
+    // url_for ile üretilen template; proxy (SCRIPT_NAME=/proxy/8080) arkasında
+    // da doğru çalışır — hardcoded path yerine bunu kullan.
+    const DEL_TPL = "{{ url_for('presentations.delete_presentation', pid='__PID__') }}";
+
+    grid.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.wc-trash');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const card = btn.closest('.workshop-card');
+      if (!card || card.classList.contains('is-deleting')) return;
+      const pid = card.dataset.pid;
+      const title = card.dataset.title || 'Adsız çalışma';
+      if (!pid) return;
+
+      const confirmed = window.confirm(
+        `"${title}" çalışmasını kalıcı olarak silmek istediğine emin misin?\n\n` +
+        `Sunum manifest'i + pod-local DuckDB önbelleği diskten silinecek. ` +
+        `Bu işlem geri alınamaz.`
+      );
+      if (!confirmed) return;
+
+      card.classList.add('is-deleting');
+      try {
+        const r = await fetch(DEL_TPL.replace('__PID__', encodeURIComponent(pid)), {
+          method: 'DELETE',
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${r.status}`);
+        }
+        // Kartı animasyonla DOM'dan çıkar.
+        card.style.transition = 'opacity 0.25s, transform 0.25s';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.96)';
+        setTimeout(() => {
+          card.remove();
+          const remaining = grid.querySelectorAll('.workshop-card').length;
+          if (remaining === 0) {
+            // Hiç kart kalmadı → empty-state göster.
+            window.location.reload();
+          } else {
+            // Üst sağdaki sayaç güncelle.
+            const meta = document.querySelector('.workshops-meta');
+            if (meta) meta.textContent = `${remaining} çalışma`;
+          }
+        }, 260);
+      } catch (err) {
+        card.classList.remove('is-deleting');
+        alert(`Silinemedi: ${err.message || err}`);
+      }
+    });
+  })();
+  </script>
+  {% endif %}
 {% endblock %}
