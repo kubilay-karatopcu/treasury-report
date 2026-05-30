@@ -37,7 +37,7 @@ const WIDTH_OPTIONS = [
 ];
 
 const DATA_BOUND_TYPES = new Set([
-  'kpi', 'bar_chart', 'line_chart', 'area_chart',
+  'kpi', 'bar_chart', 'line_chart', 'combo_chart', 'area_chart',
   'pie_chart', 'heatmap', 'radial_bar', 'data_table',
 ]);
 
@@ -116,6 +116,7 @@ export default function PropertiesPanel({ width, onResizeStart }) {
         {block.type === 'kpi'        && <KpiControls block={block} />}
         {block.type === 'bar_chart'  && <BarChartControls block={block} />}
         {block.type === 'line_chart' && <LineChartControls block={block} type="line_chart" />}
+        {block.type === 'combo_chart' && <ComboChartControls block={block} />}
         {block.type === 'area_chart' && <LineChartControls block={block} type="area_chart" />}
         {block.type === 'pie_chart'  && <PieChartControls block={block} />}
         {block.type === 'heatmap'    && <HeatmapControls block={block} />}
@@ -123,8 +124,6 @@ export default function PropertiesPanel({ width, onResizeStart }) {
         {block.type === 'narrative'  && <NarrativeControls block={block} />}
 
         {isDataBound && <ManualSqlEditor block={block} />}
-
-        {isDataBound && <RefreshPolicyControls block={block} />}
 
         <CarouselActions block={block} />
 
@@ -591,6 +590,7 @@ const TYPE_CHANGE_OPTIONS = [
   { value: 'kpi',        label: 'KPI' },
   { value: 'bar_chart',  label: 'Çubuk Grafik' },
   { value: 'line_chart', label: 'Çizgi Grafik' },
+  { value: 'combo_chart', label: 'Combo (Çubuk+Çizgi)' },
   { value: 'area_chart', label: 'Alan Grafiği' },
   { value: 'pie_chart',  label: 'Pasta Grafik' },
   { value: 'heatmap',    label: 'Isı Haritası' },
@@ -872,6 +872,60 @@ function LineChartControls({ block, type }) {
   );
 }
 
+function ComboChartControls({ block }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const series = (block.config && block.config.series) || [];
+  return (
+    <Section title="Combo Grafik Ayarları">
+      {series.length === 0 ? (
+        <div className="props-form-hint">
+          SQL'i çalıştır → seriler gelince her birini Çubuk/Çizgi ve Sol/Sağ eksen
+          olarak ayarla. (1. kolon = kategori, sonraki kolonlar = seriler.)
+        </div>
+      ) : (
+        <>
+          <div className="props-form-hint" style={{ paddingBottom: 4 }}>
+            Her seri için tip ve eksen seç:
+          </div>
+          {series.map((s, i) => (
+            <div key={i} className="combo-series-row"
+                 style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              <span title={s.name || `Seri ${i + 1}`}
+                    style={{ flex: '1 1 0', minWidth: 0, fontSize: 12,
+                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.name || `Seri ${i + 1}`}
+              </span>
+              <select className="props-input props-select" style={{ flex: '0 0 84px' }}
+                value={s.kind === 'line' ? 'line' : 'bar'}
+                onChange={(e) => setBlockField(block.id, `config.series.${i}.kind`, e.target.value)}>
+                <option value="bar">Çubuk</option>
+                <option value="line">Çizgi</option>
+              </select>
+              <select className="props-input props-select" style={{ flex: '0 0 72px' }}
+                value={s.axis === 'right' ? 'right' : 'left'}
+                onChange={(e) => setBlockField(block.id, `config.series.${i}.axis`, e.target.value)}>
+                <option value="left">Sol</option>
+                <option value="right">Sağ</option>
+              </select>
+            </div>
+          ))}
+        </>
+      )}
+      <Row label="Sol eksen başlığı"><TextInput block={block} path="config.left_axis_title" placeholder="örn. Oran (%)" /></Row>
+      <Row label="Sağ eksen başlığı"><TextInput block={block} path="config.right_axis_title" placeholder="örn. Hacim" /></Row>
+      <Row label="Çizgi eğrisi">
+        <SelectInput block={block} path="config.curve" options={[
+          { value: 'smooth', label: 'Yumuşak' },
+          { value: 'straight', label: 'Düz' },
+          { value: 'stepline', label: 'Basamaklı' },
+        ]} />
+      </Row>
+      <Row label="Çizgi noktaları"><ToggleInput block={block} path="config.show_markers" /></Row>
+      <Row label="Çubuk veri etiketleri"><ToggleInput block={block} path="config.show_data_labels" /></Row>
+    </Section>
+  );
+}
+
 function PieChartControls({ block }) {
   return (
     <Section title="Pasta Grafik Ayarları">
@@ -974,6 +1028,15 @@ const SQL_SHAPE_HINTS = {
       { name: 'value(s)', type: 'NUMBER', desc: 'Çizgi seri(leri) — her ek kolon ayrı seri' },
     ],
     example: 'SELECT DATE_COL, SUM(VAL) FROM ... GROUP BY DATE_COL ORDER BY DATE_COL',
+  },
+  combo_chart: {
+    cols: '2+',
+    summary: 'N satır × 2+ kolon → 1. kolon kategori, sonraki kolonlar seriler. Her seriyi properties\'te Çubuk/Çizgi + Sol/Sağ eksen yap.',
+    columns: [
+      { name: 'category', type: 'VARCHAR/DATE', desc: 'Ortak x ekseni (örn. ay). Sıralı gelmeli.' },
+      { name: 'value(s)', type: 'NUMBER', desc: 'Her ek kolon ayrı seri — bar mı çizgi mi olduğunu sen seçersin' },
+    ],
+    example: 'SELECT MONTH, REVENUE, MARGIN_PCT FROM ... GROUP BY MONTH ORDER BY MONTH',
   },
   area_chart: {
     cols: '2+',

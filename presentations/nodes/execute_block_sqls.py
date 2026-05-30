@@ -32,6 +32,7 @@ _DATA_KEYS_BY_TYPE = {
     "line_chart": {"x_axis", "series"},
     "area_chart": {"x_axis", "series"},
     "heatmap":    {"x_axis", "series"},
+    "combo_chart": {"categories", "series"},
     "pie_chart":  {"labels", "values"},
     "data_table": {"columns", "rows"},
 }
@@ -90,6 +91,17 @@ def apply_data_to_config(block: dict, data_source: dict) -> None:
         config["series"] = _build_series(columns, rows, config.get("series"))
         return
 
+    if btype == "combo_chart":
+        # Single query, column-split: col 0 → categories, cols 1..N → series.
+        # Each series keeps its user-set kind (bar/line) + axis (left/right).
+        if not rows:
+            config["categories"] = []
+            _zero_out_series(config)
+            return
+        config["categories"] = [_safe_label(r[0]) for r in rows]
+        config["series"] = _build_combo_series(columns, rows, config.get("series"))
+        return
+
     if btype == "data_table":
         config["columns"] = [{"field": c, "header": c} for c in columns]
         config["rows"] = [
@@ -111,7 +123,7 @@ def _clear_config_for_type(btype: str, config: dict) -> None:
     elif btype == "pie_chart":
         config["labels"] = []
         config["values"] = []
-    elif btype in ("bar_chart", "heatmap"):
+    elif btype in ("bar_chart", "heatmap", "combo_chart"):
         config["categories"] = []
         _zero_out_series(config)
     elif btype in ("line_chart", "area_chart"):
@@ -134,6 +146,30 @@ def _build_series(columns, rows, existing_series):
             if existing_name:
                 name = existing_name
         series.append({"name": name, "values": values})
+    return series
+
+
+def _build_combo_series(columns, rows, existing_series):
+    """Like _build_series, but each series also carries kind (bar/line) + axis
+    (left/right). Roles are preserved by index across re-runs; new series get a
+    sensible default (first series = bar/right, the rest = line/left)."""
+    existing = existing_series if isinstance(existing_series, list) else []
+    series = []
+    for col_idx in range(1, len(columns)):
+        s_idx = col_idx - 1
+        name = columns[col_idx]
+        values = [_safe_number(row[col_idx]) for row in rows]
+        kind = "bar" if s_idx == 0 else "line"
+        axis = "right" if s_idx == 0 else "left"
+        if s_idx < len(existing) and isinstance(existing[s_idx], dict):
+            ex = existing[s_idx]
+            if ex.get("name"):
+                name = ex["name"]
+            if ex.get("kind") in ("bar", "line"):
+                kind = ex["kind"]
+            if ex.get("axis") in ("left", "right"):
+                axis = ex["axis"]
+        series.append({"name": name, "values": values, "kind": kind, "axis": axis})
     return series
 
 

@@ -44,6 +44,23 @@ class LineChartConfig(TypedDict):
     series: list[LineSeries]
 
 
+class ComboSeries(TypedDict):
+    name: str
+    values: list[float]
+    kind: str   # "bar" | "line"
+    axis: str   # "left" | "right"
+
+
+class ComboChartConfig(TypedDict):
+    # Combo (dual-axis) chart — single query, column-split. categories = col 0,
+    # series = cols 1..N (same binding as bar_chart). Each series additionally
+    # carries a user-set kind (bar/line) + axis (left/right).
+    categories: list[str]
+    series: list[ComboSeries]
+    left_axis_title: str
+    right_axis_title: str
+
+
 class NarrativeConfig(TypedDict):
     text: str
 
@@ -54,6 +71,7 @@ LEAF_BLOCK_TYPES = frozenset({
     "kpi", "narrative",
     "bar_chart", "line_chart", "area_chart",
     "pie_chart", "heatmap", "radial_bar",
+    "combo_chart",      # dual-axis bar+line (single query, column-split)
     "data_table",       # AG Grid table block
 })
 
@@ -74,9 +92,12 @@ NO_WIDTH_TYPES = frozenset({"section_header"})
 # Style option values.
 CURVE_VALUES = frozenset({"smooth", "straight", "stepline"})
 LEGEND_POSITIONS = frozenset({"top", "right", "bottom", "left"})
+# Combo chart per-series role + axis side.
+COMBO_SERIES_KINDS = frozenset({"bar", "line"})
+AXIS_SIDES = frozenset({"left", "right"})
 DATA_SOURCE_TYPES = frozenset({
 "kpi", "bar_chart", "line_chart", "area_chart", "pie_chart",
-"heatmap", "radial_bar", "data_table",
+"heatmap", "radial_bar", "combo_chart", "data_table",
 })
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -143,6 +164,29 @@ def _validate_chart_length(block: dict) -> list[str]:
                 errors.append(
                     f"Block {bid!r}: series[{i}].values length ({len(vals)}) "
                     f"!= x_axis length ({len(x)})"
+                )
+
+    elif btype == "combo_chart":
+        cats = config.get("categories", [])
+        errors.extend(_validate_label_array(cats, "categories", bid))
+        for i, s in enumerate(config.get("series", [])):
+            vals = s.get("values", [])
+            if len(vals) != len(cats):
+                errors.append(
+                    f"Block {bid!r}: series[{i}].values length ({len(vals)}) "
+                    f"!= categories length ({len(cats)})"
+                )
+            kind = s.get("kind", "bar")
+            if kind not in COMBO_SERIES_KINDS:
+                errors.append(
+                    f"Block {bid!r}: series[{i}].kind {kind!r} invalid "
+                    f"(allowed: {sorted(COMBO_SERIES_KINDS)})"
+                )
+            axis = s.get("axis", "left")
+            if axis not in AXIS_SIDES:
+                errors.append(
+                    f"Block {bid!r}: series[{i}].axis {axis!r} invalid "
+                    f"(allowed: {sorted(AXIS_SIDES)})"
                 )
 
     return errors
@@ -265,7 +309,7 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
         if "value" in config and not isinstance(config["value"], (int, float)):
             errors.append(f"Block {bid!r}: kpi.value must be numeric")
 
-    elif btype in ("bar_chart", "line_chart", "area_chart", "heatmap"):
+    elif btype in ("bar_chart", "line_chart", "area_chart", "heatmap", "combo_chart"):
         errors.extend(_validate_chart_length(block))
         errors.extend(_validate_chart_style(block))
 
