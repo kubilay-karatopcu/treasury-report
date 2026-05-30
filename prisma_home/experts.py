@@ -20,12 +20,16 @@ arrives in Phase 10C.
 """
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Protocol
 
 import yaml
+
+
+log = logging.getLogger(__name__)
 
 
 # ── Dataclass ────────────────────────────────────────────────────────────────
@@ -74,6 +78,7 @@ class ExpertStore(Protocol):
     def list_for_user(self, user) -> list[Expert]: ...
     def exists(self, expert_id: str) -> bool: ...
     def save(self, expert) -> Expert: ...
+    def delete(self, expert_id: str) -> bool: ...
 
 
 def _serialize_expert(expert) -> tuple[str, dict, bytes]:
@@ -168,6 +173,16 @@ class LocalExpertStore:
         self._cache[eid] = exp
         return exp
 
+    def delete(self, expert_id: str) -> bool:
+        """Remove ``<id>.yaml`` and drop it from the cache. Idempotent."""
+        self._ensure_loaded()
+        p = self.base_dir / f"{expert_id}.yaml"
+        existed = p.exists()
+        if existed:
+            p.unlink()
+        self._cache.pop(expert_id, None)
+        return existed
+
 
 # ── S3-backed store (prod parity) ────────────────────────────────────────────
 
@@ -242,3 +257,14 @@ class S3ExpertStore:
         self._dc._upload_bytes(self._key(eid), body, content_type="application/x-yaml")
         self._ensure_loaded(force=True)
         return self._cache.get(eid) or Expert.from_dict(data)
+
+    def delete(self, expert_id: str) -> bool:
+        """Delete the expert's S3 object + refresh the cache. Idempotent."""
+        existed = self.exists(expert_id)
+        try:
+            self._dc.delete_file(self._key(expert_id))
+        except Exception:
+            log.warning("S3ExpertStore: delete failed for %s", expert_id, exc_info=True)
+            return False
+        self._ensure_loaded(force=True)
+        return existed

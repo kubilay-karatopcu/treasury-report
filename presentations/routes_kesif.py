@@ -572,6 +572,27 @@ def konsept_create():
     return _json({"ok": True, "id": cid, "scope": scope})
 
 
+@presentations_bp.route("/atolye/konseptler/concept/<concept_id>", methods=["DELETE"])
+@login_required
+def konsept_delete(concept_id: str):
+    """Delete a concept from its scope file. Any column bindings that referenced
+    it become concept-blind (harmless) — remove them per-table from the binding
+    list if you want a clean slate."""
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    if registry is None:
+        return _json({"ok": False, "error": "Concept registry yapılandırılmamış."}, status=400)
+    if not registry.has(concept_id):
+        return _json({"ok": False, "error": "Concept bulunamadı."}, status=404)
+    try:
+        ok = registry.delete_concept(concept_id)
+    except Exception as exc:
+        log.exception("konsept_delete failed for %s", concept_id)
+        return _json({"ok": False, "error": f"Silinemedi: {exc}"}, status=500)
+    if not ok:
+        return _json({"ok": False, "error": "Concept scope dosyasında bulunamadı."}, status=404)
+    return _json({"ok": True, "id": concept_id})
+
+
 @presentations_bp.route("/atolye/sablonlar")
 @login_required
 def atolye_sablonlar():

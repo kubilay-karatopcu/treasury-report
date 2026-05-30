@@ -255,6 +255,22 @@ def tablo_save(schema: str, table: str):
     })
 
 
+@presentations_bp.route("/atolye/tablolar/<schema>/<table>", methods=["DELETE"])
+@login_required
+def tablo_delete(schema: str, table: str):
+    """Delete a table's documentation (TableDoc). Concept bindings live in a
+    separate catalog and are left intact — remove them from Konseptler if
+    needed. Returns 404 when the table was never documented."""
+    try:
+        ok = _table_store().delete(schema, table)
+    except Exception as exc:
+        log.exception("tablo_delete failed for %s.%s", schema, table)
+        return _json({"ok": False, "error": f"Silinemedi: {exc}"}, status=500)
+    if not ok:
+        return _json({"ok": False, "error": "Dokümante tablo bulunamadı."}, status=404)
+    return _json({"ok": True, "schema": schema, "table": table})
+
+
 def _humanize_validation_error(exc: Exception) -> list[str]:
     """Convert a pydantic.ValidationError (or any other exception) into a
     short list of Turkish, user-friendly messages — strip the
@@ -581,6 +597,44 @@ def uzman_save(expert_id: str):
         "id": rebuilt.id,
         "version": rebuilt.version,
     })
+
+
+@presentations_bp.route("/atolye/uzmanlar/<expert_id>", methods=["DELETE"])
+@login_required
+def uzman_delete(expert_id: str):
+    """Delete an expert. Edit-scope gated exactly like uzman_save. Cleans up
+    the reverse links so deleted experts stop appearing in snapshot citations."""
+    store = _expert_store()
+    existing = store.load(expert_id.lower())
+    if existing is None:
+        return _json({"ok": False, "error": "Uzman bulunamadı."}, status=404)
+
+    dept = getattr(current_user, "department", None) or ""
+    edit_scope = existing.access_scope.get("edit") or []
+    if "*" not in edit_scope and dept not in edit_scope:
+        return _json({"ok": False, "error": "Bu uzmanı silme yetkin yok."}, status=403)
+
+    if not hasattr(store, "delete"):
+        return _json({"ok": False, "error": "EXPERT_STORE bu ortamda salt-okunur."}, status=400)
+
+    # Reverse-link cleanup: drop this expert from every snapshot it cited so
+    # the landing / briefing engine no longer references a dead expert.
+    try:
+        _sync_expert_to_snapshot_links(
+            expert_id=existing.id,
+            old_snapshot_ids=(existing.bound_content or {}).get("snapshots") or [],
+            new_snapshot_ids=[],
+        )
+    except Exception:
+        log.warning("uzman_delete: snapshot unlink failed for %s", expert_id, exc_info=True)
+
+    try:
+        ok = store.delete(expert_id.lower())
+    except Exception as exc:
+        log.exception("uzman_delete: store.delete failed for %s", expert_id)
+        return _json({"ok": False, "error": f"Silinemedi: {exc}"}, status=502)
+
+    return _json({"ok": ok, "id": expert_id.lower()})
 
 
 def _sync_expert_to_snapshot_links(

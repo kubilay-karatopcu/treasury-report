@@ -77,6 +77,7 @@ class TableDocStore(Protocol):
     def list_tables(self, schema: str | None = None) -> list[tuple[str, str]]: ...
     def list_all_docs(self) -> list[TableDoc]: ...
     def exists(self, schema: str, table: str) -> bool: ...
+    def delete(self, schema: str, table: str) -> bool: ...
 
 
 # ── Serialisation ─────────────────────────────────────────────────────────
@@ -132,6 +133,17 @@ class LocalTableDocStore:
         log.info("local table doc saved: %s.%s", doc.schema_name, doc.table)
         return doc
 
+    def delete(self, schema: str, table: str) -> bool:
+        try:
+            p = self._path(schema, table)
+        except TableDocStoreError:
+            return False
+        if not p.exists():
+            return False
+        p.unlink()
+        log.info("local table doc deleted: %s.%s", schema, table)
+        return True
+
     def list_tables(self, schema: str | None = None) -> list[tuple[str, str]]:
         results: list[tuple[str, str]] = []
         if not self.base_dir.exists():
@@ -186,6 +198,13 @@ class S3TableDocStore:
         self.dc._upload_bytes(key, _serialise(doc), content_type="application/x-yaml")
         log.info("s3 table doc saved: %s.%s", doc.schema_name, doc.table)
         return doc
+
+    def delete(self, schema: str, table: str) -> bool:
+        if not self.exists(schema, table):
+            return False
+        self.dc.delete_file(table_key(schema, table))
+        log.info("s3 table doc deleted: %s.%s", schema, table)
+        return True
 
     def list_tables(self, schema: str | None = None) -> list[tuple[str, str]]:
         prefix = f"{S3_PREFIX}/" + (f"{schema}/" if schema else "")
@@ -246,6 +265,11 @@ class CachedTableDocStore:
         saved = self._inner.save(doc)
         self._cache[(saved.schema_name, saved.table)] = saved
         return saved
+
+    def delete(self, schema: str, table: str) -> bool:
+        ok = self._inner.delete(schema, table)
+        self._cache.pop((schema, table), None)
+        return ok
 
     def list_tables(self, schema: str | None = None) -> list[tuple[str, str]]:
         return self._inner.list_tables(schema)

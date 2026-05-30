@@ -167,6 +167,30 @@ class ConceptRegistry:
         return len(self._by_id)
 
 
+def _delete_concept_from_file(registry, concept_id: str) -> bool:
+    """Remove one concept from its scope file via a registry's get_file_raw +
+    save_file. Shared by Cached/S3 registries. Scope → filename: global→global,
+    user→user, dept:X→X. Returns False if the concept or its file is absent."""
+    c = registry.get(concept_id)
+    if c is None:
+        return False
+    scope = c.scope or "global"
+    fname = scope[5:] if scope.startswith("dept:") else scope
+    raw = registry.get_file_raw(fname)
+    if not isinstance(raw, dict):
+        return False
+    concepts = raw.get("concepts")
+    if not isinstance(concepts, list):
+        return False
+    kept = [x for x in concepts
+            if not (isinstance(x, dict) and x.get("id") == concept_id)]
+    if len(kept) == len(concepts):
+        return False
+    raw["concepts"] = kept
+    registry.save_file(fname, raw)
+    return True
+
+
 class CachedConceptRegistry:
     """Directory-backed registry that hot-reloads on file change.
 
@@ -253,6 +277,9 @@ class CachedConceptRegistry:
         with self._lock:
             self._last_check = time.monotonic()
             self._load()
+
+    def delete_concept(self, concept_id: str) -> bool:
+        return _delete_concept_from_file(self, concept_id)
 
     # ── delegated read API ────────────────────────────────────────────────
 
@@ -379,6 +406,9 @@ class S3ConceptRegistry:
         except Exception:
             return None
         return raw if isinstance(raw, dict) else None
+
+    def delete_concept(self, concept_id: str) -> bool:
+        return _delete_concept_from_file(self, concept_id)
 
     # ── delegated read API (mirrors ConceptRegistry) ──────────────────────
     def get(self, concept_id: str) -> Concept | None:
