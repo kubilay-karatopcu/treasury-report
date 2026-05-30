@@ -80,6 +80,8 @@ export default function BlockCard({ block }) {
   const moveBlock        = useStore((s) => s.moveBlock);
   // Phase 7 — concept compilation outcome for this block (after Güncelle).
   const conceptInfo      = useStore((s) => s.conceptStatus?.[block.id]);
+  // Phase B — library cache freshness (only set when served via shared cache).
+  const freshnessInfo    = useStore((s) => s.freshnessStatus?.[block.id]);
   // Move bounds — manifest değiştikçe yeniden hesaplanır
   const moveBounds = useStore((s) => {
     if (!s.manifest) return { canUp: false, canDown: false };
@@ -220,6 +222,36 @@ export default function BlockCard({ block }) {
               filtre uygulanmadı: {conceptInfo.blind.join(', ')}
             </span>
           )}
+          {freshnessInfo && (
+            <span
+              className={`block-freshness-pill is-${freshnessInfo.freshness || 'unknown'}${freshnessInfo.refreshing ? ' is-refreshing' : ''}`}
+              title={(() => {
+                const ago = freshnessInfo.ageSeconds;
+                let agoStr = '?';
+                if (typeof ago === 'number') {
+                  if (ago < 60) agoStr = `${Math.round(ago)} sn önce`;
+                  else if (ago < 3600) agoStr = `${Math.round(ago / 60)} dk önce`;
+                  else agoStr = `${(ago / 3600).toFixed(1)} sa önce`;
+                }
+                const head = freshnessInfo.freshness === 'fresh'
+                  ? 'Veri taze'
+                  : freshnessInfo.freshness === 'stale'
+                  ? 'Veri bayat (eski sonuç gösteriliyor)'
+                  : 'Veri eski';
+                const refreshNote = freshnessInfo.refreshing
+                  ? '\nArka planda yeni veri çekiliyor…'
+                  : '';
+                return `${head} · ${agoStr}\nKütüphane önbelleği${refreshNote}`;
+              })()}
+            >
+              <span className="block-freshness-dot" />
+              {freshnessInfo.freshness === 'fresh'
+                ? 'taze'
+                : freshnessInfo.freshness === 'stale'
+                ? (freshnessInfo.refreshing ? 'yenileniyor' : 'bayat')
+                : 'eski'}
+            </span>
+          )}
           <span className="block-strip-spacer" />
 
           {isSelected && layoutEditMode && !isPresentation && !isSnapshot && (
@@ -255,6 +287,10 @@ export default function BlockCard({ block }) {
               <Eye size={12} strokeWidth={1.8} />
             </button>
           )}
+
+          {/* Manual refresh button removed by request — kullanıcılar arayüzden
+              query çalıştıramazlar. Veri tazeliği refresh_policy ile yönetilir
+              (lazy_ttl, scheduled). */}
 
           <button
             type="button"

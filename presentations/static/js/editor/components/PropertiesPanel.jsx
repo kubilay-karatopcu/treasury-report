@@ -124,6 +124,8 @@ export default function PropertiesPanel({ width, onResizeStart }) {
 
         {isDataBound && <ManualSqlEditor block={block} />}
 
+        {isDataBound && <RefreshPolicyControls block={block} />}
+
         <CarouselActions block={block} />
 
         {!isSection && <SaveToLibrarySection block={block} />}
@@ -277,6 +279,221 @@ function SaveToLibrarySection({ block }) {
         <span>Şablon Olarak Kaydet</span>
       </button>
     </Section>
+  );
+}
+
+
+/* ── Refresh policy ──────────────────────────────────────────────────────
+   Three-kind picker + sub-form. Mutates block.refresh_policy via
+   setBlockField; backend Block schema validates on save. */
+
+const RP_DAYS = [
+  { code: 'MON', short: 'Pzt' }, { code: 'TUE', short: 'Sal' },
+  { code: 'WED', short: 'Çar' }, { code: 'THU', short: 'Per' },
+  { code: 'FRI', short: 'Cum' }, { code: 'SAT', short: 'Cmt' },
+  { code: 'SUN', short: 'Paz' },
+];
+
+export function RefreshPolicyControls({ block }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const rp = block.refresh_policy || null;
+  const kind = rp?.kind || 'on_open';
+  const isScheduled = kind === 'scheduled';
+  const isLazy = kind === 'lazy_ttl';
+  const usingInterval = isScheduled && typeof rp?.interval_seconds === 'number';
+
+  function setPolicy(next) {
+    if (next == null || next.kind === 'on_open') {
+      setBlockField(block.id, 'refresh_policy', null);
+      return;
+    }
+    setBlockField(block.id, 'refresh_policy', next);
+  }
+
+  function setKind(newKind) {
+    if (newKind === 'on_open') { setPolicy(null); return; }
+    const base = {
+      kind: newKind,
+      fresh_for_seconds: rp?.fresh_for_seconds ?? 600,
+      serve_stale: rp?.serve_stale !== false,
+      max_age_seconds: rp?.max_age_seconds ?? 86400,
+    };
+    if (newKind === 'scheduled') {
+      // Default to a single 09:00 weekday schedule.
+      base.schedule = rp?.schedule || {
+        times: ['09:00'],
+        days: ['MON','TUE','WED','THU','FRI'],
+        timezone: 'Europe/Istanbul',
+      };
+    }
+    setPolicy(base);
+  }
+
+  return (
+    <Section title="Veri Yenileme Politikası">
+      <div className="props-form-hint" style={{ paddingBottom: 6 }}>
+        Bu blok hangi sıklıkta tazelensin? Kütüphane önbelleğine yazılır,
+        tüm görüntüleyiciler paylaşır.
+      </div>
+
+      <div className="rp-kinds">
+        <RpKindOption checked={kind === 'on_open'} onChange={() => setKind('on_open')}
+          title="on_open"
+          desc="Önbellek yok. Her açılışta yeniden çalışır." />
+        <RpKindOption checked={isLazy} onChange={() => setKind('lazy_ttl')}
+          title="lazy_ttl"
+          desc="İlk açan çeker, TTL boyunca herkes hızlı görür. Bayatsa eski sonuç + arka planda yenilenir." />
+        <RpKindOption checked={isScheduled} onChange={() => setKind('scheduled')}
+          title="scheduled"
+          desc="Kimse açmasa da arkada belirli saatlerde tazelenir. Uzun sorgular için ideal." />
+      </div>
+
+      {isLazy && (
+        <div className="rp-sub">
+          <Row label="Tazelik süresi (sn)">
+            <input type="number" className="props-input props-input--num"
+              min={10} max={86400}
+              value={rp.fresh_for_seconds || 600}
+              onChange={(e) => setPolicy({ ...rp, fresh_for_seconds: Number(e.target.value) || 600 })} />
+          </Row>
+          <Row label="Max bayatlık (sn)">
+            <input type="number" className="props-input props-input--num"
+              min={60} max={2592000}
+              value={rp.max_age_seconds || 86400}
+              onChange={(e) => setPolicy({ ...rp, max_age_seconds: Number(e.target.value) || 86400 })} />
+          </Row>
+          <label className="rp-check">
+            <input type="checkbox"
+              checked={rp.serve_stale !== false}
+              onChange={(e) => setPolicy({ ...rp, serve_stale: e.target.checked })} />
+            Bayat veri göster (serve_stale)
+          </label>
+        </div>
+      )}
+
+      {isScheduled && (
+        <div className="rp-sub">
+          <div className="rp-mode">
+            <button type="button"
+              className={`rp-mode-btn${!usingInterval ? ' is-active' : ''}`}
+              onClick={() => setPolicy({
+                ...rp,
+                interval_seconds: undefined,
+                schedule: rp?.schedule || {
+                  times: ['09:00'],
+                  days: ['MON','TUE','WED','THU','FRI'],
+                  timezone: 'Europe/Istanbul',
+                },
+              })}>
+              Saat tabanlı
+            </button>
+            <button type="button"
+              className={`rp-mode-btn${usingInterval ? ' is-active' : ''}`}
+              onClick={() => setPolicy({
+                ...rp,
+                schedule: undefined,
+                interval_seconds: rp?.interval_seconds || 600,
+              })}>
+              Periyot (sn)
+            </button>
+          </div>
+
+          {usingInterval ? (
+            <Row label="Periyot (sn)" hint="Her N saniyede bir.">
+              <input type="number" className="props-input props-input--num"
+                min={10} max={86400}
+                value={rp.interval_seconds || 600}
+                onChange={(e) => setPolicy({ ...rp, interval_seconds: Number(e.target.value) || 600 })} />
+            </Row>
+          ) : (
+            <RpSchedule rp={rp} onChange={(sched) => setPolicy({ ...rp, schedule: sched })} />
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function RpKindOption({ checked, onChange, title, desc }) {
+  return (
+    <label className={`rp-kind${checked ? ' is-active' : ''}`}>
+      <input type="radio" checked={checked} onChange={onChange} />
+      <div className="rp-kind__body">
+        <div className="rp-kind__title">{title}</div>
+        <div className="rp-kind__desc">{desc}</div>
+      </div>
+    </label>
+  );
+}
+
+function RpSchedule({ rp, onChange }) {
+  const sched = rp?.schedule || {
+    times: ['09:00'],
+    days: ['MON','TUE','WED','THU','FRI'],
+    timezone: 'Europe/Istanbul',
+  };
+  const [newTime, setNewTime] = useState('09:00');
+
+  function addTime() {
+    const m = /^(\d{1,2}):(\d{2})$/.exec((newTime || '').trim());
+    if (!m) return;
+    const h = Number(m[1]), mm = Number(m[2]);
+    if (h < 0 || h > 23 || mm < 0 || mm > 59) return;
+    const canonical = `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+    const set = new Set(sched.times || []);
+    if (set.has(canonical)) return;
+    set.add(canonical);
+    onChange({ ...sched, times: Array.from(set).sort() });
+  }
+  function removeTime(t) {
+    onChange({ ...sched, times: (sched.times || []).filter((x) => x !== t) });
+  }
+  function toggleDay(code) {
+    const set = new Set(sched.days || []);
+    if (set.has(code)) set.delete(code); else set.add(code);
+    // Sort by weekday order.
+    const order = RP_DAYS.map((d) => d.code);
+    onChange({
+      ...sched,
+      days: order.filter((d) => set.has(d)),
+    });
+  }
+
+  return (
+    <>
+      <Row label="Tetik saatleri (HH:MM)" hint="Birden fazla saat ekleyebilirsin.">
+        <div className="rp-times">
+          {(sched.times || []).map((t) => (
+            <span key={t} className="rp-time-pill">
+              {t}<button type="button" onClick={() => removeTime(t)} aria-label="Sil">×</button>
+            </span>
+          ))}
+        </div>
+        <div className="rp-add-time">
+          <input type="time" className="props-input"
+            value={newTime} onChange={(e) => setNewTime(e.target.value)} />
+          <button type="button" className="rp-add-time-btn" onClick={addTime}>+ Ekle</button>
+        </div>
+      </Row>
+      <Row label="Aktif günler">
+        <div className="rp-days">
+          {RP_DAYS.map((d) => {
+            const on = (sched.days || []).includes(d.code);
+            return (
+              <label key={d.code} className={`rp-day${on ? ' is-on' : ''}`}>
+                <input type="checkbox" checked={on} onChange={() => toggleDay(d.code)} />
+                {d.short}
+              </label>
+            );
+          })}
+        </div>
+      </Row>
+      <Row label="Zaman dilimi" hint="IANA timezone (Europe/Istanbul, UTC, …).">
+        <input type="text" className="props-input"
+          value={sched.timezone || 'Europe/Istanbul'}
+          onChange={(e) => onChange({ ...sched, timezone: e.target.value })} />
+      </Row>
+    </>
   );
 }
 
