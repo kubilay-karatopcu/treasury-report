@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from presentations.concepts.registry import _load_yaml  # bool-safe YAML loader
@@ -209,6 +210,116 @@ class CachedBindingCatalog:
             self._load()
 
     # Delegated read API.
+    def get_doc(self, schema: str, table: str):
+        return self.snapshot.get_doc(schema, table)
+
+    def primary_time_concept(self, schema: str, table: str):
+        return self.snapshot.primary_time_concept(schema, table)
+
+    def get_bindings(self, schema: str, table: str, *, verified_only: bool = True):
+        return self.snapshot.get_bindings(schema, table, verified_only=verified_only)
+
+    def get_binding(self, schema: str, table: str, concept: str, *, verified_only: bool = True):
+        return self.snapshot.get_binding(schema, table, concept, verified_only=verified_only)
+
+    def all_keys(self):
+        return self.snapshot.all_keys()
+
+    def __len__(self) -> int:
+        return len(self.snapshot)
+
+
+class S3BindingCatalog:
+    """S3-backed column-binding catalog (prod parity).
+
+    One binding doc per table under ``<prefix>/<SCHEMA>/<TABLE>.yaml``. TTL
+    cache + invalidate on :meth:`save_doc`. Seeds from a git ``fixtures_dir``
+    (``presentations/catalog/tables``) on first boot if S3 is empty, so the
+    curated human-verified bindings ship to prod without a manual migration.
+    """
+
+    def __init__(self, dc, *, prefix: str = "prisma-treasury/concept-bindings",
+                 fixtures_dir: str | Path | None = None, ttl_seconds: int = 30):
+        self._dc = dc
+        self._prefix = prefix.rstrip("/")
+        self._ttl = max(0, int(ttl_seconds))
+        self._lock = threading.Lock()
+        self._loaded_at: float | None = None
+        self._snapshot = BindingCatalog.empty()
+        if fixtures_dir is not None:
+            self._seed_if_empty(Path(fixtures_dir))
+        self._load()
+
+    def _key(self, schema: str, table: str) -> str:
+        return f"{self._prefix}/{schema}/{table}.yaml"
+
+    def _list_keys(self) -> list[str]:
+        try:
+            keys = self._dc.list_prefix(f"{self._prefix}/") or []
+        except Exception:
+            log.warning("S3BindingCatalog: list_prefix failed", exc_info=True)
+            return []
+        return [str(k) for k in keys if str(k).endswith(".yaml")]
+
+    def _seed_if_empty(self, fixtures_dir: Path) -> None:
+        if self._list_keys() or not fixtures_dir.exists():
+            return
+        n = 0
+        for p in sorted(fixtures_dir.rglob("*.yaml")):
+            rel = p.relative_to(fixtures_dir).as_posix()
+            try:
+                self._dc._upload_bytes(f"{self._prefix}/{rel}", p.read_bytes(),
+                                       content_type="application/x-yaml")
+                n += 1
+            except Exception:
+                log.warning("S3BindingCatalog seed failed for %s", p, exc_info=True)
+        if n:
+            log.info("S3BindingCatalog seeded %d binding doc(s) from %s", n, fixtures_dir)
+
+    def _load(self) -> None:
+        docs: list[dict] = []
+        for key in self._list_keys():
+            try:
+                raw = _load_yaml(self._dc.read_bytes(key).decode("utf-8"))
+            except Exception:
+                log.error("S3BindingCatalog: parse failed for %s", key, exc_info=True)
+                continue
+            if isinstance(raw, dict) and "table" in raw:
+                docs.append(raw)
+        self._snapshot = BindingCatalog.from_dicts(docs)
+        self._loaded_at = time.monotonic()
+        log.info("S3BindingCatalog loaded: %d table(s) from s3://%s",
+                 len(self._snapshot), self._prefix)
+
+    def _maybe_reload(self) -> None:
+        if self._loaded_at is not None and (time.monotonic() - self._loaded_at) < self._ttl:
+            return
+        with self._lock:
+            if self._loaded_at is not None and (time.monotonic() - self._loaded_at) < self._ttl:
+                return
+            try:
+                self._load()
+            except Exception:
+                log.exception("S3BindingCatalog reload failed; keeping previous snapshot")
+
+    @property
+    def snapshot(self) -> BindingCatalog:
+        self._maybe_reload()
+        return self._snapshot
+
+    def reload(self) -> None:
+        with self._lock:
+            self._load()
+
+    def save_doc(self, schema: str, table: str, raw_dict: dict) -> None:
+        """Persist a table's binding doc YAML to S3 and reload."""
+        body = yaml.safe_dump(raw_dict, allow_unicode=True, sort_keys=False,
+                              default_flow_style=False).encode("utf-8")
+        self._dc._upload_bytes(self._key(schema, table), body, content_type="application/x-yaml")
+        with self._lock:
+            self._load()
+
+    # ── delegated read API (mirrors BindingCatalog) ───────────────────────
     def get_doc(self, schema: str, table: str):
         return self.snapshot.get_doc(schema, table)
 
