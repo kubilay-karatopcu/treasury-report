@@ -233,6 +233,114 @@ class Visualization(BaseModel):
 
 # ── Block (root) ──────────────────────────────────────────────────────────
 
+_DAY_CODES = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+DayCode = Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+
+class RefreshSchedule(BaseModel):
+    """Phase B+ — Time-of-day scheduling for ``refresh_policy.kind=scheduled``.
+
+    The scheduler fires at each ``HH:MM`` in ``times`` on every weekday in
+    ``days`` (in the given ``timezone``). Cache age vs. the most-recent
+    target time decides whether to enqueue a refetch — so a missed tick
+    (app restart) is caught on the next poll.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    times: list[str] = Field(min_length=1, max_length=24)
+    days: list[DayCode] = Field(
+        default_factory=lambda: list(_DAY_CODES),
+        min_length=1, max_length=7,
+    )
+    timezone: str = "Europe/Istanbul"
+
+    @field_validator("times")
+    @classmethod
+    def _check_times(cls, v: list[str]) -> list[str]:
+        """Normalise to ``HH:MM`` (zero-padded). Accept ``9:00`` or ``09:00``."""
+        seen: set[str] = set()
+        out: list[str] = []
+        for t in v:
+            s = (t or "").strip()
+            if not s or ":" not in s:
+                raise ValueError(f"times entry must be HH:MM, got {t!r}")
+            hpart, _, mpart = s.partition(":")
+            try:
+                hh = int(hpart); mm = int(mpart)
+            except ValueError:
+                raise ValueError(f"times entry not numeric: {t!r}")
+            if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                raise ValueError(f"times out of range: {t!r}")
+            canonical = f"{hh:02d}:{mm:02d}"
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            out.append(canonical)
+        out.sort()
+        return out
+
+    @field_validator("days")
+    @classmethod
+    def _dedup_days(cls, v: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for d in v:
+            if d not in _DAY_CODES:
+                raise ValueError(f"days entry not a valid weekday code: {d!r}")
+            if d not in seen:
+                seen.add(d); out.append(d)
+        # Sort by weekday order, not alphabetically.
+        return sorted(out, key=lambda d: _DAY_CODES.index(d))
+
+
+class RefreshPolicy(BaseModel):
+    """Phase B — Library block read-side cache policy.
+
+    Default ``kind="on_open"`` preserves pre-Phase-B behaviour: every render
+    re-runs the SQL (no shared cache). Setting ``kind="lazy_ttl"`` opts the
+    block into the per-library-block shared cache with serve-stale semantics:
+
+      * fresh hit  → returned immediately, no fetch
+      * stale hit  → returned immediately (if ``serve_stale``) AND a background
+                     refetch is enqueued; next view sees the new data
+      * miss       → synchronous fetch, write to cache, return
+
+    ``max_age_seconds`` is the hard ceiling for serve-stale: a hit older than
+    this is treated as a miss (sync fetch) regardless of ``serve_stale``.
+
+    For ``kind="scheduled"`` either ``interval_seconds`` (every N seconds) or
+    ``schedule`` (time-of-day list per weekday) drives the warm-cache
+    background refetch. The two are mutually exclusive at validation time.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["on_open", "lazy_ttl", "scheduled", "manual"] = "on_open"
+    fresh_for_seconds: int = Field(default=600, ge=10, le=86_400)
+    serve_stale: bool = True
+    max_age_seconds: int | None = Field(default=86_400, ge=60, le=30 * 86_400)
+    # Scheduled-only — exactly ONE of these may be set.
+    interval_seconds: int | None = Field(default=None, ge=10, le=86_400)
+    schedule: RefreshSchedule | None = None
+
+    @model_validator(mode="after")
+    def _check_schedule_xor(self) -> "RefreshPolicy":
+        if self.kind == "scheduled":
+            has_int = self.interval_seconds is not None
+            has_sched = self.schedule is not None
+            if has_int and has_sched:
+                raise ValueError(
+                    "refresh_policy.scheduled: pick one of "
+                    "interval_seconds OR schedule, not both"
+                )
+            if not (has_int or has_sched):
+                # Default to a daily 09:00 warm if user picked scheduled but
+                # didn't fill the form — better than silently doing nothing.
+                self.schedule = RefreshSchedule(times=["09:00"])
+        return self
+
+
 class Block(BaseModel):
     """The root block object.
 
@@ -259,6 +367,9 @@ class Block(BaseModel):
     query: str = Field(min_length=1)
     variables: list[Variable] = Field(default_factory=list)
     visualization: Visualization
+
+    # Phase B — opt-in shared cache for library blocks; default keeps pre-B behaviour.
+    refresh_policy: RefreshPolicy | None = None
 
     @field_validator("tags")
     @classmethod
