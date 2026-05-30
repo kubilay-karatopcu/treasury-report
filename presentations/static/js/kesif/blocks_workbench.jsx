@@ -157,7 +157,11 @@ export function useBlocksState({ libraryListUrl, libraryPreviewTemplate }) {
     !!debouncedSearch;
 
   const previewUrl = useCallback(
-    (bid) => libraryPreviewTemplate ? libraryPreviewTemplate.replace("{bid}", bid) : "#",
+    (team, bid) => libraryPreviewTemplate
+      ? libraryPreviewTemplate
+          .replace("{team}", encodeURIComponent(team || ""))
+          .replace("{bid}", encodeURIComponent(bid || ""))
+      : "#",
     [libraryPreviewTemplate],
   );
 
@@ -521,7 +525,7 @@ function BottomPanel({ block, onClose, previewUrl, inBasket, onAddToBasket, bask
         <div className="bloklar-bottom__preview">
           <iframe
             className="bloklar-bottom__iframe"
-            src={previewUrl(bid)}
+            src={previewUrl(team, bid)}
             title={`${block.name} önizleme`}
           />
         </div>
@@ -570,7 +574,7 @@ function BottomPanel({ block, onClose, previewUrl, inBasket, onAddToBasket, bask
               {inBasket ? "Sepette" : (basketBusy ? "Ekleniyor…" : "Sepete ekle")}
             </button>
             <a
-              href={previewUrl(bid)}
+              href={previewUrl(team, bid)}
               target="_blank"
               rel="noopener noreferrer"
               className="kesif-btn"

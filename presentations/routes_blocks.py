@@ -321,6 +321,26 @@ def api_list_blocks():
     return _json([s.to_dict() for s in items])
 
 
+@presentations_bp.route("/blocks/api/<team>/<block_id>", methods=["DELETE"])
+@login_required
+def blok_delete(team: str, block_id: str):
+    """Soft-delete a block (sets ``deprecated: true`` on the latest version).
+    Edit-scope gated like block save — a user may only delete under their own
+    team. Deprecated blocks drop out of the default listing."""
+    denied = _block_write_denied(team)
+    if denied is not None:
+        return denied
+    store = _store()
+    try:
+        block = store.soft_delete(team, block_id)
+    except BlockNotFoundError:
+        return _json({"ok": False, "error": f"Blok bulunamadı: {team}/{block_id}"}, status=404)
+    except Exception as exc:
+        log.exception("blok_delete failed for %s/%s", team, block_id)
+        return _json({"ok": False, "error": f"Silinemedi: {exc}"}, status=500)
+    return _json({"ok": True, "team": team, "id": block_id, "version": block.version})
+
+
 @presentations_bp.route("/blocks/api/<team>/<block_id>/versions")
 @login_required
 def api_block_versions(team: str, block_id: str):
