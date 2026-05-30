@@ -227,6 +227,7 @@ const CHILD_BLOCK_TYPES = [
   { type: 'kpi',        label: 'KPI' },
   { type: 'bar_chart',  label: 'Çubuk' },
   { type: 'line_chart', label: 'Çizgi' },
+  { type: 'combo_chart', label: 'Combo (Çubuk+Çizgi)' },
   { type: 'area_chart', label: 'Alan' },
   { type: 'pie_chart',  label: 'Pasta' },
   { type: 'heatmap',    label: 'Isı Haritası' },

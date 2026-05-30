@@ -10,6 +10,7 @@ import SectionHeader  from '../blocks/SectionHeader.jsx';
 import KpiBlock       from '../blocks/KpiBlock.jsx';
 import BarChart       from '../blocks/BarChart.jsx';
 import LineChart      from '../blocks/LineChart.jsx';
+import ComboChart     from '../blocks/ComboChart.jsx';
 import AreaChart      from '../blocks/AreaChart.jsx';
 import PieChart       from '../blocks/PieChart.jsx';
 import Heatmap        from '../blocks/Heatmap.jsx';
@@ -23,6 +24,7 @@ const BLOCK_MAP = {
   kpi:            KpiBlock,
   bar_chart:      BarChart,
   line_chart:     LineChart,
+  combo_chart:    ComboChart,
   area_chart:     AreaChart,
   pie_chart:      PieChart,
   heatmap:        Heatmap,
@@ -36,6 +38,7 @@ const TYPE_LABELS = {
   kpi:         'KPI',
   bar_chart:   'Bar Chart',
   line_chart:  'Line Chart',
+  combo_chart: 'Combo (Bar+Line)',
   area_chart:  'Area Chart',
   pie_chart:   'Pie Chart',
   heatmap:     'Heatmap',
@@ -46,7 +49,7 @@ const TYPE_LABELS = {
 
 // Blocks that can have a data_source and thus a "Kaynakça" / "Tazele" button.
 const DATA_BACKED_TYPES = new Set([
-  'kpi', 'bar_chart', 'line_chart', 'area_chart',
+  'kpi', 'bar_chart', 'line_chart', 'combo_chart', 'area_chart',
   'pie_chart', 'heatmap', 'radial_bar', 'data_table',
 ]);
 
@@ -56,6 +59,7 @@ function TypeIcon({ type }) {
     case 'kpi':        return <TrendingUp {...iconProps} />;
     case 'bar_chart':  return <BarChart3  {...iconProps} />;
     case 'line_chart': return <TrendingUp {...iconProps} />;
+    case 'combo_chart': return <BarChart3 {...iconProps} />;
     case 'area_chart': return <Activity   {...iconProps} />;
     case 'pie_chart':  return <PieIcon    {...iconProps} />;
     case 'heatmap':    return <Grid3x3    {...iconProps} />;

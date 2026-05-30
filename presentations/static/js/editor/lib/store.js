@@ -206,6 +206,11 @@ function _emptyBlockTemplate(id, type) {
     case 'area_chart':
       return { ...base, data_source: { original_sql: '' },
                config: { x_axis: [], series: [{ name: 'Seri 1', values: [] }] } };
+    case 'combo_chart':
+      // Combo: single query → [kategori, deger1, deger2, …]. Series + roles
+      // (kind/axis) are populated on run by the backend; empty until then.
+      return { ...base, data_source: { original_sql: '' },
+               config: { categories: [], series: [], left_axis_title: '', right_axis_title: '' } };
     case 'pie_chart':
       return { ...base, data_source: { original_sql: '' },
                config: { labels: [], values: [] } };
@@ -232,6 +237,7 @@ function _defaultTitle(type) {
     kpi:         'Yeni KPI',
     bar_chart:   'Yeni Çubuk Grafik',
     line_chart:  'Yeni Çizgi Grafik',
+    combo_chart: 'Yeni Combo Grafik',
     area_chart:  'Yeni Alan Grafiği',
     pie_chart:   'Yeni Pasta Grafik',
     heatmap:     'Yeni Isı Haritası',
@@ -931,7 +937,10 @@ const useStore = create((set) => ({
         let node = next;
         for (let i = 0; i < segments.length - 1; i++) {
           const seg = segments[i];
-          node[seg] = { ...(node[seg] || {}) };
+          // Clone arrays as arrays (not objects) so index paths like
+          // config.series.0.kind don't turn `series` into a plain object
+          // and break `.map()` in the renderer.
+          node[seg] = Array.isArray(node[seg]) ? [...node[seg]] : { ...(node[seg] || {}) };
           node = node[seg];
         }
         const last = segments[segments.length - 1];
