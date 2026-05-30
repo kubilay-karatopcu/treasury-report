@@ -1,0 +1,540 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Kütüphane · Konseptler" %}
+{% set sidebar_active = "konseptler" %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}Atölye / Konseptler — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  .konseptler-page { padding: 28px 28px 80px; }
+  .konseptler-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 30px; gap: 32px;
+  }
+  .konseptler-head h2 {
+    font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+    color: var(--ink); margin: 0 0 6px;
+  }
+  .konseptler-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 14px;
+  }
+  .konseptler-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 14px; color: var(--ink-mute); line-height: 1.55; max-width: 600px;
+  }
+  .konseptler-meta {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em; white-space: nowrap; text-align: right;
+  }
+  .btn-new-concept {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--gold);
+    border: 1px solid var(--gold); background: transparent;
+    padding: 9px 16px; cursor: pointer; transition: all 0.18s; white-space: nowrap;
+  }
+  .btn-new-concept:hover { background: var(--gold); color: var(--bg-0); }
+
+  /* Scope divider */
+  .scope-divider {
+    display: flex; align-items: center; gap: 18px;
+    padding: 26px 2px 12px; margin-top: 8px;
+  }
+  .scope-divider .scode {
+    font-family: var(--mono); font-size: 10px; color: var(--gold); letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  .scope-divider .sline { flex: 1; height: 1px; background: var(--border-soft); }
+  .scope-divider .scount { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+
+  /* Concept card */
+  .kc-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .kc-concept {
+    border: 1px solid var(--border-soft); background: var(--bg-1);
+    padding: 18px 20px;
+  }
+  .kc-concept__head {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .kc-id { font-family: var(--mono); font-size: 13px; color: var(--ink); letter-spacing: 0.01em; }
+  .kc-name { font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--ink-faint); margin-left: 10px; }
+  .kc-badges { display: flex; gap: 8px; flex-shrink: 0; }
+  .kc-badge {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 3px 8px; border: 1px solid var(--border-soft); color: var(--ink-mute);
+  }
+  .kc-badge.kc-type { color: var(--gold); border-color: var(--gold); }
+  .kc-desc {
+    font-family: var(--serif); font-style: italic; font-size: 12.5px;
+    color: var(--ink-mute); margin-top: 8px; line-height: 1.5;
+  }
+  .kc-cv { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .kc-cv__item {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft);
+    background: var(--bg-0); border: 1px solid var(--border-soft); padding: 2px 7px;
+  }
+  .kc-cv__more { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); padding: 2px 4px; }
+
+  .kc-binds { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 12px; }
+  .kc-binds__title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .kc-count {
+    background: var(--bg-0); border: 1px solid var(--border-soft);
+    padding: 1px 7px; color: var(--ink-mute); letter-spacing: 0;
+  }
+  .kc-bind {
+    display: flex; align-items: center; gap: 12px; padding: 6px 0;
+    font-size: 11.5px; border-bottom: 1px dashed var(--border-soft);
+  }
+  .kc-bind:last-of-type { border-bottom: none; }
+  .kc-bind__col { font-family: var(--mono); color: var(--ink); flex: 1; }
+  .kc-bind__kind { font-family: var(--mono); font-size: 10px; color: var(--ink-mute); }
+  .kc-bind__conf { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 6px; }
+  .kc-bind__conf.ok { color: #5ab98a; border: 1px solid #2e5a45; }
+  .kc-bind__conf.pending { color: #c9a24b; border: 1px solid #5a4a22; }
+  .kc-bind__rm {
+    background: transparent; border: 1px solid var(--border-soft); color: var(--ink-faint);
+    cursor: pointer; width: 22px; height: 22px; line-height: 1; font-size: 14px;
+  }
+  .kc-bind__rm:hover { color: #d66; border-color: #d66; }
+  .kc-bind--empty { font-family: var(--serif); font-style: italic; color: var(--ink-faint); border: none; }
+  .kc-bind__add {
+    margin-top: 10px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--gold); background: transparent;
+    border: 1px solid var(--border-soft); padding: 6px 12px; cursor: pointer;
+  }
+  .kc-bind__add:hover { border-color: var(--gold); }
+
+  /* Assign modal (mirrors Tablolar's add-table modal) */
+  .ka-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 2000;
+  }
+  .ka-overlay.open { display: flex; }
+  .ka-modal {
+    background: var(--bg-1); border: 1px solid var(--border-soft);
+    padding: 26px 28px; width: 560px; max-width: 94vw; max-height: 90vh; overflow-y: auto;
+  }
+  .ka-modal h3 { font-size: 18px; font-weight: 300; color: var(--ink); margin: 0 0 4px; }
+  .ka-modal .ka-hint {
+    font-family: var(--serif); font-style: italic; font-size: 12px; color: var(--ink-faint);
+    margin: 0 0 18px; line-height: 1.5;
+  }
+  .ka-field { margin-bottom: 14px; }
+  .ka-field label {
+    display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-mute); margin-bottom: 6px;
+  }
+  .ka-field select, .ka-field input, .ka-field textarea {
+    width: 100%; box-sizing: border-box; padding: 9px 11px; background: var(--bg-0);
+    border: 1px solid var(--border-soft); color: var(--ink);
+    font-family: var(--mono); font-size: 12.5px;
+  }
+  .ka-field textarea { min-height: 84px; resize: vertical; line-height: 1.5; }
+  .ka-field select:focus, .ka-field input:focus, .ka-field textarea:focus { outline: none; border-color: var(--gold); }
+  .ka-field .ka-sub { font-family: var(--serif); font-style: italic; font-size: 11px; color: var(--ink-faint); margin-top: 5px; }
+  .ka-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .ka-params { border: 1px solid var(--border-soft); padding: 14px; margin-bottom: 14px; background: var(--bg-0); }
+  .ka-params[hidden] { display: none; }
+  .ka-err { color: #d66; font-family: var(--mono); font-size: 11px; min-height: 16px; margin-bottom: 8px; }
+  .ka-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .ka-actions button {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; padding: 9px 18px;
+    cursor: pointer; border: 1px solid var(--border-soft); background: transparent; color: var(--ink-mute);
+  }
+  .ka-actions .primary { border-color: var(--gold); color: var(--gold); }
+  .ka-actions .primary:hover { background: var(--gold); color: var(--bg-0); }
+  .ka-actions .primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .empty-state {
+    padding: 64px 24px; text-align: center; border: 1px solid var(--border-soft);
+    color: var(--ink-faint); font-family: var(--serif); font-style: italic;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="konseptler-page">
+    <div class="konseptler-head">
+      <div>
+        <div class="eyebrow">A · Kütüphane · ◈</div>
+        <h2>Konseptler</h2>
+        <p class="sub">
+          İş terimleri kataloğu. Her concept'in kanonik değerlerini, hangi tablo
+          kolonlarına bağlı olduğunu gör; dökümante tabloların kolonlarına concept
+          ata. Sadece "doğrulandı" bağlar filtre derleyicisine ulaşır.
+        </p>
+      </div>
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:14px;">
+        <div class="konseptler-meta">{{ total_concepts }} concept · {{ total_bindings }} bağ</div>
+        <button type="button" class="btn-new-concept" onclick="openCreate()">+ Yeni concept tanımla</button>
+      </div>
+    </div>
+
+    {% if concept_groups %}
+      {% for g in concept_groups %}
+        <div class="scope-divider">
+          <span class="scode">{{ g.label }}</span>
+          <span class="sline"></span>
+          <span class="scount">{{ g.concepts | length }} concept</span>
+        </div>
+        <div class="kc-grid">
+          {% for c in g.concepts %}
+            <div class="kc-concept" id="kc-{{ c.id }}">
+              <div class="kc-concept__head">
+                <div>
+                  <span class="kc-id">{{ c.id }}</span>
+                  <span class="kc-name">{{ c.name }}</span>
+                </div>
+                <div class="kc-badges">
+                  <span class="kc-badge kc-type">{{ c.type }}</span>
+                  <span class="kc-badge kc-scope">{{ c.scope }}</span>
+                </div>
+              </div>
+              {% if c.description %}<div class="kc-desc">{{ c.description }}</div>{% endif %}
+              {% if c.canonical_values %}
+                <div class="kc-cv">
+                  {% for cv in c.canonical_values[:14] %}
+                    <span class="kc-cv__item"
+                          title="{{ cv.label }}{% if cv.aliases %} · alias: {{ cv.aliases | join(', ') }}{% endif %}">{{ cv.code }}</span>
+                  {% endfor %}
+                  {% if c.canonical_values | length > 14 %}
+                    <span class="kc-cv__more">+{{ c.canonical_values | length - 14 }} daha</span>
+                  {% endif %}
+                </div>
+              {% endif %}
+
+              <div class="kc-binds">
+                <div class="kc-binds__title">Bağlı kolonlar <span class="kc-count">{{ c.bindings | length }}</span></div>
+                {% for b in c.bindings %}
+                  <div class="kc-bind">
+                    <span class="kc-bind__col">{{ b.schema }}.{{ b.table }}.{{ b.column }}</span>
+                    <span class="kc-bind__kind">{{ b.kind }}</span>
+                    <span class="kc-bind__conf {{ 'ok' if b.confidence == 'human_verified' else 'pending' }}">
+                      {{ 'doğrulandı' if b.confidence == 'human_verified' else b.confidence }}
+                    </span>
+                    <button class="kc-bind__rm" title="Bağı kaldır"
+                            onclick="unbindCol('{{ b.schema }}','{{ b.table }}','{{ b.column }}','{{ c.id }}')">×</button>
+                  </div>
+                {% else %}
+                  <div class="kc-bind kc-bind--empty">Henüz hiçbir kolona bağlı değil.</div>
+                {% endfor %}
+                <button class="kc-bind__add" onclick="openAssign('{{ c.id }}')">+ Kolon bağla</button>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        Hiç concept tanımlı değil. Üretim ortamında registry S3'ten dolar;
+        DEV'de <code>presentations/catalog/concepts</code> altından okunur.
+      </div>
+    {% endif %}
+  </div>
+
+  {# ── Kolon → concept atama modalı ─────────────────────────────────────── #}
+  <div class="ka-overlay" id="kaOverlay" onclick="if(event.target===this)closeAssign()">
+    <div class="ka-modal" role="dialog" aria-modal="true" aria-label="Kolon bağla">
+      <h3>Kolona concept ata</h3>
+      <p class="ka-hint">Dökümante bir tablonun kolonunu bir concept'e bağla.
+         Kaydedince <b>doğrulandı</b> olarak işaretlenir ve filtre derleyicisi kullanır.</p>
+
+      <div class="ka-field">
+        <label for="kaConcept">Concept</label>
+        <select id="kaConcept" onchange="onConceptChange()"></select>
+      </div>
+
+      <div class="ka-row">
+        <div class="ka-field">
+          <label for="kaTable">Tablo</label>
+          <select id="kaTable" onchange="onTableChange()"></select>
+        </div>
+        <div class="ka-field">
+          <label for="kaColumn">Kolon</label>
+          <select id="kaColumn"><option value="">— önce tablo seç —</option></select>
+        </div>
+      </div>
+
+      <div class="ka-field">
+        <label for="kaKind">Transform (eşleme türü)</label>
+        <select id="kaKind" onchange="onKindChange()">
+          <option value="identity">identity — kolon zaten kanonik kod (col IN …)</option>
+          <option value="time_truncation">time_truncation — TRUNC(col) BETWEEN :from AND :to</option>
+          <option value="map">map — tablo değeri → kanonik kod eşlemesi</option>
+          <option value="lookup">lookup — boyut tablosu join'i</option>
+          <option value="bucket_from_range">bucket_from_range — sayısal kolon → kova</option>
+        </select>
+      </div>
+
+      <div class="ka-params" id="kaParamsMap" hidden>
+        <div class="ka-field" style="margin:0;">
+          <label for="kaMapPairs">Eşlemeler — her satıra <code>tablo_değeri = KANONIK_KOD</code></label>
+          <textarea id="kaMapPairs" placeholder="TL = TRY&#10;Dolar = USD&#10;Euro = EUR"></textarea>
+          <div class="ka-sub">Soldaki tabloda saklanan değer, sağdaki concept'in kanonik kodu.</div>
+        </div>
+      </div>
+
+      <div class="ka-params" id="kaParamsLookup" hidden>
+        <div class="ka-row">
+          <div class="ka-field"><label for="kaDimTable">Boyut tablosu</label>
+            <input id="kaDimTable" placeholder="LOOKUP.DIM_BRANCH" /></div>
+          <div class="ka-field"><label for="kaDimKey">Join anahtarı (key)</label>
+            <input id="kaDimKey" placeholder="BRANCH_CODE" /></div>
+        </div>
+        <div class="ka-field" style="margin:0;"><label for="kaDimCanon">Kanonik kolon (dim_canonical)</label>
+          <input id="kaDimCanon" placeholder="REGION_CODE" /></div>
+      </div>
+
+      <div class="ka-params" id="kaParamsBucket" hidden>
+        <div class="ka-field" style="margin:0;">
+          <label for="kaRangesConcept">Aralık concept'i (day_range taşıyan bucket concept)</label>
+          <input id="kaRangesConcept" placeholder="maturity_bucket" />
+          <div class="ka-sub">Genelde bağladığın concept'in kendisi.</div>
+        </div>
+      </div>
+
+      <div class="ka-err" id="kaErr"></div>
+      <div class="ka-actions">
+        <button type="button" onclick="closeAssign()">Vazgeç</button>
+        <button type="button" class="primary" id="kaSubmit" onclick="submitAssign()">Bağla →</button>
+      </div>
+    </div>
+  </div>
+
+  {# ── Yeni concept tanımlama modalı ────────────────────────────────────── #}
+  <div class="ka-overlay" id="kcOverlay" onclick="if(event.target===this)closeCreate()">
+    <div class="ka-modal" role="dialog" aria-modal="true" aria-label="Yeni concept tanımla">
+      <h3>Yeni concept tanımla</h3>
+      <p class="ka-hint">Yeni bir iş terimi (concept) ekle. <b>user</b> scope kişiseldir;
+         <b>global</b> tüm kuruma görünür. id sonradan değişmez.</p>
+
+      <div class="ka-row">
+        <div class="ka-field"><label for="ncId">id (lower_snake)</label>
+          <input id="ncId" placeholder="counterparty_segment" autocomplete="off" spellcheck="false" /></div>
+        <div class="ka-field"><label for="ncName">Ad</label>
+          <input id="ncName" placeholder="Karşı Taraf Segmenti" autocomplete="off" /></div>
+      </div>
+
+      <div class="ka-row">
+        <div class="ka-field"><label for="ncType">Tür</label>
+          <select id="ncType" onchange="onCreateTypeChange()">
+            <option value="enum">enum — sabit değer kümesi</option>
+            <option value="time">time — tarih / zaman</option>
+            <option value="bucket">bucket — sayısal kova (day_range)</option>
+            <option value="scalar">scalar — serbest sayısal</option>
+          </select></div>
+        <div class="ka-field"><label for="ncScope">Scope</label>
+          <select id="ncScope">
+            <option value="user">user — kişisel</option>
+            <option value="global">global — kurumsal</option>
+          </select></div>
+      </div>
+
+      <div class="ka-field"><label for="ncDesc">Açıklama (opsiyonel)</label>
+        <input id="ncDesc" placeholder="Bu concept neyi temsil ediyor?" autocomplete="off" /></div>
+
+      <div class="ka-params" id="ncCanonWrap">
+        <div class="ka-field" style="margin:0;">
+          <label for="ncCanon">Kanonik değerler — her satır: <code>KOD | Etiket | alias1, alias2</code></label>
+          <textarea id="ncCanon" placeholder="TRY | Türk Lirası | TL, TRL&#10;USD | US Doları | Dollar&#10;EUR | Euro"></textarea>
+          <div class="ka-sub">Sadece KOD zorunlu. enum/bucket için doldur; time/scalar'da gizlenir.</div>
+        </div>
+      </div>
+
+      <div class="ka-err" id="ncErr"></div>
+      <div class="ka-actions">
+        <button type="button" onclick="closeCreate()">Vazgeç</button>
+        <button type="button" class="primary" id="ncSubmit" onclick="submitCreate()">Tanımla →</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CONCEPTS = {{ concepts_json | safe }};
+    const TABLES   = {{ tables_json | safe }};
+    const BIND_URL    = "{{ url_for('presentations.konsept_bind') }}";
+    const UNBIND_URL  = "{{ url_for('presentations.konsept_unbind') }}";
+    const CREATE_URL  = "{{ url_for('presentations.konsept_create') }}";
+    const DETAIL_TPL  = "{{ url_for('presentations.table_detail', schema='__S__', table='__T__') }}";
+
+    const $ = (id) => document.getElementById(id);
+
+    // Populate the static dropdowns once.
+    (function initDropdowns() {
+      const cSel = $('kaConcept');
+      cSel.innerHTML = CONCEPTS.map(c =>
+        `<option value="${c.id}">${c.id} — ${c.name} (${c.type})</option>`).join('');
+      const tSel = $('kaTable');
+      tSel.innerHTML = '<option value="">— tablo seç —</option>' +
+        TABLES.map(t => `<option value="${t.schema}|${t.table}">${t.schema}.${t.table}</option>`).join('');
+    })();
+
+    function openAssign(conceptId) {
+      $('kaErr').textContent = '';
+      if (conceptId) $('kaConcept').value = conceptId;
+      onConceptChange();
+      $('kaOverlay').classList.add('open');
+    }
+    function closeAssign() { $('kaOverlay').classList.remove('open'); }
+
+    function onConceptChange() {
+      const c = CONCEPTS.find(x => x.id === $('kaConcept').value);
+      // Soft default: time concepts → time_truncation, bucket → bucket_from_range.
+      if (c) {
+        if (c.type === 'time') $('kaKind').value = 'time_truncation';
+        else if (c.type === 'bucket') { $('kaKind').value = 'bucket_from_range'; $('kaRangesConcept').value = c.id; }
+        else $('kaKind').value = 'identity';
+      }
+      onKindChange();
+    }
+
+    function onKindChange() {
+      const k = $('kaKind').value;
+      $('kaParamsMap').hidden    = (k !== 'map');
+      $('kaParamsLookup').hidden = (k !== 'lookup');
+      $('kaParamsBucket').hidden = (k !== 'bucket_from_range');
+    }
+
+    function onTableChange() {
+      const colSel = $('kaColumn');
+      const val = $('kaTable').value;
+      if (!val) { colSel.innerHTML = '<option value="">— önce tablo seç —</option>'; return; }
+      const [schema, table] = val.split('|');
+      colSel.innerHTML = '<option value="">yükleniyor…</option>';
+      fetch(DETAIL_TPL.replace('__S__', encodeURIComponent(schema)).replace('__T__', encodeURIComponent(table)),
+            { credentials: 'include' })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+        .then(data => {
+          const cols = (data.columns || []).map(c => (typeof c === 'string') ? { name: c } : c);
+          if (!cols.length) { colSel.innerHTML = '<option value="">(kolon bulunamadı)</option>'; return; }
+          colSel.innerHTML = '<option value="">— kolon seç —</option>' +
+            cols.map(c => `<option value="${c.name}">${c.name}${c.type ? ' · ' + c.type : ''}</option>`).join('');
+        })
+        .catch(err => { colSel.innerHTML = `<option value="">(hata: ${err.message})</option>`; });
+    }
+
+    function buildParams(kind) {
+      if (kind === 'map') {
+        const pairs = {};
+        ($('kaMapPairs').value || '').split('\n').forEach(line => {
+          const m = line.split('=');
+          if (m.length >= 2) {
+            const k = m[0].trim(); const v = m.slice(1).join('=').trim();
+            if (k && v) pairs[k] = v;
+          }
+        });
+        return { pairs };
+      }
+      if (kind === 'lookup') {
+        return {
+          dim_table: $('kaDimTable').value.trim(),
+          dim_key: $('kaDimKey').value.trim(),
+          dim_canonical: $('kaDimCanon').value.trim(),
+        };
+      }
+      if (kind === 'bucket_from_range') {
+        return { ranges_concept: $('kaRangesConcept').value.trim() };
+      }
+      return {};
+    }
+
+    function submitAssign() {
+      const err = $('kaErr'); err.textContent = '';
+      const concept = $('kaConcept').value;
+      const tableVal = $('kaTable').value;
+      const column = $('kaColumn').value;
+      const kind = $('kaKind').value;
+      if (!tableVal) { err.textContent = 'Tablo seç.'; return; }
+      if (!column)   { err.textContent = 'Kolon seç.'; return; }
+      const [schema, table] = tableVal.split('|');
+      const params = buildParams(kind);
+      if (kind === 'map' && Object.keys(params.pairs).length === 0) {
+        err.textContent = 'En az bir eşleme satırı gir (tablo_değeri = KANONIK_KOD).'; return;
+      }
+      if (kind === 'lookup' && (!params.dim_table || !params.dim_key || !params.dim_canonical)) {
+        err.textContent = 'lookup için üç alan da zorunlu.'; return;
+      }
+      if (kind === 'bucket_from_range' && !params.ranges_concept) {
+        err.textContent = 'bucket_from_range için aralık concept\'i gir.'; return;
+      }
+      const btn = $('kaSubmit'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+      fetch(BIND_URL, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schema, table, column, concept,
+                               transform_kind: kind, transform_params: params }),
+      })
+        .then(r => r.json())
+        .then(res => {
+          if (res.ok) { window.location.reload(); }
+          else { err.textContent = (res.errors || ['Bilinmeyen hata']).join(' '); btn.disabled = false; btn.textContent = 'Bağla →'; }
+        })
+        .catch(e => { err.textContent = 'İstek hatası: ' + e.message; btn.disabled = false; btn.textContent = 'Bağla →'; });
+    }
+
+    function unbindCol(schema, table, column, concept) {
+      if (!confirm(`${schema}.${table}.${column} → ${concept} bağını kaldır?`)) return;
+      fetch(UNBIND_URL, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schema, table, column, concept }),
+      })
+        .then(r => r.json())
+        .then(res => { if (res.ok) window.location.reload(); else alert((res.errors || ['hata']).join(' ')); })
+        .catch(e => alert('İstek hatası: ' + e.message));
+    }
+
+    // ── Yeni concept tanımlama ─────────────────────────────────────────────
+    function openCreate() { $('ncErr').textContent = ''; onCreateTypeChange(); $('kcOverlay').classList.add('open'); $('ncId').focus(); }
+    function closeCreate() { $('kcOverlay').classList.remove('open'); }
+    function onCreateTypeChange() {
+      const t = $('ncType').value;
+      $('ncCanonWrap').hidden = !(t === 'enum' || t === 'bucket');
+    }
+    function parseCanon() {
+      const out = [];
+      ($('ncCanon').value || '').split('\n').forEach(line => {
+        const parts = line.split('|').map(s => s.trim());
+        if (!parts[0]) return;
+        const entry = { code: parts[0] };
+        if (parts[1]) entry.label = parts[1];
+        if (parts[2]) entry.aliases = parts[2].split(',').map(a => a.trim()).filter(Boolean);
+        out.push(entry);
+      });
+      return out;
+    }
+    function submitCreate() {
+      const err = $('ncErr'); err.textContent = '';
+      const id = ($('ncId').value || '').trim().toLowerCase();
+      const name = ($('ncName').value || '').trim();
+      const type = $('ncType').value;
+      const scope = $('ncScope').value;
+      if (!/^[a-z][a-z0-9_]*$/.test(id)) { err.textContent = 'id lower_snake olmalı (a-z ile başla; a-z, 0-9, _).'; return; }
+      if (id.length < 2) { err.textContent = 'id en az 2 karakter.'; return; }
+      if (!name) { err.textContent = 'Ad zorunlu.'; return; }
+      const cvs = (type === 'enum' || type === 'bucket') ? parseCanon() : [];
+      const btn = $('ncSubmit'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+      fetch(CREATE_URL, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name, type, scope, description: ($('ncDesc').value || '').trim(), canonical_values: cvs }),
+      })
+        .then(r => r.json())
+        .then(res => {
+          if (res.ok) { window.location.reload(); }
+          else { err.textContent = (res.errors || ['Bilinmeyen hata']).join(' '); btn.disabled = false; btn.textContent = 'Tanımla →'; }
+        })
+        .catch(e => { err.textContent = 'İstek hatası: ' + e.message; btn.disabled = false; btn.textContent = 'Tanımla →'; });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeAssign(); closeCreate(); }
+    });
+  </script>
+{% endblock %}

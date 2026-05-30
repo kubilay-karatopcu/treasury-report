@@ -29,8 +29,9 @@ SIDEBAR_GROUPS = [
             # Each library entry now leads to a list/search/filter screen
             # where every card opens its own documentation / edit screen.
             # No more pipeline redirects from a library card.
-            {"key": "tablolar",  "num": "⊟", "label": "Tablolar",  "route": "presentations.atolye_tablolar"},
-            {"key": "bloklar",   "num": "▦", "label": "Bloklar",   "route": "presentations.atolye_bloklar"},
+            {"key": "tablolar",   "num": "⊟", "label": "Tablolar",   "route": "presentations.atolye_tablolar"},
+            {"key": "konseptler", "num": "◈", "label": "Konseptler", "route": "presentations.atolye_konseptler"},
+            {"key": "bloklar",    "num": "▦", "label": "Bloklar",    "route": "presentations.atolye_bloklar"},
             {"key": "uzmanlar",  "num": "✦", "label": "Uzmanlar",  "route": "presentations.atolye_uzmanlar"},
             {"key": "taslaklar", "num": "◇", "label": "Şablonlar", "route": "presentations.atolye_taslaklar"},
             {"key": "sablonlar", "num": "∎", "label": "Süreçler",  "route": "presentations.atolye_sablonlar"},

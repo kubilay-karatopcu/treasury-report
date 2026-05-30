@@ -229,6 +229,31 @@ class CachedConceptRegistry:
             self._last_check = time.monotonic()
             self._load()
 
+    def get_file_raw(self, scope_name: str) -> dict | None:
+        """Raw YAML dict of one scope file (preserves version/owners on edit)."""
+        fname = scope_name if scope_name.endswith(".yaml") else f"{scope_name}.yaml"
+        p = self._dir / fname
+        if not p.exists():
+            return None
+        raw = _load_yaml(p.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else None
+
+    def save_file(self, scope_name: str, raw_dict: dict) -> None:
+        """Persist a whole concept-file (one scope) to the dir and reload.
+        Mirrors :meth:`S3ConceptRegistry.save_file` so the create route works
+        identically in DEV (dir) and PROD (S3)."""
+        fname = scope_name if scope_name.endswith(".yaml") else f"{scope_name}.yaml"
+        p = self._dir / fname
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            yaml.safe_dump(raw_dict, allow_unicode=True, sort_keys=False,
+                           default_flow_style=False),
+            encoding="utf-8",
+        )
+        with self._lock:
+            self._last_check = time.monotonic()
+            self._load()
+
     # ── delegated read API ────────────────────────────────────────────────
 
     def get(self, concept_id: str) -> Concept | None:
@@ -346,6 +371,14 @@ class S3ConceptRegistry:
         self._dc._upload_bytes(self._key(scope_name), body, content_type="application/x-yaml")
         with self._lock:
             self._load()
+
+    def get_file_raw(self, scope_name: str) -> dict | None:
+        """Raw YAML dict of one scope file from S3 (preserves version/owners)."""
+        try:
+            raw = _load_yaml(self._dc.read_bytes(self._key(scope_name)).decode("utf-8"))
+        except Exception:
+            return None
+        return raw if isinstance(raw, dict) else None
 
     # ── delegated read API (mirrors ConceptRegistry) ──────────────────────
     def get(self, concept_id: str) -> Concept | None:
