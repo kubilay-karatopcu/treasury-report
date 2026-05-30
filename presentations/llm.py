@@ -749,8 +749,9 @@ class FakeLLM:
         data_summary=None,
         catalog=None,
         library=None,
+        table_docs=None,
     ):
-        # FakeLLM ignores data_summary/library — it's pure pattern matching.
+        # FakeLLM ignores data_summary/library/table_docs — pure pattern matching.
         # Signature matches QwenClient for drop-in replacement.
         msg = user_message.strip()
         idx, block = _find_block(manifest, selected_block_id)
@@ -848,25 +849,66 @@ class FakeLLM:
         # Tokens to look for in name + desc + concept list. Greedy split on
         # whitespace + simple Turkish suffix trimming. Real Qwen will do this
         # vastly better; this is just enough for dev demos to feel alive.
-        tokens = [t for t in re.split(r"[\s,.\?!]+", msg) if len(t) >= 3]
+        #
+        # Tiny TR→EN bridge: when the user types "mevduat" we also want to
+        # match "deposit" inside table names like DEPOSITS_DAILY. Keep this
+        # small — it's a dev stub, not a real translator.
+        TR_EN_BRIDGE = {
+            "mevduat": "deposit",     "mevduatlar": "deposit",
+            "kredi":   "loan",        "krediler":   "loan",
+            "şube":    "branch",      "şubeler":    "branch",
+            "müşteri": "customer",    "müşteriler": "customer",
+            "faiz":    "rate",        "oran":       "rate",
+            "tahvil":  "bond",        "bono":       "bond",
+            "döviz":   "fx",          "kur":        "fx",
+            "rakip":   "competitor",  "rakipler":   "competitor",
+            "vade":    "maturity",    "ürün":       "product",
+            "hesap":   "account",     "ödeme":      "payment",
+            "işlem":   "transaction", "risk":       "risk",
+            "likidite":"liquidity",   "gelir":      "income",
+            "tarih":   "date",        "günlük":     "daily",
+        }
+        raw_tokens = [t for t in re.split(r"[\s,.\?!]+", msg) if len(t) >= 3]
+        tokens: list[str] = []
+        for t in raw_tokens:
+            tokens.append(t)
+            if t in TR_EN_BRIDGE:
+                tokens.append(TR_EN_BRIDGE[t])
         skip = set(current_basket and (b.get("table") for b in current_basket) or [])
 
+        # Name matches outweigh description matches; concept bindings count
+        # as medium-strong. Tiebreak: more distinct tokens matched > one
+        # token matched many times.
         scored = []
         for entry in catalog_entries:
             tid = f"{entry.schema_name}.{entry.name}"
             if tid in skip:
                 continue
-            hay = (
-                f"{entry.name} {entry.description or ''} "
-                f"{' '.join(entry.concepts_bound or [])}"
-            ).lower()
-            score = sum(1 for t in tokens if t in hay)
+            name = entry.name.lower()
+            desc = (entry.description or "").lower()
+            concepts = " ".join(entry.concepts_bound or []).lower()
+
+            score = 0.0
+            distinct_hits = 0
+            for t in tokens:
+                if t in name:
+                    score += 1.5
+                    distinct_hits += 1
+                elif t in concepts:
+                    score += 1.0
+                    distinct_hits += 1
+                elif t in desc:
+                    score += 0.5
+                    distinct_hits += 1
+            if distinct_hits > 1:
+                score += 0.3 * (distinct_hits - 1)   # coverage bonus
             if entry.department and entry.department == user_department:
                 score += 0.5
             if score > 0:
                 scored.append((score, entry))
 
-        scored.sort(key=lambda x: x[0], reverse=True)
+        # Score desc, then name asc for stable tie-break (alphabetical).
+        scored.sort(key=lambda x: (-x[0], x[1].name))
         top = scored[:5]
 
         proposals = [

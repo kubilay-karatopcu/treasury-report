@@ -11,7 +11,7 @@
 <style>
   /* Phase 11.lib — flat catalog browser. Reuses prisma.css's `.table-row`
      + `.domain-divider` styles lifted from the UX prototype. */
-  .tablolar-page { padding: 48px 64px 96px; }
+  .tablolar-page { padding: 28px 28px 64px; }
   .tablolar-head {
     display: flex; align-items: flex-end; justify-content: space-between;
     margin-bottom: 36px; gap: 32px;
@@ -122,7 +122,7 @@
           </div>
           <div class="table-list">
             {% for t in tables %}
-              <a class="table-row" href="{{ url_for('presentations.atolye_kesif') }}?focus={{ t.schema_name }}.{{ t.name }}">
+              <a class="table-row" href="{{ url_for('presentations.tablo_edit', schema=t.schema_name, table=t.name) }}">
                 <div>
                   <div class="tname">{{ t.schema_name }}.{{ t.name }}</div>
                   {% if t.description %}<div class="tdesc">{{ t.description }}</div>{% endif %}
@@ -139,7 +139,7 @@
                   {% else %}—{% endif %}
                 </div>
                 <div class="tcell">{{ t.source or '—' }}</div>
-                <div class="tact">aç →</div>
+                <div class="tact">düzenle →</div>
               </a>
             {% endfor %}
           </div>
