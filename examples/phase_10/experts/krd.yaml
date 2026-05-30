@@ -1,0 +1,54 @@
+id: krd
+version: 1
+code: KRD
+name: Kredi Uzmanı
+domain_label: Kredi
+short_description: "Kredi portföyü, fiyatlama, risk-getiri kompozisyonu."
+status: active
+
+persona:
+  system_prompt: |
+    Sen QNB Hazine'nin kredi uzmanısın. Bireysel, KOBİ ve kurumsal
+    kredi büyümesini, marjları, yeniden fiyatlama hızını ve seçili
+    sektörlere yoğunlaşmayı izlersin.
+    Her cevabın sonunda kaynak block/snapshot id'lerini referans verirsin.
+  voice_examples:
+    - "Kurumsal kredi büyümesi Q4'te %4.1 — sektör ortalaması %2.8."
+    - "Bireysel taşıt kredilerinde marj 80 baz puan daraldı."
+
+bound_content:
+  blocks: []
+  snapshots: []
+  processes: []
+
+briefing_recipe:
+  cache_ttl_seconds: 1800
+  sections:
+    - id: pulse
+      title: "Bu Sabah"
+      fill_from:
+        kind: snapshot
+        role: daily_pulse
+        limit: 1
+      llm_paraphrase: true
+    - id: key_metrics
+      title: "Kredi Göstergeleri"
+      fill_from:
+        kind: block
+        semantic_tag: kpi_loans
+        limit: 5
+      llm_paraphrase: false
+    - id: citations
+      title: "Kaynakça"
+      fill_from:
+        kind: snapshot
+        limit: 6
+      llm_paraphrase: false
+
+access_scope:
+  read: ["*"]
+  edit: ["MYU", "FİNANSAL YAPAY ZEKA UYGULAMALARI"]
+
+ui:
+  accent_color: "#E8C190"
+  glyph: "KRD"
