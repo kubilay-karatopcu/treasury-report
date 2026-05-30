@@ -373,6 +373,21 @@ def apply_concepts_to_block(
         return ConceptInjection(sql=sql, params=merged, injected=True,
                                 applied=applied, blind=blind, empty=True)
 
+    # Multi-table blocks: predicates are emitted UNQUALIFIED (the compiler is
+    # per-table by design), but flattening them into one outer WHERE over a JOIN
+    # makes Oracle raise ORA-00918 when two joined tables share the column — or,
+    # worse, silently filter the wrong table. Reliable alias qualification isn't
+    # possible here (lookup/bucket transforms emit subqueries, not bare columns),
+    # so we inject only when the block has a SINGLE source table. Multi-table
+    # blocks render concept-blind — surfaced via `blind` per locked decision #7
+    # ("filter not applied here") rather than emitting wrong/broken SQL.
+    if len(tables) > 1 and usable:
+        for p in usable:
+            if p.concept not in seen_blind:
+                seen_blind.add(p.concept)
+                blind.append(p.concept)
+        usable = []
+
     applied = [{"filter_id": p.filter_id, "concept": p.concept, "sql": p.sql}
                for p in usable]
 

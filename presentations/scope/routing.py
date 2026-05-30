@@ -164,14 +164,17 @@ def decide_routing(
     """Decide cached vs lazy for a single basket table.
 
     ``cached`` iff ``estimated_bytes <= threshold_bytes``. The estimate reads
-    only from ``catalog``; a table missing from the catalog estimates to 0
-    bytes and is therefore cached (the conservative default for a table we
-    can't size — 8.b surfaces the badge so the user can override to lazy).
+    only from ``catalog``; a table **missing** from the catalog can't be sized,
+    so — per this module's "when in doubt, estimate high" rule — it is treated
+    as over the threshold and routed ``lazy`` (fetched on demand, bounded by the
+    row cap in ``scope.fetch``). Estimating it at 0 used to route it ``cached``,
+    eagerly materialising a possibly-huge un-onboarded table into DuckDB (OOM);
+    the user can still force ``cached`` via an explicit override (8.b badge).
     """
     pinned_list = list(pinned_filters)
     table_meta = catalog.table_meta(table_ref.schema_name, table_ref.name)
     if table_meta is None:
-        estimated = 0
+        estimated = threshold_bytes + 1
     else:
         estimated = estimate_post_scope_size(
             table_meta, projection, pinned_list,

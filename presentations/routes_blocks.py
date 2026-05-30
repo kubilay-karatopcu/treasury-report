@@ -40,6 +40,7 @@ from presentations.blocks.store import (
     BlockAlreadyExistsError,
     BlockNotFoundError,
     BlockStoreError,
+    _normalize_team_token,
 )
 from presentations.sql.binder import expand_binds
 from presentations.sql.validator import validate_sql
@@ -98,9 +99,39 @@ def _normalise_block_payload(payload: dict[str, Any]) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     block.setdefault("created_at", now)
     block["updated_at"] = now
-    if not block.get("owner") and getattr(current_user, "sicil", None):
-        block["owner"] = current_user.sicil
+    # Owner is always the authenticated caller — never trust a payload-supplied
+    # owner (prevents authorship spoofing). Falls back to whatever was sent only
+    # when there is no logged-in sicil (e.g. offline runner).
+    sicil = getattr(current_user, "sicil", None)
+    if sicil:
+        block["owner"] = sicil
     return wrapped
+
+
+def _user_team_slug() -> str:
+    """The team namespace this user may author blocks under — their department
+    normalized the same way the create-block UI slugifies it."""
+    dept = getattr(current_user, "department", None) or ""
+    return _normalize_team_token(dept)
+
+
+def _block_write_denied(team: str) -> Response | None:
+    """Authorization gate for block writes, mirroring uzman_save's edit-scope
+    check. A block's ``team`` is its edit scope; a user may only write under the
+    team matching their own department slug. Returns a 403 Response when the
+    write must be refused, else None."""
+    user_team = _user_team_slug()
+    if not user_team or _normalize_team_token(team) != user_team:
+        return _json(
+            {
+                "ok": False,
+                "phase": "auth",
+                "errors": ["Bu ekip altına blok kaydetme/güncelleme yetkin yok."],
+                "warnings": [],
+            },
+            status=403,
+        )
+    return None
 
 
 # ── Pages ────────────────────────────────────────────────────────────────
@@ -108,15 +139,11 @@ def _normalise_block_payload(payload: dict[str, Any]) -> dict[str, Any]:
 @presentations_bp.route("/blocks/")
 @login_required
 def block_library():
-    """Deprecated — the Bloklar tab inside /presentations/ now hosts the
-    listing. We redirect with ``?tab=blocks`` (query string survives every
-    proxy / redirect; the fragment ``#blocks`` does not in some setups).
+    """Legacy alias — the block library now lives under Kütüphane > Bloklar.
+    External bookmarks to /presentations/blocks/ land on /atolye/bloklar.
     """
     from flask import redirect, url_for
-    qs = request.query_string.decode("utf-8")
-    target = url_for("presentations.list_presentations")
-    target += ("?" + qs + "&tab=blocks") if qs else "?tab=blocks"
-    return redirect(target)
+    return redirect(url_for("presentations.atolye_bloklar"))
 
 
 @presentations_bp.route("/blocks/new")
@@ -165,6 +192,9 @@ def block_new():
         manifest_json=json.dumps(
             synthetic_manifest, ensure_ascii=False, default=_json_default,
         ),
+        # Phase 12.dark — no template_ref for new-block flow; the template
+        # falls back to the "Yeni Blok" header.
+        template_ref=None,
     )
 
 
@@ -250,6 +280,13 @@ def block_edit(team: str, block_id: str, version: int | None = None):
         manifest_json=json.dumps(
             synthetic_manifest, ensure_ascii=False, default=_json_default,
         ),
+        # Phase 12.dark — surface template provenance to the Prisma shell so
+        # the breadcrumb + title render properly.
+        template_ref={
+            "team": team,
+            "id": block.id,
+            "version": block.version,
+        },
     )
 
 
@@ -364,6 +401,10 @@ def api_save():
     if block is None or not result["ok"]:
         return _json(result, status=400)
 
+    denied = _block_write_denied(block.team)
+    if denied is not None:
+        return denied
+
     store = _store()
     try:
         saved = store.save(block)
@@ -399,6 +440,10 @@ def api_save_new_version():
     block, result = _validate_block_payload(payload)
     if block is None or not result["ok"]:
         return _json(result, status=400)
+
+    denied = _block_write_denied(block.team)
+    if denied is not None:
+        return denied
 
     store = _store()
     try:

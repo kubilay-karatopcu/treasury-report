@@ -57,6 +57,7 @@ const _path = window.location.pathname;
 const BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
 const PREVIEW_BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-build`);
 const PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview`);
+const PREVIEW_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-sql`);
 const CHAT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/chat`);
 const APPLY_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/apply-suggestion`);
 const ROUTING_OVERRIDE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/routing-override`);
@@ -159,14 +160,26 @@ function summarizeFilter(f) {
 // Singleton holder for node-data handlers — App registers once, every
 // enrichNodeData() call reads from here. Avoids threading callbacks through
 // every node-creating site (initialNodes / addTable / saveAsTable / chat-apply).
-const NODE_HANDLERS = { onOverrideRouting: null };
+const NODE_HANDLERS = { onOverrideRouting: null, onEditRefresh: null };
 
 function enrichNodeData(item, scope) {
   return {
     ...nodeData(item),
     activeFilters: filtersForAlias(scope, item.alias),
     onOverrideRouting: NODE_HANDLERS.onOverrideRouting,
+    onEditRefresh: NODE_HANDLERS.onEditRefresh,
   };
+}
+
+// Faz C — compact label for a dataset's cron/refresh policy on the node card.
+function refreshLabel(refresh) {
+  if (!refresh || refresh.kind !== "scheduled") return "manuel";
+  if (refresh.interval_seconds) {
+    const m = Math.round(refresh.interval_seconds / 60);
+    return m >= 60 ? `${Math.round(m / 60)}sa` : `${m}dk`;
+  }
+  const times = refresh.schedule?.times || [];
+  return times.length ? times.join(",") : "zamanlı";
 }
 
 // ── Modal shell ────────────────────────────────────────────────────────────
@@ -189,7 +202,7 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting, onEditRefresh } = data;
   const cached = item.routing?.decision === "cached";
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   const headStyle = !derived && color ? { background: color } : undefined;
@@ -208,7 +221,7 @@ function TableNode({ data }) {
   return (
     <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
       <div className="hz-node-head" style={headStyle}>
-        <span className="hz-node-alias"><Database size={12} /> {derived ? item.alias : `${item.table_ref.schema}.${item.table_ref.name}`}</span>
+        <span className="hz-node-alias"><Database size={12} /> {item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : item.alias}{item.sql && <span className="hz-sql-tag">SQL</span>}</span>
         <span
           className={`hz-badge hz-badge--${derived ? "derived" : (cached ? "cached" : "lazy")}`}
           title={decisionTitle}
@@ -232,9 +245,37 @@ function TableNode({ data }) {
             className="hz-route-override"
             disabled={overrideDisabled}
             title={overrideTitle}
-            onClick={(e) => { e.stopPropagation(); onOverrideRouting && onOverrideRouting(item.alias, cached ? "lazy" : "cached"); }}
+            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onOverrideRouting && NODE_HANDLERS.onOverrideRouting(item.alias, cached ? "lazy" : "cached"); }}
           >
             {overrideLabel}
+          </button>
+          {cached && (
+            <button
+              type="button"
+              className="hz-route-override hz-refresh-btn"
+              title="Yenileme (cron) ayarla — cached dataset ne sıklıkla tazelensin"
+              onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
+            >
+              ⟳ {refreshLabel(item.refresh)}
+            </button>
+          )}
+        </div>
+      )}
+      {derived && (
+        <div className="hz-node-routing">
+          <span
+            className="hz-proj-count"
+            title="Türetilmiş tablo — kaynak(lar)ından DuckDB'de hesaplanıp parquet'e materialise edilir"
+          >
+            {colCount} kolon
+          </span>
+          <button
+            type="button"
+            className="hz-route-override hz-refresh-btn"
+            title="Yenileme (cron) ayarla — türetilmiş tablo ne sıklıkla yeniden hesaplanıp materialise edilsin"
+            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
+          >
+            ⟳ {refreshLabel(item.refresh)}
           </button>
         </div>
       )}
@@ -283,6 +324,13 @@ function nodeData(item) {
       item, derived: true, desc: `${item.derivation.source_alias} → aggregate`,
       size: null, colCount: cols.length, keyCols: cols.filter((c) => c.join_key),
       color: null,   // derived → purple via .hz-node--derived class
+    };
+  }
+  if (item.sql) {
+    return {
+      item, derived: false, desc: "manuel SQL",
+      size: null, colCount: cols.length,
+      keyCols: cols.filter((c) => c.join_key), color: null,
     };
   }
   const cat = CATALOG_BY_ID[tableId(item.table_ref)];
@@ -764,10 +812,195 @@ function TableDocsPanel({ table, onClose }) {
 
 // ── Left sidebar (Sunum design: source categories + chat) ────────────────────
 
+// ── Refresh / cron policy modal (Faz C) ─────────────────────────────────────
+const _REFRESH_DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+
+// Shared refresh-policy form. Controlled: emits the computed DatasetRefresh via
+// onChange on every edit. Used by RefreshModal (node ⟳) and SqlDatasetModal.
+function RefreshFields({ value, onChange }) {
+  const v = value || { kind: "manual" };
+  const [kind, setKind] = useState(v.kind === "scheduled" ? "scheduled" : "manual");
+  const [mode, setMode] = useState(v.schedule ? "schedule" : "interval");
+  const [minutes, setMinutes] = useState(v.interval_seconds ? Math.round(v.interval_seconds / 60) : 10);
+  const [times, setTimes] = useState((v.schedule?.times || ["09:00"]).join(", "));
+  const [days, setDays] = useState(new Set(v.schedule?.days || []));
+
+  const toggleDay = (d) => setDays((s) => {
+    const n = new Set(s);
+    if (n.has(d)) n.delete(d); else n.add(d);
+    return n;
+  });
+
+  useEffect(() => {
+    let refresh;
+    if (kind === "manual") {
+      refresh = { kind: "manual" };
+    } else if (mode === "interval") {
+      const secs = Math.max(60, Math.min(86400, Math.round(Number(minutes || 0) * 60)));
+      refresh = { kind: "scheduled", interval_seconds: secs };
+    } else {
+      const ts = times.split(",").map((s) => s.trim())
+        .filter((s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s));
+      refresh = ts.length
+        ? { kind: "scheduled", schedule: { times: ts, days: _REFRESH_DAYS.filter((d) => days.has(d)), timezone: "Europe/Istanbul" } }
+        : { kind: "scheduled", interval_seconds: 3600 };
+    }
+    onChange && onChange(refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, mode, minutes, times, days]);
+
+  return (
+    <>
+      <label className="hz-field">Yenileme
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="manual">Manuel (yalnız build'de bir kez)</option>
+          <option value="scheduled">Zamanlı (cron)</option>
+        </select>
+      </label>
+      {kind === "scheduled" && (
+        <>
+          <label className="hz-field">Tür
+            <select value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="interval">Aralık (her N dakika)</option>
+              <option value="schedule">Takvim (saat + gün)</option>
+            </select>
+          </label>
+          {mode === "interval" ? (
+            <label className="hz-field">Dakika (1–1440)
+              <input type="number" min={1} max={1440} value={minutes}
+                onChange={(e) => setMinutes(e.target.value)} />
+            </label>
+          ) : (
+            <>
+              <label className="hz-field">Saatler (HH:MM, virgülle)
+                <input type="text" value={times} placeholder="09:00, 17:00"
+                  onChange={(e) => setTimes(e.target.value)} />
+              </label>
+              <div className="hz-field">Günler (boş = her gün)
+                <div className="hz-row" style={{ flexWrap: "wrap", gap: 4 }}>
+                  {_REFRESH_DAYS.map((d) => (
+                    <button key={d} type="button" className="ts-btn"
+                      style={{ padding: "2px 7px", fontSize: 11,
+                               background: days.has(d) ? "var(--bs-primary, #2563eb)" : undefined,
+                               color: days.has(d) ? "#fff" : undefined }}
+                      onClick={() => toggleDay(d)}>{d}</button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function RefreshModal({ item, onSave, onClose }) {
+  const [refresh, setRefresh] = useState(item.refresh || { kind: "manual" });
+  return (
+    <Modal title={`Yenileme — ${item.alias}`} onClose={onClose} footer={
+      <>
+        <button className="ts-btn" onClick={onClose}>Vazgeç</button>
+        <button className="ts-btn ts-btn--primary" onClick={() => onSave(refresh)}>Kaydet</button>
+      </>
+    }>
+      <p className="hz-muted">Bu cached dataset cron ile ne sıklıkla yeniden çekilsin?</p>
+      <RefreshFields value={item.refresh} onChange={setRefresh} />
+    </Modal>
+  );
+}
+
+// ── Manuel SQL dataset modal (Faz C) ────────────────────────────────────────
+// Sunum'daki blok+manuel SQL akışının Hazırlık karşılığı: tablo adı + SQL yaz →
+// önizle/doğrula → saklama (cached/lazy) → cached ise cron. Sonuç scope.basket'e
+// bir `sql` dataset olarak eklenir.
+function SqlDatasetModal({ existingAliases, onSave, onClose }) {
+  const [alias, setAlias] = useState("");
+  const [sql, setSql] = useState("");
+  const [routing, setRouting] = useState("cached");
+  const [refresh, setRefresh] = useState({ kind: "manual" });
+  const [preview, setPreview] = useState(null);
+  const [errors, setErrors] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const runPreview = async () => {
+    setBusy(true); setErrors([]); setPreview(null);
+    try {
+      const r = await fetch(PREVIEW_SQL_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql }),
+      });
+      const data = await r.json();
+      if (!data.ok) { setErrors(data.errors || ["Bilinmeyen hata"]); return; }
+      setPreview({ columns: data.columns || [], rows: data.rows || [], row_count: data.row_count || 0 });
+    } catch (e) {
+      setErrors([String(e.message || e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canSave = sql.trim() && preview && preview.columns.length > 0;
+  const save = () => {
+    onSave({
+      alias: makeAlias(alias || "sql_tablo", existingAliases),
+      sql: sql.trim(),
+      columns: preview.columns,
+      routing,
+      refresh: routing === "cached" ? refresh : null,
+    });
+  };
+
+  return (
+    <Modal title="Manuel SQL Tablo" size="lg" onClose={onClose} footer={
+      <>
+        <button className="ts-btn" onClick={onClose}>Vazgeç</button>
+        <button className="ts-btn ts-btn--primary" disabled={!canSave} onClick={save}>Tablo Ekle</button>
+      </>
+    }>
+      <label className="hz-field">Tablo adı (alias)
+        <input type="text" value={alias} placeholder="ör. gunluk_pozisyon"
+          onChange={(e) => setAlias(e.target.value)} />
+      </label>
+      <label className="hz-field">SQL (SELECT / WITH)
+        <textarea className="hz-sql-textarea" rows={8} value={sql}
+          placeholder="SELECT ... FROM ..."
+          onChange={(e) => { setSql(e.target.value); setPreview(null); }} />
+      </label>
+      <div className="hz-row" style={{ gap: 8, alignItems: "center" }}>
+        <button type="button" className="ts-btn ts-btn--primary"
+          disabled={busy || !sql.trim()} onClick={runPreview}>
+          {busy
+            ? <><Loader2 size={13} className="ts-spin" /> Çalıştırılıyor…</>
+            : <><Eye size={13} /> Önizle / Doğrula</>}
+        </button>
+        {preview && <span className="hz-muted">{preview.row_count} satır · {preview.columns.length} kolon</span>}
+      </div>
+      {errors.length > 0 && (
+        <div className="hz-error" style={{ marginTop: 8 }}>{errors.join(" · ")}</div>
+      )}
+      {preview && preview.columns.length > 0 && (
+        <div className="hz-row" style={{ flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+          {preview.columns.map((c) => <span key={c} className="hz-col-concept">{c}</span>)}
+        </div>
+      )}
+      <label className="hz-field">Saklama
+        <select value={routing} onChange={(e) => setRouting(e.target.value)}>
+          <option value="cached">cached (S3 parquet'e materialise — cron'lanabilir)</option>
+          <option value="lazy">lazy (büyük tablo — cron yok, on-demand)</option>
+        </select>
+      </label>
+      {routing === "cached"
+        ? <RefreshFields value={refresh} onChange={setRefresh} />
+        : <p className="hz-muted">Lazy tablolara cron bağlanamaz — küçültürsen (aggregate/filtre) cached olur ve cron'lanabilir.</p>}
+    </Modal>
+  );
+}
+
 function SourcesSidebar({
   scope, onOpenDocs, libraryBlocks, chat,
   hiddenAliases, onToggleVisibility,
-  goingToSunum, onGoToSunum,
+  goingToSunum, onGoToSunum, onUpload, onAddSql,
 }) {
   // Phase 11.hazirlik-polish: sidebar shows ONLY what's in MY basket
   // (no longer the full DOMAINS tree). Split into Tablolar + Bloklar
@@ -786,8 +1019,14 @@ function SourcesSidebar({
   }, []);
   const tableItems = useMemo(() => {
     return (scope.basket || [])
-      .filter((b) => b.table_ref != null)
+      .filter((b) => b.table_ref != null || b.sql != null)
       .map((b) => {
+        if (b.sql != null) {
+          return {
+            alias: b.alias, tid: b.alias, schema: "SQL", name: b.alias,
+            catalog: null, isSql: true,
+          };
+        }
         const tid = tableId(b.table_ref);
         return {
           alias: b.alias,
@@ -832,6 +1071,26 @@ function SourcesSidebar({
           <div className="sidebar-label">
             <span className="sidebar-label-icon"><Database size={12} /></span>
             <span>Veri Kaynakları</span>
+          </div>
+
+          {/* Faz C — add datasets directly in Hazırlık. */}
+          <div className="hz-add-row">
+            <button
+              type="button"
+              className="ts-btn hz-add-btn"
+              onClick={() => onAddSql && onAddSql()}
+              title="Serbest SQL yazıp bir tablo (dataset) oluştur"
+            >
+              <Database size={13} /> Manuel SQL Tablo
+            </button>
+            <button
+              type="button"
+              className="ts-btn hz-add-btn"
+              onClick={() => onUpload && onUpload()}
+              title="Excel/CSV yükle — yüklenen sayfa bir dataset olur"
+            >
+              <Upload size={13} /> Veri Yükle (Excel)
+            </button>
           </div>
 
           {hasNoBasket && (
@@ -1438,6 +1697,7 @@ function App() {
   const [joinModal, setJoinModal] = useState(null);
   const [docsTable, setDocsTable] = useState(null);   // 8.c — Eye icon → schema modal
   const [uploadOpen, setUploadOpen] = useState(false); // Polish-4 — Veri Yükle
+  const [sqlModalOpen, setSqlModalOpen] = useState(false); // Faz C — Manuel SQL Tablo
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [drawerH, setDrawerH] = useState(260);
@@ -1647,6 +1907,24 @@ function App() {
     return () => { NODE_HANDLERS.onOverrideRouting = null; };
   }, [overrideRouting]);
 
+  // Faz C — per-dataset cron/refresh. Pure-local: mutate basket[i].refresh and
+  // let the debounced save-draft persist it; the dataset cron picks it up after
+  // "Sunum'a geç" (build → SCOPE_STORE version).
+  const [refreshAlias, setRefreshAlias] = useState(null);
+  const editRefresh = useCallback((alias) => setRefreshAlias(alias), []);
+  useEffect(() => {
+    NODE_HANDLERS.onEditRefresh = editRefresh;
+    return () => { NODE_HANDLERS.onEditRefresh = null; };
+  }, [editRefresh]);
+  const saveRefresh = useCallback((alias, refresh) => {
+    setScope((s) => ({
+      ...s,
+      basket: (s.basket || []).map((b) => (b.alias === alias ? { ...b, refresh } : b)),
+    }));
+    setRefreshAlias(null);
+    setToast(`'${alias}' yenileme güncellendi`);
+  }, []);
+
 
   const applySuggestion = useCallback(async (turnId, suggestion) => {
     setApplyingId(suggestion.id);
@@ -1770,6 +2048,31 @@ function App() {
     }]);
   };
 
+  // Faz C — manuel SQL dataset → scope.basket'e `sql` kaynağı olarak ekle.
+  // addTableFromCatalog'un sql karşılığı; recompute-routing YOK — saklama
+  // kararını kullanıcı modalda verdi, decided_by:"user" ile korunur (sql
+  // tablonun katalog satırı yok, recompute onu lazy'ye iterdi).
+  const addSqlDataset = ({ alias, sql, columns, routing, refresh }) => {
+    const item = {
+      sql, alias,
+      projection: { columns: columns || [], include_all: false },
+      routing: { decision: routing, decided_by: "user", estimated_bytes: 0 },
+      provenance: "Hazırlık — manuel SQL",
+      ...(routing === "cached" && refresh ? { refresh } : {}),
+    };
+    COLS_BY_ALIAS[alias] = (columns || []).map((c) => ({
+      name: c, type: null, concept: null, join_key: false, lookup: null,
+    }));
+    setScope((s) => ({ ...s, basket: [...(s.basket || []), item] }));
+    setNodes((nds) => [...nds, {
+      id: alias, type: "tableNode",
+      position: { x: 80 + (nds.length % 3) * 340, y: 80 + Math.floor(nds.length / 3) * 240 },
+      data: enrichNodeData(item, scope),
+    }]);
+    setSqlModalOpen(false);
+    setToast(`'${alias}' SQL tablosu eklendi`);
+  };
+
   const removeTable = (alias) => {
     setScope((s) => {
       // Drop any dismissed-suggestion keys that reference this alias.
@@ -1816,6 +2119,16 @@ function App() {
         const srcData = await (await fetch(u.pathname + u.search)).json();
         if (srcData.error) throw new Error(srcData.error);
         data = { ...aggregateLocal(srcData, item.derivation), derived: true };
+      } else if (item.sql) {
+        // Manuel SQL dataset: re-run the authored query (design-time trigger).
+        // preview-sql returns {columns, data_columns, rows} — same shape the
+        // drawer expects from the table-preview GET.
+        const r = await fetch(PREVIEW_SQL_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sql: item.sql }),
+        });
+        data = await r.json();
+        if (!data.ok) throw new Error((data.errors || ["SQL önizleme başarısız"]).join("; "));
       } else {
         const u = new URL(PREVIEW_URL, window.location.origin);
         u.searchParams.set("schema", item.table_ref.schema);
@@ -2030,6 +2343,8 @@ function App() {
           onOpenDocs={(t) => setDocsTable((cur) => (cur && cur.id === t.id ? null : t))}
           goingToSunum={busy}
           onGoToSunum={goToSunum}
+          onUpload={() => setUploadOpen(true)}
+          onAddSql={() => setSqlModalOpen(true)}
           chat={{
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
@@ -2082,6 +2397,23 @@ function App() {
       )}
       {buildPreview && (
         <BuildConfirmModal preview={buildPreview} onConfirm={confirmBuild} onCancel={cancelBuild} />
+      )}
+      {refreshAlias && (() => {
+        const it = (scope.basket || []).find((b) => b.alias === refreshAlias);
+        return it ? (
+          <RefreshModal
+            item={it}
+            onSave={(r) => saveRefresh(refreshAlias, r)}
+            onClose={() => setRefreshAlias(null)}
+          />
+        ) : null;
+      })()}
+      {sqlModalOpen && (
+        <SqlDatasetModal
+          existingAliases={(scope.basket || []).map((b) => b.alias)}
+          onSave={addSqlDataset}
+          onClose={() => setSqlModalOpen(false)}
+        />
       )}
       <UploadModal
         open={uploadOpen}

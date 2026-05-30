@@ -48,7 +48,13 @@ def apply_data_to_config(block: dict, data_source: dict) -> None:
     rows = data_source.get("rows") or []
     columns = data_source.get("columns") or []
 
+    # No columns AND no rows means the query returned an empty result set
+    # (or was short-circuited as "empty"). We MUST still clear the chart
+    # config — otherwise the canvas keeps rendering the previous result
+    # while the SQL panel says "0 satır", which is a confusing mismatch.
     if not columns:
+        if not rows:
+            _clear_config_for_type(btype, config)
         return
 
     if btype in ("kpi", "radial_bar"):
@@ -91,6 +97,29 @@ def apply_data_to_config(block: dict, data_source: dict) -> None:
             for row in rows
         ]
         return
+
+
+def _clear_config_for_type(btype: str, config: dict) -> None:
+    """Reset the data-bearing fields of ``config`` for ``btype`` so the
+    renderer falls through to its "no data" placeholder. Style fields
+    (colors, titles, labels) are left intact so the next successful run
+    restores the user's customizations."""
+    if btype == "kpi":
+        config["value"] = 0
+    elif btype == "radial_bar":
+        config["value"] = 0
+    elif btype == "pie_chart":
+        config["labels"] = []
+        config["values"] = []
+    elif btype in ("bar_chart", "heatmap"):
+        config["categories"] = []
+        _zero_out_series(config)
+    elif btype in ("line_chart", "area_chart"):
+        config["x_axis"] = []
+        _zero_out_series(config)
+    elif btype == "data_table":
+        config["columns"] = []
+        config["rows"] = []
 
 
 def _build_series(columns, rows, existing_series):
@@ -207,11 +236,15 @@ def _execute_one_block(block_value, dc, conn, state, errors, patch_idx, op,
                 return
 
     try:
-        new_ds = execute_block_sql(
-            dc, conn, block_id, new_sql,
-            upload_lookup=upload_lookup,
-            s3_get=s3_get,
-        )
+        # Hold the per-session DuckDB lock across execute — the connection is
+        # shared with concurrent HTTP requests on this presentation and is not
+        # thread-safe.
+        with state.session.duck_conn():
+            new_ds = execute_block_sql(
+                dc, conn, block_id, new_sql,
+                upload_lookup=upload_lookup,
+                s3_get=s3_get,
+            )
     except GateError as exc:
         errors.append(f"patch[{patch_idx}]: block '{block_id}' SQL reddedildi → {exc}")
         return

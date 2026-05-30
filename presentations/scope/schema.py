@@ -278,24 +278,116 @@ class Derivation(BaseModel):
         return self
 
 
+# ── Dataset refresh policy (Faz A — Hazırlık'a taşınan cron) ────────────────
+
+class RefreshSchedule(BaseModel):
+    """Time-of-day schedule for a scheduled dataset refresh.
+
+    Fires at each ``HH:MM`` in ``times`` on every weekday in ``days`` (MON..SUN;
+    empty = every day), interpreted in ``timezone``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    times: list[str] = Field(min_length=1)
+    days: list[Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]] = Field(
+        default_factory=list
+    )
+    timezone: str = "Europe/Istanbul"
+
+    @field_validator("times")
+    @classmethod
+    def _check_times(cls, v: list[str]) -> list[str]:
+        for t in v:
+            if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", t or ""):
+                raise ValueError(f"schedule time must be HH:MM (24h): {t!r}")
+        return v
+
+
+class DatasetRefresh(BaseModel):
+    """Cron refresh policy for a CACHED dataset (Faz A).
+
+    Only valid on a basket item whose ``routing.decision == 'cached'`` — a lazy
+    (too-big-to-materialise) table can't be cron-refreshed; the user must shrink
+    it (aggregate / filter) so it routes cached. Exactly one of
+    ``interval_seconds`` / ``schedule`` drives the dataset scheduler when
+    ``kind == 'scheduled'``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["manual", "scheduled"] = "manual"
+    interval_seconds: int | None = Field(default=None, ge=60, le=86_400)
+    schedule: RefreshSchedule | None = None
+
+    @model_validator(mode="after")
+    def _shape(self) -> "DatasetRefresh":
+        if self.kind == "scheduled":
+            has_int = self.interval_seconds is not None
+            has_sched = self.schedule is not None
+            if has_int and has_sched:
+                raise ValueError(
+                    "scheduled refresh: pick one of interval_seconds OR schedule"
+                )
+            if not (has_int or has_sched):
+                raise ValueError(
+                    "scheduled refresh: set interval_seconds OR schedule"
+                )
+        elif self.interval_seconds is not None or self.schedule is not None:
+            raise ValueError(
+                "interval_seconds / schedule only apply when kind='scheduled'"
+            )
+        return self
+
+
 class BasketItem(BaseModel):
-    """One table in the scope basket — either a real Oracle table
-    (``table_ref``) or a derived/aggregate table (``derivation``)."""
+    """One dataset in the scope basket — exactly one source of:
+
+    - ``table_ref``  — a real Oracle table (projected + filtered),
+    - ``derivation`` — an aggregate/calculated table computed in DuckDB,
+    - ``sql``        — a free-form Oracle ``SELECT``/``WITH`` (Faz C): the user
+      (or LLM) authors arbitrary query SQL in Hazırlık; the cron materialises
+      its result to parquet exactly like a cached table. Used for the big
+      bespoke queries (UNIONs, multi-step aggregates) that don't fit the
+      projection/derivation builders.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     table_ref: TableRef | None = None
     derivation: Derivation | None = None
+    sql: str | None = Field(default=None, max_length=20_000)
     alias: Alias
-    projection: Projection
+    projection: Projection = Field(default_factory=Projection)
     routing: Routing
     layout: NodePosition | None = None
+    # Faz A: cron refresh for cached datasets. None = no scheduled refresh
+    # (materialised once at scope build). Only meaningful when cached.
+    refresh: DatasetRefresh | None = None
+    # Faz C: where an LLM-authored sql dataset came from (kaynakça/provenance).
+    provenance: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "BasketItem":
-        if (self.table_ref is None) == (self.derivation is None):
+        n = sum(s is not None for s in (self.table_ref, self.derivation, self.sql))
+        if n != 1:
             raise ValueError(
-                f"basket item {self.alias!r}: set exactly one of table_ref or derivation"
+                f"basket item {self.alias!r}: set exactly one of "
+                "table_ref, derivation, or sql"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _refresh_requires_cached(self) -> "BasketItem":
+        if (
+            self.refresh is not None
+            and self.refresh.kind == "scheduled"
+            and self.routing.decision != "cached"
+        ):
+            raise ValueError(
+                f"basket item {self.alias!r}: scheduled refresh requires "
+                "routing.decision='cached' (lazy tables can't be cron-refreshed "
+                "— shrink the table so it caches)"
             )
         return self
 
@@ -586,7 +678,7 @@ class ScopeRef(BaseModel):
 __all__ = [
     "TableRef", "Projection", "JoinedColumn", "DerivedColumn", "Routing",
     "NodePosition", "AggFn", "Measure", "CalculatedColumn", "CalculatedJoinKey",
-    "Derivation", "BasketItem",
+    "Derivation", "RefreshSchedule", "DatasetRefresh", "BasketItem",
     "JoinSide", "Join",
     "FilterOp", "PinnedFilter", "InteractiveFilter", "RawFilter", "Filters",
     "Status", "ScopeContract", "ScopeDocument", "ScopeRef",

@@ -185,29 +185,6 @@ export async function fetchDeptMembers(dept) {
 
 // ── Block Library ────────────────────────────────────────────────────────────
 
-export async function fetchLibraryBlocks({ type, tag, q } = {}) {
-  const params = new URLSearchParams();
-  if (type) params.set('type', type);
-  if (tag)  params.set('tag', tag);
-  if (q)    params.set('q', q);
-  const qs = params.toString();
-  const url = qs ? `${PRES_BASE}/library?${qs}` : `${PRES_BASE}/library`;
-  const resp = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!resp.ok) return [];
-  return resp.json();
-}
-
-export async function fetchLibraryBlock(libraryId) {
-  const resp = await fetch(`${PRES_BASE}/library/${encodeURIComponent(libraryId)}`, {
-    headers: { Accept: 'application/json' },
-  });
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`Blok yüklenemedi (${resp.status}): ${txt}`);
-  }
-  return resp.json();  // { block, meta }
-}
-
 export async function saveBlockToLibrary({ block_id, name, description, tags, audience_sicils }) {
   const resp = await fetch(`${API_BASE}/blocks/save`, {
     method: 'POST',

@@ -1721,6 +1721,151 @@
   font-weight: 600;
 }
 
+/* Phase B — library cache freshness badge. Lives in the block strip,
+   right next to the concept pills. Dot color encodes state:
+   green=fresh, amber=stale, red=expired/unknown. Pulse when refreshing. */
+.block-freshness-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  background: rgba(100, 116, 139, 0.10);
+  color: #475569;
+  cursor: default;
+}
+.block-freshness-pill .block-freshness-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.block-freshness-pill.is-fresh {
+  background: rgba(34, 197, 94, 0.10);
+  color: #15803d;
+}
+.block-freshness-pill.is-stale {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+.block-freshness-pill.is-expired,
+.block-freshness-pill.is-unknown {
+  background: rgba(239, 68, 68, 0.10);
+  color: #b91c1c;
+}
+.block-freshness-pill.is-refreshing .block-freshness-dot {
+  animation: ts-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ts-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(1.2); }
+}
+
+/* Phase B+ — refresh policy controls in PropertiesPanel ────────────────── */
+.rp-kinds { display: flex; flex-direction: column; gap: 6px; }
+.rp-kind {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ts-hairline);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.rp-kind:hover { border-color: #94a3b8; }
+.rp-kind.is-active { border-color: #2563eb; background: rgba(37, 99, 235, 0.04); }
+.rp-kind input[type="radio"] { margin-top: 3px; flex: 0 0 auto; accent-color: #2563eb; }
+.rp-kind__body { flex: 1; min-width: 0; }
+.rp-kind__title { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; color: #1e293b; }
+.rp-kind__desc { font-size: 11.5px; color: #64748b; line-height: 1.4; margin-top: 2px; }
+
+.rp-sub {
+  margin-top: 10px;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px dashed var(--ts-hairline);
+  border-radius: 4px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rp-check { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: #334155; cursor: pointer; }
+.rp-check input[type="checkbox"] { accent-color: #2563eb; }
+
+.rp-mode { display: flex; gap: 6px; }
+.rp-mode-btn {
+  background: #ffffff; border: 1px solid var(--ts-hairline);
+  padding: 4px 12px; font-size: 11px; cursor: pointer;
+  border-radius: 3px; color: #475569;
+  font-family: ui-monospace, monospace;
+}
+.rp-mode-btn:hover { border-color: #94a3b8; }
+.rp-mode-btn.is-active { background: #2563eb; color: white; border-color: #2563eb; }
+
+.rp-times {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 6px;
+  background: white; border: 1px solid var(--ts-hairline);
+  border-radius: 3px; min-height: 36px;
+}
+.rp-time-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(37, 99, 235, 0.10);
+  color: #1e40af;
+  border: 1px solid rgba(37, 99, 235, 0.30);
+  padding: 2px 4px 2px 8px;
+  font-family: ui-monospace, monospace; font-size: 11.5px;
+  border-radius: 3px;
+}
+.rp-time-pill button {
+  background: transparent; border: none; cursor: pointer;
+  color: inherit; padding: 0 2px; font-size: 14px; line-height: 1;
+}
+.rp-add-time { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
+.rp-add-time input { flex: 1; }
+.rp-add-time-btn {
+  background: white; border: 1px solid #2563eb; color: #2563eb;
+  padding: 4px 10px; border-radius: 3px; cursor: pointer;
+  font-family: ui-monospace, monospace; font-size: 11px;
+}
+.rp-add-time-btn:hover { background: #2563eb; color: white; }
+
+.rp-days { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-day {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px;
+  background: white; border: 1px solid var(--ts-hairline);
+  border-radius: 3px;
+  font-family: ui-monospace, monospace; font-size: 11px;
+  color: #64748b; cursor: pointer; user-select: none;
+}
+.rp-day input { display: none; }
+.rp-day.is-on { background: rgba(37, 99, 235, 0.10); color: #1e40af; border-color: rgba(37, 99, 235, 0.30); }
+
+/* Dark mode tweaks (editor_dark.css owns the dark palette; these are the
+   minimal overrides that keep the badge readable on the dark workbench). */
+:root[data-theme="dark"] .block-freshness-pill,
+.editor-dark .block-freshness-pill {
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+}
+:root[data-theme="dark"] .block-freshness-pill.is-fresh,
+.editor-dark .block-freshness-pill.is-fresh {
+  background: rgba(74, 222, 128, 0.16);
+  color: #86efac;
+}
+:root[data-theme="dark"] .block-freshness-pill.is-stale,
+.editor-dark .block-freshness-pill.is-stale {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+}
+:root[data-theme="dark"] .block-freshness-pill.is-expired,
+:root[data-theme="dark"] .block-freshness-pill.is-unknown,
+.editor-dark .block-freshness-pill.is-expired,
+.editor-dark .block-freshness-pill.is-unknown {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
+}
+
 .block-footer--button {
   background: none;
   width: 100%;
@@ -6055,6 +6200,72 @@ body.theme-dark .props-sql-helper__table td code {
   color: #1e293b;
 }
 .filter-widget__date-sep { color: #94a3b8; font-size: 11px; }
+
+/* ── Sunum sabit tarih filtresi (FixedDateFilter, sağ-alt) ────────────────── */
+.fdf-fixed {
+  position: fixed; right: 18px; bottom: 18px; z-index: 60;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+}
+.fdf-pill {
+  position: relative; display: flex; flex-direction: column; gap: 5px;
+  background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
+  padding: 8px 10px; box-shadow: 0 6px 20px rgba(15, 23, 42, 0.14);
+}
+.fdf-pill__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fdf-pill__label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: #64748b;
+}
+.fdf-pill__remove {
+  border: none; background: transparent; color: #94a3b8; cursor: pointer;
+  padding: 0; display: flex; align-items: center;
+}
+.fdf-pill__remove:hover { color: #dc2626; }
+.fdf-pill__ctrl { display: flex; align-items: center; gap: 4px; outline: none; }
+.fdf-pill__ctrl:focus-visible { box-shadow: 0 0 0 2px #93c5fd; border-radius: 9px; }
+.fdf-pill__arrow {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border: 1px solid #cbd5e1; background: #f8fafc;
+  color: #334155; border-radius: 8px; cursor: pointer;
+}
+.fdf-pill__arrow:hover:not(:disabled) { background: #eef2ff; border-color: #93c5fd; color: #1d4ed8; }
+.fdf-pill__arrow:disabled { opacity: 0.45; cursor: not-allowed; }
+.fdf-pill__date {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 5px 12px; border: 1px solid #cbd5e1; background: #ffffff;
+  color: #0f172a; border-radius: 8px; font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums; cursor: pointer; font-family: inherit;
+  white-space: nowrap;
+}
+.fdf-pill__date:hover { border-color: #2563eb; }
+.fdf-pill__arrowsep { color: #94a3b8; font-weight: 400; margin: 0 1px; }
+
+.fdf-cal {
+  position: absolute; right: 0; bottom: calc(100% + 8px); width: 250px;
+  background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.2); padding: 10px; z-index: 61;
+}
+.fdf-cal__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.fdf-cal__title { font-size: 13px; font-weight: 700; color: #0f172a; }
+.fdf-cal__nav {
+  width: 26px; height: 26px; border: 1px solid #e2e8f0; background: #f8fafc;
+  border-radius: 7px; cursor: pointer; color: #475569; font-size: 14px; line-height: 1;
+}
+.fdf-cal__nav:hover { background: #eef2ff; color: #1d4ed8; }
+.fdf-cal__dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 2px; }
+.fdf-cal__dow span { text-align: center; font-size: 10px; font-weight: 700; color: #94a3b8; padding: 2px 0; }
+.fdf-cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.fdf-cal__day {
+  aspect-ratio: 1 / 1; border: none; background: transparent; border-radius: 7px;
+  font-size: 12px; color: #334155; cursor: pointer; font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.fdf-cal__day:hover:not(.is-blank) { background: #eef2ff; }
+.fdf-cal__day.is-blank { cursor: default; }
+.fdf-cal__day.is-today { box-shadow: inset 0 0 0 1px #93c5fd; }
+.fdf-cal__day.is-mid { background: #dbeafe; border-radius: 0; }
+.fdf-cal__day.is-end { background: #2563eb; color: #fff; font-weight: 700; }
+.fdf-cal__hint { margin-top: 6px; font-size: 11px; color: #64748b; text-align: center; }
 
 .filter-widget__chips {
   display: flex;

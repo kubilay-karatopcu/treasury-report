@@ -6,6 +6,7 @@ came back empty and the chart never changed.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
@@ -50,6 +51,10 @@ class _StubSession:
 
     def get_duck_conn(self):
         return self._conn
+
+    @contextmanager
+    def duck_conn(self):
+        yield self._conn
 
 
 class _StubRegistry:
@@ -173,3 +178,41 @@ def test_legacy_data_source_shape_is_processed():
     assert body["blocks"][0]["concept_injected"] is True
     sql = dc.calls[-1]["query"]
     assert "SEGMENT IN" in sql and "GROUP BY SEGMENT" in sql
+
+
+def _multi_table_manifest():
+    # Block joining TWO tables. An unqualified concept predicate flattened into
+    # the outer WHERE would be ORA-00918 (or filter the wrong table), so it must
+    # NOT be injected — the block renders concept-blind instead (#12).
+    return {
+        "id": "p1", "version": 1,
+        "filters": [{"id": "f_segment", "semantic_tag": "segment",
+                     "type": "enum_multi", "label": "Segment",
+                     "allowed_values": ["RETAIL", "SME", "CORP", "PRIVATE"]}],
+        "blocks": [{
+            "id": "sec", "type": "section_header", "title": "x", "children": [{
+                "id": "b_join", "type": "bar_chart", "title": "Join",
+                "query": ("SELECT d.SEGMENT, SUM(d.BALANCE_TRY) AS TOTAL "
+                          "FROM EDW.DEPOSITS_DAILY d "
+                          "JOIN EDW.BRANCH_DIM b ON d.BRANCH_CODE = b.BRANCH_CODE "
+                          "GROUP BY d.SEGMENT"),
+                "config": {"categories": [], "series": [{"name": "T", "values": []}]},
+            }],
+        }],
+    }
+
+
+def test_multi_table_block_is_concept_blind():
+    """#12: a 2-table join must not get an unqualified predicate injected; the
+    concept filter is surfaced as blind and the original SQL runs intact."""
+    dc = _RecordingDC()
+    client = _make_app(_multi_table_manifest(), dc).test_client()
+    resp = _post(client, "p1", {"f_segment": ["RETAIL", "SME"]})
+    assert resp.status_code == 200
+    blk = resp.get_json()["blocks"][0]
+    assert blk["id"] == "b_join"
+    assert blk.get("concept_injected") is False
+    assert "segment" in (blk.get("blind_filters") or [])
+    # No predicate was injected — Oracle saw the original join query.
+    assert "SEGMENT IN" not in dc.calls[-1]["query"]
+    assert "JOIN EDW.BRANCH_DIM" in dc.calls[-1]["query"]

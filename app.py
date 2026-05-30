@@ -29,7 +29,7 @@ from prisma_home import prisma_home_bp
 from prisma_home.experts import LocalExpertStore
 from prisma_home.briefing import BriefingEngine
 from presentations.session import SessionRegistry
-from presentations.store import S3SnapshotStore, S3DashboardStore, S3LibraryStore
+from presentations.store import S3SnapshotStore, S3DashboardStore
 from presentations.scope.store import S3ScopeStore
 from presentations.blocks.store import S3BlockStore, LocalBlockStore
 from presentations.table_docs.store import (
@@ -62,7 +62,6 @@ if DEV_MODE:
 
     import fake_db
     import re as _re
-    import duckdb as _duckdb
 
     _ORACLE_TO_STRFTIME = [
         ("YYYY", "%Y"), ("YY", "%y"),
@@ -159,7 +158,8 @@ if DEV_MODE:
 
         def _get_duck(self):
             if self._duck is None:
-                conn = _duckdb.connect(":memory:")
+                from presentations.duck import connect_duckdb
+                conn = connect_duckdb(":memory:")
                 seen_schemas = set()
                 for tid in fake_db.known_tables():
                     df = fake_db.get(tid)
@@ -463,7 +463,7 @@ app.config["SESSION_REGISTRY"] = SessionRegistry(
 
 if DEV_MODE:
     from presentations.llm import FakeLLM
-    from presentations.store import LocalSnapshotStore, LocalDashboardStore, LocalLibraryStore
+    from presentations.store import LocalSnapshotStore, LocalDashboardStore
     from presentations.scope.store import LocalScopeStore
 
     _openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -483,7 +483,6 @@ if DEV_MODE:
 
     app.config["SNAPSHOT_STORE"]  = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
     app.config["DASHBOARD_STORE"] = LocalDashboardStore(base_dir=_DUCK_BASE_DIR / "dashboards")
-    app.config["LIBRARY_STORE"]   = LocalLibraryStore(base_dir=_DUCK_BASE_DIR / "library")
     app.config["BLOCK_STORE"]     = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
     app.config["SCOPE_STORE"]     = LocalScopeStore(base_dir=_DUCK_BASE_DIR / "scopes")
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
@@ -502,7 +501,6 @@ else:
     )
     app.config["SNAPSHOT_STORE"]  = S3SnapshotStore(dc=dc)
     app.config["DASHBOARD_STORE"] = S3DashboardStore(dc=dc)
-    app.config["LIBRARY_STORE"]   = S3LibraryStore(dc=dc)
     app.config["BLOCK_STORE"]     = S3BlockStore(dc=dc)
     app.config["SCOPE_STORE"]     = S3ScopeStore(dc=dc)
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(S3TableDocStore(dc=dc))
@@ -511,6 +509,37 @@ else:
 app.config["S3_GET"]    = _s3_get
 app.config["S3_PUT"]    = _s3_put
 app.config["S3_DELETE"] = _s3_delete
+
+# Phase B — shared library-block cache + background refetch dispatcher.
+# Same backend (DuckDB on local FS) for both DEV and prod; the cache file
+# lives next to the per-session DuckDB files under PRESENTATIONS_SESSION_DIR.
+from presentations.cache.library_block_cache import LibraryBlockCache as _LBC
+from presentations.cache.refresh_dispatcher import RefreshDispatcher as _RD
+app.config["LIBRARY_BLOCK_CACHE"] = _LBC(
+    db_path=_DUCK_BASE_DIR / "library_block_cache.duckdb",
+)
+app.config["LIBRARY_REFRESH_DISPATCHER"] = _RD(max_workers=2)
+
+# NOT: Eski LibraryRefreshScheduler (LIBRARY_STORE warm-cache) kaldırıldı —
+# tek depo = BLOCK_STORE. Kütüphane bloklarının lazy_ttl önbelleği apply-filters
+# içinde per-request serve-stale + LIBRARY_REFRESH_DISPATCHER ile çalışmaya
+# devam eder; proaktif tarama yok. (DatasetScheduler dataset cron'unu yapar.)
+
+# Faz A — dataset-level refresh. Materialises cached scope datasets to S3
+# parquet on schedule; N Sunum charts reference ONE dataset → one query per
+# interval (block-level dedup the old model lacked). Same single-process caveat
+# as the library scheduler above (gate by worker_id==0 / sidecar in prod).
+from presentations.cache.dataset_scheduler import DatasetScheduler as _DSS
+app.config["DATASET_REFRESH_DISPATCHER"] = _RD(max_workers=2, name="dataset-refresh")
+app.config["DATASET_REFRESH_SCHEDULER"] = _DSS(
+    scope_store=app.config["SCOPE_STORE"],
+    data_client=dc,
+    dispatcher=app.config["DATASET_REFRESH_DISPATCHER"],
+    concept_registry=app.config.get("CONCEPT_REGISTRY"),
+    binding_catalog=app.config.get("CONCEPT_BINDING_CATALOG"),
+    poll_interval_seconds=60,
+)
+app.config["DATASET_REFRESH_SCHEDULER"].start()
 
 # Phase 10B — Expert registry. Fixtures live in examples/phase_10/experts/
 # (git-versioned per spec §10.2 for global/dept scope). Same path in DEV and

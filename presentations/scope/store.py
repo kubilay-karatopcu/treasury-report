@@ -87,6 +87,7 @@ class ScopeStore(Protocol):
     def load(self, presentation_id: str, version: int) -> ScopeContract: ...
     def load_latest(self, presentation_id: str) -> Optional[ScopeContract]: ...
     def list_versions(self, presentation_id: str) -> list[int]: ...
+    def list_presentations(self) -> list[str]: ...
 
 
 # ── S3 backend ───────────────────────────────────────────────────────────────
@@ -116,6 +117,20 @@ class S3ScopeStore:
 
     def list_versions(self, presentation_id: str) -> list[int]:
         return sorted(self._index(presentation_id).keys())
+
+    def list_presentations(self) -> list[str]:
+        """Distinct presentation ids across all owners (for the dataset cron)."""
+        try:
+            keys = self.dc.list_prefix(SCOPE_S3_PREFIX + "/")
+        except Exception as exc:
+            log.warning("scope list_presentations: S3 list failed: %s", exc)
+            return []
+        pids: set[str] = set()
+        for key in keys:
+            m = re.search(r"/([^/]+)/scope_v\d+\.yaml$", key)
+            if m:
+                pids.add(m.group(1))
+        return sorted(pids)
 
     def save(self, scope: ScopeContract) -> int:
         next_v = _stamp_lineage(scope, self.list_versions(scope.presentation_id))
@@ -186,6 +201,18 @@ class LocalScopeStore:
 
     def list_versions(self, presentation_id: str) -> list[int]:
         return sorted(self._index(presentation_id).keys())
+
+    def list_presentations(self) -> list[str]:
+        out: set[str] = set()
+        if not self.base_dir.exists():
+            return []
+        for user_dir in self.base_dir.iterdir():
+            if not user_dir.is_dir():
+                continue
+            for pres_dir in user_dir.iterdir():
+                if pres_dir.is_dir() and any(pres_dir.glob("scope_v*.yaml")):
+                    out.add(pres_dir.name)
+        return sorted(out)
 
     def save(self, scope: ScopeContract) -> int:
         next_v = _stamp_lineage(scope, self.list_versions(scope.presentation_id))
