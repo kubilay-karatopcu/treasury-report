@@ -183,7 +183,7 @@
     margin-bottom: 4px;
   }
   .add-col-row {
-    display: flex; justify-content: center;
+    display: flex; justify-content: center; gap: 12px;
     padding-top: 6px;
   }
 
@@ -245,6 +245,82 @@
     color: var(--gold); letter-spacing: 0.04em;
     line-height: 1.5;
   }
+
+  /* ── DDL import modal ─────────────────────────────────────────────────── */
+  .ddl-modal {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.62);
+    padding: 24px;
+  }
+  .ddl-modal__panel {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    width: min(720px, 100%);
+    max-height: 88vh; overflow-y: auto;
+    padding: 24px 26px 22px;
+    display: flex; flex-direction: column; gap: 14px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  }
+  .ddl-modal__head {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .ddl-modal__head h3 {
+    font-family: var(--mono); font-size: 13px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--gold); margin: 0;
+  }
+  .ddl-modal__hint {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12.5px; color: var(--ink-mute); line-height: 1.55; margin: 0;
+  }
+  .ddl-input {
+    background: var(--bg-0); color: var(--ink);
+    border: 1px solid var(--border-soft);
+    padding: 12px 14px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    outline: none; width: 100%; box-sizing: border-box;
+    resize: vertical; min-height: 160px;
+    white-space: pre; overflow-wrap: normal; overflow-x: auto;
+  }
+  .ddl-input:focus { border-color: var(--gold); }
+  .ddl-modal__actions { display: flex; align-items: center; gap: 14px; }
+  .ddl-msg {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+    color: var(--ink-faint);
+  }
+  .ddl-msg.is-ok    { color: #6ee7b7; }
+  .ddl-msg.is-warn  { color: var(--gold); }
+  .ddl-msg.is-error { color: #fca5a5; }
+  .ddl-preview {
+    border: 1px solid var(--border-soft);
+    max-height: 320px; overflow-y: auto; background: var(--bg-0);
+  }
+  .ddl-pv-table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--mono); font-size: 11.5px;
+  }
+  .ddl-pv-table th {
+    position: sticky; top: 0;
+    background: var(--bg-2); color: var(--ink-faint);
+    font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    text-align: left; padding: 8px 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .ddl-pv-table td {
+    padding: 7px 12px; border-bottom: 1px solid var(--border-soft);
+    color: var(--ink-soft);
+  }
+  .ddl-pv-table tr:last-child td { border-bottom: none; }
+  .ddl-pv-num   { color: var(--ink-faint); width: 36px; }
+  .ddl-pv-name  { color: var(--ink); }
+  .ddl-pv-type  { color: var(--gold); }
+  .ddl-pv-empty { color: #fca5a5; font-style: italic; }
+  .ddl-modal__apply {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    padding-top: 12px; border-top: 1px solid var(--border-soft);
+  }
+  .ddl-modal__apply .field-check input { accent-color: var(--gold); }
 </style>
 {% endblock %}
 
@@ -316,6 +392,7 @@
           <div id="cols-list"></div>
           <div class="add-col-row">
             <button type="button" id="add-col" class="doc-btn doc-btn--ghost-add">＋ Kolon Ekle</button>
+            <button type="button" id="ddl-open" class="doc-btn">📋 DDL'den İçe Aktar</button>
           </div>
         </section>
       </div>
@@ -342,6 +419,38 @@
           yapılır. Tip alanı boş bırakılırsa kaydedilmez.
         </div>
       </aside>
+    </div>
+  </div>
+
+  <!-- ── DDL import modal ──────────────────────────────────────────────── -->
+  <div id="ddl-modal" class="ddl-modal" style="display:none;">
+    <div class="ddl-modal__panel">
+      <div class="ddl-modal__head">
+        <h3>DDL'den Kolon İçe Aktar</h3>
+        <button type="button" class="doc-btn" data-act="ddl-close" aria-label="Kapat">✕</button>
+      </div>
+      <p class="ddl-modal__hint">
+        DBeaver'da tablo üstünde sağ tık → <strong>Generate SQL → DDL</strong>
+        (ya da Advanced Copy) çıktısını aşağıya yapıştır. Kolon adları ve
+        tipleri otomatik dolar — açıklama ve concept'leri sonra sen eklersin.
+        Constraint / PRIMARY KEY satırları atlanır.
+      </p>
+      <textarea id="ddl-input" class="ddl-input" rows="10" spellcheck="false"
+        placeholder="CREATE TABLE EDW.DEPOSITS_DAILY (&#10;  BRANCH_CODE   VARCHAR2(10),&#10;  SEGMENT       VARCHAR2(20),&#10;  DATE_KEY      DATE,&#10;  BALANCE_TRY   NUMBER(18,2)&#10;);"></textarea>
+      <div class="ddl-modal__actions">
+        <button type="button" class="doc-btn doc-btn--ghost-add" data-act="ddl-preview">Önizle</button>
+        <span id="ddl-msg" class="ddl-msg"></span>
+      </div>
+      <div id="ddl-preview" class="ddl-preview" style="display:none;"></div>
+      <div id="ddl-apply-row" class="ddl-modal__apply" style="display:none;">
+        <label class="field-check">
+          <input type="radio" name="ddl-mode" value="append" checked /> Sonuna ekle
+        </label>
+        <label class="field-check">
+          <input type="radio" name="ddl-mode" value="replace" /> Mevcut kolonları değiştir
+        </label>
+        <button type="button" class="doc-btn doc-btn--primary" data-act="ddl-apply" style="margin-left:auto;">Uygula</button>
+      </div>
     </div>
   </div>
 
@@ -674,6 +783,191 @@
       $saveBtn.disabled = false;
     }
   }
+
+  // ── DDL import (paste DBeaver CREATE TABLE → fill columns + types) ─────
+  const $ddlOpen     = document.getElementById('ddl-open');
+  const $ddlModal    = document.getElementById('ddl-modal');
+  const $ddlInput    = document.getElementById('ddl-input');
+  const $ddlMsg      = document.getElementById('ddl-msg');
+  const $ddlPreview  = document.getElementById('ddl-preview');
+  const $ddlApplyRow = document.getElementById('ddl-apply-row');
+  let ddlParsed = [];   // columns from the last successful preview
+
+  function ddlOpen()  { $ddlModal.style.display = 'flex'; setTimeout(() => $ddlInput.focus(), 30); }
+  function ddlClose() { $ddlModal.style.display = 'none'; }
+  function ddlSetMsg(text, kind) {
+    $ddlMsg.textContent = text || '';
+    $ddlMsg.className = 'ddl-msg' + (kind ? ' is-' + kind : '');
+  }
+
+  // Substring between the first '(' and its matching ')', respecting nesting.
+  function ddlParenBody(s) {
+    const open = s.indexOf('(');
+    if (open === -1) return null;
+    let depth = 0;
+    for (let i = open; i < s.length; i++) {
+      const ch = s[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') { depth--; if (depth === 0) return s.slice(open + 1, i); }
+    }
+    return s.slice(open + 1);
+  }
+  // Split on commas at paren-depth 0, ignoring commas inside quotes/parens
+  // (so NUMBER(18,2) and DEFAULT 'a,b' stay intact).
+  function ddlSplitTopLevel(body) {
+    const out = []; let depth = 0, cur = '', q = null;
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i];
+      if (q) { cur += ch; if (ch === q) q = null; continue; }
+      if (ch === "'" || ch === '"') { q = ch; cur += ch; continue; }
+      if (ch === '(') { depth++; cur += ch; }
+      else if (ch === ')') { depth = Math.max(0, depth - 1); cur += ch; }
+      else if (ch === ',' && depth === 0) { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    if (cur.trim()) out.push(cur);
+    return out;
+  }
+
+  const DDL_CONSTRAINT_KW = /^\s*(CONSTRAINT|PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|KEY|INDEX|PERIOD|SUPPLEMENTAL|PARTITION|USING|LIKE)\b/i;
+  const DDL_OPTION_KW = /\b(NOT\s+NULL|NULL|DEFAULT|GENERATED|AS|CONSTRAINT|PRIMARY\s+KEY|REFERENCES|UNIQUE|CHECK|ENABLE|DISABLE|COLLATE|VISIBLE|INVISIBLE|VIRTUAL|IDENTITY|ENCRYPT|COMMENT)\b/i;
+  const DDL_HEADER_NAMES = new Set(['COLUMN NAME', 'COLUMN_NAME', 'NAME', 'COLUMN', 'FIELD', 'ALAN', 'KOLON', 'KOLON ADI']);
+  const DDL_HEADER_TYPES = new Set(['DATA TYPE', 'DATA_TYPE', 'TYPE', 'TIP', 'VERI TIPI', 'VERİ TİPİ']);
+
+  function ddlCleanName(s) {
+    return String(s || '').trim().replace(/^[`"\[]/, '').replace(/[`"\]]$/, '').trim().toUpperCase();
+  }
+
+  // One column segment → { name, type } or null (constraint / unparseable).
+  function ddlParseSegment(seg, lineMode) {
+    const s = seg.replace(/\n/g, ' ').trim();
+    if (!s) return null;
+    if (DDL_CONSTRAINT_KW.test(s)) return null;
+    // Tab-separated (DBeaver column-grid copy) — only in line mode; DDL
+    // indentation tabs are already trimmed and handled by the regex below.
+    if (lineMode && s.indexOf('\t') !== -1) {
+      const parts = s.split('\t').map(x => x.trim()).filter(x => x !== '');
+      if (!parts.length) return null;
+      return { name: ddlCleanName(parts[0]), type: (parts[1] || '').trim() };
+    }
+    const m = s.match(/^(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$#]*))\s+([\s\S]+)$/);
+    if (!m) return null;
+    const name = ddlCleanName(m[1] || m[2] || m[3] || m[4]);
+    const rest = m[5].trim();
+    const km = rest.match(DDL_OPTION_KW);
+    let type = (km ? rest.slice(0, km.index) : rest).trim();
+    type = type.replace(/,+\s*$/, '').replace(/\s+/g, ' ').trim();
+    return { name, type };
+  }
+
+  function ddlParse(raw) {
+    const text = String(raw || '')
+      .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')   // /* block comments */
+      .replace(/--[^\n]*/g, ' ')           // -- line comments
+      .trim();
+    if (!text) return { columns: [], skipped: 0, error: 'Yapıştırılan içerik boş.' };
+
+    const hasCreate = /\bCREATE\s+(?:GLOBAL\s+TEMPORARY\s+|TEMPORARY\s+)?TABLE\b/i.test(text);
+    let segments, lineMode;
+    if (hasCreate) {
+      const afterCreate = text.slice(text.search(/\bCREATE\b/i));
+      const body = ddlParenBody(afterCreate);
+      if (body === null) return { columns: [], skipped: 0, error: 'CREATE TABLE bulundu ama kolon listesi parantezi (…) yok.' };
+      segments = ddlSplitTopLevel(body);
+      lineMode = false;
+    } else {
+      segments = text.split('\n');   // bare column list / TSV grid copy
+      lineMode = true;
+    }
+
+    const cols = []; let skipped = 0;
+    for (const seg of segments) {
+      const p = ddlParseSegment(seg, lineMode);
+      if (!p || !p.name) { if (seg.trim()) skipped++; continue; }
+      if (lineMode && (DDL_HEADER_NAMES.has(p.name) || DDL_HEADER_TYPES.has((p.type || '').toUpperCase()))) continue;
+      cols.push(p);
+    }
+    if (!cols.length) {
+      return { columns: [], skipped, error: 'Hiç kolon ayrıştırılamadı. DBeaver → tablo → Generate SQL → DDL çıktısını yapıştırmayı dene.' };
+    }
+    return { columns: cols, skipped, error: null };
+  }
+
+  function ddlRenderPreview(res) {
+    if (res.error) {
+      $ddlPreview.style.display = 'none';
+      $ddlApplyRow.style.display = 'none';
+      ddlParsed = [];
+      ddlSetMsg(res.error, 'error');
+      return;
+    }
+    ddlParsed = res.columns;
+    $ddlPreview.innerHTML =
+      '<table class="ddl-pv-table"><thead><tr><th>#</th><th>Kolon Adı</th><th>Tip</th></tr></thead><tbody>' +
+      res.columns.map((c, i) =>
+        `<tr><td class="ddl-pv-num">${i + 1}</td>` +
+        `<td class="ddl-pv-name">${escapeHtml(c.name)}</td>` +
+        `<td class="ddl-pv-type">${c.type ? escapeHtml(c.type) : '<span class="ddl-pv-empty">— tip yok</span>'}</td></tr>`
+      ).join('') + '</tbody></table>';
+    $ddlPreview.style.display = 'block';
+    $ddlApplyRow.style.display = 'flex';
+
+    const noType = res.columns.filter(c => !c.type).length;
+    let msg = `${res.columns.length} kolon ayrıştırıldı`;
+    if (res.skipped) msg += ` · ${res.skipped} satır atlandı`;
+    if (noType)      msg += ` · ${noType} kolonda tip yok`;
+    ddlSetMsg(msg, noType ? 'warn' : 'ok');
+
+    // Empty table → default to replace; otherwise non-destructive append.
+    const def = state.columns.length === 0 ? 'replace' : 'append';
+    const r = $ddlApplyRow.querySelector(`input[name="ddl-mode"][value="${def}"]`);
+    if (r) r.checked = true;
+  }
+
+  function ddlApply() {
+    if (!ddlParsed.length) return;
+    const mode = $ddlApplyRow.querySelector('input[name="ddl-mode"]:checked')?.value || 'append';
+    const mk = (p) => ({
+      name: p.name, type: p.type || '', description: '',
+      filterable: false, filter_role: '',
+      suggested_variable: '', suggested_semantic_tag: '',
+      aggregatable: false, visible_in_ui: true, lookup: null,
+    });
+    let added = 0, dupes = 0;
+    if (mode === 'replace') {
+      state.columns = ddlParsed.map(mk);
+      added = state.columns.length;
+    } else {
+      const existing = new Set(state.columns.map(c => (c.name || '').trim().toUpperCase()));
+      for (const p of ddlParsed) {
+        if (existing.has(p.name)) { dupes++; continue; }
+        state.columns.push(mk(p)); existing.add(p.name); added++;
+      }
+    }
+    renderCols();
+    ddlClose();
+    let note = `${added} kolon ${mode === 'replace' ? 'yüklendi' : 'eklendi'}`;
+    if (dupes) note += ` · ${dupes} tekrar atlandı`;
+    note += " — açıklama/concept ekleyip Kaydet'e bas";
+    setStatus(note, 'saved');
+    setTimeout(() => setStatus('Hazır'), 5000);
+  }
+
+  if ($ddlOpen) $ddlOpen.addEventListener('click', ddlOpen);
+  $ddlModal.addEventListener('click', (e) => {
+    if (e.target === $ddlModal) { ddlClose(); return; }   // backdrop click
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'ddl-close')        ddlClose();
+    else if (act === 'ddl-preview') ddlRenderPreview(ddlParse($ddlInput.value));
+    else if (act === 'ddl-apply')   ddlApply();
+  });
+  $ddlInput.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); ddlRenderPreview(ddlParse($ddlInput.value)); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $ddlModal.style.display !== 'none') ddlClose();
+  });
 
   // ── First paint ──────────────────────────────────────────────────────
   renderCols();
