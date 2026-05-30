@@ -167,6 +167,30 @@ class ConceptRegistry:
         return len(self._by_id)
 
 
+def _delete_concept_from_file(registry, concept_id: str) -> bool:
+    """Remove one concept from its scope file via a registry's get_file_raw +
+    save_file. Shared by Cached/S3 registries. Scope → filename: global→global,
+    user→user, dept:X→X. Returns False if the concept or its file is absent."""
+    c = registry.get(concept_id)
+    if c is None:
+        return False
+    scope = c.scope or "global"
+    fname = scope[5:] if scope.startswith("dept:") else scope
+    raw = registry.get_file_raw(fname)
+    if not isinstance(raw, dict):
+        return False
+    concepts = raw.get("concepts")
+    if not isinstance(concepts, list):
+        return False
+    kept = [x for x in concepts
+            if not (isinstance(x, dict) and x.get("id") == concept_id)]
+    if len(kept) == len(concepts):
+        return False
+    raw["concepts"] = kept
+    registry.save_file(fname, raw)
+    return True
+
+
 class CachedConceptRegistry:
     """Directory-backed registry that hot-reloads on file change.
 
@@ -229,8 +253,164 @@ class CachedConceptRegistry:
             self._last_check = time.monotonic()
             self._load()
 
+    def get_file_raw(self, scope_name: str) -> dict | None:
+        """Raw YAML dict of one scope file (preserves version/owners on edit)."""
+        fname = scope_name if scope_name.endswith(".yaml") else f"{scope_name}.yaml"
+        p = self._dir / fname
+        if not p.exists():
+            return None
+        raw = _load_yaml(p.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else None
+
+    def save_file(self, scope_name: str, raw_dict: dict) -> None:
+        """Persist a whole concept-file (one scope) to the dir and reload.
+        Mirrors :meth:`S3ConceptRegistry.save_file` so the create route works
+        identically in DEV (dir) and PROD (S3)."""
+        fname = scope_name if scope_name.endswith(".yaml") else f"{scope_name}.yaml"
+        p = self._dir / fname
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            yaml.safe_dump(raw_dict, allow_unicode=True, sort_keys=False,
+                           default_flow_style=False),
+            encoding="utf-8",
+        )
+        with self._lock:
+            self._last_check = time.monotonic()
+            self._load()
+
+    def delete_concept(self, concept_id: str) -> bool:
+        return _delete_concept_from_file(self, concept_id)
+
     # ── delegated read API ────────────────────────────────────────────────
 
+    def get(self, concept_id: str) -> Concept | None:
+        return self.snapshot.get(concept_id)
+
+    def has(self, concept_id: str) -> bool:
+        return self.snapshot.has(concept_id)
+
+    def all_concepts(self) -> list[Concept]:
+        return self.snapshot.all_concepts()
+
+    def all_ids(self) -> set[str]:
+        return self.snapshot.all_ids()
+
+    def by_scope(self, scope: str) -> list[Concept]:
+        return self.snapshot.by_scope(scope)
+
+    def resolve_value(self, concept_id: str, value: Any) -> str | None:
+        return self.snapshot.resolve_value(concept_id, value)
+
+    def __len__(self) -> int:
+        return len(self.snapshot)
+
+
+class S3ConceptRegistry:
+    """S3-backed concept registry (prod parity with the other PRISMA stores).
+
+    One concept-file YAML per scope under ``<prefix>/<scope>.yaml``
+    (``global.yaml``, ``treasury.yaml``, …). A TTL cache holds an in-memory
+    :class:`ConceptRegistry` snapshot (the hot filter-compile path stays
+    in-memory); the cache is invalidated on :meth:`save_file`. If S3 is empty
+    on first boot and a git ``fixtures_dir`` is given, the curated concepts are
+    seeded to S3 once — so prod ships them without a manual migration and the
+    local dir is no longer the source of truth.
+    """
+
+    def __init__(self, dc, *, prefix: str = "prisma-treasury/concepts",
+                 fixtures_dir: str | Path | None = None, ttl_seconds: int = 30):
+        self._dc = dc
+        self._prefix = prefix.rstrip("/")
+        self._ttl = max(0, int(ttl_seconds))
+        self._lock = threading.Lock()
+        self._loaded_at: float | None = None
+        self._snapshot = ConceptRegistry.empty()
+        if fixtures_dir is not None:
+            self._seed_if_empty(Path(fixtures_dir))
+        self._load()
+
+    def _key(self, name: str) -> str:
+        if not name.endswith(".yaml"):
+            name += ".yaml"
+        return f"{self._prefix}/{name}"
+
+    def _list_keys(self) -> list[str]:
+        try:
+            keys = self._dc.list_prefix(f"{self._prefix}/") or []
+        except Exception:
+            log.warning("S3ConceptRegistry: list_prefix failed", exc_info=True)
+            return []
+        return [str(k) for k in keys if str(k).endswith(".yaml")]
+
+    def _seed_if_empty(self, fixtures_dir: Path) -> None:
+        if self._list_keys() or not fixtures_dir.exists():
+            return
+        n = 0
+        for p in sorted(fixtures_dir.glob("*.yaml")):
+            try:
+                self._dc._upload_bytes(self._key(p.name), p.read_bytes(),
+                                       content_type="application/x-yaml")
+                n += 1
+            except Exception:
+                log.warning("S3ConceptRegistry seed failed for %s", p, exc_info=True)
+        if n:
+            log.info("S3ConceptRegistry seeded %d concept file(s) from %s", n, fixtures_dir)
+
+    def _load(self) -> None:
+        raws: list[dict] = []
+        for key in self._list_keys():
+            try:
+                raw = _load_yaml(self._dc.read_bytes(key).decode("utf-8"))
+            except Exception:
+                log.error("S3ConceptRegistry: parse failed for %s", key, exc_info=True)
+                continue
+            if raw is not None:
+                raws.append(raw)
+        self._snapshot = ConceptRegistry.from_dicts(raws)
+        self._loaded_at = time.monotonic()
+        log.info("S3ConceptRegistry loaded: %d concepts (%d file(s)) from s3://%s",
+                 len(self._snapshot), len(raws), self._prefix)
+
+    def _maybe_reload(self) -> None:
+        if self._loaded_at is not None and (time.monotonic() - self._loaded_at) < self._ttl:
+            return
+        with self._lock:
+            if self._loaded_at is not None and (time.monotonic() - self._loaded_at) < self._ttl:
+                return
+            try:
+                self._load()
+            except Exception:
+                log.exception("S3ConceptRegistry reload failed; keeping previous snapshot")
+
+    @property
+    def snapshot(self) -> ConceptRegistry:
+        self._maybe_reload()
+        return self._snapshot
+
+    def reload(self) -> None:
+        with self._lock:
+            self._load()
+
+    def save_file(self, scope_name: str, raw_dict: dict) -> None:
+        """Persist a whole concept-file (one scope) YAML to S3 and reload."""
+        body = yaml.safe_dump(raw_dict, allow_unicode=True, sort_keys=False,
+                              default_flow_style=False).encode("utf-8")
+        self._dc._upload_bytes(self._key(scope_name), body, content_type="application/x-yaml")
+        with self._lock:
+            self._load()
+
+    def get_file_raw(self, scope_name: str) -> dict | None:
+        """Raw YAML dict of one scope file from S3 (preserves version/owners)."""
+        try:
+            raw = _load_yaml(self._dc.read_bytes(self._key(scope_name)).decode("utf-8"))
+        except Exception:
+            return None
+        return raw if isinstance(raw, dict) else None
+
+    def delete_concept(self, concept_id: str) -> bool:
+        return _delete_concept_from_file(self, concept_id)
+
+    # ── delegated read API (mirrors ConceptRegistry) ──────────────────────
     def get(self, concept_id: str) -> Concept | None:
         return self.snapshot.get(concept_id)
 

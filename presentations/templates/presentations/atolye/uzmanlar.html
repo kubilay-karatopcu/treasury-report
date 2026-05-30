@@ -12,7 +12,7 @@
   /* Kütüphane / Uzmanlar — card grid that mirrors Bloklar + Süreçler.
      Each card surfaces an expert persona + domain; click → YAML editor
      for the persona / briefing recipe / bound content. */
-  .uz-page { padding: 28px 28px 64px; }
+  .uz-page { padding: 22px clamp(14px, 1.6vw, 22px) 64px; }
   .uz-head {
     display: flex; align-items: flex-end; justify-content: space-between;
     margin-bottom: 28px; gap: 32px;
@@ -130,6 +130,16 @@
     text-transform: uppercase;
   }
   .uz-card:hover .uc-cta { color: var(--ink); }
+  .uz-card .uz-trash {
+    width: 26px; height: 26px; padding: 0; margin-bottom: 2px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid var(--border-soft);
+    color: var(--ink-faint); cursor: pointer; font-size: 13px; line-height: 1;
+    opacity: 0.5; transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .uz-card:hover .uz-trash { opacity: 0.85; }
+  .uz-card .uz-trash:hover { opacity: 1; color: #fca5a5; border-color: #fca5a5; }
+  .uz-card.is-deleting { opacity: 0.4; pointer-events: none; }
 
   .empty-state {
     padding: 64px 24px; text-align: center;
@@ -172,6 +182,7 @@
         {% for e in experts %}
           <a class="uz-card"
              data-search="{{ e.code|lower }} {{ e.name|lower }} {{ e.domain_label|lower }} {{ (e.short_description or '')|lower }}"
+             data-id="{{ e.id }}" data-name="{{ e.name }}"
              href="{{ url_for('presentations.uzman_edit', expert_id=e.id) }}">
             <span class="uc-accent" style="background: {{ e.ui.accent_color or '#D4A656' }};"></span>
             <div class="uc-glyph" style="color: {{ e.ui.accent_color or 'var(--ink)' }};">
@@ -186,6 +197,7 @@
               <div class="uc-desc">{{ e.short_description or 'Açıklama yok.' }}</div>
             </div>
             <div class="uc-side">
+              <button type="button" class="uz-trash" title="Uzmanı sil" aria-label="Uzmanı sil">🗑</button>
               <span class="uc-status">{{ e.status }}</span>
               <span class="uc-cta">Düzenle →</span>
             </div>
@@ -217,6 +229,37 @@
       const hay = card.dataset.search || '';
       card.style.display = (!q || hay.includes(q)) ? '' : 'none';
     });
+  });
+
+  // Trash — delete an expert. preventDefault stops the card's edit-link nav.
+  const DEL_TPL = "{{ url_for('presentations.uzman_delete', expert_id='__EID__') }}";
+  grid.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.uz-trash');
+    if (!btn) return;
+    e.preventDefault(); e.stopPropagation();
+    const card = btn.closest('.uz-card');
+    if (!card || card.classList.contains('is-deleting')) return;
+    const eid = card.dataset.id, name = card.dataset.name || eid;
+    if (!confirm(`"${name}" uzmanını sil?\n\nUzman YAML'ı silinir; bağlı snapshot'lardan referansı kaldırılır. Geri alınamaz.`)) return;
+    card.classList.add('is-deleting');
+    try {
+      const r = await fetch(DEL_TPL.replace('__EID__', encodeURIComponent(eid)),
+        { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      card.style.transition = 'opacity 0.25s, transform 0.25s';
+      card.style.opacity = '0'; card.style.transform = 'translateX(8px)';
+      setTimeout(() => {
+        card.remove();
+        const n = grid.querySelectorAll('.uz-card').length;
+        const meta = document.querySelector('.uz-meta');
+        if (meta) meta.textContent = `${n} uzman`;
+        if (n === 0) window.location.reload();
+      }, 240);
+    } catch (err) {
+      card.classList.remove('is-deleting');
+      alert(`Silinemedi: ${err.message || err}`);
+    }
   });
 })();
 </script>
