@@ -9,7 +9,7 @@
 
 {% block head %}
 <style>
-  .konseptler-page { padding: 28px 28px 80px; }
+  .konseptler-page { padding: 22px clamp(14px, 1.6vw, 22px) 80px; }
   .konseptler-head {
     display: flex; align-items: flex-end; justify-content: space-between;
     margin-bottom: 30px; gap: 32px;
@@ -67,6 +67,16 @@
     padding: 3px 8px; border: 1px solid var(--border-soft); color: var(--ink-mute);
   }
   .kc-badge.kc-type { color: var(--gold); border-color: var(--gold); }
+  .kc-trash {
+    width: 26px; height: 26px; padding: 0; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid var(--border-soft);
+    color: var(--ink-faint); cursor: pointer; font-size: 13px; line-height: 1;
+    opacity: 0.55; transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .kc-concept:hover .kc-trash { opacity: 0.85; }
+  .kc-trash:hover { opacity: 1; color: #fca5a5; border-color: #fca5a5; }
+  .kc-concept.is-deleting { opacity: 0.4; pointer-events: none; }
   .kc-desc {
     font-family: var(--serif); font-style: italic; font-size: 12.5px;
     color: var(--ink-mute); margin-top: 8px; line-height: 1.5;
@@ -185,7 +195,7 @@
         </div>
         <div class="kc-grid">
           {% for c in g.concepts %}
-            <div class="kc-concept" id="kc-{{ c.id }}">
+            <div class="kc-concept" id="kc-{{ c.id }}" data-concept-id="{{ c.id }}">
               <div class="kc-concept__head">
                 <div>
                   <span class="kc-id">{{ c.id }}</span>
@@ -194,6 +204,7 @@
                 <div class="kc-badges">
                   <span class="kc-badge kc-type">{{ c.type }}</span>
                   <span class="kc-badge kc-scope">{{ c.scope }}</span>
+                  <button type="button" class="kc-trash" title="Concept'i sil" aria-label="Concept'i sil">🗑</button>
                 </div>
               </div>
               {% if c.description %}<div class="kc-desc">{{ c.description }}</div>{% endif %}
@@ -362,6 +373,7 @@
     const UNBIND_URL  = "{{ url_for('presentations.konsept_unbind') }}";
     const CREATE_URL  = "{{ url_for('presentations.konsept_create') }}";
     const DETAIL_TPL  = "{{ url_for('presentations.table_detail', schema='__S__', table='__T__') }}";
+    const CONCEPT_DEL_TPL = "{{ url_for('presentations.konsept_delete', concept_id='__CID__') }}";
 
     const $ = (id) => document.getElementById(id);
 
@@ -532,6 +544,29 @@
         })
         .catch(e => { err.textContent = 'İstek hatası: ' + e.message; btn.disabled = false; btn.textContent = 'Tanımla →'; });
     }
+
+    // Trash — delete a concept from its scope file.
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.kc-trash');
+      if (!btn) return;
+      const card = btn.closest('.kc-concept');
+      if (!card || card.classList.contains('is-deleting')) return;
+      const cid = card.dataset.conceptId;
+      if (!confirm(`'${cid}' concept'ini sil?\n\nBuna bağlı kolon eşlemeleri concept-blind olur (zarar vermez). Geri alınamaz.`)) return;
+      card.classList.add('is-deleting');
+      try {
+        const r = await fetch(CONCEPT_DEL_TPL.replace('__CID__', encodeURIComponent(cid)),
+          { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        card.style.transition = 'opacity 0.25s, transform 0.25s';
+        card.style.opacity = '0'; card.style.transform = 'scale(0.97)';
+        setTimeout(() => window.location.reload(), 260);
+      } catch (err) {
+        card.classList.remove('is-deleting');
+        alert(`Silinemedi: ${err.message || err}`);
+      }
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { closeAssign(); closeCreate(); }

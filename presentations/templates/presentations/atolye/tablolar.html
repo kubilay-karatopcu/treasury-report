@@ -11,7 +11,7 @@
 <style>
   /* Phase 11.lib — flat catalog browser. Reuses prisma.css's `.table-row`
      + `.domain-divider` styles lifted from the UX prototype. */
-  .tablolar-page { padding: 28px 28px 64px; }
+  .tablolar-page { padding: 22px clamp(14px, 1.6vw, 22px) 64px; }
   .tablolar-head {
     display: flex; align-items: flex-end; justify-content: space-between;
     margin-bottom: 36px; gap: 32px;
@@ -38,8 +38,8 @@
   .table-list { border: 1px solid var(--border-soft); }
   .table-row {
     display: grid;
-    grid-template-columns: minmax(260px, 1fr) 110px 130px 90px 90px 80px;
-    padding: 14px 22px;
+    grid-template-columns: minmax(220px, 1fr) 110px 130px 90px 90px 76px 34px;
+    padding: 14px 18px;
     align-items: center;
     border-bottom: 1px solid var(--border-soft);
     font-size: 12px;
@@ -68,6 +68,16 @@
     color: var(--gold); font-size: 10px; letter-spacing: 0.22em;
     text-transform: uppercase; text-align: right;
   }
+  .table-row .tbl-trash {
+    justify-self: end; width: 26px; height: 26px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid var(--border-soft);
+    color: var(--ink-faint); cursor: pointer; font-size: 13px; line-height: 1;
+    opacity: 0; transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .table-row:hover .tbl-trash { opacity: 0.7; }
+  .table-row .tbl-trash:hover { opacity: 1; color: #fca5a5; border-color: #fca5a5; }
+  .table-row.is-deleting { opacity: 0.4; pointer-events: none; }
 
   .domain-divider {
     display: flex; align-items: center; gap: 18px;
@@ -171,7 +181,9 @@
           </div>
           <div class="table-list">
             {% for t in tables %}
-              <a class="table-row" href="{{ url_for('presentations.tablo_edit', schema=t.schema_name, table=t.name) }}">
+              <a class="table-row"
+                 href="{{ url_for('presentations.tablo_edit', schema=t.schema_name, table=t.name) }}"
+                 data-schema="{{ t.schema_name }}" data-table="{{ t.name }}">
                 <div>
                   <div class="tname">{{ t.schema_name }}.{{ t.name }}</div>
                   {% if t.description %}<div class="tdesc">{{ t.description }}</div>{% endif %}
@@ -189,6 +201,7 @@
                 </div>
                 <div class="tcell">{{ t.source or '—' }}</div>
                 <div class="tact">düzenle →</div>
+                <button type="button" class="tbl-trash" title="Dokümantasyonu sil" aria-label="Dokümantasyonu sil">🗑</button>
               </a>
             {% endfor %}
           </div>
@@ -229,6 +242,33 @@
     // tablo_edit is create-aware: an unknown (schema, table) renders an empty
     // form (exists=False). We just route there. url_for keeps the proxy prefix.
     const TABLO_EDIT_TPL = "{{ url_for('presentations.tablo_edit', schema='__SCHEMA__', table='__TABLE__') }}";
+    const TABLO_DEL_TPL  = "{{ url_for('presentations.tablo_delete', schema='__SCHEMA__', table='__TABLE__') }}";
+
+    // Trash — delete a table's documentation. Delegated; preventDefault stops
+    // the row's edit-link navigation.
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.tbl-trash');
+      if (!btn) return;
+      e.preventDefault(); e.stopPropagation();
+      const row = btn.closest('.table-row');
+      if (!row || row.classList.contains('is-deleting')) return;
+      const schema = row.dataset.schema, table = row.dataset.table;
+      if (!confirm(`${schema}.${table} dokümantasyonunu sil?\n\nKolon/filtre dokümantasyonu silinir; concept bağları Konseptler'de kalır. Geri alınamaz.`)) return;
+      row.classList.add('is-deleting');
+      try {
+        const r = await fetch(
+          TABLO_DEL_TPL.replace('__SCHEMA__', encodeURIComponent(schema)).replace('__TABLE__', encodeURIComponent(table)),
+          { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        row.style.transition = 'opacity 0.25s, transform 0.25s';
+        row.style.opacity = '0'; row.style.transform = 'translateX(8px)';
+        setTimeout(() => row.remove(), 240);
+      } catch (err) {
+        row.classList.remove('is-deleting');
+        alert(`Silinemedi: ${err.message || err}`);
+      }
+    });
     function openAddTable() {
       document.getElementById('addTableErr').textContent = '';
       document.getElementById('addTableOverlay').classList.add('open');

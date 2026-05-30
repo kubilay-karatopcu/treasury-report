@@ -13,7 +13,7 @@
      come from the Phase 6.5 BlockStore. Search/filter is client-side
      against the embedded initial listing; the Yenile button re-fetches
      via /presentations/blocks/api/list. */
-  .bloklar-page { padding: 28px 28px 64px; }
+  .bloklar-page { padding: 22px clamp(14px, 1.6vw, 22px) 64px; }
   .bloklar-head {
     display: flex; align-items: flex-end; justify-content: space-between;
     margin-bottom: 28px; gap: 32px;
@@ -188,6 +188,10 @@
   .blk-card-action:hover {
     color: var(--gold); border-color: var(--gold);
   }
+  .blk-card-action--danger:hover {
+    color: #fca5a5; border-color: #fca5a5;
+  }
+  .blk-card.is-deleting { opacity: 0.4; pointer-events: none; }
 
   .empty-state {
     padding: 64px 24px; text-align: center;
@@ -440,6 +444,10 @@
                   data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
                   data-title="${escapeHtml(m.title)}"
                   title="Önizle">◉</button>
+          <button type="button" class="blk-card-action blk-card-action--danger js-delete"
+                  data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+                  data-title="${escapeHtml(m.title)}"
+                  title="Sil (deprecate)">🗑</button>
         </div>
         <div class="bc-pill">${icon} ${escapeHtml(typeLabel)}</div>
         <div class="bc-title">${escapeHtml(m.title)}</div>
@@ -555,12 +563,35 @@
     if (e.key === 'Escape' && modal.classList.contains('is-open')) closePreview();
   });
 
+  async function deleteBlock(team, id, title, card) {
+    if (!confirm(`"${title}" bloğunu sil?\n\nEn son sürüm "deprecated" işaretlenir ve listeden kalkar. Geçmiş sürümler saklanır.`)) return;
+    if (card) card.classList.add('is-deleting');
+    try {
+      const r = await fetch(
+        `${baseUrl()}/blocks/api/${encodeURIComponent(team)}/${encodeURIComponent(id)}`,
+        { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      reload();
+    } catch (err) {
+      if (card) card.classList.remove('is-deleting');
+      alert(`Silinemedi: ${err.message || err}`);
+    }
+  }
+
   document.getElementById('bloklar-grid').addEventListener('click', (e) => {
-    const btn = e.target.closest('.js-preview');
-    if (btn) {
+    const prev = e.target.closest('.js-preview');
+    if (prev) {
       e.preventDefault();
       e.stopPropagation();
-      openPreview(btn.dataset.team, btn.dataset.id, btn.dataset.title);
+      openPreview(prev.dataset.team, prev.dataset.id, prev.dataset.title);
+      return;
+    }
+    const del = e.target.closest('.js-delete');
+    if (del) {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteBlock(del.dataset.team, del.dataset.id, del.dataset.title, del.closest('.blk-card'));
     }
   });
 
