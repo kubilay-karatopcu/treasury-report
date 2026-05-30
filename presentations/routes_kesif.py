@@ -135,10 +135,16 @@ def _build_workbench_payload(sicil: str, initial_view: str) -> dict:
             "chat_send": url_for("presentations.kesif_chat_send"),
             "chat_clear": url_for("presentations.kesif_chat_clear"),
             "hazirlik_template": "/presentations/hazirlik/{pid}",
-            # Phase 11.workbench — bloklar view's data source.
-            "library_list": url_for("presentations.list_library"),
-            "library_detail_template": "/presentations/library/{bid}",
-            "library_preview_template": "/presentations/library/{bid}/preview",
+            # Phase 11.workbench — bloklar view's data source. After the library
+            # consolidation the old /library/* routes are gone; the BLOCK_STORE
+            # listing + preview live under /blocks/*. url_for keeps the proxy
+            # SCRIPT_NAME prefix; the {team}/{bid} placeholders are filled client
+            # side (blocks_workbench previewUrl).
+            "library_list": url_for("presentations.api_list_blocks"),
+            "library_preview_template": url_for(
+                "presentations.block_library_preview",
+                team="__TEAM__", block_id="__BID__",
+            ).replace("__TEAM__", "{team}").replace("__BID__", "{bid}"),
         },
         "chat": {
             "history": _chat_history_for_draft(sicil, draft.pid),
