@@ -25,7 +25,7 @@ from deposit import deposit_bp
 import re
 from presentations import presentations_bp
 from prisma_home import prisma_home_bp
-from prisma_home.experts import LocalExpertStore
+from prisma_home.experts import LocalExpertStore, S3ExpertStore
 from prisma_home.briefing import BriefingEngine
 from presentations.session import SessionRegistry
 from presentations.store import S3SnapshotStore, S3DashboardStore
@@ -372,12 +372,18 @@ app.config["DATASET_REFRESH_SCHEDULER"] = _DSS(
 )
 app.config["DATASET_REFRESH_SCHEDULER"].start()
 
-# Phase 10B — Expert registry. Fixtures live in examples/phase_10/experts/
-# (git-versioned per spec §10.2 for global/dept scope). Same path in DEV and
-# prod for parity; production deploys ship the YAMLs alongside the code.
-_EXPERTS_DIR = Path(__file__).parent / "examples" / "phase_10" / "experts"
-app.config["EXPERT_STORE"] = LocalExpertStore(base_dir=_EXPERTS_DIR)
-logging.info("EXPERT_STORE loaded from %s", _EXPERTS_DIR)
+# Phase 10B — Expert registry.
+#   DEV  : git fixtures (examples/phase_10/experts/) via LocalExpertStore.
+#   PROD : S3ExpertStore — uzmanlar S3'ten okunur, Atölye'den düzenlenince S3'e
+#          yazılır (pod restart'ta kalıcı; bloklar/snapshot'larla aynı parite).
+#          PROD BOŞ başlar; uzmanlar /atolye/uzmanlar üzerinden oluşturulur.
+if DEV_MODE:
+    _EXPERTS_DIR = Path(__file__).parent / "examples" / "phase_10" / "experts"
+    app.config["EXPERT_STORE"] = LocalExpertStore(base_dir=_EXPERTS_DIR)
+    logging.info("EXPERT_STORE (DEV) loaded from %s", _EXPERTS_DIR)
+else:
+    app.config["EXPERT_STORE"] = S3ExpertStore(dc=dc)
+    logging.info("EXPERT_STORE (PROD) = S3ExpertStore")
 
 # Phase 10E — Briefing engine. In-process content-hash cache (Phase 12 spec
 # §10.4 calls for Redis when multi-pod consistency matters). Falls back to

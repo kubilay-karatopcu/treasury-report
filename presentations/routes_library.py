@@ -552,35 +552,18 @@ def uzman_save(expert_id: str):
     except Exception as exc:
         return _json({"ok": False, "errors": [f"Uzman şeması hatası: {exc}"]}, status=400)
 
-    yaml_dir = _expert_yaml_dir()
-    if yaml_dir is None:
+    # Tek depo arayüzü: LocalExpertStore dosyaya, S3ExpertStore S3'e yazar;
+    # her ikisi de save() içinde kendi cache'ini tazeler (prod'da kalıcı).
+    if store is None or not hasattr(store, "save"):
         return _json(
             {"ok": False, "errors": ["EXPERT_STORE bu ortamda salt-okunur."]},
             status=400,
         )
-
-    path = yaml_dir / f"{rebuilt.id}.yaml"
     try:
-        path.write_text(
-            yaml.safe_dump(
-                rebuilt.to_dict(),
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
-            ),
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        log.exception("uzman_save: write failed for %s", path)
-        return _json({"ok": False, "errors": [f"Dosya yazılamadı: {exc}"]}, status=500)
-
-    # Invalidate LocalExpertStore's in-memory cache so the next /api/experts
-    # call sees the new YAML without a pod restart.
-    try:
-        store._cache = {}
-        store._loaded = False
-    except Exception:
-        pass
+        store.save(rebuilt)
+    except Exception as exc:
+        log.exception("uzman_save: store.save failed for %s", rebuilt.id)
+        return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=502)
 
     # Phase 10 reverse-link sync — the briefing engine reads
     # ``snapshot.bound_experts``, NOT ``expert.bound_content.snapshots``.
