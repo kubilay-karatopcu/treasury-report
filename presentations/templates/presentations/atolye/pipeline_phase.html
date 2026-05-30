@@ -1,0 +1,229 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · " ~ phase_cfg.eyebrow %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}Atölye / {{ phase_cfg.label }} — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  /* Pipeline phase checkpoint listing — same aesthetic as Şablonlar
+     (presentations/atolye/taslaklar.html) but scoped to a single phase
+     and led by a "Yeniden Başla" CTA card. */
+  .pipe-page { padding: 28px 28px 64px; }
+  .pipe-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 36px; gap: 32px;
+  }
+  .pipe-head h2 {
+    font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+    color: var(--ink); margin: 0 0 6px;
+  }
+  .pipe-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 14px;
+  }
+  .pipe-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 14px; color: var(--ink-mute);
+    line-height: 1.55; max-width: 600px;
+  }
+  .pipe-meta {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .pipe-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+  }
+
+  /* Workshop card — same structure as taslaklar.html .workshop-card so
+     the visual language stays consistent across Atölye listings. */
+  .pipe-card {
+    background: var(--bg-1);
+    padding: 24px 22px 20px;
+    transition: background 0.2s;
+    position: relative;
+    min-height: 200px;
+    display: flex; flex-direction: column;
+    text-decoration: none; color: inherit;
+  }
+  .pipe-card:hover { background: var(--bg-2); }
+  .pipe-card .pc-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .pipe-card .pc-num {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.04em; color: var(--gold);
+  }
+  .pipe-card .pc-phase {
+    font-family: var(--mono); font-size: 9px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    color: var(--ink-mute);
+  }
+  .pipe-card--kesif    .pc-phase { color: var(--ink-mute); border-color: var(--border); }
+  .pipe-card--hazirlik .pc-phase { color: var(--gold); border-color: var(--gold); background: rgba(212, 166, 86, 0.10); }
+  .pipe-card--sunum    .pc-phase { color: var(--bg-0); border-color: var(--gold); background: var(--gold); }
+  .pipe-card .pc-name {
+    font-size: 18px; font-weight: 300;
+    letter-spacing: -0.005em; color: var(--ink);
+    margin-bottom: 8px; line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .pipe-card .pc-meta {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12.5px; line-height: 1.5;
+    color: var(--ink-mute); margin-bottom: 18px;
+    flex: 1;
+  }
+  .pipe-card .pc-foot {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono); font-size: 9.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .pipe-card .pc-cta {
+    color: var(--gold);
+    text-decoration: none;
+    letter-spacing: 0.18em;
+  }
+  .pipe-card .pc-cta:hover { color: var(--ink); }
+
+  /* Restart CTA card — sits first in the grid, visually distinct. */
+  .pipe-restart {
+    background: linear-gradient(135deg, rgba(212, 166, 86, 0.08) 0%, var(--bg-1) 70%);
+    padding: 24px 22px 22px;
+    text-decoration: none; color: inherit;
+    display: flex; flex-direction: column; justify-content: space-between;
+    min-height: 200px;
+    transition: background 0.2s;
+    border-left: 3px solid var(--gold);
+  }
+  .pipe-restart:hover {
+    background: linear-gradient(135deg, rgba(212, 166, 86, 0.18) 0%, var(--bg-2) 70%);
+  }
+  .pipe-restart .pr-num {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.04em; color: var(--gold);
+    margin-bottom: 14px;
+  }
+  .pipe-restart .pr-glyph {
+    font-size: 28px; color: var(--gold);
+    margin-bottom: 12px; line-height: 1; letter-spacing: 0.08em;
+  }
+  .pipe-restart .pr-title {
+    font-size: 22px; font-weight: 300;
+    letter-spacing: -0.01em; color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .pipe-restart .pr-body {
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px; color: var(--ink-mute);
+    line-height: 1.55; margin-bottom: 18px;
+    flex: 1;
+  }
+  .pipe-restart .pr-cta {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .empty-state {
+    padding: 64px 24px; text-align: center;
+    border: 1px solid var(--border-soft);
+    color: var(--ink-faint);
+  }
+  .empty-state h3 {
+    font-size: 18px; font-weight: 300; color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  .empty-state p {
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px; line-height: 1.6; max-width: 540px;
+    margin: 0 auto;
+  }
+  .empty-state .empty-cta {
+    margin-top: 24px; display: inline-block;
+    padding: 10px 22px;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .empty-state .empty-cta:hover {
+    background: var(--gold); color: var(--bg-0);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="pipe-page">
+    <div class="pipe-head">
+      <div>
+        <div class="eyebrow">{{ phase_cfg.num }} · {{ phase_cfg.label }}</div>
+        <h2>{{ phase_cfg.label }}</h2>
+        <p class="sub">{{ phase_cfg.intro }}</p>
+      </div>
+      <div class="pipe-meta">
+        {{ total }} checkpoint
+      </div>
+    </div>
+
+    <div class="pipe-grid">
+      <a class="pipe-restart" href="{{ restart_url }}">
+        <div>
+          <div class="pr-num">＋ Yeni</div>
+          <div class="pr-glyph">↻</div>
+          <div class="pr-title">Yeniden Başla</div>
+          <div class="pr-body">
+            Sıfırdan başla. Grafik üstünden tablolarını seç, sepetini topla,
+            kaldığın yerden ilerle.
+          </div>
+        </div>
+        <div class="pr-cta">Keşif'e Git →</div>
+      </a>
+
+      {% for w in checkpoints %}
+        <a class="pipe-card pipe-card--{{ w.phase }}" href="{{ w.continue_url }}">
+          <div class="pc-head">
+            <div class="pc-num">{{ '%02d' % loop.index }}</div>
+            <span class="pc-phase">{{ w.phase_label }}</span>
+          </div>
+          <div class="pc-name">{{ w.title }}</div>
+          <div class="pc-meta">
+            {% if w.phase == 'sunum' %}
+              {{ w.blocks_count }} blok · v{{ w.version }}
+            {% elif w.phase == 'hazirlik' %}
+              Scope düzenleniyor · {{ w.basket_count }} tablo sepette
+            {% else %}
+              {{ w.basket_count }} tablo sepette
+            {% endif %}
+          </div>
+          <div class="pc-foot">
+            <span>{{ (w.updated_at or '')[:10] or '—' }}</span>
+            <span class="pc-cta">Devam Et →</span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+
+    {% if not checkpoints %}
+      <div class="empty-state" style="margin-top: 32px;">
+        <h3>{{ phase_cfg.empty_title }}</h3>
+        <p>{{ phase_cfg.empty_body }}</p>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}
