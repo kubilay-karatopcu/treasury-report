@@ -209,6 +209,30 @@ class CachedBindingCatalog:
             self._last_check = time.monotonic()
             self._load()
 
+    def get_raw_doc(self, schema: str, table: str) -> dict | None:
+        """The full raw YAML dict for a table's binding doc (not the projection),
+        so a binding edit can merge into ``concept_bindings`` without dropping
+        the other keys. Returns None when no file exists yet."""
+        p = self._dir / schema / f"{table}.yaml"
+        if not p.exists():
+            return None
+        raw = _load_yaml(p.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else None
+
+    def save_doc(self, schema: str, table: str, raw_dict: dict) -> None:
+        """Persist a table's binding doc YAML to the catalog dir and reload.
+        Mirrors :meth:`S3BindingCatalog.save_doc` so the Konseptler bind route
+        works identically in DEV (dir) and PROD (S3)."""
+        p = self._dir / schema / f"{table}.yaml"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            yaml.safe_dump(raw_dict, allow_unicode=True, sort_keys=False,
+                           default_flow_style=False),
+            encoding="utf-8",
+        )
+        with self._lock:
+            self._load()
+
     # Delegated read API.
     def get_doc(self, schema: str, table: str):
         return self.snapshot.get_doc(schema, table)
@@ -318,6 +342,15 @@ class S3BindingCatalog:
         self._dc._upload_bytes(self._key(schema, table), body, content_type="application/x-yaml")
         with self._lock:
             self._load()
+
+    def get_raw_doc(self, schema: str, table: str) -> dict | None:
+        """Full raw YAML dict from S3 (not the projection) so a binding edit
+        can merge into ``concept_bindings`` and re-save without losing keys."""
+        try:
+            raw = _load_yaml(self._dc.read_bytes(self._key(schema, table)).decode("utf-8"))
+        except Exception:
+            return None
+        return raw if isinstance(raw, dict) else None
 
     # ── delegated read API (mirrors BindingCatalog) ───────────────────────
     def get_doc(self, schema: str, table: str):

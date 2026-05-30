@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from itertools import groupby
 from typing import Any
 
 from flask import Response, current_app, redirect, render_template, request, url_for
@@ -246,6 +247,329 @@ def atolye_tablolar():
         groups=grouped,
         total=sum(len(ts) for _, ts in grouped),
     )
+
+
+# ── Phase 7.ui — Konseptler (registry browser + binding hub) ──────────────
+
+def _scope_rank(scope: str | None) -> tuple[int, str]:
+    """Sort order for concept scopes: global → dept:* → user → other."""
+    s = scope or "global"
+    if s == "global":
+        return (0, "")
+    if s.startswith("dept:"):
+        return (1, s)
+    if s == "user":
+        return (2, "")
+    return (3, s)
+
+
+@presentations_bp.route("/atolye/konseptler")
+@login_required
+def atolye_konseptler():
+    """Atölye / Kütüphane / Konseptler — concept registry browser + binding hub.
+
+    Lists every concept (grouped by scope) with its canonical values and a
+    reverse index of which documented-table columns bind it, plus an inline
+    "kolon → concept" assignment form. Assignments write a ``human_verified``
+    ColumnBinding into the binding catalog (S3 in prod, dir in dev) — exactly
+    what the Phase 7.b filter compiler reads.
+    """
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    catalog = current_app.config.get("CONCEPT_BINDING_CATALOG")
+
+    concepts = list(registry.all_concepts()) if registry else []
+    concepts.sort(key=lambda c: (_scope_rank(c.scope), c.id))
+
+    # Reverse index: concept_id → [{schema, table, column, kind, confidence}].
+    bindings_by_concept: dict[str, list[dict]] = {}
+    if catalog is not None:
+        try:
+            for schema, table in catalog.all_keys():
+                for b in catalog.get_bindings(schema, table, verified_only=False):
+                    bindings_by_concept.setdefault(b.concept, []).append({
+                        "schema": schema, "table": table, "column": b.column,
+                        "kind": b.transform.kind, "confidence": b.confidence,
+                    })
+        except Exception:
+            log.exception("atolye_konseptler: reverse-index build failed")
+
+    concept_dicts: list[dict] = []
+    for c in concepts:
+        binds = sorted(
+            bindings_by_concept.get(c.id, []),
+            key=lambda x: (x["schema"], x["table"], x["column"]),
+        )
+        concept_dicts.append({
+            "id": c.id, "name": c.name, "type": c.type,
+            "scope": c.scope or "global",
+            "description": c.description or "",
+            "canonical_values": [
+                {"code": cv.code, "label": cv.label or "",
+                 "aliases": list(cv.aliases or [])}
+                for cv in c.canonical_values
+            ],
+            "bindings": binds,
+        })
+
+    # Group by scope for the template (concepts are already scope-sorted), so
+    # the divider rendering is a clean nested loop instead of stateful Jinja.
+    def _scope_label(scope: str) -> str:
+        if scope == "global":
+            return "Global (kurumsal)"
+        if scope == "user":
+            return "Kullanıcı"
+        if scope.startswith("dept:"):
+            return f"Departman · {scope[5:]}"
+        return scope
+
+    concept_groups: list[dict] = []
+    for scope, items in groupby(concept_dicts, key=lambda c: c["scope"]):
+        # Key is "concepts", NOT "items": Jinja attribute access on a dict
+        # resolves ``g.items`` to the builtin dict.items method, not the value.
+        concept_groups.append({
+            "scope": scope, "label": _scope_label(scope), "concepts": list(items),
+        })
+
+    # Documented tables for the assign dropdown. Columns are fetched lazily
+    # from /catalog/<schema>/<table> when a table is picked (keeps this page
+    # cheap even with hundreds of tables).
+    from presentations.catalog.api import _get_loader
+
+    sicil = getattr(current_user, "sicil", None) or ""
+    tables: list[dict] = []
+    try:
+        for e in _get_loader().load(user_sicil=sicil):
+            tables.append({"schema": e.schema_name, "table": e.name})
+    except Exception:
+        log.exception("atolye_konseptler: documented-table list failed")
+    tables.sort(key=lambda t: (t["schema"], t["table"]))
+
+    return render_template(
+        "presentations/atolye/konseptler.html",
+        concept_groups=concept_groups,
+        concepts_json=json.dumps(concept_dicts, ensure_ascii=False),
+        tables_json=json.dumps(tables, ensure_ascii=False),
+        total_concepts=len(concept_dicts),
+        total_bindings=sum(len(v) for v in bindings_by_concept.values()),
+    )
+
+
+def _build_transform(kind: str, params: dict | None) -> dict:
+    """Assemble a transform dict from the assign form's kind + params.
+    Validation happens downstream via ColumnBinding.model_validate."""
+    params = params or {}
+    if kind == "identity":
+        return {"kind": "identity"}
+    if kind == "time_truncation":
+        return {"kind": "time_truncation"}
+    if kind == "map":
+        pairs = params.get("pairs")
+        return {"kind": "map", "pairs": pairs if isinstance(pairs, dict) else {}}
+    if kind == "lookup":
+        return {
+            "kind": "lookup",
+            "dim_table": (params.get("dim_table") or "").strip(),
+            "dim_key": (params.get("dim_key") or "").strip(),
+            "dim_canonical": (params.get("dim_canonical") or "").strip(),
+        }
+    if kind == "bucket_from_range":
+        return {
+            "kind": "bucket_from_range",
+            "ranges_concept": (params.get("ranges_concept") or "").strip(),
+        }
+    return {"kind": kind}
+
+
+@presentations_bp.route("/atolye/konseptler/bind", methods=["POST"])
+@login_required
+def konsept_bind():
+    """Assign a concept to a documented-table column → human_verified binding.
+
+    Body: ``{schema, table, column, concept, transform_kind, transform_params}``.
+    Merges into the table's binding doc (preserving other keys) and persists
+    via the binding catalog (dir in dev, S3 in prod).
+    """
+    from presentations.concepts.schema import ColumnBinding
+
+    body = request.get_json(silent=True) or {}
+    schema = (body.get("schema") or "").strip().upper()
+    table = (body.get("table") or "").strip().upper()
+    column = (body.get("column") or "").strip().upper()
+    concept = (body.get("concept") or "").strip()
+    transform = _build_transform(
+        (body.get("transform_kind") or "").strip(),
+        body.get("transform_params"),
+    )
+
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    catalog = current_app.config.get("CONCEPT_BINDING_CATALOG")
+
+    errors: list[str] = []
+    if not schema or not table or not column:
+        errors.append("Şema, tablo ve kolon zorunlu.")
+    if not concept:
+        errors.append("Concept seçilmeli.")
+    elif registry is not None and not registry.has(concept):
+        errors.append(f"Bilinmeyen concept: {concept}")
+    if not transform.get("kind"):
+        errors.append("Transform türü seçilmeli.")
+    if catalog is None:
+        errors.append("Binding catalog yapılandırılmamış.")
+    if errors:
+        return _json({"ok": False, "errors": errors}, status=400)
+
+    sicil = getattr(current_user, "sicil", None) or "unknown"
+    candidate = {
+        "concept": concept, "column": column, "transform": transform,
+        "confidence": "human_verified", "verified_by": sicil,
+        "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    }
+    try:
+        model = ColumnBinding.model_validate(candidate)
+    except Exception as exc:
+        return _json({"ok": False, "errors": [f"Geçersiz binding: {exc}"]}, status=400)
+
+    doc = catalog.get_raw_doc(schema, table)
+    if not isinstance(doc, dict):
+        doc = {"table": table, "schema": schema}
+    doc.setdefault("table", table)
+    doc.setdefault("schema", schema)
+
+    existing = doc.get("concept_bindings") or []
+    by_key: dict[tuple[str, str], dict] = {}
+    for b in existing:
+        if isinstance(b, dict) and b.get("column") and b.get("concept"):
+            by_key[(b["column"], b["concept"])] = b
+    by_key[(column, concept)] = model.model_dump(mode="json", exclude_none=True)
+    doc["concept_bindings"] = list(by_key.values())
+
+    try:
+        catalog.save_doc(schema, table, doc)
+    except Exception as exc:
+        log.exception("konsept_bind: save failed for %s.%s", schema, table)
+        return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=500)
+
+    return _json({"ok": True, "binding": {
+        "schema": schema, "table": table, "column": column,
+        "concept": concept, "kind": transform["kind"], "confidence": "human_verified",
+    }})
+
+
+@presentations_bp.route("/atolye/konseptler/unbind", methods=["POST"])
+@login_required
+def konsept_unbind():
+    """Remove a (column, concept) binding from a table's binding doc."""
+    body = request.get_json(silent=True) or {}
+    schema = (body.get("schema") or "").strip().upper()
+    table = (body.get("table") or "").strip().upper()
+    column = (body.get("column") or "").strip().upper()
+    concept = (body.get("concept") or "").strip()
+
+    catalog = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    if catalog is None:
+        return _json({"ok": False, "errors": ["Binding catalog yok."]}, status=400)
+
+    doc = catalog.get_raw_doc(schema, table)
+    if not isinstance(doc, dict):
+        return _json({"ok": True, "removed": 0})
+    existing = doc.get("concept_bindings") or []
+    kept = [
+        b for b in existing
+        if not (isinstance(b, dict)
+                and b.get("column") == column and b.get("concept") == concept)
+    ]
+    doc["concept_bindings"] = kept
+    try:
+        catalog.save_doc(schema, table, doc)
+    except Exception as exc:
+        log.exception("konsept_unbind: save failed for %s.%s", schema, table)
+        return _json({"ok": False, "errors": [str(exc)]}, status=500)
+    return _json({"ok": True, "removed": len(existing) - len(kept)})
+
+
+@presentations_bp.route("/atolye/konseptler/create", methods=["POST"])
+@login_required
+def konsept_create():
+    """Define a new concept → registry scope file (user or global scope).
+
+    Body: ``{id, name, type, scope, description, canonical_values:[{code,label,aliases}]}``.
+    Validates via :class:`Concept`, appends to the scope file (preserving its
+    other concepts + metadata), and persists via the registry (dir in dev,
+    S3 in prod). New ids must be globally unique across the registry.
+    """
+    from presentations.concepts.schema import Concept, load_concept_file_from_dict
+
+    body = request.get_json(silent=True) or {}
+    cid = (body.get("id") or "").strip().lower()
+    name = (body.get("name") or "").strip()
+    ctype = (body.get("type") or "").strip()
+    scope = (body.get("scope") or "user").strip()
+    description = (body.get("description") or "").strip()
+    cvs_in = body.get("canonical_values") or []
+
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    errors: list[str] = []
+    if registry is None:
+        return _json({"ok": False, "errors": ["Concept registry yapılandırılmamış."]}, status=400)
+    if not cid or not name or not ctype:
+        errors.append("id, ad ve tür zorunlu.")
+    if ctype not in ("enum", "time", "bucket", "scalar"):
+        errors.append("Tür enum / time / bucket / scalar olmalı.")
+    if scope not in ("user", "global"):
+        errors.append("Scope 'user' veya 'global' olmalı.")
+    if cid and registry.has(cid):
+        errors.append(f"'{cid}' zaten tanımlı — id benzersiz olmalı.")
+    if errors:
+        return _json({"ok": False, "errors": errors}, status=400)
+
+    concept_dict: dict[str, Any] = {"id": cid, "name": name, "type": ctype, "scope": scope}
+    if description:
+        concept_dict["description"] = description
+    if ctype in ("enum", "bucket"):
+        cvs: list[dict] = []
+        for cv in cvs_in:
+            code = (cv.get("code") or "").strip()
+            if not code:
+                continue
+            entry: dict[str, Any] = {"code": code}
+            label = (cv.get("label") or "").strip()
+            if label:
+                entry["label"] = label
+            aliases = [a.strip() for a in (cv.get("aliases") or []) if a and a.strip()]
+            if aliases:
+                entry["aliases"] = aliases
+            cvs.append(entry)
+        concept_dict["canonical_values"] = cvs
+
+    # Validate the concept standalone first for a clean error message.
+    try:
+        Concept.model_validate(concept_dict)
+    except Exception as exc:
+        return _json({"ok": False, "errors": [f"Geçersiz concept: {exc}"]}, status=400)
+
+    file_name = scope  # user → user.yaml, global → global.yaml
+    raw = registry.get_file_raw(file_name)
+    if not isinstance(raw, dict):
+        raw = {"version": 1, "scope": scope, "concepts": []}
+    raw.setdefault("version", 1)
+    raw.setdefault("scope", scope)
+    if not isinstance(raw.get("concepts"), list):
+        raw["concepts"] = []
+    raw["concepts"].append(concept_dict)
+
+    # Validate the whole file (scope match, in-file id uniqueness).
+    try:
+        load_concept_file_from_dict(raw)
+    except Exception as exc:
+        return _json({"ok": False, "errors": [f"Dosya doğrulanamadı: {exc}"]}, status=400)
+
+    try:
+        registry.save_file(file_name, raw)
+    except Exception as exc:
+        log.exception("konsept_create: save failed for %s", cid)
+        return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=500)
+
+    return _json({"ok": True, "id": cid, "scope": scope})
 
 
 @presentations_bp.route("/atolye/sablonlar")
