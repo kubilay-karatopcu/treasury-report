@@ -1146,6 +1146,58 @@ body.prisma .filter-enum-multi__option:hover {
   background: var(--editor-surface-2) !important;
 }
 
+/* Sunum sabit tarih filtresi (FixedDateFilter) — dark */
+body.prisma .fdf-pill {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5) !important;
+}
+body.prisma .fdf-pill__label { color: var(--editor-ink-mute) !important; }
+body.prisma .fdf-pill__remove { color: var(--editor-ink-mute) !important; }
+body.prisma .fdf-pill__remove:hover { color: #f87171 !important; }
+body.prisma .fdf-pill__arrow {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .fdf-pill__arrow:hover:not(:disabled) {
+  background: var(--editor-accent) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+}
+body.prisma .fdf-pill__date {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink) !important;
+}
+body.prisma .fdf-pill__date:hover { border-color: var(--editor-accent) !important; }
+body.prisma .fdf-pill__arrowsep { color: var(--editor-ink-mute) !important; }
+body.prisma .fdf-cal {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border-strong) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6) !important;
+}
+body.prisma .fdf-cal__title { color: var(--editor-ink) !important; }
+body.prisma .fdf-cal__nav {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-border) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .fdf-cal__nav:hover {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+}
+body.prisma .fdf-cal__dow span { color: var(--editor-ink-mute) !important; }
+body.prisma .fdf-cal__day { color: var(--editor-ink-soft) !important; }
+body.prisma .fdf-cal__day:hover:not(.is-blank) { background: var(--editor-surface-2) !important; }
+body.prisma .fdf-cal__day.is-today { box-shadow: inset 0 0 0 1px var(--editor-accent) !important; }
+body.prisma .fdf-cal__day.is-mid { background: var(--editor-accent-soft) !important; }
+body.prisma .fdf-cal__day.is-end {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+}
+body.prisma .fdf-cal__hint { color: var(--editor-ink-mute) !important; }
+
 /* ── 3. Add section / Add block buttons → gold ─────────────────── */
 body.prisma .layout-add-row {
   background: transparent !important;

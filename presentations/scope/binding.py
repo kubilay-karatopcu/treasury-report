@@ -25,6 +25,7 @@ multiple blocks pulls Oracle exactly once.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Callable
 
@@ -33,6 +34,8 @@ from presentations.scope.schema import (
     PinnedFilter,
     ScopeContract,
 )
+
+log = logging.getLogger(__name__)
 from presentations.variables.resolver import BindingValue
 
 
@@ -238,14 +241,17 @@ def ensure_lazy_alias_loaded(
     # place. Lazy block-level interactive filters get layered in at block-SQL
     # rewrite time (existing variable-resolver path); the lazy fetch SQL only
     # carries the pinned filters.
-    from presentations.scope.fetch import compose_cached_sql
+    from presentations.scope.fetch import compose_cached_sql, SCOPE_FETCH_ROW_CAP
     from presentations.duck import register_dataframe
     import pandas as pd
 
+    # Lazy tables are large by definition — cap the on-demand pull so an
+    # un-narrowed fetch can't OOM the pod (a logged truncation instead).
     sql, binds = compose_cached_sql(
         scope, item, catalog,
         concept_registry=concept_registry,
         binding_catalog=binding_catalog,
+        max_rows=SCOPE_FETCH_ROW_CAP,
     )
     df = dc.get_data(
         base_prefix=None,
@@ -254,6 +260,13 @@ def ensure_lazy_alias_loaded(
     )
     if df is None:
         df = pd.DataFrame()
+    if len(df) >= SCOPE_FETCH_ROW_CAP:
+        log.warning(
+            "ensure_lazy_alias_loaded: lazy alias '%s' hit the %d-row safety cap "
+            "— the materialised view may be truncated; narrow the scope with "
+            "pinned filters or onboard the table so it can be sized.",
+            alias, SCOPE_FETCH_ROW_CAP,
+        )
     if len(df.columns) > 0:
         register_dataframe(conn, alias, df)
     cache.add(alias)

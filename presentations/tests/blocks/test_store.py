@@ -5,11 +5,15 @@ from pathlib import Path
 
 import pytest
 
+from botocore.exceptions import ClientError
+
 from presentations.blocks.schema import load_block_from_dict
 from presentations.blocks.store import (
     BlockAlreadyExistsError,
     BlockNotFoundError,
     LocalBlockStore,
+    S3BlockStore,
+    block_key,
 )
 
 
@@ -109,3 +113,72 @@ def test_yaml_on_disk_uses_unicode(store: LocalBlockStore, sample_block_dict, tm
     content = path.read_text(encoding="utf-8")
     # Turkish characters must round-trip without ascii escaping.
     assert "Şube Net Pozisyon" in content
+
+
+# ── S3BlockStore conditional-write / compare-and-swap coverage ──────────────
+
+class _FakeS3DC:
+    """S3 surface used by S3BlockStore, with conditional-PUT semantics.
+
+    ``if_none_match=True`` raises 412 PreconditionFailed when the key exists
+    (or 501 NotImplemented when ``supports_conditional=False``). ``hidden_keys``
+    collide on a conditional PUT but are invisible to ``list_prefix`` until that
+    collision — modelling a concurrent writer's object that this thread's
+    version listing hasn't seen yet (the exact race save_new_version survives).
+    """
+
+    def __init__(self, *, supports_conditional: bool = True, hidden_keys=()):
+        self.objects: dict[str, bytes] = {}
+        self.supports_conditional = supports_conditional
+        self._hidden: dict[str, bytes] = dict.fromkeys(hidden_keys, b"competing")
+
+    def _upload_bytes(self, key, data, content_type=None, *, if_none_match=False):
+        if if_none_match:
+            if not self.supports_conditional:
+                raise ClientError(
+                    {"Error": {"Code": "NotImplemented"},
+                     "ResponseMetadata": {"HTTPStatusCode": 501}}, "PutObject")
+            if key in self.objects or key in self._hidden:
+                # Reveal the competing object so the next list_prefix sees it.
+                if key in self._hidden:
+                    self.objects[key] = self._hidden.pop(key)
+                raise ClientError(
+                    {"Error": {"Code": "PreconditionFailed"},
+                     "ResponseMetadata": {"HTTPStatusCode": 412}}, "PutObject")
+        self.objects[key] = bytes(data)
+
+    def read_bytes(self, key):
+        return self.objects.get(key, b"")
+
+    def list_prefix(self, prefix):
+        return [k for k in self.objects if k.startswith(prefix)]
+
+    def delete_file(self, key):
+        self.objects.pop(key, None)
+
+
+def test_s3_conditional_collision_raises(sample_block_dict):
+    store = S3BlockStore(_FakeS3DC())
+    block = load_block_from_dict(sample_block_dict)
+    store.save(block)
+    with pytest.raises(BlockAlreadyExistsError):
+        store.save(block)
+
+
+def test_s3_save_new_version_retries_past_concurrent_writer(sample_block_dict):
+    block = load_block_from_dict(sample_block_dict)
+    v2_key = block_key(block.team, block.id, 2)  # a competing writer holds v2
+    store = S3BlockStore(_FakeS3DC(hidden_keys=[v2_key]))
+    store.save(block)                       # v1
+    bumped = store.save_new_version(block)  # computes v2 → 412 → retry → v3
+    assert bumped.version == 3
+    assert sorted(store.list_versions(block.team, block.id)) == [1, 2, 3]
+
+
+def test_s3_falls_back_when_conditional_unsupported(sample_block_dict):
+    store = S3BlockStore(_FakeS3DC(supports_conditional=False))
+    block = load_block_from_dict(sample_block_dict)
+    store.save(block)  # 501 → best-effort check-then-write succeeds
+    assert store.load(block.team, block.id, block.version).id == block.id
+    with pytest.raises(BlockAlreadyExistsError):
+        store.save(block)  # _exists() catches the duplicate on the fallback path

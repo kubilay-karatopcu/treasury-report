@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -182,28 +183,97 @@ def _parse_block_bytes(data: bytes | str) -> Block:
     return load_block_from_dict(parsed)
 
 
-def _normalize_team_token(s: str) -> str:
-    """Slug-like normalization for fuzzy team matching.
+# ── Version bump (compare-and-swap) ─────────────────────────────────────────
 
-    Folds case, strips Turkish diacritics, and collapses any non-alnum
-    run to a single underscore. So users typing "Finansal Yapay Zeka
-    Uygulamaları" match the team slug "finansal_yapay_zeka_uygulamalari".
+_SAVE_NEW_VERSION_MAX_RETRIES = 5
+
+
+def _save_new_version(store: "BlockStore", block: Block) -> Block:
+    """Atomic version bump shared by both backends.
+
+    ``save`` is an *atomic create* (``O_EXCL`` on disk, conditional PUT on S3),
+    so when two callers race to bump the same block they compute the same next
+    version and the loser gets :class:`BlockAlreadyExistsError`. We re-read the
+    version list and retry; this converges because each retry sees the winner's
+    freshly-written version. Replaces the previous unguarded read-modify-write
+    that silently lost one writer's update.
+    """
+    last_exc: BlockAlreadyExistsError | None = None
+    for _ in range(_SAVE_NEW_VERSION_MAX_RETRIES):
+        existing = store.list_versions(block.team, block.id)
+        next_version = max([*existing, block.version - 1]) + 1
+        bumped = block.model_copy(update={
+            "version": next_version,
+            "updated_at": datetime.now(timezone.utc),
+        })
+        try:
+            return store.save(bumped)
+        except BlockAlreadyExistsError as exc:
+            last_exc = exc  # someone took this version; re-read and retry
+    raise BlockStoreError(
+        f"save_new_version for {block.team}/{block.id}: concurrent writers "
+        f"exhausted {_SAVE_NEW_VERSION_MAX_RETRIES} retries"
+    ) from last_exc
+
+
+# ── S3 conditional-write error classification ───────────────────────────────
+
+def _s3_precondition_failed(exc: Exception) -> bool:
+    """True when a conditional PUT was rejected because the key already exists
+    (HTTP 412 PreconditionFailed) — i.e. a genuine version collision."""
+    try:
+        from botocore.exceptions import ClientError
+    except Exception:
+        return False
+    if not isinstance(exc, ClientError):
+        return False
+    resp = getattr(exc, "response", {}) or {}
+    if (resp.get("Error", {}) or {}).get("Code") in ("PreconditionFailed", "412"):
+        return True
+    return (resp.get("ResponseMetadata", {}) or {}).get("HTTPStatusCode") == 412
+
+
+def _s3_conditional_unsupported(exc: Exception) -> bool:
+    """True when the backend or the installed botocore cannot honour
+    ``IfNoneMatch`` at all, so the caller should fall back to a plain PUT rather
+    than mistaking the failure for a collision."""
+    try:
+        from botocore.exceptions import ClientError, ParamValidationError
+    except Exception:
+        return False
+    if isinstance(exc, ParamValidationError):
+        return True  # botocore model predates conditional writes
+    if isinstance(exc, ClientError):
+        resp = getattr(exc, "response", {}) or {}
+        if (resp.get("Error", {}) or {}).get("Code") == "NotImplemented":
+            return True
+        return (resp.get("ResponseMetadata", {}) or {}).get("HTTPStatusCode") == 501
+    return False
+
+
+def _normalize_team_token(s: str) -> str:
+    """Slug normalization that mirrors the editor UI's ``slugify`` exactly.
+
+    Team slugs are produced client-side (SaveBlockModal.jsx) as::
+
+        toLowerCase → NFD, strip combining marks → [^a-z0-9_]+ → "_"
+                    → strip/collapse "_"
+
+    We reproduce that algorithm byte-for-byte here so server-side team
+    comparisons (fuzzy library search *and* the block-write auth gate) agree
+    with how teams were actually stored. In particular Turkish capital ``İ``
+    lowercases to ``i`` + U+0307 (a combining dot); stripping combining marks —
+    rather than the old per-letter folding — keeps Python and JS in lockstep
+    (the old code turned that dot into a spurious ``_`` and mapped dotless ``ı``
+    to ``i`` while JS drops it, so the two diverged).
     """
     s = (s or "").lower()
-    # Turkish-specific folding (str.lower handles İ/I edge cases on PY3.11+).
-    s = (s.replace("ı", "i").replace("ö", "o").replace("ü", "u")
-           .replace("ş", "s").replace("ğ", "g").replace("ç", "c"))
-    out: list[str] = []
-    last_was_sep = True
-    for ch in s:
-        if ch.isalnum():
-            out.append(ch)
-            last_was_sep = False
-        else:
-            if not last_was_sep:
-                out.append("_")
-                last_was_sep = True
-    return "".join(out).strip("_")
+    s = "".join(
+        ch for ch in unicodedata.normalize("NFD", s)
+        if not unicodedata.combining(ch)
+    )
+    s = re.sub(r"[^a-z0-9_]+", "_", s)
+    return s.strip("_")
 
 
 def _block_matches_filters(
@@ -264,25 +334,23 @@ class LocalBlockStore:
     # ── Public API ────────────────────────────────────────────────────
     def save(self, block: Block) -> Block:
         path = self._block_path(block.team, block.id, block.version)
-        if path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # 'xb' = O_CREAT | O_EXCL: atomic create that fails if the version
+            # already exists, so two concurrent writers can't clobber each other.
+            with open(path, "xb") as fh:
+                fh.write(_serialise_block(block))
+        except FileExistsError:
             raise BlockAlreadyExistsError(
                 f"block {block.team}/{block.id} version {block.version} already exists. "
                 "Use save_new_version() to bump."
             )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(_serialise_block(block))
         log.info("local block saved: %s/%s v%d", block.team, block.id, block.version)
         return block
 
     def save_new_version(self, block: Block) -> Block:
-        """Persist ``block`` at the next free version >= block.version."""
-        existing = self.list_versions(block.team, block.id)
-        next_version = max([*existing, block.version - 1]) + 1
-        bumped = block.model_copy(update={
-            "version": next_version,
-            "updated_at": datetime.now(timezone.utc),
-        })
-        return self.save(bumped)
+        """Persist ``block`` at the next free version (compare-and-swap retry)."""
+        return _save_new_version(self, block)
 
     def load(self, team: str, block_id: str, version: int) -> Block:
         path = self._block_path(team, block_id, version)
@@ -399,27 +467,41 @@ class S3BlockStore:
     # ── Public API ────────────────────────────────────────────────────
     def save(self, block: Block) -> Block:
         key = block_key(block.team, block.id, block.version)
-        if self._exists(key):
-            raise BlockAlreadyExistsError(
-                f"block {block.team}/{block.id} version {block.version} already exists. "
-                "Use save_new_version() to bump."
+        body = _serialise_block(block)
+        try:
+            # Atomic conditional create — fails with 412 if the version exists.
+            self.dc._upload_bytes(
+                key, body, content_type="application/x-yaml", if_none_match=True,
             )
-        self.dc._upload_bytes(
-            key,
-            _serialise_block(block),
-            content_type="application/x-yaml",
-        )
+        except BlockAlreadyExistsError:
+            raise
+        except Exception as exc:
+            if _s3_precondition_failed(exc):
+                raise BlockAlreadyExistsError(
+                    f"block {block.team}/{block.id} version {block.version} already "
+                    "exists. Use save_new_version() to bump."
+                ) from exc
+            if _s3_conditional_unsupported(exc):
+                # Backend / botocore can't honour IfNoneMatch — degrade to the
+                # legacy best-effort check-then-write (a small race window
+                # remains; logged so it's visible in prod).
+                log.warning(
+                    "S3 conditional write unsupported (%s); falling back to "
+                    "non-atomic check-then-write for %s", exc, key,
+                )
+                if self._exists(key):
+                    raise BlockAlreadyExistsError(
+                        f"block {block.team}/{block.id} version {block.version} "
+                        "already exists. Use save_new_version() to bump."
+                    ) from exc
+                self.dc._upload_bytes(key, body, content_type="application/x-yaml")
+            else:
+                raise
         log.info("s3 block saved: %s/%s v%d", block.team, block.id, block.version)
         return block
 
     def save_new_version(self, block: Block) -> Block:
-        existing = self.list_versions(block.team, block.id)
-        next_version = max([*existing, block.version - 1]) + 1
-        bumped = block.model_copy(update={
-            "version": next_version,
-            "updated_at": datetime.now(timezone.utc),
-        })
-        return self.save(bumped)
+        return _save_new_version(self, block)
 
     def load(self, team: str, block_id: str, version: int) -> Block:
         return self._read_block(block_key(team, block_id, version))

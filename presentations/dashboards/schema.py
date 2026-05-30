@@ -96,6 +96,11 @@ class DashboardFilter(BaseModel):
     label: str = Field(min_length=1, max_length=80)
     default: Any | None = None
     allowed_values: list[Any] | None = None
+    # UI hint (Sunum fixed date widget): present a date_range as a single date
+    # (the widget shows one date and stores from == to). The stored value stays
+    # a {from, to} dict, so the backend predicate is unchanged — this only flips
+    # the picker between single-day and range modes.
+    single: bool = False
 
     @field_validator("semantic_tag")
     @classmethod
@@ -148,6 +153,11 @@ class DashboardFilter(BaseModel):
                 raise ValueError(
                     f"filter {self.id!r}: number_range.default must be {{min, max}}"
                 )
+
+        if self.single and t != "date_range":
+            raise ValueError(
+                f"filter {self.id!r}: single=True is only valid for date_range"
+            )
 
         return self
 

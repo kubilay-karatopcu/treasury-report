@@ -34,6 +34,14 @@ from presentations.scope.schema import BasketItem, ScopeContract
 log = logging.getLogger(__name__)
 
 
+# Hard safety cap for an on-demand *lazy* fetch (a table routed lazy is, by
+# definition, too big to fully cache). It bounds the rows pulled into pandas /
+# DuckDB when pinned filters don't narrow the table enough — turning a potential
+# pod OOM into a logged truncation. Cached tables are NOT capped: routing already
+# guarantees they sit under the byte threshold.
+SCOPE_FETCH_ROW_CAP = 5_000_000
+
+
 def _as_date(v: Any) -> date | None:
     if isinstance(v, date):
         return v
@@ -178,6 +186,7 @@ def compose_cached_sql(
     scope: ScopeContract, item: BasketItem, catalog: Catalog | None = None,
     *,
     concept_registry=None, binding_catalog=None,
+    max_rows: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Compose the projected Oracle SELECT for a cached basket table, shrinking
     it with fetch-time WHERE clauses:
@@ -210,7 +219,11 @@ def compose_cached_sql(
     binds.update(rb)
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
-    return f"SELECT {cols} FROM {table}{where_sql}", binds
+    # Optional safety cap (used by the lazy on-demand path) — bounds the pull
+    # when the byte estimate is wrong/absent or pinned filters don't narrow
+    # enough. Cached fetches pass max_rows=None (routing keeps them small).
+    cap_sql = f" FETCH FIRST {int(max_rows)} ROWS ONLY" if max_rows else ""
+    return f"SELECT {cols} FROM {table}{where_sql}{cap_sql}", binds
 
 
 _AGG = {"sum": "SUM", "avg": "AVG", "count": "COUNT", "min": "MIN", "max": "MAX"}
