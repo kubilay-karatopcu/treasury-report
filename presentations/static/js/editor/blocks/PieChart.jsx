@@ -1,4 +1,4 @@
-import Chart from 'react-apexcharts';
+import { AgCharts } from 'ag-charts-react';
 import { pieChartOptions, normalizeLabels } from './chartHelpers.js';
 
 export default function PieChart({ block }) {
@@ -13,6 +13,7 @@ export default function PieChart({ block }) {
 
   const options = pieChartOptions({
     labels,
+    values,
     donut,
     height: 260,
     legendPosition: config.legend_position || 'right',
@@ -22,7 +23,7 @@ export default function PieChart({ block }) {
   const remountKey = `${block.id}-${block.width || 'full'}-${donut ? 'd' : 'p'}`;
   return (
     <div className="chart-wrapper">
-      <Chart key={remountKey} options={options} series={values} type={donut ? 'donut' : 'pie'} height={260} />
+      <AgCharts key={remountKey} options={options} />
     </div>
   );
 }
