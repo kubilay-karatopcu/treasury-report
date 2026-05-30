@@ -14,7 +14,7 @@
 <style>
   /* Phase 11.lib — Şablonlar uses the prototype's `.template-grid` /
      `.template-card` aesthetic, lifted from prisma.css. */
-  .sablonlar-page { padding: 48px 64px 96px; }
+  .sablonlar-page { padding: 28px 28px 64px; }
   .sablonlar-head {
     display: flex; align-items: flex-end; justify-content: space-between;
     margin-bottom: 36px; gap: 32px;
@@ -92,6 +92,42 @@
     margin-left: 4px;
   }
 
+  /* Delete button — sağ üstte sürekli soluk görünür (opacity:0.55), hover'da
+     tam görünür. Pure-CSS :hover preview tooling'inde bazen tetiklenmiyor,
+     ayrıca hover-only UI keşfedilmesi zor. Hep görünür + soluk daha iyi. */
+  .template-card .tc-delete {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg-0);
+    color: var(--ink-mute);
+    border: 1px solid var(--border-soft);
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    z-index: 2;
+  }
+  .template-card:hover .tc-delete { opacity: 1; }
+  .template-card .tc-delete:hover {
+    opacity: 1;
+    color: #fca5a5;
+    border-color: #fca5a5;
+    background: rgba(252, 165, 165, 0.08);
+  }
+  .template-card .tc-delete:focus-visible {
+    opacity: 1;
+    outline: none;
+    color: #fca5a5; border-color: #fca5a5;
+  }
+  .template-card.is-deleting {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
   .empty-state {
     padding: 64px 24px; text-align: center;
     border: 1px solid var(--border-soft);
@@ -130,6 +166,7 @@
         <p class="sub">
           Tamamlanmış ve uzmana bağlanmış snapshot'lar — başlangıç noktası
           olarak kullan ya da klonlayıp üstüne kendi değişikliklerini yap.
+          Bağımsız süreç dokümantasyonu + düzenleme ekranı Phase 13 ile gelecek.
         </p>
       </div>
       <div class="sablonlar-meta">
@@ -138,9 +175,15 @@
     </div>
 
     {% if templates %}
-      <div class="template-grid">
+      <div class="template-grid" id="sablonlar-grid">
         {% for t in templates %}
-          <a class="template-card" href="{{ url_for('presentations.view_snapshot', sid=t.snapshot_id) }}">
+          <a class="template-card" data-sid="{{ t.snapshot_id }}"
+             data-title="{{ (t.title or 'Başlıksız snapshot')|e }}"
+             data-owner="{{ t.owner_id or '' }}"
+             href="{{ url_for('presentations.view_snapshot', sid=t.snapshot_id) }}">
+            {# Çöp kutusu her kartta görünür; yetki kontrolü server-side
+               (yalnız owner silebilir, başkası 403 alır + UI alert gösterir). #}
+            <button type="button" class="tc-delete" title="Bu süreci sil" aria-label="Bu süreci sil">🗑</button>
             <div class="tc-num">{{ '%02d' % loop.index }} · {{ (t.created_at or '')[:10] }}</div>
             <div class="tc-name">{{ t.title or 'Başlıksız snapshot' }}</div>
             <div class="tc-desc">
@@ -179,4 +222,65 @@
       </div>
     {% endif %}
   </div>
+
+  {% if templates %}
+  <script>
+  (function () {
+    // Tek delegated handler — kart sayısı dinamik olsa bile tek bağlama.
+    const grid = document.getElementById('sablonlar-grid');
+    if (!grid) return;
+
+    grid.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.tc-delete');
+      if (!btn) return;
+      // Linkin navigate'ini engelle; sadece silme aksiyonu çalışsın.
+      e.preventDefault();
+      e.stopPropagation();
+
+      const card = btn.closest('.template-card');
+      if (!card || card.classList.contains('is-deleting')) return;
+      const sid = card.dataset.sid;
+      const title = card.dataset.title || 'Başlıksız snapshot';
+      if (!sid) return;
+
+      const confirmed = window.confirm(
+        `"${title}" sürecini kalıcı olarak silmek istediğine emin misin?\n\n` +
+        `Snapshot manifest + meta diskten silinecek; bağlı uzmanların ` +
+        `briefing önbelleği yenilenecek. Bu işlem geri alınamaz.`
+      );
+      if (!confirmed) return;
+
+      card.classList.add('is-deleting');
+      try {
+        const r = await fetch(`/presentations/snapshot/${encodeURIComponent(sid)}`, {
+          method: 'DELETE',
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${r.status}`);
+        }
+        // Kartı animasyonla DOM'dan çıkar.
+        card.style.transition = 'opacity 0.25s, transform 0.25s';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.96)';
+        setTimeout(() => {
+          card.remove();
+          // Eğer hiç kart kalmadıysa sayfayı yenile → empty-state göster.
+          const remaining = grid.querySelectorAll('.template-card').length;
+          if (remaining === 0) window.location.reload();
+          else {
+            // Üst sağdaki sayaç güncelle.
+            const meta = document.querySelector('.sablonlar-meta');
+            if (meta) meta.textContent = `${remaining} süreç · son 24`;
+          }
+        }, 260);
+      } catch (err) {
+        card.classList.remove('is-deleting');
+        alert(`Silinemedi: ${err.message || err}`);
+      }
+    });
+  })();
+  </script>
+  {% endif %}
 {% endblock %}

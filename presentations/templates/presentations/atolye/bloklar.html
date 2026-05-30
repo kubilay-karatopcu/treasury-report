@@ -2,29 +2,569 @@
 {% set mode = "atolye" %}
 {% set crumb = "Atölye · Kütüphane · Bloklar" %}
 {% set sidebar_active = "bloklar" %}
-{% set canvas_bleed = True %}
 {% if sidebar is not defined or sidebar is none %}
   {% set sidebar = [] %}
 {% endif %}
 {% block title %}Atölye / Bloklar — PRISMA{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=9">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/bloklar.css') }}?v=3">
-  <style>
-    body.prisma.canvas-bleed .canvas-bleed-mount { background: #f6f7f9; color: #1e293b; }
-    body.prisma.canvas-bleed #bloklar-root { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  </style>
+<style>
+  /* Kütüphane / Bloklar — same flat dark aesthetic as Tablolar. Cards
+     come from the Phase 6.5 BlockStore. Search/filter is client-side
+     against the embedded initial listing; the Yenile button re-fetches
+     via /presentations/blocks/api/list. */
+  .bloklar-page { padding: 28px 28px 64px; }
+  .bloklar-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 28px; gap: 32px;
+  }
+  .bloklar-head h2 {
+    font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+    color: var(--ink); margin: 0 0 6px;
+  }
+  .bloklar-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 14px;
+  }
+  .bloklar-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 14px; color: var(--ink-mute);
+    line-height: 1.55; max-width: 580px;
+  }
+  .bloklar-meta {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  /* Filter bar */
+  .bloklar-filters {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 18px;
+    align-items: center;
+  }
+  .bloklar-filters input,
+  .bloklar-filters select {
+    background: var(--bg-1); color: var(--ink);
+    border: 1px solid var(--border-soft); border-radius: 0;
+    padding: 8px 12px; font-size: 12px;
+    font-family: var(--mono);
+    min-width: 140px;
+  }
+  .bloklar-filters input::placeholder { color: var(--ink-faint); }
+  .bloklar-filters__search {
+    flex: 1 1 320px; min-width: 240px;
+  }
+  .bloklar-filters input:focus,
+  .bloklar-filters select:focus {
+    outline: none; border-color: var(--gold);
+  }
+  .bloklar-btn {
+    height: 34px; padding: 0 16px;
+    background: transparent; color: var(--ink-soft);
+    border: 1px solid var(--border-soft);
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .bloklar-btn:hover {
+    color: var(--gold); border-color: var(--gold);
+  }
+  .bloklar-btn--new {
+    color: var(--gold); border-color: var(--gold);
+  }
+  .bloklar-btn--new:hover {
+    background: var(--gold); color: var(--bg-0);
+  }
+  .bloklar-active-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 14px;
+  }
+  .bloklar-active-tags__label {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--gold); letter-spacing: 0.18em;
+    text-transform: uppercase; align-self: center;
+    margin-right: 4px;
+  }
+  .bloklar-active-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--bg-1); color: var(--ink-soft);
+    border: 1px solid var(--gold);
+    padding: 2px 6px 2px 10px;
+    font-family: var(--mono); font-size: 10px;
+  }
+  .bloklar-active-tag__x {
+    background: transparent; border: none; color: var(--gold);
+    cursor: pointer; font-size: 12px; line-height: 1;
+    padding: 0 5px;
+  }
+  .bloklar-active-tag__x:hover { color: var(--ink); }
+
+  /* Card grid */
+  .bloklar-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1px;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+  }
+  .blk-card {
+    background: var(--bg-1);
+    padding: 22px 22px 18px;
+    text-decoration: none; color: inherit;
+    display: flex; flex-direction: column;
+    min-height: 200px;
+    transition: background 0.2s;
+    position: relative;
+  }
+  .blk-card:hover { background: var(--bg-2); }
+  .blk-card .bc-pill {
+    align-self: flex-start;
+    font-family: var(--mono); font-size: 9px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 12px;
+  }
+  .blk-card .bc-title {
+    font-size: 16px; font-weight: 400;
+    color: var(--ink);
+    line-height: 1.35;
+    margin-bottom: 8px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .blk-card .bc-desc {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12px; color: var(--ink-mute);
+    line-height: 1.5;
+    margin-bottom: 14px;
+    flex: 1;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .blk-card .bc-tags {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-bottom: 12px;
+  }
+  .blk-card .bc-tag {
+    background: var(--bg-0); color: var(--ink-soft);
+    border: 1px solid var(--border-soft);
+    padding: 1px 8px;
+    font-family: var(--mono); font-size: 9px;
+    letter-spacing: 0.04em;
+  }
+  .blk-card .bc-tag--deprecated {
+    color: #d97706; border-color: #d97706;
+  }
+  .blk-card .bc-foot {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding-top: 12px;
+    /* margin-top:auto keeps the footer pinned to the card bottom even
+       when the card has no description (flex:1 on .bc-desc only works
+       when that element exists). */
+    margin-top: auto;
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+  }
+  .blk-card .bc-foot span {
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .blk-card-actions {
+    position: absolute; top: 10px; right: 10px;
+    display: flex; gap: 4px;
+    opacity: 0; transition: opacity 0.18s;
+  }
+  .blk-card:hover .blk-card-actions { opacity: 1; }
+  .blk-card-action {
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg-0); color: var(--ink-soft);
+    border: 1px solid var(--border-soft);
+    font-size: 13px; cursor: pointer;
+    text-decoration: none;
+  }
+  .blk-card-action:hover {
+    color: var(--gold); border-color: var(--gold);
+  }
+
+  .empty-state {
+    padding: 64px 24px; text-align: center;
+    border: 1px solid var(--border-soft);
+    color: var(--ink-faint);
+  }
+  .empty-state h3 {
+    font-size: 18px; font-weight: 300; color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  .empty-state p {
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px; line-height: 1.6; max-width: 540px;
+    margin: 0 auto;
+  }
+
+  /* Preview modal — iframe over a dimmer. */
+  .blk-preview-backdrop {
+    position: fixed; inset: 0; background: rgba(8, 12, 24, 0.78);
+    z-index: 220; display: none; align-items: center; justify-content: center;
+    padding: 32px;
+  }
+  .blk-preview-backdrop.is-open { display: flex; }
+  .blk-preview-modal {
+    background: var(--bg-1); width: 95%; max-width: 1100px;
+    height: 85vh; display: flex; flex-direction: column;
+    border: 1px solid var(--border-soft);
+  }
+  .blk-preview-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; border-bottom: 1px solid var(--border-soft);
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-soft); letter-spacing: 0.06em;
+  }
+  .blk-preview-close {
+    background: transparent; border: none; color: var(--ink-mute);
+    cursor: pointer; padding: 4px 10px;
+    font-family: var(--mono); font-size: 11px;
+  }
+  .blk-preview-close:hover { color: var(--gold); }
+  .blk-preview-iframe {
+    flex: 1; border: none; width: 100%; background: #ffffff;
+  }
+</style>
 {% endblock %}
 
 {% block content %}
-  <div class="canvas-bleed-mount">
-    <div id="bloklar-root"></div>
+  <div class="bloklar-page">
+    <div class="bloklar-head">
+      <div>
+        <div class="eyebrow">A · Kütüphane · ▦</div>
+        <h2>Bloklar</h2>
+        <p class="sub">
+          Şablon olarak kaydedilmiş tüm bloklar — sorgu, değişkenler ve
+          dokümantasyonla birlikte. Bir karta tıkla, içeriği düzenle.
+        </p>
+      </div>
+      <div class="bloklar-meta">
+        <span id="bloklar-count">{{ total }}</span> blok
+      </div>
+    </div>
+
+    <form class="bloklar-filters" id="bloklar-filter-form" onsubmit="return false;">
+      <input type="search" name="q" id="bloklar-filter-q"
+             placeholder="Ara (başlık, açıklama, etiket)"
+             class="bloklar-filters__search"/>
+      <input type="text" name="team" id="bloklar-filter-team" placeholder="Ekip"
+             list="bloklar-team-options"/>
+      <datalist id="bloklar-team-options"></datalist>
+      <input type="text" name="tag" id="bloklar-filter-tag"
+             placeholder="Etiket (Enter ile ekle)"
+             list="bloklar-tag-options"/>
+      <datalist id="bloklar-tag-options"></datalist>
+      <select name="viz_type" id="bloklar-filter-viz">
+        <option value="">— Tüm görseller —</option>
+        <option value="kpi">KPI</option>
+        <option value="kpi_grid">KPI Grid</option>
+        <option value="bar_chart">Çubuk grafik</option>
+        <option value="line_chart">Çizgi grafik</option>
+        <option value="area_chart">Alan grafiği</option>
+        <option value="pie_chart">Pasta grafik</option>
+        <option value="radial_bar">Radyal gösterge</option>
+        <option value="heatmap">Isı haritası</option>
+        <option value="data_table">Tablo</option>
+      </select>
+      <button type="button" class="bloklar-btn" id="bloklar-clear-btn"
+              style="display:none;">✕ Temizle</button>
+      <button type="button" class="bloklar-btn" id="bloklar-refresh-btn">↻ Yenile</button>
+      <a class="bloklar-btn bloklar-btn--new" href="{{ url_for('presentations.block_new') }}">＋ Yeni Blok</a>
+    </form>
+
+    <div class="bloklar-active-tags" id="bloklar-active-tags" style="display:none;"></div>
+
+    <div id="bloklar-grid" class="bloklar-grid"></div>
+
+    <div id="bloklar-empty" class="empty-state" style="display:none;">
+      <h3>Henüz blok yok</h3>
+      <p>
+        Bir sunumda blok hazırla, Properties &rsaquo; Kütüphane &rsaquo;
+        <strong>Şablon olarak kaydet</strong> ile şablon kütüphanesine ekle —
+        ya da yukarıdan <strong>Yeni Blok</strong>'a tıkla.
+      </p>
+    </div>
+
+    <script id="bloklar-initial-data" type="application/json">{{ blocks_initial_json | safe }}</script>
   </div>
-  <script id="bloklar-data" type="application/json">{{ bloklar_json | safe }}</script>
+
+  <div id="blk-preview-modal" class="blk-preview-backdrop">
+    <div class="blk-preview-modal" onclick="event.stopPropagation();">
+      <div class="blk-preview-head">
+        <span id="blk-preview-title">Önizleme</span>
+        <button type="button" class="blk-preview-close" id="blk-preview-close">Kapat</button>
+      </div>
+      <iframe id="blk-preview-iframe" class="blk-preview-iframe" src="about:blank"></iframe>
+    </div>
+  </div>
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/bloklar.bundle.js') }}?v=4"></script>
+<script>
+(function () {
+  const VIZ_LABELS = {
+    kpi: "KPI", kpi_grid: "KPI Grid",
+    bar_chart: "Çubuk Grafik", line_chart: "Çizgi Grafik",
+    area_chart: "Alan Grafiği", pie_chart: "Pasta Grafik",
+    radial_bar: "Radyal Gösterge", data_table: "Tablo",
+    heatmap: "Isı Haritası", table: "Tablo",
+    pie: "Pasta", bar: "Çubuk", line: "Çizgi",
+  };
+  const VIZ_ICONS = {
+    kpi: '▣', kpi_grid: '⊞', bar_chart: '▥', line_chart: '∿',
+    area_chart: '▲', pie_chart: '◐', heatmap: '▦', radial_bar: '◷',
+    data_table: '▤', narrative: '✎',
+  };
+
+  const filterState = {
+    tags: [],
+    items: [],
+    allTags: new Set(),
+    allTeams: new Set(),
+  };
+
+  // Read the server-prefetched listing (zero-network first paint).
+  try {
+    const el = document.getElementById('bloklar-initial-data');
+    const data = JSON.parse(el.textContent || '[]');
+    if (Array.isArray(data)) filterState.items = data;
+  } catch (e) {
+    console.warn('[Bloklar] initial-data parse failed', e);
+  }
+
+  const baseUrl = () => window.location.pathname
+    .replace(/\/atolye\/bloklar\/?$/, '')
+    .replace(/\/+$/, '');
+  const apiListUrl = () => {
+    const params = new URLSearchParams();
+    const q = document.getElementById('bloklar-filter-q').value.trim();
+    const team = document.getElementById('bloklar-filter-team').value.trim();
+    const viz = document.getElementById('bloklar-filter-viz').value;
+    if (q) params.set('q', q);
+    if (team) params.set('team', team);
+    if (filterState.tags.length > 0) params.set('tag', filterState.tags[0]);
+    if (viz) params.set('viz_type', viz);
+    const qs = params.toString();
+    return `${baseUrl()}/blocks/api/list${qs ? '?' + qs : ''}`;
+  };
+  const editUrl = (team, id) =>
+    `${baseUrl()}/blocks/edit/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+  const previewUrl = (team, id) =>
+    `${baseUrl()}/blocks/preview/${encodeURIComponent(team)}/${encodeURIComponent(id)}`;
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, (c) =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function prettyType(t) {
+    if (!t) return 'Blok';
+    return VIZ_LABELS[t] || t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+  function prettyTeam(slug) {
+    if (!slug) return '';
+    return String(slug).replace(/_+/g, ' ').trim().split(' ').filter(Boolean)
+      .map(w => w.charAt(0).toLocaleUpperCase('tr-TR') + w.slice(1))
+      .join(' ');
+  }
+
+  function refreshActiveTagsRow() {
+    const row = document.getElementById('bloklar-active-tags');
+    if (filterState.tags.length === 0) {
+      row.style.display = 'none';
+      row.innerHTML = '';
+      return;
+    }
+    row.style.display = 'flex';
+    row.innerHTML = '<span class="bloklar-active-tags__label">Etiket:</span>' +
+      filterState.tags.map((t, i) =>
+        `<span class="bloklar-active-tag">${escapeHtml(t)}` +
+        `<button type="button" class="bloklar-active-tag__x" data-tag-idx="${i}">×</button></span>`
+      ).join('');
+  }
+
+  function refreshClearBtn() {
+    const btn = document.getElementById('bloklar-clear-btn');
+    const has =
+      document.getElementById('bloklar-filter-q').value.trim() ||
+      document.getElementById('bloklar-filter-team').value.trim() ||
+      document.getElementById('bloklar-filter-viz').value ||
+      filterState.tags.length > 0;
+    btn.style.display = has ? 'inline-flex' : 'none';
+  }
+
+  function populateDatalists(items) {
+    const tagSet = new Set(), teamSet = new Set();
+    for (const m of items) {
+      teamSet.add(m.team);
+      for (const t of (m.tags || [])) tagSet.add(t);
+    }
+    filterState.allTags = tagSet;
+    filterState.allTeams = teamSet;
+    const tagDL = document.getElementById('bloklar-tag-options');
+    const teamDL = document.getElementById('bloklar-team-options');
+    if (tagDL) tagDL.innerHTML = Array.from(tagSet).sort()
+      .map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
+    if (teamDL) teamDL.innerHTML = Array.from(teamSet).sort()
+      .map(t => `<option value="${escapeHtml(prettyTeam(t))}" label="${escapeHtml(t)}"></option>`).join('');
+  }
+
+  function applyExtraTags(items) {
+    if (filterState.tags.length <= 1) return items;
+    const extra = filterState.tags.slice(1);
+    return items.filter(m => {
+      const blockTags = new Set(m.tags || []);
+      return extra.every(t => blockTags.has(t));
+    });
+  }
+
+  function renderCard(m) {
+    const icon = VIZ_ICONS[m.visualization_type] || '▢';
+    const typeLabel = prettyType(m.visualization_type);
+    const tags = (m.tags || []).map(t =>
+      `<span class="bc-tag">${escapeHtml(t)}</span>`).join('');
+    const dep = m.deprecated ? `<span class="bc-tag bc-tag--deprecated">deprecated</span>` : '';
+    const desc = m.description ? `<div class="bc-desc">${escapeHtml(m.description)}</div>` : '';
+    const dateStr = (m.updated_at || m.created_at || '').slice(0, 10);
+
+    return `
+      <a class="blk-card" href="${editUrl(m.team, m.id)}">
+        <div class="blk-card-actions">
+          <button type="button" class="blk-card-action js-preview"
+                  data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
+                  data-title="${escapeHtml(m.title)}"
+                  title="Önizle">◉</button>
+        </div>
+        <div class="bc-pill">${icon} ${escapeHtml(typeLabel)}</div>
+        <div class="bc-title">${escapeHtml(m.title)}</div>
+        ${desc}
+        ${(tags || dep) ? `<div class="bc-tags">${tags}${dep}</div>` : ''}
+        <div class="bc-foot">
+          <span title="Sürüm">v${m.version}</span>
+          <span title="Ekip">${escapeHtml(prettyTeam(m.team))}</span>
+          ${m.owner ? `<span title="Sahip">${escapeHtml(m.owner)}</span>` : ''}
+          ${dateStr ? `<span>${dateStr}</span>` : ''}
+        </div>
+      </a>
+    `;
+  }
+
+  function render() {
+    const grid = document.getElementById('bloklar-grid');
+    const empty = document.getElementById('bloklar-empty');
+    const count = document.getElementById('bloklar-count');
+    const filtered = applyExtraTags(filterState.items);
+    populateDatalists(filterState.items);
+    count.textContent = filtered.length;
+    if (filtered.length === 0) {
+      grid.style.display = 'none';
+      empty.style.display = 'block';
+      return;
+    }
+    grid.style.display = 'grid';
+    empty.style.display = 'none';
+    grid.innerHTML = filtered.map(renderCard).join('');
+  }
+
+  async function reload() {
+    try {
+      const resp = await fetch(apiListUrl(), { cache: 'no-store' });
+      const items = resp.ok ? await resp.json() : [];
+      filterState.items = Array.isArray(items) ? items : [];
+      render();
+    } catch (e) {
+      console.error('[Bloklar] fetch failed', e);
+    }
+  }
+
+  // Debounced text-input reload
+  let _t = null;
+  function debouncedReload() {
+    clearTimeout(_t);
+    _t = setTimeout(() => { refreshClearBtn(); reload(); }, 280);
+  }
+
+  function clearAll() {
+    document.getElementById('bloklar-filter-q').value = '';
+    document.getElementById('bloklar-filter-team').value = '';
+    document.getElementById('bloklar-filter-tag').value = '';
+    document.getElementById('bloklar-filter-viz').value = '';
+    filterState.tags = [];
+    refreshActiveTagsRow();
+    refreshClearBtn();
+    reload();
+  }
+
+  document.getElementById('bloklar-filter-tag').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const v = e.target.value.trim();
+      if (v && !filterState.tags.includes(v)) {
+        filterState.tags.push(v);
+        refreshActiveTagsRow();
+        refreshClearBtn();
+        reload();
+      }
+      e.target.value = '';
+    } else if (e.key === 'Backspace' && e.target.value === '' && filterState.tags.length > 0) {
+      filterState.tags.pop();
+      refreshActiveTagsRow();
+      refreshClearBtn();
+      reload();
+    }
+  });
+  document.getElementById('bloklar-active-tags').addEventListener('click', (e) => {
+    const btn = e.target.closest('.bloklar-active-tag__x');
+    if (!btn) return;
+    filterState.tags.splice(parseInt(btn.dataset.tagIdx, 10), 1);
+    refreshActiveTagsRow();
+    refreshClearBtn();
+    reload();
+  });
+
+  document.getElementById('bloklar-filter-q').addEventListener('input', debouncedReload);
+  document.getElementById('bloklar-filter-team').addEventListener('input', debouncedReload);
+  document.getElementById('bloklar-filter-viz').addEventListener('change', () => {
+    refreshClearBtn(); reload();
+  });
+  document.getElementById('bloklar-clear-btn').addEventListener('click', clearAll);
+  document.getElementById('bloklar-refresh-btn').addEventListener('click', reload);
+
+  // Preview modal — opens an iframe over the page.
+  const modal = document.getElementById('blk-preview-modal');
+  const frame = document.getElementById('blk-preview-iframe');
+  const titleEl = document.getElementById('blk-preview-title');
+  function openPreview(team, id, name) {
+    titleEl.textContent = name || 'Önizleme';
+    frame.src = previewUrl(team, id);
+    modal.classList.add('is-open');
+  }
+  function closePreview() {
+    modal.classList.remove('is-open');
+    frame.src = 'about:blank';
+  }
+  document.getElementById('blk-preview-close').addEventListener('click', closePreview);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closePreview(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) closePreview();
+  });
+
+  document.getElementById('bloklar-grid').addEventListener('click', (e) => {
+    const btn = e.target.closest('.js-preview');
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      openPreview(btn.dataset.team, btn.dataset.id, btn.dataset.title);
+    }
+  });
+
+  render();
+})();
+</script>
 {% endblock %}

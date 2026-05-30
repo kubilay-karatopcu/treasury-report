@@ -48,15 +48,4 @@ node_modules/.bin/esbuild static/js/kesif/index.jsx \
   --asset-names=kesif-assets/[name]-[hash] \
   --outfile=static/js/kesif.bundle.js
 
-echo "[build] esbuild bloklar bundle oluşturuluyor..."
-# Phase 9.e — Bloklar reuses lucide-react + plain fetch; no Cosmograph,
-# no CSS imports inside the JSX (bloklar.css is its own stylesheet).
-node_modules/.bin/esbuild static/js/bloklar/index.jsx \
-  --bundle \
-  --jsx=automatic \
-  --minify \
-  --target=es2020 \
-  --loader:.css=empty \
-  --outfile=static/js/bloklar.bundle.js
-
-echo "[build] Tamam → bundle.js + hazirlik.bundle.js (+ .css) + kesif.bundle.js + bloklar.bundle.js"
+echo "[build] Tamam → bundle.js + hazirlik.bundle.js (+ .css) + kesif.bundle.js"
