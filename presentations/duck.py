@@ -358,13 +358,26 @@ def execute_block_sql(
     """
     import pandas as pd
 
+    from presentations.concepts.integration import strip_concept_sentinel
+
     gate: GateResult = validate_and_wrap(sql)
+
+    # A block may carry the Phase-7 `{{concept_filters}}` sentinel in its SQL.
+    # The concept-apply path substitutes it with real predicates; every OTHER
+    # execution path (manual refresh, chat-node re-run, /execute route) reaches
+    # here WITHOUT that substitution, so the literal token would hit Oracle as
+    # `WHERE {{concept_filters}}` → ORA-00936 "missing expression". Neutralize it
+    # to a no-op `1 = 1` for execution, while keeping the authored SQL (sentinel
+    # intact) in `original_sql` so future concept injection still works. Mirrors
+    # run_block_manual's strip-at-exec pattern.
+    exec_sql = strip_concept_sentinel(gate.sql)
+
     log.info(
         "duck.execute_block_sql: block=%s gate=%s rewritten=%s truncated=%s cap=%d",
         block_id, gate.reason, gate.rewritten, gate.truncated, gate.cap,
     )
 
-    refs = find_upload_refs(gate.sql)
+    refs = find_upload_refs(exec_sql)
     is_duckdb_only = bool(refs)
 
     if is_duckdb_only:
@@ -375,14 +388,14 @@ def execute_block_sql(
         ensure_upload_views(conn, refs, upload_lookup, s3_get)
         # Run the SQL directly against DuckDB.
         try:
-            df = conn.execute(gate.sql).fetchdf()
+            df = conn.execute(exec_sql).fetchdf()
         except Exception as exc:
             raise RuntimeError(f"DuckDB SQL hatası: {exc}") from exc
     else:
         df = dc.get_data(
             base_prefix=None,
             dataset=f"block::{block_id}",
-            query=gate.sql,
+            query=exec_sql,
             query_params={},
         )
 
@@ -418,7 +431,7 @@ def execute_block_sql(
     )
 
     return {
-        "sql":          gate.sql,
+        "sql":          exec_sql,
         "original_sql": gate.original_sql,
         "rewritten":    gate.rewritten,
         "truncated":    gate.truncated,
