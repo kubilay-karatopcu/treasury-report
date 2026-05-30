@@ -1,4 +1,4 @@
-import Chart from 'react-apexcharts';
+import { AgCharts } from 'ag-charts-react';
 import { barChartOptions, normalizeLabels } from './chartHelpers.js';
 
 export default function BarChart({ block }) {
@@ -6,7 +6,7 @@ export default function BarChart({ block }) {
   const categories = normalizeLabels(config.categories);
   const series = (config.series || []).map((s) => ({
     name: s.name || '',
-    data: s.values || [],
+    values: s.values || [],
   }));
 
   if (categories.length === 0 || series.length === 0) {
@@ -20,17 +20,17 @@ export default function BarChart({ block }) {
     stacked:        !!config.stacked,
     horizontal:     !!config.horizontal,
     showDataLabels: !!config.show_data_labels,
-    borderRadius:   typeof config.border_radius === 'number' ? config.border_radius : 4,
     distributed:    !!config.distributed,
     colors:         Array.isArray(config.colors) ? config.colors : undefined,
   });
 
-  // key={width} forces ApexCharts to re-measure when the user changes width
-  // (CSS-grid resizes are flaky for SVG canvases).
+  // AG Charts reflows automatically when its container resizes; the
+  // remountKey is kept only so width changes (CSS-grid columns) trigger a
+  // full re-init when stacked/horizontal flags also flip mid-edit.
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (
     <div className="chart-wrapper">
-      <Chart key={remountKey} options={options} series={series} type="bar" height={260} />
+      <AgCharts key={remountKey} options={options} />
     </div>
   );
 }
