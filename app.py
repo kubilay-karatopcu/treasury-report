@@ -23,7 +23,6 @@ import calendar
 from DataClient import DataClient
 from deposit import deposit_bp
 import re
-from deposit_panel import deposit_panel_bp, init_app as deposit_panel_init
 from presentations import presentations_bp
 from prisma_home import prisma_home_bp
 from prisma_home.experts import LocalExpertStore
@@ -249,174 +248,6 @@ else:
     dc = DataClient()
 
 
-class DataOperations:
-    
-    def __init__(self, dc):
-        
-        self.dc = dc
-        self.final_Df = None
-
-    def process_data(self):
-
-        # MYU
-        try:
-            myu_df = self.dc.get_data(base_prefix="bsp", dataset="raw/input_data/myu_sql", query="./queries/myu.sql")    
-        except:
-            myu_df = self.dc.get_data(base_prefix="bsp", dataset="raw/input_data/myu_sql", query="./queries/myu_T_CUST.sql")    
-            
-        myu_df = myu_df.loc[:, ~myu_df.columns.duplicated()].reset_index(drop=True)
-
-        today = datetime.now()
-
-        def get_custom_part_id(date_obj):
-            _, last_day_of_month = calendar.monthrange(date_obj.year, date_obj.month)
-            if date_obj.day == last_day_of_month:
-                return date_obj.strftime("%m%Y")
-            else:
-                return date_obj.day * 10
-            
-        val_dt = today.strftime("%d/%m/%Y")
-        part_id = get_custom_part_id(today)
-        part_id_t_1 = get_custom_part_id(today - timedelta(days=1))
-
-        try:
-            core_comparison_df = self.dc.get_data(
-                base_prefix="bsp",
-                dataset = "raw/input_data/core_comparison",
-                query = "./queries/core_comparison.sql",
-                query_params={"part_id": part_id, "part_id_t_1": part_id_t_1, "val_dt":val_dt, "mtrty_dt": val_dt}
-            )
-        except:
-            core_comparison_df = self.dc.get_data(
-                base_prefix="bsp",
-                dataset = "raw/input_data/core_comparison",
-                query = "./queries/core_comparison_T_CUST.sql",
-                query_params={"part_id": part_id, "part_id_t_1": part_id_t_1, "val_dt":val_dt, "mtrty_dt": val_dt}
-            )
-
-        core_comparison_df = core_comparison_df.loc[:, ~core_comparison_df.columns.duplicated()]
-
-        myu_df = pd.concat([myu_df, core_comparison_df], ignore_index=True)
-
-        myu_df['DATE_TIME'] = pd.to_datetime(
-            myu_df['CREATE_DT'].astype(str) + ' ' + myu_df['CREATE_TM'].astype(str).str.zfill(6),
-            errors='coerce'
-        )
-        myu_df['DATA_SRC'] = 'MYU'
-        # TREASURY
-        try:
-            treasury_df = self.dc.get_data(base_prefix="bsp", dataset="raw/input_data/treasury", query="./queries/treasury.sql")   
-        except:
-            treasury_df = self.dc.get_data(base_prefix="bsp", dataset="raw/input_data/treasury", query="./queries/treasury_T_CUST.sql")   
-
-        treasury_df.rename(columns={
-            'RQSTD_INTRST_RT': 'DEMANDED_RATE',
-            'RECMMND_INTRST_RT': 'SUGGESTED_PRICE',
-            'APPRVD_INTRST_RT': 'OFFERED_RATE',
-            'CURRENCY_CD': 'CCY_CODE',
-            'MTRTY_STRT': 'VADE_BASLANGIC',
-            'MTRTY_END': 'VADE_BITIS',
-            'RSRVTN_DT': 'CREATE_DT',
-            'PRCNG_CNT': 'TALEP_REVIZE_NO'
-        }, inplace=True)
-
-        treasury_df['DATA_SRC'] = 'TREASURY'
-
-        treasury_df['DATE_TIME'] = pd.to_datetime(
-            treasury_df['CREATE_TM'].astype(str).str[:14],
-            format='%Y%m%d%H%M%S',
-            errors='coerce'
-        )
-
-        treasury_df = treasury_df.loc[:, ~treasury_df.columns.duplicated()].reset_index(drop=True)
-
-        self.final_df = pd.concat([myu_df, treasury_df], ignore_index=True)
-        self.final_df.sort_values(by=['DATE_TIME'], inplace=True)
-        self.final_df.reset_index(drop=True, inplace=True)
-
-        self.final_df['IS_MAX_REVIZE'] = False
-        self.final_df['TALEP_REVIZE_NO'] = self.final_df['TALEP_REVIZE_NO'].fillna(1)
-
-        if not self.final_df.empty:
-            group_cols = ["DATA_SRC", "CUST_ID", "CREATE_DT", "VADE_BASLANGIC"]
-            max_revize_indices = self.final_df.groupby(group_cols)["TALEP_REVIZE_NO"].idxmax()
-            self.final_df.loc[max_revize_indices, 'IS_MAX_REVIZE'] = True
-
-        # CLEANING
-        self.final_df['OFFERED_RATE'] = pd.to_numeric(self.final_df['OFFERED_RATE'], errors='coerce')
-        self.final_df = self.final_df[self.final_df['RESERVATION_AMT'] >= 50000].copy()
-        self.final_df = self.final_df[self.final_df['OFFERED_RATE'] <= (self.final_df['MARKET_MAX_RT'] * 1.02)].copy()
-        self.clear_outliers(source_col='COMPETITOR_BANK_RTS', target_col='PERCENTILE_COMPETITOR_RTS')
-        self.clear_outliers(source_col='DEMANDED_RATE', target_col='PERCENTILE_DEMANDED_RTS')
-        self.final_df.dropna(subset=['DATE_TIME'], inplace=True)
-
-        # JSON PREP
-        self.final_df['CREATE_DT'] = pd.to_datetime(self.final_df['CREATE_DT'])
-        self.final_df['DATE_STR_CLEAN'] = self.final_df['CREATE_DT'].dt.strftime('%Y-%m-%d')
-        self.final_df['DATE_TIME_STR'] = self.final_df['DATE_TIME'].dt.strftime('%Y-%m-%d %H:%M:%S')
-
-        logging.info("Data operations are done...")
-        return self.final_df
-
-    def clear_outliers(self, source_col: str, target_col: str = None, q: float = 0.99):
-        if target_col is None:
-            target_col = source_col
-
-        self.final_df[source_col] = pd.to_numeric(self.final_df[source_col], errors='coerce')
-
-        p_limit = self.final_df[source_col].quantile(q)
-
-        self.final_df[target_col] = np.where(
-            self.final_df[source_col] <= p_limit,
-            self.final_df[source_col],
-            np.nan
-        )
-
-def load_competitor_data():
-    """Load competitor analysis data from Oracle and pre-process ranges."""
-    try:
-        comp_df = dc.get_data(
-            base_prefix="bsp",
-            dataset="raw/input_data/competitor_analysis",
-            query="./queries/competitor_analysis.sql"
-        )
-    except Exception as e:
-        logging.exception(f"Failed to load competitor analysis data {e}")
-        comp_df = pd.DataFrame(columns=[
-            "TARIH", "VADE", "TUTAR", "FAIZ",
-            "DOVIZ_CINSI", "KAYNAK", "URUN", "BANKA_ADI"
-        ])
- 
-    if comp_df.empty:
-        return comp_df
- 
-    # Parse VADE range → VADE_MIN, VADE_MAX  (e.g. "32-45 Gün" → 32, 45)
-    def parse_range(val):
-        if pd.isna(val):
-            return 0, 0
-        s = str(val)
-        nums = re.findall(r'[\d]+(?:[.,]\d+)?', s.replace('.', '').replace(',', '.'))
-        nums = [float(n) for n in nums]
-        if len(nums) >= 2:
-            return int(min(nums)), int(max(nums))
-        elif len(nums) == 1:
-            return int(nums[0]), int(nums[0])
-        return 0, 0
- 
-    comp_df[['VADE_MIN', 'VADE_MAX']] = comp_df['VADE'].apply(
-        lambda x: pd.Series(parse_range(x))
-    )
-    comp_df[['TUTAR_MIN', 'TUTAR_MAX']] = comp_df['TUTAR'].apply(
-        lambda x: pd.Series(parse_range(x))
-    )
- 
-    # Normalize date
-    comp_df['TARIH'] = pd.to_datetime(comp_df['TARIH'], errors='coerce')
-    comp_df['DATE_STR'] = comp_df['TARIH'].dt.strftime('%Y-%m-%d')
-    comp_df['FAIZ'] = pd.to_numeric(comp_df['FAIZ'], errors='coerce')
-    comp_df.dropna(subset=['TARIH', 'FAIZ'], inplace=True)
- 
-    return comp_df
 
 XLSX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -591,17 +422,6 @@ logging.info("CONCEPT_BINDING_CATALOG loaded: %d tables from %s",
              len(app.config["CONCEPT_BINDING_CATALOG"]), _BINDING_DIR)
 
 
-data_ops = DataOperations(dc)
-data_lock = threading.Lock()
-
-if DEV_MODE:
-    current_df = pd.DataFrame()
-    competitor_df = pd.DataFrame()
-else:
-    current_df = data_ops.process_data()
-    competitor_df = load_competitor_data()
-
-last_refresh_at = datetime.now()
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -648,27 +468,8 @@ class LoginForm(FlaskForm):
 
 print("Server has started working.")
 
-def get_current_df_copy():
-    return current_df
-
-def get_competitor_df_copy():
-    return competitor_df
-
-def refresh_current_df():
-    global current_df, last_refresh_at, competitor_df
-    new_df = data_ops.process_data()
-    new_df.flags.writeable = False
-    new_competitor_df = load_competitor_data()
-    with data_lock:
-        current_df = new_df
-        last_refresh_at = datetime.now()
-        competitor_df = new_competitor_df
-        
-    return len(new_df)
  
 
-deposit_panel_init(dc, get_current_df_copy)
-app.register_blueprint(deposit_panel_bp, url_prefix="/deposit-panel")
 app.register_blueprint(deposit_bp, url_prefix="/deposit-assistant")
 app.register_blueprint(presentations_bp, url_prefix="/presentations")
 # Phase 10A: PRISMA shell blueprint owns "/" (consumer landing) and "/atolye/*".
@@ -749,25 +550,9 @@ SIDEBAR_RULES  = {
 }
 
 ROUTE_ACCESS_MAP = {
-    # Mevduat Verileri
-    "rates_page":           "mevduat.gunluk",
-    "amounts_page":         "mevduat.gunluk",
-    "api_oranlar_data":     "mevduat.gunluk",
-    "api_miktarlar_data":   "mevduat.gunluk",
-    "historic_page":        "mevduat.tarihsel",
-    # Sektör Verileri
-    "competitor_page":      "sektor.rakip",
-    "competitor_summary":   "sektor.rakip",
-    # Uygulamalar
+    # Uygulamalar — deposit-assistant (deposit-panel kaldırıldı; legacy
+    # treasury route'ları da temizlendi → her şey presentations üzerinden).
     "deposit.chat":         "uygulamalar.asistan",
-    # Deposit Panel (blueprint endpoint'leri "deposit_panel.xxx" formatında)
-    "deposit_panel.params":         "uygulamalar.panel",
-    "deposit_panel.reservations":   "uygulamalar.panel",
-    "deposit_panel.api_get_params":       "uygulamalar.panel",
-    "deposit_panel.api_set_params":       "uygulamalar.panel",
-    "deposit_panel.api_get_hyperparams":  "uygulamalar.panel",
-    "deposit_panel.api_set_hyperparams":  "uygulamalar.panel",
-    "deposit_panel.api_get_today_data":   "uygulamalar.panel",
 }
  
  
@@ -932,207 +717,6 @@ def home():
     # endpoint name for templates/base.html links and `/home` bookmarks while
     # routing users to the new shell.
     return redirect(url_for('prisma_home.landing'))
-
-
-@app.route('/oranlar', methods=['GET'])
-@login_required
-def rates_page():
-    df = get_current_df_copy()
-    available_dates = sorted(df['DATE_STR_CLEAN'].unique().tolist()) if not df.empty else []
-    latest_date = available_dates[-1] if available_dates else None
-
-    return render_template(
-        'rates.html',
-        initial_date=latest_date,
-        available_dates=available_dates
-    )
-
-
-@app.route('/miktarlar', methods=['GET'])
-@login_required
-def amounts_page():
-    df = get_current_df_copy()
-    available_dates = sorted(df['DATE_STR_CLEAN'].unique().tolist()) if not df.empty else []
-    latest_date = available_dates[-1] if available_dates else None
-
-    return render_template(
-        'amounts.html',
-        initial_date=latest_date,
-        available_dates=available_dates
-    )
-
-@app.route('/api/data/oranlar/<date_str>', methods=['GET'])
-@login_required
-def api_oranlar_data(date_str):
-    df = get_current_df_copy()
-    if df.empty or 'DATE_STR_CLEAN' not in df.columns:
-        return jsonify([])
-    
-    cols_to_send = [
-        'DATE_TIME_STR', 'DATE_STR_CLEAN', 'DATA_SRC', 'CUST_TP', 'VADE_BASLANGIC',
-        'CCY_CODE', 'CURRENTAMOUNT', 'INCOMING_AMT', 'RESERVATION_AMT',
-        'TALEP_REVIZE_NO', 'IS_MAX_REVIZE', 'PERCENTILE_COMPETITOR_RTS',
-        'OFFERED_RATE', 'PERCENTILE_DEMANDED_RTS', 'MARKET_MAX_RT', 'EKSTREM_YETKI', 'EKSTREM'
-    ]
-    valid_cols = [c for c in cols_to_send if c in df.columns]
-    
-    df_filtered = df[df['DATE_STR_CLEAN'] == date_str][valid_cols]
-    
-    json_data = df_filtered.to_json(orient='records', date_format='iso')
-    return Response(json_data, mimetype='application/json')
-
-@app.route('/api/data/miktarlar/<date_str>', methods=['GET'])
-@login_required
-def api_miktarlar_data(date_str):
-    df = get_current_df_copy()
-    if df.empty or 'DATE_STR_CLEAN' not in df.columns:
-        return jsonify([])
-    
-    cols_to_send = [
-        'DATE_TIME_STR', 'DATA_SRC', 'CUST_TP', 'VADE_BASLANGIC', 'CCY_CODE',
-        'RESERVATION_AMT', 'TALEP_REVIZE_NO', 'IS_MAX_REVIZE', 'CURRENTAMOUNT',
-        'INCOMING_AMT', 'PORTFOLIO_AMT', 'DATE_STR_CLEAN'
-    ]
-    valid_cols = [c for c in cols_to_send if c in df.columns]
-    
-    df_filtered = df[df['DATE_STR_CLEAN'] == date_str][valid_cols]
-    
-    json_data = df_filtered.to_json(orient='records', date_format='iso')
-    return Response(json_data, mimetype='application/json')
-
-
-@app.route('/historic')
-@login_required
-def historic_page():
-    df = get_current_df_copy()
-    available_dates = sorted(df['DATE_STR_CLEAN'].unique().tolist()) if not df.empty else []
-
-    cols_to_send = [
-        'DATE_TIME_STR', 'DATA_SRC', 'CUST_TP', 'VADE_BASLANGIC', 'CCY_CODE',
-        'RESERVATION_AMT', 'TALEP_REVIZE_NO', 'IS_MAX_REVIZE',
-        'PERCENTILE_COMPETITOR_RTS', 'OFFERED_RATE', 'PERCENTILE_DEMANDED_RTS',
-        'MARKET_MAX_RT', 'CURRENTAMOUNT', 'INCOMING_AMT',
-        'EKSTREM_YETKI'
-    ]
-
-    cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    raw_data = df[df['DATE_STR_CLEAN'] >= cutoff][cols_to_send].fillna(0).to_dict(orient='records')
-
-    return render_template(
-        'historic.html',
-        raw_data=json.dumps(raw_data),
-        available_dates=available_dates
-    )
-
-
-@app.route('/competitor')
-@login_required
-def competitor_page():
-    
-    df = get_competitor_df_copy()
- 
-    banks = sorted(df['BANKA_ADI'].dropna().unique().tolist()) if not df.empty else []
- 
-    # Include KAYNAK so JS can build source links
-    cols = ['DATE_STR', 'VADE', 'VADE_MIN', 'VADE_MAX',
-            'TUTAR', 'TUTAR_MIN', 'TUTAR_MAX',
-            'FAIZ', 'DOVIZ_CINSI', 'BANKA_ADI', 'KAYNAK']
-    valid_cols = [c for c in cols if c in df.columns]
- 
-    raw_data = df[valid_cols].fillna(0).to_dict(orient='records')
- 
-    return render_template(
-        'competitor.html',
-        raw_data=json.dumps(raw_data, default=str),
-        banks=banks
-    )
- 
- 
-@app.route('/competitor/summary', methods=['POST'])
-@login_required
-def competitor_summary():
-    """Call Qwen LLM to generate a market summary from structured rate data."""
-    payload = request.get_json(silent=True)
-    if not payload or 'data' not in payload:
-        return jsonify({"summary": "Veri sağlanamadı."}), 400
- 
-    rate_data = payload['data']
- 
-    system_prompt = (
-        "Sen bir Türk bankacılık sektörü analistisin. "
-        "Sana JSON formatında rakip bankaların mevduat faiz oranları verilecek. "
-        "Her banka için bugünkü (T) ve dünkü (T-1) maksimum faiz oranları ve değişim gösterilmiştir. "
-        "Bu veriye bakarak 3-4 cümlelik kısa, profesyonel bir Türkçe piyasa özeti yaz. "
-        "Hangi bankalar oran yükseltmiş, hangileri düşürmüş, genel trend ne yöne gidiyor belirt. "
-        "Spesifik oran rakamlarını ve banka isimlerini kullan. "
-        "Cevabında sadece Türkçe özet metni olsun, başka bir şey yazma."
-    )
- 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": json.dumps(rate_data, ensure_ascii=False)}
-    ]
- 
-    try:
-        resp = requests.post(
-            LLM_API_URL,
-            json={
-                "temperature": 0.1,
-                "max_tokens": 512,
-                "messages": messages
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {LLM_API_KEY}"
-            },
-            verify=False,
-            timeout=30
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        summary = result["choices"][0]["message"]["content"]
-    except Exception as e:
-        logging.exception(f"LLM summary call failed {e}")
-        summary = "Piyasa özeti şu anda oluşturulamıyor."
- 
-    return jsonify({"summary": summary})
-
-
-
-@app.route('/internal/refresh-data', methods=['POST'])
-def refresh_data_route():
-    token = request.headers.get("X-Refresh-Token")
-    if not REFRESH_TOKEN or token != REFRESH_TOKEN:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-
-    try:
-        row_count = refresh_current_df()
-        return jsonify({
-            "status": "success",
-            "row_count": row_count,
-            "last_refresh_at": last_refresh_at.strftime("%Y-%m-%d %H:%M:%S")
-        })
-    except Exception as e:
-        logging.exception("Data refresh failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@app.route('/internal/data-status', methods=['GET'])
-def data_status():
-    token = request.headers.get("X-Refresh-Token")
-    if not REFRESH_TOKEN or token != REFRESH_TOKEN:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-
-    with data_lock:
-        row_count = 0 if current_df is None else len(current_df)
-        refreshed = last_refresh_at.strftime("%Y-%m-%d %H:%M:%S") if last_refresh_at else None
-
-    return jsonify({
-        "status": "success",
-        "row_count": row_count,
-        "last_refresh_at": refreshed
-    })
-
 
 
 if __name__ == '__main__':
