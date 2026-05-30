@@ -1,4 +1,4 @@
-import Chart from 'react-apexcharts';
+import { AgCharts } from 'ag-charts-react';
 import { radialBarOptions } from './chartHelpers.js';
 
 export default function RadialBar({ block }) {
@@ -16,7 +16,7 @@ export default function RadialBar({ block }) {
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (
     <div className="chart-wrapper">
-      <Chart key={remountKey} options={options} series={options.series} type="radialBar" height={260} />
+      <AgCharts key={remountKey} options={options} />
     </div>
   );
 }
