@@ -28,13 +28,18 @@
       <span class="accent">{{ current_user.name.split(' ')[0] }}</span>{% endif %}.<br>
       Uzmanların <span class="accent">seni bekliyor.</span>
     </h1>
+    {% if featured_expert %}
     <p class="sub">
       Altı uzman, kurumun günlük hazine resmini farklı pencerelerden çekiyor.
       Bu sabah için {{ featured_expert.domain_label }} öne çıkıyor; diğerleri sakin.
     </p>
+    {% else %}
+    <p class="sub">Henüz uzman tanımlanmamış — Atölye'den ekleyebilirsin.</p>
+    {% endif %}
     <span class="gold-rule"></span>
   </div>
 
+  {% if featured_expert %}
   {# ── Featured expert ────────────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">01</span>
@@ -83,7 +88,9 @@
 
     <span class="expert-cta">Brifingi aç</span>
   </a>
+  {% endif %}
 
+  {% if other_experts %}
   {# ── Other experts (5 cells) ──────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">02</span>
@@ -96,6 +103,7 @@
       {% include "home/partials/expert_card.html" %}
     {% endfor %}
   </div>
+  {% endif %}
 
   {# ── Footer link to producer side ─────────────────────────────────────── #}
   <div class="footer-producer">
