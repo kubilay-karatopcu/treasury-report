@@ -34,8 +34,8 @@ from presentations.blocks.store import S3BlockStore, LocalBlockStore
 from presentations.table_docs.store import (
     S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
 )
-from presentations.concepts.registry import CachedConceptRegistry
-from presentations.concepts.bindings import CachedBindingCatalog
+from presentations.concepts.registry import CachedConceptRegistry, S3ConceptRegistry
+from presentations.concepts.bindings import CachedBindingCatalog, S3BindingCatalog
 from presentations.variables.semantic_tags import set_active_registry
 from presentations.llm import QwenClient
 import prisma_nav
@@ -411,21 +411,24 @@ app.config["PRESENTATIONS_ROUTING_HARD_CEILING_BYTES"] = int(
 # tables/ holds per-table concept bindings (read by the 7.b compiler). Same
 # path in DEV and prod for parity. The cached registry hot-reloads on YAML
 # mtime change so the data team can edit without a restart.
+# DEV: git fixtures (dir, mtime hot-reload). PROD: S3 (concept'ler + binding'ler
+# Konseptler UI'ından S3'e yazılır; S3 boşsa ilk boot'ta aynı git fixtures'tan
+# seed edilir → sonra local dir artık kaynak değil).
 _CONCEPT_DIR = Path(__file__).parent / "presentations" / "catalog" / "concepts"
-concept_registry = CachedConceptRegistry(_CONCEPT_DIR)
+_BINDING_DIR = Path(__file__).parent / "presentations" / "catalog" / "tables"
+if DEV_MODE:
+    concept_registry = CachedConceptRegistry(_CONCEPT_DIR)
+    app.config["CONCEPT_BINDING_CATALOG"] = CachedBindingCatalog(_BINDING_DIR)
+else:
+    concept_registry = S3ConceptRegistry(dc, fixtures_dir=_CONCEPT_DIR)
+    app.config["CONCEPT_BINDING_CATALOG"] = S3BindingCatalog(dc, fixtures_dir=_BINDING_DIR)
 app.config["CONCEPT_REGISTRY"] = concept_registry
 # Back the semantic-tag allow-list (block validation + UI dropdown) with the
 # registry; SEMANTIC_TAGS_V0 stays as the baseline floor (zero regression).
 set_active_registry(concept_registry)
-logging.info("CONCEPT_REGISTRY loaded: %d concepts from %s",
-             len(concept_registry), _CONCEPT_DIR)
-
-# Phase 7.b — per-table concept bindings (read by the filter compiler in the
-# dashboard apply-filters path). catalog/tables/<SCHEMA>/<TABLE>.yaml.
-_BINDING_DIR = Path(__file__).parent / "presentations" / "catalog" / "tables"
-app.config["CONCEPT_BINDING_CATALOG"] = CachedBindingCatalog(_BINDING_DIR)
-logging.info("CONCEPT_BINDING_CATALOG loaded: %d tables from %s",
-             len(app.config["CONCEPT_BINDING_CATALOG"]), _BINDING_DIR)
+logging.info("CONCEPT_REGISTRY: %d concepts | BINDING_CATALOG: %d tables (%s)",
+             len(concept_registry), len(app.config["CONCEPT_BINDING_CATALOG"]),
+             "DEV/dir" if DEV_MODE else "PROD/S3")
 
 
 

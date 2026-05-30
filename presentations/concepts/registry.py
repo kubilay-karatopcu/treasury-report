@@ -251,3 +251,120 @@ class CachedConceptRegistry:
 
     def __len__(self) -> int:
         return len(self.snapshot)
+
+
+class S3ConceptRegistry:
+    """S3-backed concept registry (prod parity with the other PRISMA stores).
+
+    One concept-file YAML per scope under ``<prefix>/<scope>.yaml``
+    (``global.yaml``, ``treasury.yaml``, …). A TTL cache holds an in-memory
+    :class:`ConceptRegistry` snapshot (the hot filter-compile path stays
+    in-memory); the cache is invalidated on :meth:`save_file`. If S3 is empty
+    on first boot and a git ``fixtures_dir`` is given, the curated concepts are
+    seeded to S3 once — so prod ships them without a manual migration and the
+    local dir is no longer the source of truth.
+    """
+
+    def __init__(self, dc, *, prefix: str = "prisma-treasury/concepts",
+                 fixtures_dir: str | Path | None = None, ttl_seconds: int = 30):
+        self._dc = dc
+        self._prefix = prefix.rstrip("/")
+        self._ttl = max(0, int(ttl_seconds))
+        self._lock = threading.Lock()
+        self._loaded_at: float | None = None
+        self._snapshot = ConceptRegistry.empty()
+        if fixtures_dir is not None:
+            self._seed_if_empty(Path(fixtures_dir))
+        self._load()
+
+    def _key(self, name: str) -> str:
+        if not name.endswith(".yaml"):
+            name += ".yaml"
+        return f"{self._prefix}/{name}"
+
+    def _list_keys(self) -> list[str]:
+        try:
+            keys = self._dc.list_prefix(f"{self._prefix}/") or []
+        except Exception:
+            log.warning("S3ConceptRegistry: list_prefix failed", exc_info=True)
+            return []
+        return [str(k) for k in keys if str(k).endswith(".yaml")]
+
+    def _seed_if_empty(self, fixtures_dir: Path) -> None:
+        if self._list_keys() or not fixtures_dir.exists():
+            return
+        n = 0
+        for p in sorted(fixtures_dir.glob("*.yaml")):
+            try:
+                self._dc._upload_bytes(self._key(p.name), p.read_bytes(),
+                                       content_type="application/x-yaml")
+                n += 1
+            except Exception:
+                log.warning("S3ConceptRegistry seed failed for %s", p, exc_info=True)
+        if n:
+            log.info("S3ConceptRegistry seeded %d concept file(s) from %s", n, fixtures_dir)
+
+    def _load(self) -> None:
+        raws: list[dict] = []
+        for key in self._list_keys():
+            try:
+                raw = _load_yaml(self._dc.read_bytes(key).decode("utf-8"))
+            except Exception:
+                log.error("S3ConceptRegistry: parse failed for %s", key, exc_info=True)
+                continue
+            if raw is not None:
+                raws.append(raw)
+        self._snapshot = ConceptRegistry.from_dicts(raws)
+        self._loaded_at = time.monotonic()
+        log.info("S3ConceptRegistry loaded: %d concepts (%d file(s)) from s3://%s",
+                 len(self._snapshot), len(raws), self._prefix)
+
+    def _maybe_reload(self) -> None:
+        if self._loaded_at is not None and (time.monotonic() - self._loaded_at) < self._ttl:
+            return
+        with self._lock:
+            if self._loaded_at is not None and (time.monotonic() - self._loaded_at) < self._ttl:
+                return
+            try:
+                self._load()
+            except Exception:
+                log.exception("S3ConceptRegistry reload failed; keeping previous snapshot")
+
+    @property
+    def snapshot(self) -> ConceptRegistry:
+        self._maybe_reload()
+        return self._snapshot
+
+    def reload(self) -> None:
+        with self._lock:
+            self._load()
+
+    def save_file(self, scope_name: str, raw_dict: dict) -> None:
+        """Persist a whole concept-file (one scope) YAML to S3 and reload."""
+        body = yaml.safe_dump(raw_dict, allow_unicode=True, sort_keys=False,
+                              default_flow_style=False).encode("utf-8")
+        self._dc._upload_bytes(self._key(scope_name), body, content_type="application/x-yaml")
+        with self._lock:
+            self._load()
+
+    # ── delegated read API (mirrors ConceptRegistry) ──────────────────────
+    def get(self, concept_id: str) -> Concept | None:
+        return self.snapshot.get(concept_id)
+
+    def has(self, concept_id: str) -> bool:
+        return self.snapshot.has(concept_id)
+
+    def all_concepts(self) -> list[Concept]:
+        return self.snapshot.all_concepts()
+
+    def all_ids(self) -> set[str]:
+        return self.snapshot.all_ids()
+
+    def by_scope(self, scope: str) -> list[Concept]:
+        return self.snapshot.by_scope(scope)
+
+    def resolve_value(self, concept_id: str, value: Any) -> str | None:
+        return self.snapshot.resolve_value(concept_id, value)
+
+    def __len__(self) -> int:
+        return len(self.snapshot)
