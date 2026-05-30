@@ -1,0 +1,703 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Kütüphane · Uzmanlar · " ~ meta.code %}
+{% set sidebar_active = "uzmanlar" %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}{{ meta.code }} {{ meta.name }} — Atölye / Uzmanlar{% endblock %}
+
+{% block head %}
+<style>
+  .doc-page { padding: 24px 28px 64px; display: flex; flex-direction: column; gap: 22px; }
+  .doc-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 32px;
+  }
+  .doc-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 10px;
+  }
+  .doc-head h2 {
+    font-size: 26px; font-weight: 300;
+    letter-spacing: -0.005em;
+    color: var(--ink); margin: 0 0 8px;
+  }
+  .doc-head h2 .code-pre {
+    color: var(--gold); font-family: var(--mono); font-size: 14px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    margin-right: 12px;
+  }
+  .doc-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px; color: var(--ink-mute);
+    max-width: 620px; line-height: 1.5;
+  }
+  .doc-head .actions {
+    display: flex; gap: 10px; align-items: center;
+    flex-shrink: 0;
+  }
+  .doc-btn {
+    height: 36px; padding: 0 18px;
+    background: transparent; color: var(--ink-soft);
+    border: 1px solid var(--border-soft);
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center;
+    transition: all 0.2s;
+  }
+  .doc-btn:hover { color: var(--gold); border-color: var(--gold); }
+  .doc-btn--primary {
+    background: var(--gold); color: var(--bg-0); border-color: var(--gold);
+  }
+  .doc-btn--primary:hover { background: transparent; color: var(--gold); }
+  .doc-btn--ghost-add {
+    color: var(--gold); border-color: var(--gold);
+    background: rgba(212, 166, 86, 0.06);
+  }
+  .doc-btn--ghost-add:hover { background: var(--gold); color: var(--bg-0); }
+  .doc-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .doc-btn[disabled]:hover {
+    color: var(--ink-soft); border-color: var(--border-soft); background: transparent;
+  }
+
+  .doc-status {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.06em; color: var(--ink-faint);
+    min-width: 140px;
+  }
+  .doc-status.is-saved   { color: #6ee7b7; }
+  .doc-status.is-error   { color: #fca5a5; }
+  .doc-status.is-saving  { color: var(--gold); }
+
+  .doc-locked-banner {
+    background: rgba(212, 166, 86, 0.08);
+    border: 1px solid var(--gold);
+    padding: 12px 16px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--gold); line-height: 1.5;
+  }
+
+  .doc-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 1px;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+    min-height: 540px;
+  }
+  .doc-main, .doc-side { background: var(--bg-1); }
+  .doc-main {
+    padding: 22px 24px 28px;
+    display: flex; flex-direction: column; gap: 26px;
+  }
+
+  /* Section blocks */
+  .form-section {
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .form-section h3 {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--gold);
+    margin: 0; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field--wide { grid-column: 1 / -1; }
+  .field label, .field .lbl {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .field input[type="text"],
+  .field input[type="number"],
+  .field input[type="color"],
+  .field select,
+  .field textarea {
+    background: var(--bg-0); color: var(--ink);
+    border: 1px solid var(--border-soft); border-radius: 0;
+    padding: 8px 10px;
+    font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.4;
+    outline: none;
+    width: 100%; box-sizing: border-box;
+  }
+  .field input[type="color"] {
+    height: 38px; padding: 4px; cursor: pointer;
+  }
+  .field textarea {
+    min-height: 110px; resize: vertical;
+    font-family: var(--mono);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--gold);
+  }
+  .field input[readonly] {
+    color: var(--ink-mute); background: var(--bg-1); cursor: not-allowed;
+  }
+
+  /* Repeating list (voice_examples, bound blocks, scope etc.) */
+  .list-block { display: flex; flex-direction: column; gap: 8px; }
+  .list-block .lb-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
+  }
+  .list-block .lb-row input,
+  .list-block .lb-row textarea,
+  .list-block .lb-row select {
+    background: var(--bg-0); color: var(--ink);
+    border: 1px solid var(--border-soft);
+    padding: 7px 10px;
+    font-family: var(--mono); font-size: 12px;
+    outline: none; width: 100%; box-sizing: border-box;
+  }
+  .list-block .lb-row textarea { resize: vertical; min-height: 56px; }
+  .list-block .lb-row input:focus,
+  .list-block .lb-row textarea:focus,
+  .list-block .lb-row select:focus { border-color: var(--gold); }
+  .list-block .lb-rm {
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    color: var(--ink-mute);
+    font-family: var(--mono); font-size: 14px;
+    padding: 0 12px; cursor: pointer;
+  }
+  .list-block .lb-rm:hover { color: #fca5a5; border-color: #fca5a5; }
+  .list-block .lb-add-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .list-block .lb-add-row input,
+  .list-block .lb-add-row select {
+    flex: 1;
+    background: var(--bg-0); color: var(--ink);
+    border: 1px solid var(--border-soft);
+    padding: 7px 10px;
+    font-family: var(--mono); font-size: 12px;
+    outline: none;
+  }
+  .list-block .lb-add-btn {
+    background: transparent;
+    color: var(--gold);
+    border: 1px solid var(--gold);
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 6px 14px; cursor: pointer;
+  }
+  .list-block .lb-add-btn:hover { background: var(--gold); color: var(--bg-0); }
+  .list-block .lb-empty {
+    font-family: var(--serif); font-style: italic;
+    color: var(--ink-faint); font-size: 12px;
+    padding: 8px 4px;
+  }
+
+  .color-row { display: flex; align-items: center; gap: 12px; }
+  .color-row input[type="color"] { width: 56px; }
+  .color-row .swatch {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-mute);
+  }
+
+  .doc-errors {
+    background: rgba(252, 165, 165, 0.05);
+    border: 1px solid rgba(252, 165, 165, 0.35);
+    padding: 12px 16px;
+    font-family: var(--mono); font-size: 11px;
+    color: #fca5a5; line-height: 1.55;
+  }
+  .doc-errors ul { margin: 4px 0 0; padding-left: 18px; }
+
+  .doc-side {
+    padding: 22px 22px 28px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .doc-side .ds-label {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.22em;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .doc-side .ds-value {
+    font-family: var(--mono); font-size: 12.5px;
+    color: var(--ink); word-break: break-word;
+  }
+  .doc-side .ds-row { display: flex; flex-direction: column; gap: 4px; }
+  .doc-side .ds-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    padding: 14px; background: var(--bg-0);
+    border: 1px solid var(--border-soft);
+  }
+  .doc-side .ds-grid .num {
+    font-size: 22px; font-weight: 200; color: var(--ink);
+    font-family: var(--mono);
+  }
+  .doc-side .ds-grid .nlabel {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.18em;
+    text-transform: uppercase; margin-top: 4px;
+  }
+  .doc-side .ds-accent {
+    display: inline-block; width: 14px; height: 14px;
+    border: 1px solid var(--border-soft);
+    vertical-align: middle; margin-right: 8px;
+  }
+  .doc-hint {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12.5px; color: var(--ink-mute);
+    line-height: 1.55;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="doc-page">
+    <div class="doc-head">
+      <div>
+        <div class="eyebrow">✦ · Uzman Personası</div>
+        <h2><span class="code-pre">{{ meta.code }}</span>{{ meta.name }}</h2>
+        <p class="sub">
+          Persona, brifing reçetesi, bound bloklar — hepsi formdan düzenlenir.
+          Düzenleme yetkin yoksa salt-okunur açılır.
+        </p>
+      </div>
+      <div class="actions">
+        <span id="save-status" class="doc-status">
+          {% if can_edit %}Hazır{% else %}Salt-okunur{% endif %}
+        </span>
+        <a class="doc-btn" href="{{ url_for('presentations.atolye_uzmanlar') }}">← Uzmanlar</a>
+        <button id="save-btn" class="doc-btn doc-btn--primary" type="button"
+                {% if not can_edit %}disabled title="Bu uzmanı düzenleme yetkin yok."{% endif %}>
+          Kaydet
+        </button>
+      </div>
+    </div>
+
+    {% if not can_edit %}
+      <div class="doc-locked-banner">
+        Bu uzmanı yalnızca <strong>{{ meta.edit_scope|join(', ') or '— (kimse)' }}</strong>
+        düzenleyebilir. Form alanları incelenebilir ama Kaydet butonu kilitli.
+      </div>
+    {% endif %}
+
+    <div id="error-box" class="doc-errors" style="display:none;"></div>
+
+    <div class="doc-layout">
+      <div class="doc-main">
+        <!-- ── Basics ────────────────────────────────────────────── -->
+        <section class="form-section">
+          <h3>Temel Bilgiler</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>ID</label>
+              <input type="text" value="{{ form.id }}" readonly />
+            </div>
+            <div class="field">
+              <label>Kod</label>
+              <input type="text" data-form="code" value="{{ form.code }}" />
+            </div>
+            <div class="field">
+              <label>İsim</label>
+              <input type="text" data-form="name" value="{{ form.name }}" />
+            </div>
+            <div class="field">
+              <label>Domain</label>
+              <input type="text" data-form="domain_label" value="{{ form.domain_label }}" />
+            </div>
+            <div class="field">
+              <label>Versiyon</label>
+              <input type="number" min="1" step="1" data-form="version" value="{{ form.version }}" />
+            </div>
+            <div class="field">
+              <label>Durum</label>
+              <select data-form="status">
+                <option value="active"   {% if form.status == 'active'   %}selected{% endif %}>active</option>
+                <option value="inactive" {% if form.status == 'inactive' %}selected{% endif %}>inactive</option>
+              </select>
+            </div>
+            <div class="field field--wide">
+              <label>Kısa Açıklama</label>
+              <textarea rows="2" data-form="short_description">{{ form.short_description }}</textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Persona ───────────────────────────────────────────── -->
+        <section class="form-section">
+          <h3>Persona</h3>
+          <div class="field">
+            <label>System Prompt</label>
+            <textarea rows="8" data-form="persona.system_prompt">{{ form.persona.system_prompt }}</textarea>
+          </div>
+          <div class="field">
+            <label>Ses Örnekleri</label>
+            <div class="list-block" id="lb-voice"></div>
+          </div>
+        </section>
+
+        <!-- ── Bound content ─────────────────────────────────────── -->
+        <section class="form-section">
+          <h3>Bağlı İçerik</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Bloklar</label>
+              <div class="list-block" id="lb-blocks"></div>
+            </div>
+            <div class="field">
+              <label>Snapshotlar</label>
+              <div class="list-block" id="lb-snapshots"></div>
+            </div>
+            <div class="field">
+              <label>Süreçler</label>
+              <div class="list-block" id="lb-processes"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Briefing recipe ───────────────────────────────────── -->
+        <section class="form-section">
+          <h3>Brifing Reçetesi</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Cache TTL (saniye)</label>
+              <input type="number" min="0" step="1"
+                     data-form="briefing_recipe.cache_ttl_seconds"
+                     value="{{ form.briefing_recipe.cache_ttl_seconds }}" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Bölümler (YAML)</label>
+            <textarea rows="10" data-form="briefing_recipe.sections_yaml" spellcheck="false">{{ form.briefing_recipe.sections_yaml }}</textarea>
+            <small class="lbl" style="text-transform:none; letter-spacing:0; font-family: var(--serif); font-style: italic; color: var(--ink-faint);">
+              Her bölüm: <code>id</code>, <code>title</code>, <code>fill_from</code>, <code>llm_paraphrase</code>.
+              Liste şeklinde — örnek için mevcut içeriği örnek al.
+            </small>
+          </div>
+        </section>
+
+        <!-- ── Access scope ──────────────────────────────────────── -->
+        <section class="form-section">
+          <h3>Erişim</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Read (departmanlar, * = herkes)</label>
+              <div class="list-block" id="lb-read"></div>
+            </div>
+            <div class="field">
+              <label>Edit (departmanlar)</label>
+              <div class="list-block" id="lb-edit"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── UI ────────────────────────────────────────────────── -->
+        <section class="form-section">
+          <h3>UI</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Aksan Rengi</label>
+              <div class="color-row">
+                <input type="color" data-form="ui.accent_color" value="{{ form.ui.accent_color }}" />
+                <input type="text" data-form="ui.accent_color_text" value="{{ form.ui.accent_color }}" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Glyph</label>
+              <input type="text" data-form="ui.glyph" value="{{ form.ui.glyph }}" placeholder="3-4 karakter" />
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="doc-side">
+        <div class="ds-grid">
+          <div>
+            <div class="num" id="side-blocks">{{ meta.bound_blocks }}</div>
+            <div class="nlabel">Bound Block</div>
+          </div>
+          <div>
+            <div class="num" id="side-snaps">{{ meta.bound_snapshots }}</div>
+            <div class="nlabel">Bound Snapshot</div>
+          </div>
+        </div>
+
+        <div class="ds-row">
+          <span class="ds-label">Kod</span>
+          <span class="ds-value">{{ meta.code }}</span>
+        </div>
+        <div class="ds-row">
+          <span class="ds-label">Domain</span>
+          <span class="ds-value">{{ meta.domain_label }}</span>
+        </div>
+        <div class="ds-row">
+          <span class="ds-label">Aksan</span>
+          <span class="ds-value">
+            <span class="ds-accent" id="side-accent" style="background: {{ meta.accent_color }};"></span>
+            <span id="side-accent-text">{{ meta.accent_color }}</span>
+          </span>
+        </div>
+
+        <div class="doc-hint">
+          YAML şeması <code>prisma_home.experts.Expert</code> dataclass'ı ile
+          doğrulanır. Kaydet'e bastığında geçerli değilse hata gösterilir.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script id="initial-form-data" type="application/json">{{ form_json | safe }}</script>
+  <script id="block-choices-data" type="application/json">{{ block_choices | tojson | safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const INIT = JSON.parse(document.getElementById('initial-form-data').textContent);
+  const BLOCK_CHOICES = JSON.parse(document.getElementById('block-choices-data').textContent);
+  const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+
+  // Deep-clone the seed so subsequent mutations don't leak back.
+  const state = JSON.parse(JSON.stringify(INIT));
+
+  // ── Generic helpers ──────────────────────────────────────────────────
+  function setStatus(text, kind) {
+    const el = document.getElementById('save-status');
+    el.textContent = text;
+    el.className = 'doc-status' + (kind ? ' is-' + kind : '');
+  }
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function getByPath(obj, path) {
+    return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+  }
+  function setByPath(obj, path, value) {
+    const parts = path.split('.');
+    const last = parts.pop();
+    const target = parts.reduce((o, k) => (o[k] = o[k] || {}), obj);
+    target[last] = value;
+  }
+
+  // ── List-block component ─────────────────────────────────────────────
+  // Renders an editable list of strings into the given container, mutating
+  // state[path] in place. `kind` controls input type:
+  //   - "text"     : free-text single-line input
+  //   - "textarea" : multi-line input
+  //   - "select"   : <select> seeded from `choices` plus typed free input
+  //                  (use when we have known IDs to suggest)
+  function bindListBlock(container, statePath, kind, opts = {}) {
+    const list = getByPath(state, statePath) || [];
+    setByPath(state, statePath, list);
+
+    function render() {
+      const rowHtml = (val, i) => {
+        const safe = escapeHtml(val);
+        const input = kind === 'textarea'
+          ? `<textarea data-i="${i}">${safe}</textarea>`
+          : `<input type="text" data-i="${i}" value="${safe}" placeholder="${escapeHtml(opts.placeholder || '')}"/>`;
+        return `<div class="lb-row">${input}<button type="button" class="lb-rm" data-i="${i}" title="Sil">×</button></div>`;
+      };
+
+      const items = list.length === 0
+        ? `<div class="lb-empty">${escapeHtml(opts.emptyHint || '— (boş) —')}</div>`
+        : list.map(rowHtml).join('');
+
+      let addRow;
+      if (kind === 'select' && Array.isArray(opts.choices) && opts.choices.length > 0) {
+        addRow = `
+          <div class="lb-add-row">
+            <select class="lb-add-input">
+              <option value="">— seç —</option>
+              ${opts.choices.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+            </select>
+            <input type="text" class="lb-add-free" placeholder="${escapeHtml(opts.addPlaceholder || 'veya yaz…')}"/>
+            <button type="button" class="lb-add-btn">＋ Ekle</button>
+          </div>`;
+      } else {
+        addRow = `
+          <div class="lb-add-row">
+            <input type="text" class="lb-add-input" placeholder="${escapeHtml(opts.addPlaceholder || 'Ekle…')}"/>
+            <button type="button" class="lb-add-btn">＋ Ekle</button>
+          </div>`;
+      }
+
+      container.innerHTML = items + addRow;
+    }
+
+    container.addEventListener('input', (e) => {
+      if (e.target.matches('[data-i]')) {
+        const i = Number(e.target.dataset.i);
+        list[i] = e.target.value;
+      }
+    });
+    container.addEventListener('click', (e) => {
+      const rm = e.target.closest('.lb-rm');
+      if (rm) {
+        list.splice(Number(rm.dataset.i), 1);
+        render();
+        return;
+      }
+      const add = e.target.closest('.lb-add-btn');
+      if (add) {
+        const sel = container.querySelector('select.lb-add-input');
+        const free = container.querySelector('.lb-add-free') || container.querySelector('.lb-add-input');
+        let val = '';
+        if (sel && sel.value) {
+          val = sel.value;
+          sel.value = '';
+        } else if (free && free.value.trim()) {
+          val = free.value.trim();
+          free.value = '';
+        }
+        if (val && !list.includes(val)) {
+          list.push(val);
+          render();
+        }
+      }
+    });
+    container.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.target.classList.contains('lb-add-input') || e.target.classList.contains('lb-add-free'))) {
+        e.preventDefault();
+        container.querySelector('.lb-add-btn')?.click();
+      }
+    });
+
+    render();
+    return { render, list };
+  }
+
+  // ── Wire top-level scalar inputs to state ────────────────────────────
+  document.querySelectorAll('[data-form]').forEach((el) => {
+    const path = el.dataset.form;
+    // ui.accent_color_text is a mirror of the color picker — not in state.
+    if (path === 'ui.accent_color_text') {
+      el.addEventListener('input', () => {
+        const v = el.value.trim();
+        if (/^#[0-9a-fA-F]{3,8}$/.test(v)) {
+          state.ui.accent_color = v;
+          document.querySelector('[data-form="ui.accent_color"]').value = v;
+          syncSideAccent();
+        }
+      });
+      return;
+    }
+    el.addEventListener('input', () => {
+      const v = el.type === 'number'
+        ? (el.value === '' ? null : Number(el.value))
+        : el.value;
+      setByPath(state, path, v);
+      if (path === 'ui.accent_color') {
+        document.querySelector('[data-form="ui.accent_color_text"]').value = v;
+        syncSideAccent();
+      }
+    });
+    el.addEventListener('change', () => {
+      const v = el.type === 'number'
+        ? (el.value === '' ? null : Number(el.value))
+        : el.value;
+      setByPath(state, path, v);
+    });
+  });
+
+  function syncSideAccent() {
+    document.getElementById('side-accent').style.background = state.ui.accent_color;
+    document.getElementById('side-accent-text').textContent = state.ui.accent_color;
+  }
+
+  // ── List blocks ──────────────────────────────────────────────────────
+  const lbVoice  = bindListBlock(document.getElementById('lb-voice'), 'persona.voice_examples', 'textarea', {
+    emptyHint: '— örnek yok —',
+    addPlaceholder: 'Yeni ses örneği…',
+  });
+  const lbBlocks = bindListBlock(document.getElementById('lb-blocks'), 'bound_content.blocks', 'select', {
+    choices: BLOCK_CHOICES,
+    addPlaceholder: 'team/id (yaz)',
+    emptyHint: '— blok yok —',
+  });
+  const lbSnaps  = bindListBlock(document.getElementById('lb-snapshots'), 'bound_content.snapshots', 'text', {
+    addPlaceholder: 'snapshot id',
+    emptyHint: '— snapshot yok —',
+  });
+  const lbProcs  = bindListBlock(document.getElementById('lb-processes'), 'bound_content.processes', 'text', {
+    addPlaceholder: 'süreç id',
+    emptyHint: '— süreç yok —',
+  });
+  const lbRead   = bindListBlock(document.getElementById('lb-read'), 'access_scope.read', 'text', {
+    addPlaceholder: 'departman ya da *',
+    emptyHint: '— herkese kapalı —',
+  });
+  const lbEdit   = bindListBlock(document.getElementById('lb-edit'), 'access_scope.edit', 'text', {
+    addPlaceholder: 'departman ya da *',
+    emptyHint: '— düzenleyebilen yok —',
+  });
+
+  // ── Disable everything when read-only ────────────────────────────────
+  if (!CAN_EDIT) {
+    document.querySelectorAll('input, textarea, select, button').forEach((el) => {
+      if (el.id === 'save-btn') return;          // already disabled by template
+      if (el.closest('.doc-head .actions')) return;
+      if (el.matches('[readonly]')) return;
+      // Buttons like .lb-add-btn / .lb-rm / save-btn — disable them too.
+      if (el.tagName === 'BUTTON') el.disabled = true;
+      else el.setAttribute('readonly', 'readonly');
+    });
+  }
+
+  // ── Save ─────────────────────────────────────────────────────────────
+  function showErrors(list) {
+    const box = document.getElementById('error-box');
+    if (!list || list.length === 0) {
+      box.style.display = 'none';
+      box.innerHTML = '';
+      return;
+    }
+    box.style.display = 'block';
+    box.innerHTML = '<strong>Kaydedilemedi.</strong><ul>' +
+      list.map(escapeHtml).map(e => `<li>${e}</li>`).join('') + '</ul>';
+  }
+
+  async function save() {
+    if (!CAN_EDIT) return;
+    setStatus('Kaydediliyor…', 'saving');
+    showErrors(null);
+    const saveBtn = document.getElementById('save-btn');
+    saveBtn.disabled = true;
+    try {
+      const r = await fetch(window.location.pathname + '/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ form: state }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        showErrors(data.errors || [`HTTP ${r.status}`]);
+        setStatus('Hata', 'error');
+        return;
+      }
+      setStatus(`Kaydedildi · v${data.version}`, 'saved');
+      setTimeout(() => setStatus('Hazır'), 3500);
+    } catch (e) {
+      showErrors([String(e)]);
+      setStatus('Hata', 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+  document.getElementById('save-btn').addEventListener('click', save);
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save();
+    }
+  });
+
+  syncSideAccent();
+})();
+</script>
+{% endblock %}
