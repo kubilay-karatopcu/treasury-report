@@ -1,0 +1,683 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Kütüphane · Tablolar · " ~ schema ~ "." ~ table %}
+{% set sidebar_active = "tablolar" %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}{{ schema }}.{{ table }} — Atölye / Tablolar{% endblock %}
+
+{% block head %}
+<style>
+  .doc-page { padding: 24px 28px 64px; display: flex; flex-direction: column; gap: 22px; }
+  .doc-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 32px;
+  }
+  .doc-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 10px;
+  }
+  .doc-head h2 {
+    font-family: var(--mono);
+    font-size: 26px; font-weight: 400;
+    letter-spacing: -0.005em;
+    color: var(--ink); margin: 0 0 8px;
+  }
+  .doc-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px; color: var(--ink-mute);
+    max-width: 620px; line-height: 1.5;
+  }
+  .doc-head .actions {
+    display: flex; gap: 10px; align-items: center;
+    flex-shrink: 0;
+  }
+  .doc-btn {
+    height: 36px; padding: 0 18px;
+    background: transparent; color: var(--ink-soft);
+    border: 1px solid var(--border-soft);
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center;
+    transition: all 0.2s;
+  }
+  .doc-btn:hover { color: var(--gold); border-color: var(--gold); }
+  .doc-btn--primary {
+    background: var(--gold); color: var(--bg-0); border-color: var(--gold);
+  }
+  .doc-btn--primary:hover { background: transparent; color: var(--gold); }
+  .doc-btn--ghost-add {
+    color: var(--gold); border-color: var(--gold);
+    background: rgba(212, 166, 86, 0.06);
+  }
+  .doc-btn--ghost-add:hover { background: var(--gold); color: var(--bg-0); }
+  .doc-btn--danger {
+    color: #fca5a5; border-color: rgba(252, 165, 165, 0.5);
+  }
+  .doc-btn--danger:hover { color: #fff; background: #b1383b; border-color: #b1383b; }
+
+  .doc-status {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+    min-width: 140px;
+    display: inline-flex; align-items: center;
+  }
+  .doc-status.is-saved   { color: #6ee7b7; }
+  .doc-status.is-error   { color: #fca5a5; }
+  .doc-status.is-saving  { color: var(--gold); }
+
+  .doc-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 1px;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+    min-height: 540px;
+  }
+  .doc-main, .doc-side { background: var(--bg-1); }
+  .doc-main {
+    padding: 22px 24px 28px;
+    display: flex; flex-direction: column; gap: 24px;
+  }
+
+  /* Section blocks inside .doc-main */
+  .form-section {
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .form-section h3 {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--gold);
+    margin: 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .form-section h3 .count {
+    color: var(--ink-faint); letter-spacing: 0.08em;
+    font-size: 10px;
+  }
+  .form-section--columns h3 { gap: 12px; }
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field--wide { grid-column: 1 / -1; }
+  .field label, .field .lbl {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .field input[type="text"],
+  .field input[type="number"],
+  .field select,
+  .field textarea {
+    background: var(--bg-0); color: var(--ink);
+    border: 1px solid var(--border-soft); border-radius: 0;
+    padding: 8px 10px;
+    font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.4;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .field textarea {
+    min-height: 60px; resize: vertical;
+    font-family: var(--mono);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--gold);
+  }
+  .field input[readonly], .field select[disabled] {
+    color: var(--ink-mute);
+    background: var(--bg-1);
+    cursor: not-allowed;
+  }
+  .field-check {
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-soft); letter-spacing: 0.04em;
+    user-select: none;
+  }
+  .field-check input { accent-color: var(--gold); }
+
+  /* Per-column card */
+  .col-card {
+    border: 1px solid var(--border-soft);
+    background: var(--bg-0);
+    padding: 16px 18px 14px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .col-card .cc-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--border-soft);
+  }
+  .col-card .cc-head .cc-num {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .col-card .cc-checks {
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .col-card .lookup-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg-1);
+    border: 1px dashed var(--border-soft);
+  }
+  .col-card .lookup-head {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .add-col-row {
+    display: flex; justify-content: center;
+    padding-top: 6px;
+  }
+
+  .doc-errors {
+    background: rgba(252, 165, 165, 0.05);
+    border: 1px solid rgba(252, 165, 165, 0.35);
+    padding: 12px 16px;
+    font-family: var(--mono); font-size: 11px;
+    color: #fca5a5; letter-spacing: 0.02em;
+    line-height: 1.55;
+  }
+  .doc-errors ul { margin: 4px 0 0; padding-left: 18px; }
+
+  .doc-side {
+    padding: 22px 22px 28px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .doc-side .ds-label {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .doc-side .ds-value {
+    font-family: var(--mono); font-size: 12.5px;
+    color: var(--ink);
+    word-break: break-word;
+  }
+  .doc-side .ds-row { display: flex; flex-direction: column; gap: 4px; }
+  .doc-side .ds-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 14px;
+    background: var(--bg-0);
+    border: 1px solid var(--border-soft);
+  }
+  .doc-side .ds-grid .num {
+    font-size: 22px; font-weight: 200; color: var(--ink);
+    font-family: var(--mono);
+  }
+  .doc-side .ds-grid .nlabel {
+    font-family: var(--mono); font-size: 9px;
+    color: var(--ink-faint); letter-spacing: 0.18em;
+    text-transform: uppercase; margin-top: 4px;
+  }
+  .doc-hint {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12.5px; color: var(--ink-mute);
+    line-height: 1.55;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .doc-not-exists {
+    background: rgba(212, 166, 86, 0.08);
+    border: 1px solid var(--gold);
+    padding: 12px 16px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--gold); letter-spacing: 0.04em;
+    line-height: 1.5;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="doc-page">
+    <div class="doc-head">
+      <div>
+        <div class="eyebrow">⊟ · Tablo Dokümantasyonu</div>
+        <h2>{{ schema }}.{{ table }}</h2>
+        <p class="sub">
+          Tablo açıklaması, partition kolonu ve kolonların metadata'sını
+          formdan düzenle. Kaydet butonu doğrulayıp YAML olarak yazar.
+        </p>
+      </div>
+      <div class="actions">
+        <span id="save-status" class="doc-status">Hazır</span>
+        <a class="doc-btn" href="{{ url_for('presentations.atolye_tablolar') }}">← Tablolar</a>
+        <button id="save-btn" class="doc-btn doc-btn--primary" type="button">Kaydet</button>
+      </div>
+    </div>
+
+    {% if not exists %}
+      <div class="doc-not-exists">
+        Bu tablo için henüz dokümantasyon yok — boş bir form yüklendi.
+        Doldur ve Kaydet'e tıkla, ilk versiyonu yaratacaksın.
+      </div>
+    {% endif %}
+
+    <div id="error-box" class="doc-errors" style="display:none;"></div>
+
+    <div class="doc-layout">
+      <div class="doc-main">
+        <!-- ── Table-level fields ──────────────────────────────────── -->
+        <section class="form-section">
+          <h3>Tablo Bilgileri</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Şema</label>
+              <input type="text" value="{{ schema }}" readonly />
+            </div>
+            <div class="field">
+              <label>Tablo</label>
+              <input type="text" value="{{ table }}" readonly />
+            </div>
+            <div class="field">
+              <label>Partition Kolonu</label>
+              <select id="f-partition_column">
+                <option value="">— (yok)</option>
+                {# Filled dynamically from columns; selected in JS init #}
+              </select>
+            </div>
+            <div class="field">
+              <label>Günlük Tahmini Satır</label>
+              <input type="number" id="f-estimated_daily_rows" min="0" step="1"
+                     value="{{ form.estimated_daily_rows if form.estimated_daily_rows is not none else '' }}"/>
+            </div>
+            <div class="field field--wide">
+              <label>Açıklama</label>
+              <textarea id="f-description" rows="3">{{ form.description }}</textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Columns ──────────────────────────────────────────────── -->
+        <section class="form-section form-section--columns">
+          <h3>
+            Kolonlar <span class="count" id="cols-count">0</span>
+          </h3>
+          <div id="cols-list"></div>
+          <div class="add-col-row">
+            <button type="button" id="add-col" class="doc-btn doc-btn--ghost-add">＋ Kolon Ekle</button>
+          </div>
+        </section>
+      </div>
+
+      <aside class="doc-side">
+        <div class="ds-grid">
+          <div>
+            <div class="num" id="side-cols">{{ meta.columns_count }}</div>
+            <div class="nlabel">Kolon</div>
+          </div>
+          <div>
+            <div class="num" id="side-filterable">{{ meta.filterable_count }}</div>
+            <div class="nlabel">Filtrelenebilir</div>
+          </div>
+        </div>
+
+        <div class="ds-row">
+          <span class="ds-label">Dosya</span>
+          <span class="ds-value">table_docs/{{ schema }}/{{ table }}.yaml</span>
+        </div>
+
+        <div class="doc-hint">
+          Doğrulama <code>presentations.table_docs.schema</code> tarafından
+          yapılır. Tip alanı boş bırakılırsa kaydedilmez.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script id="initial-form-data" type="application/json">{{ form_json | safe }}</script>
+  <script id="initial-options-data" type="application/json">{{ {'semantic_tags': semantic_tags, 'filter_roles': filter_roles} | tojson | safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const INIT = JSON.parse(document.getElementById('initial-form-data').textContent);
+  const OPTS = JSON.parse(document.getElementById('initial-options-data').textContent);
+
+  // Per-render column state. We mutate this and re-render on every change so
+  // there's a single source of truth; no jQuery, no framework.
+  const state = {
+    description: INIT.description || '',
+    partition_column: INIT.partition_column || '',
+    estimated_daily_rows: INIT.estimated_daily_rows ?? null,
+    columns: (INIT.columns || []).map(c => ({
+      name: c.name || '',
+      type: c.type || '',
+      description: c.description || '',
+      filterable: !!c.filterable,
+      filter_role: c.filter_role || '',
+      suggested_variable: c.suggested_variable || '',
+      suggested_semantic_tag: c.suggested_semantic_tag || '',
+      aggregatable: !!c.aggregatable,
+      visible_in_ui: c.visible_in_ui !== false,  // default true
+      lookup: c.lookup ? {
+        table: c.lookup.table || '',
+        key:   c.lookup.key || '',
+        display: c.lookup.display || '',
+      } : null,
+    })),
+  };
+
+  // ── DOM refs ──────────────────────────────────────────────────────────
+  const $desc          = document.getElementById('f-description');
+  const $partition     = document.getElementById('f-partition_column');
+  const $estimatedRows = document.getElementById('f-estimated_daily_rows');
+  const $colsList      = document.getElementById('cols-list');
+  const $colsCount     = document.getElementById('cols-count');
+  const $sideCols      = document.getElementById('side-cols');
+  const $sideFilter    = document.getElementById('side-filterable');
+  const $addBtn        = document.getElementById('add-col');
+  const $saveBtn       = document.getElementById('save-btn');
+  const $status        = document.getElementById('save-status');
+  const $errorBox      = document.getElementById('error-box');
+
+  // Top-level fields wired directly to state.
+  $desc.addEventListener('input', () => { state.description = $desc.value; });
+  $partition.addEventListener('change', () => { state.partition_column = $partition.value; });
+  $estimatedRows.addEventListener('input', () => {
+    const v = $estimatedRows.value.trim();
+    state.estimated_daily_rows = v === '' ? null : Number(v);
+  });
+  $addBtn.addEventListener('click', () => {
+    state.columns.push({
+      name: '', type: '', description: '',
+      filterable: false, filter_role: '',
+      suggested_variable: '', suggested_semantic_tag: '',
+      aggregatable: false, visible_in_ui: true,
+      lookup: null,
+    });
+    renderCols();
+    // Focus the new column's name input for fast typing.
+    const last = $colsList.querySelectorAll('.col-card');
+    last[last.length - 1]?.querySelector('input[data-field="name"]')?.focus();
+  });
+  $saveBtn.addEventListener('click', save);
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save();
+    }
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+  function setStatus(text, kind) {
+    $status.textContent = text;
+    $status.className = 'doc-status' + (kind ? ' is-' + kind : '');
+  }
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function buildOptions(values, selected) {
+    return values.map(v =>
+      `<option value="${escapeHtml(v)}"${v === selected ? ' selected' : ''}>${escapeHtml(v)}</option>`
+    ).join('');
+  }
+
+  function updateSummary() {
+    $colsCount.textContent = `${state.columns.length} kolon`;
+    $sideCols.textContent = state.columns.length;
+    $sideFilter.textContent = state.columns.filter(c => c.filterable).length;
+    // Refresh partition_column dropdown — it depends on current column names.
+    const current = state.partition_column;
+    const names = state.columns.map(c => (c.name || '').trim().toUpperCase()).filter(Boolean);
+    $partition.innerHTML = '<option value="">— (yok)</option>' +
+      names.map(n => `<option value="${escapeHtml(n)}"${n === current ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
+    // If the previously-selected partition no longer matches a column, clear it.
+    if (current && !names.includes(current)) {
+      state.partition_column = '';
+    }
+  }
+
+  // ── Column card renderer ──────────────────────────────────────────────
+  function renderCol(col, idx) {
+    const hasLookup = !!col.lookup;
+    const semTagOptions = '<option value="">— (yok)</option>' +
+      buildOptions(OPTS.semantic_tags, col.suggested_semantic_tag);
+    const filterRoleOptions = '<option value="">— (yok)</option>' +
+      buildOptions(OPTS.filter_roles, col.filter_role);
+
+    return `
+      <div class="col-card" data-idx="${idx}">
+        <div class="cc-head">
+          <span class="cc-num">#${idx + 1} · ${escapeHtml(col.name || 'isimsiz')}</span>
+          <button type="button" class="doc-btn doc-btn--danger" data-act="remove-col">Sil</button>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label>Kolon Adı</label>
+            <input type="text" data-field="name" value="${escapeHtml(col.name)}"
+                   placeholder="ÖRN: BRANCH_CODE" />
+          </div>
+          <div class="field">
+            <label>Tip</label>
+            <input type="text" data-field="type" value="${escapeHtml(col.type)}"
+                   placeholder="VARCHAR2(40) · NUMBER · DATE …" />
+          </div>
+          <div class="field field--wide">
+            <label>Açıklama</label>
+            <textarea rows="2" data-field="description">${escapeHtml(col.description)}</textarea>
+          </div>
+        </div>
+
+        <div class="cc-checks">
+          <label class="field-check">
+            <input type="checkbox" data-field="filterable" ${col.filterable ? 'checked' : ''}/>
+            filterable
+          </label>
+          <label class="field-check">
+            <input type="checkbox" data-field="aggregatable" ${col.aggregatable ? 'checked' : ''}/>
+            aggregatable
+          </label>
+          <label class="field-check">
+            <input type="checkbox" data-field="visible_in_ui" ${col.visible_in_ui ? 'checked' : ''}/>
+            visible_in_ui
+          </label>
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label>Filtre Rolü</label>
+            <select data-field="filter_role" ${!col.filterable ? 'disabled' : ''}>${filterRoleOptions}</select>
+          </div>
+          <div class="field">
+            <label>Önerilen Değişken</label>
+            <input type="text" data-field="suggested_variable" value="${escapeHtml(col.suggested_variable)}"
+                   placeholder="ör: branch_id" />
+          </div>
+          <div class="field">
+            <label>Önerilen Semantic Tag</label>
+            <select data-field="suggested_semantic_tag">${semTagOptions}</select>
+          </div>
+        </div>
+
+        <label class="field-check">
+          <input type="checkbox" data-field="has_lookup" ${hasLookup ? 'checked' : ''}/>
+          Bu kolon bir dimension tablosuna lookup
+        </label>
+        <div class="lookup-grid" style="${hasLookup ? '' : 'display:none;'}">
+          <div class="field">
+            <span class="lookup-head">Lookup Table</span>
+            <input type="text" data-field="lookup.table" value="${escapeHtml(col.lookup?.table || '')}" placeholder="DIM_BRANCH" />
+          </div>
+          <div class="field">
+            <span class="lookup-head">Key</span>
+            <input type="text" data-field="lookup.key" value="${escapeHtml(col.lookup?.key || '')}" placeholder="BRANCH_ID" />
+          </div>
+          <div class="field">
+            <span class="lookup-head">Display</span>
+            <input type="text" data-field="lookup.display" value="${escapeHtml(col.lookup?.display || '')}" placeholder="BRANCH_NAME" />
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCols() {
+    $colsList.innerHTML = state.columns.map(renderCol).join('') ||
+      '<div class="doc-hint" style="padding:16px;text-align:center;">Henüz kolon yok — ＋ Kolon Ekle ile başla.</div>';
+    updateSummary();
+  }
+
+  // Delegate input/change events on the columns container — re-renders only
+  // when add/remove or has_lookup toggles. Per-field input mutates state
+  // in place but skips re-render so the user's caret position is preserved.
+  $colsList.addEventListener('input', (e) => {
+    const card = e.target.closest('.col-card');
+    if (!card) return;
+    const idx = Number(card.dataset.idx);
+    const col = state.columns[idx];
+    if (!col) return;
+    const field = e.target.dataset.field;
+    if (!field) return;
+
+    if (field === 'description') {
+      col.description = e.target.value;
+    } else if (field.startsWith('lookup.')) {
+      const k = field.slice('lookup.'.length);
+      col.lookup = col.lookup || { table: '', key: '', display: '' };
+      col.lookup[k] = e.target.value;
+    } else if (e.target.type === 'checkbox') {
+      // checkbox handled below in 'change'; ignore here.
+    } else {
+      col[field] = e.target.value;
+      if (field === 'name') {
+        // Name change might affect partition selector + header label.
+        card.querySelector('.cc-num').textContent =
+          `#${idx + 1} · ${e.target.value || 'isimsiz'}`;
+        updateSummary();
+      }
+    }
+  });
+
+  $colsList.addEventListener('change', (e) => {
+    const card = e.target.closest('.col-card');
+    if (!card) return;
+    const idx = Number(card.dataset.idx);
+    const col = state.columns[idx];
+    if (!col) return;
+    const field = e.target.dataset.field;
+    if (!field) return;
+
+    if (e.target.type === 'checkbox') {
+      if (field === 'has_lookup') {
+        if (e.target.checked) {
+          col.lookup = col.lookup || { table: '', key: '', display: '' };
+        } else {
+          col.lookup = null;
+        }
+        // Show/hide the lookup grid without a full re-render.
+        const grid = card.querySelector('.lookup-grid');
+        if (grid) grid.style.display = e.target.checked ? '' : 'none';
+      } else if (field === 'filterable') {
+        col.filterable = e.target.checked;
+        // Filter role only makes sense when filterable; disable + clear when off.
+        const fr = card.querySelector('[data-field="filter_role"]');
+        if (fr) {
+          fr.disabled = !e.target.checked;
+          if (!e.target.checked) { fr.value = ''; col.filter_role = ''; }
+        }
+        updateSummary();
+      } else {
+        col[field] = e.target.checked;
+      }
+    } else if (e.target.tagName === 'SELECT') {
+      col[field] = e.target.value;
+    }
+  });
+
+  $colsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act="remove-col"]');
+    if (!btn) return;
+    const card = btn.closest('.col-card');
+    const idx = Number(card.dataset.idx);
+    if (!confirm(`'${state.columns[idx]?.name || 'isimsiz'}' kolonu silinsin mi?`)) return;
+    state.columns.splice(idx, 1);
+    renderCols();
+  });
+
+  // ── Save ─────────────────────────────────────────────────────────────
+  function showErrors(list) {
+    if (!list || list.length === 0) {
+      $errorBox.style.display = 'none';
+      $errorBox.innerHTML = '';
+      return;
+    }
+    $errorBox.style.display = 'block';
+    $errorBox.innerHTML = '<strong>Kaydedilemedi.</strong><ul>' +
+      list.map(escapeHtml).map(e => `<li>${e}</li>`).join('') +
+      '</ul>';
+  }
+
+  async function save() {
+    setStatus('Kaydediliyor…', 'saving');
+    showErrors(null);
+    $saveBtn.disabled = true;
+    const payload = {
+      form: {
+        description: state.description,
+        partition_column: state.partition_column,
+        estimated_daily_rows: state.estimated_daily_rows,
+        columns: state.columns.map(c => ({
+          name: c.name,
+          type: c.type,
+          description: c.description,
+          filterable: c.filterable,
+          filter_role: c.filter_role,
+          suggested_variable: c.suggested_variable,
+          suggested_semantic_tag: c.suggested_semantic_tag,
+          aggregatable: c.aggregatable,
+          visible_in_ui: c.visible_in_ui,
+          lookup: c.lookup,
+        })),
+      },
+    };
+    try {
+      const r = await fetch(window.location.pathname + '/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        showErrors(data.errors || [`HTTP ${r.status}`]);
+        setStatus('Hata', 'error');
+        return;
+      }
+      setStatus(`Kaydedildi · ${data.columns_count} kolon`, 'saved');
+      setTimeout(() => setStatus('Hazır'), 3500);
+    } catch (e) {
+      showErrors([String(e)]);
+      setStatus('Hata', 'error');
+    } finally {
+      $saveBtn.disabled = false;
+    }
+  }
+
+  // ── First paint ──────────────────────────────────────────────────────
+  renderCols();
+  updateSummary();
+})();
+</script>
+{% endblock %}
