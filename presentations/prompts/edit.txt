@@ -124,6 +124,31 @@ segmentine göre), JOIN yazmana gerek yok — o kolon kaynak tablonun FK'si
 koy. Çıktıda başka tablonun kolonu lazımsa JOIN'i elle yaz ve iki tabloyu da
 `source_tables`'a ekle.
 
+## Display label kuralı (KRİTİK — kullanıcı kod değil, ad görmek ister)
+
+Bir grafik ya da tabloda **kategori değeri / x ekseni** olarak bir dimension
+göstereceksen, kullanıcıya kodu (`BRANCH_CODE`, `PRODUCT_CODE`, `CUSTOMER_ID`
+vb.) DEĞİL, **insan-okunabilir adı** sun. Sıralama:
+
+1. Kaynak tablo ZATEN display kolonunu taşıyorsa onu kullan
+   (örn. `EDW.DEPOSITS_BY_BRANCH` içinde `BRANCH_NAME` var → ekstra JOIN gereksiz).
+2. Yoksa tablo doc'undaki `lookup: {table, key, display}` bilgisine bakıp
+   o dimension tablosundan JOIN ile `display` kolonunu çek:
+   ```sql
+   SELECT b.BRANCH_NAME, SUM(d.BALANCE_TRY) AS T
+   FROM   EDW.DEPOSITS_DAILY d
+   JOIN   EDW.DIM_BRANCH    b ON b.BRANCH_CODE = d.BRANCH_CODE
+   WHERE  {{concept_filters}}
+   GROUP  BY b.BRANCH_NAME
+   ORDER  BY T DESC FETCH FIRST 10 ROWS ONLY
+   ```
+   `source_tables` listesine her iki tabloyu da ekle.
+3. Hiçbir display kolonu / lookup yoksa kodu kullan ama narrative'de
+   "Şube kodlarıyla gösterildi — lookup tablosu yok." şeklinde uyar.
+
+Bu kural KPI'lardaki `period` veya `delta_label` gibi açıklayıcı metinler
+için de geçerli: kullanıcıya etiket veriyorsan ad ver, kod değil.
+
 ## Prompt'ta filtre DEĞERİ verildiğinde (KRİTİK kural)
 Kullanıcı bir kolona göre değer belirtirse (örn. "segmenti RETAIL olanlar",
 "USD işlemler", "şube 0123") karar şu:

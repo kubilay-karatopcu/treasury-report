@@ -14,8 +14,9 @@
 {% block head %}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=11">
-  {# Phase 11.workbench — bloklar view inside the same shell needs bloklar.css. #}
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/bloklar.css') }}?v=3">
+  {# Workbench's internal Bloklar tab (rendered by kesif.bundle.js) shares
+     the same card/grid styles as the original /atolye/bloklar bundle did. #}
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/bloklar.css') }}?v=4">
   {# Phase 11.kesif — dark override; loaded LAST so it wins over the source sheets. #}
   <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
   <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/kesif_dark.css') }}?v=4">

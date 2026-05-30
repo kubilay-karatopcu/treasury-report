@@ -162,19 +162,27 @@ def atolye_kesif():
 @presentations_bp.route("/atolye/bloklar")
 @login_required
 def atolye_bloklar():
-    """Atölye Workbench — Bloklar view.
+    """Atölye / Kütüphane / Bloklar — server-rendered library grid.
 
-    Phase 11.workbench: renders the same kesif.html shell as ``atolye_kesif``
-    with ``initial_view="bloklar"`` so the React app starts on the block grid.
-    The legacy bloklar.html template is kept only for backward-compat with
-    bookmarks that hit the bundle directly.
+    Lists all saved Phase 6.5 blocks the user can see, with search +
+    filter (team, viz type, tag) chips. Clicking a card opens the
+    dedicated block editor (/blocks/edit/<team>/<id>). Replaces the
+    previous React-workbench-with-initial_view=bloklar setup.
     """
-    sicil = getattr(current_user, "sicil", None) or ""
-    payload = _build_workbench_payload(sicil, initial_view="bloklar")
+    blocks_initial: list[dict] = []
+    try:
+        block_store = current_app.config.get("BLOCK_STORE")
+        if block_store is not None:
+            blocks_initial = [s.to_dict() for s in block_store.list_blocks()]
+    except Exception:
+        log.exception("atolye_bloklar: BlockStore listing failed")
+        blocks_initial = []
+
     return render_template(
-        "presentations/atolye/kesif.html",
-        kesif_json=json.dumps(payload, ensure_ascii=False, default=str),
-        title="Bloklar",
+        "presentations/atolye/bloklar.html",
+        blocks_initial=blocks_initial,
+        blocks_initial_json=json.dumps(blocks_initial, ensure_ascii=False, default=str),
+        total=len(blocks_initial),
     )
 
 
@@ -350,6 +358,98 @@ def atolye_taslaklar():
     )
 
 
+# ── Pipeline phase checkpoint pages ────────────────────────────────────
+# Sidebar Pipeline > Keşif / Hazırlık / Sunum land here. Each page lists
+# the user's saved workshops in that phase + a "Yeniden Başla" CTA card
+# that drops them back into Keşif with a fresh draft. Clicking a card
+# resumes the workshop at the right editor URL (kesif graph / hazırlık /
+# sunum editor) — same `continue_url` the Şablonlar listing builds.
+
+
+_PIPELINE_PHASES = {
+    "kesif": {
+        "label": "Keşif",
+        "num": "A·1",
+        "eyebrow": "Pipeline · 01 Keşif",
+        "intro": (
+            "Sepetini topladığın, tabloları keşfettiğin tüm çalışmalar burada. "
+            "Bir karta tıkla, kaldığın yerden devam et — ya da yeniden başla."
+        ),
+        "empty_title": "Henüz Keşif çalışması yok",
+        "empty_body": (
+            "Yeniden Başla'ya tıkla, grafik üzerinden sepetini topla. "
+            "Her çalışma otomatik olarak burada gözükmeye başlar."
+        ),
+    },
+    "hazirlik": {
+        "label": "Hazırlık",
+        "num": "A·2",
+        "eyebrow": "Pipeline · 02 Hazırlık",
+        "intro": (
+            "Scope kurduğun, tablo ilişkilerini bağladığın, filtre tasarladığın "
+            "çalışmalar. Devam etmek için karta tıkla."
+        ),
+        "empty_title": "Hazırlık aşamasında çalışma yok",
+        "empty_body": (
+            "Önce Keşif'te sepetini topla. Hazırlığa geçtiğinde bu liste dolar."
+        ),
+    },
+    "sunum": {
+        "label": "Sunum",
+        "num": "A·3",
+        "eyebrow": "Pipeline · 03 Sunum",
+        "intro": (
+            "Blok yerleştirdiğin, hikaye ördüğün tüm sunumlar. Karta tıkla, "
+            "editörde aç."
+        ),
+        "empty_title": "Henüz Sunum yok",
+        "empty_body": (
+            "Hazırlık aşamasında scope'unu kapatıp ilk bloğunu eklediğinde "
+            "sunum çalışmaların burada listelenir."
+        ),
+    },
+}
+
+
+def _checkpoints_for(sicil: str, phase: str) -> list[dict]:
+    """Return only the workshops that fall in ``phase``."""
+    return [w for w in list_workshops_for(sicil) if w.get("phase") == phase]
+
+
+def _render_pipeline_phase(phase: str, sidebar_active: str):
+    """Shared renderer for the three /atolye/pipeline/<phase> pages."""
+    cfg = _PIPELINE_PHASES[phase]
+    sicil = getattr(current_user, "sicil", None) or ""
+    checkpoints = _checkpoints_for(sicil, phase)
+    return render_template(
+        "presentations/atolye/pipeline_phase.html",
+        phase=phase,
+        phase_cfg=cfg,
+        sidebar_active=sidebar_active,
+        checkpoints=checkpoints,
+        total=len(checkpoints),
+        restart_url=url_for("presentations.atolye_kesif"),
+    )
+
+
+@presentations_bp.route("/atolye/pipeline/kesif")
+@login_required
+def pipeline_kesif():
+    return _render_pipeline_phase("kesif", sidebar_active="kesif")
+
+
+@presentations_bp.route("/atolye/pipeline/hazirlik")
+@login_required
+def pipeline_hazirlik():
+    return _render_pipeline_phase("hazirlik", sidebar_active="hazirlik")
+
+
+@presentations_bp.route("/atolye/pipeline/sunum")
+@login_required
+def pipeline_sunum():
+    return _render_pipeline_phase("sunum", sidebar_active="sunum")
+
+
 @presentations_bp.route("/atolye/kesif/draft", methods=["GET"])
 @login_required
 def kesif_draft_info():
@@ -473,6 +573,14 @@ def kesif_draft_promote():
                 basket_ids.append(tid)
     except Exception:
         log.warning("kesif promote: basket snapshot failed", exc_info=True)
+
+    # Refuse promotion of an empty draft — Hazırlık + Sunum can't do anything
+    # without at least one table to fetch, and producing an empty manifest
+    # just leaves dangling pids in the session store.
+    if not basket_ids:
+        return _json({
+            "error": "Sepete en az 1 tablo ekleyin — boş sepetle hazırlığa geçilemez.",
+        }, status=400)
 
     try:
         new_pid = mgr.promote(sicil, draft_pid, title=title)
