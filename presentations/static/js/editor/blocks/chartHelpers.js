@@ -264,6 +264,88 @@ export function areaChartOptions({
 }
 
 
+// ── Combo chart (dual-axis: bars + lines) ─────────────────────────────
+// Single query, column-split. Each series carries kind ('bar'|'line') and
+// axis ('left'|'right'). Series bind to the left/right number axis via each
+// axis's `keys` (the safe __yN keys). A number axis is emitted only when at
+// least one series targets it.
+
+export function comboChartOptions({
+  categories, series, height = 260,
+  leftTitle = '', rightTitle = '',
+  curve = 'smooth', strokeWidth = 2, showMarkers = false,
+  stacked = false, showDataLabels = false,
+}) {
+  const { rows, names, keys } = seriesToRowData(categories, series);
+
+  const leftKeys = [];
+  const rightKeys = [];
+  series.forEach((s, i) => {
+    (s.axis === 'right' ? rightKeys : leftKeys).push(keys[i]);
+  });
+
+  const agSeries = names.map((name, i) => {
+    const base = {
+      xKey:  '__x',
+      yKey:  keys[i],
+      yName: name,
+      tooltip: {
+        renderer: ({ datum, xKey, yKey, yName }) => ({
+          heading: String(datum[xKey] ?? ''),
+          title:   yName,
+          content: formatNumber(datum[yKey]),
+        }),
+      },
+    };
+    if ((series[i] && series[i].kind) === 'line') {
+      return {
+        ...base,
+        type: 'line',
+        interpolation: { type: curve === 'smooth' ? 'smooth' : 'linear' },
+        strokeWidth,
+        marker: { enabled: showMarkers, size: 6 },
+      };
+    }
+    return {
+      ...base,
+      type: 'bar',
+      stacked,
+      cornerRadius: 4,
+      label: showDataLabels ? {
+        enabled: true, color: theme.chart.foreColor, fontSize: 11,
+        formatter: ({ value }) => formatNumber(value),
+      } : { enabled: false },
+    };
+  });
+
+  const axes = [{ type: 'category', position: 'bottom' }];
+  if (leftKeys.length) {
+    axes.push({
+      type: 'number', position: 'left', keys: leftKeys,
+      title: leftTitle ? { text: leftTitle, color: theme.chart.axisLabel } : undefined,
+    });
+  }
+  if (rightKeys.length) {
+    axes.push({
+      type: 'number', position: 'right', keys: rightKeys,
+      title: rightTitle ? { text: rightTitle, color: theme.chart.axisLabel } : undefined,
+    });
+  }
+  if (!leftKeys.length && !rightKeys.length) {
+    axes.push({ type: 'number', position: 'left' });
+  }
+
+  return {
+    data: rows,
+    series: agSeries,
+    axes,
+    legend: { enabled: names.length > 1, position: 'top' },
+    theme: makeTheme(),
+    height,
+  };
+}
+
+
 // ── Pie / Donut chart ─────────────────────────────────────────────────
 
 export function pieChartOptions({

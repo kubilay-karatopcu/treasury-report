@@ -86,6 +86,41 @@ class TestValidateBlock:
         errors = validate_block(block)
         assert errors
 
+    def test_valid_combo_chart(self):
+        block = {
+            "id": "cc1", "type": "combo_chart", "title": "T", "locked": False,
+            "config": {
+                "categories": ["Oca", "Şub", "Mar"],
+                "series": [
+                    {"name": "Hacim", "values": [1.0, 2.0, 3.0], "kind": "bar",  "axis": "right"},
+                    {"name": "Oran",  "values": [4.0, 5.0, 6.0], "kind": "line", "axis": "left"},
+                ],
+            },
+        }
+        assert validate_block(block) == []
+
+    def test_combo_chart_length_mismatch(self):
+        block = {
+            "id": "cc1", "type": "combo_chart", "title": "T", "locked": False,
+            "config": {
+                "categories": ["Oca", "Şub", "Mar"],
+                "series": [{"name": "s", "values": [1.0, 2.0], "kind": "bar", "axis": "left"}],
+            },
+        }
+        assert validate_block(block)
+
+    def test_combo_chart_invalid_kind_and_axis(self):
+        block = {
+            "id": "cc1", "type": "combo_chart", "title": "T", "locked": False,
+            "config": {
+                "categories": ["Oca"],
+                "series": [{"name": "s", "values": [1.0], "kind": "pie", "axis": "middle"}],
+            },
+        }
+        errors = validate_block(block)
+        assert any("kind" in e for e in errors)
+        assert any("axis" in e for e in errors)
+
     def test_valid_narrative(self):
         block = {"id": "n1", "type": "narrative", "title": "T", "locked": False,
                  "config": {"text": "Hello world."}}

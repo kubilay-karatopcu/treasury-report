@@ -1097,6 +1097,7 @@ _STANDIN_VIZ_TYPE = {
     "bar_chart": "bar_chart",
     "line_chart": "line_chart",
     "area_chart": "line_chart",
+    "combo_chart": "bar_chart",
     "pie_chart": "pie",
     "heatmap": "table",
     "radial_bar": "kpi",
