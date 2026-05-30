@@ -20,6 +20,7 @@ arrives in Phase 10C.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Protocol
@@ -63,16 +64,29 @@ class Expert:
 # ── Store Protocol ───────────────────────────────────────────────────────────
 
 class ExpertStore(Protocol):
-    """Read-only contract for the expert registry.
-
-    Concrete implementations: ``LocalExpertStore`` (filesystem YAML). A
-    future ``S3ExpertStore`` would live alongside for prod parity with
-    other PRISMA stores.
+    """Contract for the expert registry. Two concrete implementations:
+    ``LocalExpertStore`` (filesystem YAML, DEV fixtures) and
+    ``S3ExpertStore`` (prod parity with the other PRISMA stores). ``save``
+    persists an edited expert; the Atölye editor (``uzman_save``) uses it.
     """
     def list_all(self) -> list[Expert]: ...
     def load(self, expert_id: str) -> Optional[Expert]: ...
     def list_for_user(self, user) -> list[Expert]: ...
     def exists(self, expert_id: str) -> bool: ...
+    def save(self, expert) -> Expert: ...
+
+
+def _serialize_expert(expert) -> tuple[str, dict, bytes]:
+    """(id, dict, yaml-bytes) for an Expert or a plain dict. Shared by both
+    stores so on-disk and S3 YAML have identical shape."""
+    data = expert.to_dict() if isinstance(expert, Expert) else dict(expert)
+    eid = data.get("id")
+    if not eid:
+        raise ValueError("expert requires a non-empty 'id'")
+    body = yaml.safe_dump(
+        data, allow_unicode=True, sort_keys=False, default_flow_style=False,
+    ).encode("utf-8")
+    return eid, data, body
 
 
 # ── Filesystem-backed store ──────────────────────────────────────────────────
@@ -142,3 +156,89 @@ class LocalExpertStore:
             if "*" in read or dept in read:
                 out.append(expert)
         return sorted(out, key=lambda e: e.code)
+
+    def save(self, expert) -> Expert:
+        """Persist an expert as ``<id>.yaml`` and refresh the cache. Accepts
+        an :class:`Expert` or a plain dict."""
+        eid, data, body = _serialize_expert(expert)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        (self.base_dir / f"{eid}.yaml").write_bytes(body)
+        self._ensure_loaded()
+        exp = Expert.from_dict(data)
+        self._cache[eid] = exp
+        return exp
+
+
+# ── S3-backed store (prod parity) ────────────────────────────────────────────
+
+class S3ExpertStore:
+    """Reads/writes one ``*.yaml`` per expert under ``EXPERTS_S3_PREFIX`` via
+    the DataClient — prod parity with S3BlockStore / S3SnapshotStore.
+
+    A short TTL cache avoids re-listing S3 on every landing render; ``save``
+    invalidates it so Atölye edits show on the next request. Unlike the
+    file store, experts here are *editable at runtime* and survive pod
+    restarts (the reason experts moved off ``examples/`` for prod).
+    """
+
+    PREFIX = "prisma-treasury/experts"
+
+    def __init__(self, dc, ttl_seconds: int = 30):
+        self._dc = dc
+        self._ttl = max(0, int(ttl_seconds))
+        self._cache: dict[str, Expert] = {}
+        self._loaded_at: float | None = None
+
+    def _key(self, expert_id: str) -> str:
+        return f"{self.PREFIX}/{expert_id}.yaml"
+
+    def _ensure_loaded(self, *, force: bool = False) -> None:
+        if (not force and self._loaded_at is not None
+                and (time.monotonic() - self._loaded_at) < self._ttl):
+            return
+        cache: dict[str, Expert] = {}
+        try:
+            keys = self._dc.list_prefix(f"{self.PREFIX}/")
+        except Exception:
+            keys = []
+        for key in keys or []:
+            if not str(key).endswith(".yaml"):
+                continue
+            try:
+                data = yaml.safe_load(self._dc.read_bytes(key).decode("utf-8"))
+            except Exception:
+                continue
+            if not isinstance(data, dict) or "id" not in data:
+                continue
+            exp = Expert.from_dict(data)
+            cache[exp.id] = exp
+        self._cache = cache
+        self._loaded_at = time.monotonic()
+
+    def list_all(self) -> list[Expert]:
+        self._ensure_loaded()
+        return sorted(self._cache.values(), key=lambda e: e.code)
+
+    def load(self, expert_id: str) -> Optional[Expert]:
+        self._ensure_loaded()
+        return self._cache.get(expert_id)
+
+    def exists(self, expert_id: str) -> bool:
+        self._ensure_loaded()
+        return expert_id in self._cache
+
+    def list_for_user(self, user) -> list[Expert]:
+        self._ensure_loaded()
+        dept = getattr(user, "department", None) or ""
+        out: list[Expert] = []
+        for expert in self._cache.values():
+            read = expert.access_scope.get("read") or []
+            if "*" in read or dept in read:
+                out.append(expert)
+        return sorted(out, key=lambda e: e.code)
+
+    def save(self, expert) -> Expert:
+        eid, data, body = _serialize_expert(expert)
+        self._dc._upload_bytes(self._key(eid), body, content_type="application/x-yaml")
+        self._ensure_loaded(force=True)
+        return self._cache.get(eid) or Expert.from_dict(data)
