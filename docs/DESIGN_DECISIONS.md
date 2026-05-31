@@ -120,7 +120,7 @@ Gerçek collaborative editing yok. Aynı kullanıcı iki sekme açarsa → aynı
 
 - React 18, function components, hooks.
 - Zustand global state için.
-- Recharts chart'lar için.
+- ApexCharts chart'lar için (KPI/bar/line/area/pie/heatmap/radial/combo). Tablo bloğu AG Grid kullanır.
 - Lucide icon'lar için.
 - Inter font (zaten base.html'de var).
 - Tabler class'ları + import edilen theme token'larıyla inline style obje'leri.
