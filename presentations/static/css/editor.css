@@ -387,14 +387,15 @@
 }
 .sidebar-label-icon { display: flex; color: var(--ts-muted-soft); }
 
-/* "Hazırlığa Dön" — Veri Kaynakları başlığının sağında, aynı pid'li Hazırlık
-   ekranına döner. --ts-* token'ları editor_dark.css'te dark'a remap edildiği
-   için tek kural her iki temada da doğru görünür (margin-left:auto ile sağa
-   yaslanır, başlığın justify ayarından bağımsız). */
-/* `.editor-root button { font-size/color: inherit }` (0,1,1) + a global button
-   reset out-specify a bare `.back-to-hazirlik` (0,1,0), so scope under
-   `.editor-sidebar` (0,2,0) to win font-size/color/border. */
-.editor-sidebar .back-to-hazirlik {
+/* Sidebar başlığı sağındaki geri-navigasyon butonları (aynı görünüm):
+   - .back-to-hazirlik → Sunum'dan Hazırlık'a (Veri Kaynakları başlığı)
+   - .back-to-kesif    → Hazırlık'tan Keşif'e (aynı başlık)
+   --ts-* token'ları editor_dark.css'te dark'a remap edildiği için tek kural
+   her iki temada doğru görünür; margin-left:auto ile sağa yaslanır.
+   `.editor-root button { font-size/color: inherit }` (0,1,1) + global button
+   reset'ini yenmek için `.editor-sidebar` (0,2,0) ile scope'lanır. */
+.editor-sidebar .back-to-hazirlik,
+.editor-sidebar .back-to-kesif {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
@@ -412,12 +413,14 @@
   transition: all 0.15s;
   white-space: nowrap;
 }
-.editor-sidebar .back-to-hazirlik:hover {
+.editor-sidebar .back-to-hazirlik:hover,
+.editor-sidebar .back-to-kesif:hover {
   border-color: var(--ts-primary);
   color: var(--ts-primary);
   background: var(--ts-primary-soft);
 }
-.editor-sidebar .back-to-hazirlik svg { flex-shrink: 0; }
+.editor-sidebar .back-to-hazirlik svg,
+.editor-sidebar .back-to-kesif svg { flex-shrink: 0; }
 
 .sidebar-empty {
   font-size: 12px;
