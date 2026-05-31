@@ -28,7 +28,7 @@ import "ag-grid-community/styles/ag-theme-alpine.css";
 // and api.js's API_BASE is hazirlik-aware (strips /hazirlik/ from the path).
 import UploadModal from "../editor/components/UploadModal.jsx";
 import {
-  X, Plus, Trash2, Database, ArrowRight, ChevronLeft, ChevronRight,
+  X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2,
   Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag,
 } from "lucide-react";
@@ -1071,6 +1071,22 @@ function SourcesSidebar({
           <div className="sidebar-label">
             <span className="sidebar-label-icon"><Database size={12} /></span>
             <span>Veri Kaynakları</span>
+            <button
+              type="button"
+              className="back-to-kesif"
+              onClick={() => {
+                // Hazırlık: .../presentations/hazirlik/<pid>; Keşif workbench:
+                // .../presentations/atolye/kesif. Swap the trailing segments so
+                // the URL survives reverse-proxy SCRIPT_NAME prefixes (same
+                // pathname-derivation approach as lib/api.js).
+                const base = window.location.pathname.replace(/\/$/, "");
+                window.location.href = base.replace(/\/hazirlik\/[^/]+$/, "/atolye/kesif");
+              }}
+              title="Keşif ekranına dön — sepeti düzenle / tablo ekle"
+            >
+              <ArrowLeft size={12} strokeWidth={2} />
+              <span>Keşife Dön</span>
+            </button>
           </div>
 
           {/* Faz C — add datasets directly in Hazırlık. */}
