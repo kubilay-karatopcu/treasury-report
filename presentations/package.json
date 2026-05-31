@@ -4,15 +4,14 @@
   "dependencies": {
     "@cosmograph/react": "^2.3.2",
     "@xyflow/react": "^12.10.2",
-    "ag-charts-community": "^10.2.0",
-    "ag-charts-enterprise": "^10.2.0",
-    "ag-charts-react": "^10.2.0",
     "ag-grid-community": "^31.3.2",
     "ag-grid-enterprise": "^31.3.4",
     "ag-grid-react": "^31.3.2",
+    "apexcharts": "^5.11.0",
     "lucide-react": "^1.14.0",
     "marked": "^9.1.6",
     "react": "^18.3.1",
+    "react-apexcharts": "^2.1.0",
     "react-dom": "^18.3.1",
     "zustand": "^4.5.2"
   },
