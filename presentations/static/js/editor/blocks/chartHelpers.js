@@ -182,28 +182,21 @@ export function comboChartOptions({
   const leftNames  = series.filter((s) => s.axis !== 'right').map((s) => s.name);
   const rightNames = series.filter((s) => s.axis === 'right').map((s) => s.name);
 
-  const axisTitle = (text) =>
-    (text ? { text, style: { color: theme.chart.axisLabel, fontSize: '11px', fontWeight: 500 } } : undefined);
+  // ApexCharts reads `yaxis[i].title.text` unguarded — `title` MUST stay an
+  // object (never undefined), or it throws "Cannot read properties of
+  // undefined (reading 'text')". Empty text just renders no title.
+  const makeYAxis = (names, opposite, titleText) => ({
+    seriesName: names,
+    opposite,
+    labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+    title: { text: titleText || '', style: { color: theme.chart.axisLabel, fontSize: '11px', fontWeight: 500 } },
+  });
 
   const yaxis = [];
-  if (leftNames.length) {
-    yaxis.push({
-      seriesName: leftNames,
-      opposite: false,
-      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
-      title: axisTitle(leftTitle),
-    });
-  }
-  if (rightNames.length) {
-    yaxis.push({
-      seriesName: rightNames,
-      opposite: true,
-      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
-      title: axisTitle(rightTitle),
-    });
-  }
+  if (leftNames.length)  yaxis.push(makeYAxis(leftNames,  false, leftTitle));
+  if (rightNames.length) yaxis.push(makeYAxis(rightNames, true,  rightTitle));
   if (!yaxis.length) {
-    yaxis.push({ labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber } });
+    yaxis.push({ labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber }, title: { text: '' } });
   }
 
   // Per-series stroke: line series get the configured width, bars get 0.
