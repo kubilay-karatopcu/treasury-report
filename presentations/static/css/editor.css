@@ -387,6 +387,38 @@
 }
 .sidebar-label-icon { display: flex; color: var(--ts-muted-soft); }
 
+/* "Hazırlığa Dön" — Veri Kaynakları başlığının sağında, aynı pid'li Hazırlık
+   ekranına döner. --ts-* token'ları editor_dark.css'te dark'a remap edildiği
+   için tek kural her iki temada da doğru görünür (margin-left:auto ile sağa
+   yaslanır, başlığın justify ayarından bağımsız). */
+/* `.editor-root button { font-size/color: inherit }` (0,1,1) + a global button
+   reset out-specify a bare `.back-to-hazirlik` (0,1,0), so scope under
+   `.editor-sidebar` (0,2,0) to win font-size/color/border. */
+.editor-sidebar .back-to-hazirlik {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--ts-hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ts-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.editor-sidebar .back-to-hazirlik:hover {
+  border-color: var(--ts-primary);
+  color: var(--ts-primary);
+  background: var(--ts-primary-soft);
+}
+.editor-sidebar .back-to-hazirlik svg { flex-shrink: 0; }
+
 .sidebar-empty {
   font-size: 12px;
   color: var(--ts-muted);
