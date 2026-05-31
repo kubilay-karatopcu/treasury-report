@@ -12,7 +12,7 @@
 {% block title %}Hazırlık — {{ title }} — PRISMA{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=35">
   {# React Flow styles, bundled by esbuild from @xyflow/react/dist/style.css #}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='js/hazirlik.bundle.css') }}?v=4">
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/hazirlik.css') }}?v=7">
@@ -33,5 +33,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}?v=12"></script>
+  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}?v=13"></script>
 {% endblock %}
