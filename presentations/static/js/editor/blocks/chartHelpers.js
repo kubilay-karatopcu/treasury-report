@@ -1,21 +1,11 @@
-// AG Charts option builders for the Treasury presentations editor.
+// Shared ApexCharts options for the Treasury presentations editor.
+// Mirrors the look used in reference/static/js/competitor.js so charts feel
+// native to the platform.
 //
-// Replaces the previous ApexCharts helpers. Each export returns a
-// complete AgChartOptions object the block component passes straight to
-// <AgCharts options={...}/> — no separate `series` prop, no `type` prop.
-//
-// AG Charts wants row-of-objects data + field-keyed series; the manifest
-// keeps Apex's (categories + series-arrays) shape so the LLM/back-end
-// stay unchanged. The seriesTo*Data helpers below do the conversion.
-//
-// Heatmap + radial-bar use ag-charts-enterprise; everything else is
-// covered by ag-charts-community.
-import 'ag-charts-enterprise';
-
+// Only the presentation *charts* use ApexCharts. The data_table block keeps
+// using AG Grid (see DataTable.jsx) — AG Grid is the table engine, ApexCharts
+// is the plotting engine.
 import { theme } from '../theme.js';
-
-
-// ── Formatters ────────────────────────────────────────────────────────
 
 export function formatNumber(v) {
   if (v == null || isNaN(v)) return '';
@@ -27,8 +17,10 @@ export function formatNumber(v) {
   return Math.round(v).toString();
 }
 
-// LLM sometimes emits objects like [{date: "2025-01-01"}, ...] instead of
-// plain strings. Coerce defensively so the chart still renders.
+// LLM sometimes emits objects like [{date: "2025-01-01"}, ...] instead of plain
+// strings for x_axis / categories. Coerce defensively so the chart still
+// renders something sensible. (The validator will also reject such patches
+// going forward, but legacy manifests may already contain them.)
 export function normalizeLabels(arr) {
   return (arr || []).map((c) => {
     if (c == null) return '';
@@ -44,443 +36,316 @@ export function normalizeLabels(arr) {
   });
 }
 
+const COMMON_AXIS_STYLE = {
+  style: { fontSize: '11px', colors: theme.chart.axisLabel },
+};
 
-// ── Data conversion ───────────────────────────────────────────────────
-// Manifest shape (Apex-style): categories: [str], series: [{name, values}]
-// AG Charts shape:             data: [{__x: str, <name1>: v, <name2>: v}]
-//
-// We use ``__x`` as the x-axis field key so it can't collide with any
-// user-chosen series name (the LLM may produce series called "x" or
-// "category"). Series names become object keys directly.
+const COMMON_GRID = {
+  borderColor: theme.chart.gridBorder,
+  strokeDashArray: 0,
+  yaxis: { lines: { show: true } },
+  xaxis: { lines: { show: false } },
+  padding: { left: 8, right: 8, top: 0, bottom: 0 },
+};
 
-function uniqSeriesNames(series) {
-  const seen = new Map();
-  return series.map((s, i) => {
-    let name = (s.name ?? `Seri ${i + 1}`).toString().trim() || `Seri ${i + 1}`;
-    const count = (seen.get(name) || 0) + 1;
-    seen.set(name, count);
-    return count === 1 ? name : `${name} (${count})`;
-  });
-}
-
-// AG Charts treats yKey as a data-row field name; series names with '%' or
-// parens like "Maks. Oran (%)" trip the internal format-string scanner and
-// throw "Invalid property path" warnings. We use a safe per-index key for
-// data access + keep the human name for display via yName.
-function safeYKey(i) {
-  return `__y${i}`;
-}
-
-function seriesToRowData(categories, series) {
-  const names = uniqSeriesNames(series);
-  const keys = names.map((_, i) => safeYKey(i));
-  const rows = categories.map((cat, i) => {
-    const row = { __x: cat };
-    series.forEach((s, j) => {
-      row[keys[j]] = (s.values || [])[i] ?? null;
-    });
-    return row;
-  });
-  return { rows, names, keys };
-}
-
-
-// ── Theme overrides ───────────────────────────────────────────────────
-// We hand-roll the dark theme rather than rely on ag-default-dark so we
-// can pin axis label colors, grid lines, tooltip background to the same
-// tokens the rest of the editor uses (kept in theme.js).
-
-function makeTheme() {
-  const t = theme.chart;
-  return {
-    baseTheme: 'ag-default-dark',
-    palette: { fills: t.palette, strokes: t.palette },
-    overrides: {
-      common: {
-        background:    { fill: 'transparent' },
-        padding:       { top: 8, right: 12, bottom: 8, left: 12 },
-        legend: {
-          item:     { label: { color: t.foreColor, fontSize: 12 } },
-          spacing:  16,
-        },
-        axes: {
-          category: {
-            label: { color: t.axisLabel, fontSize: 11 },
-            line:  { stroke: t.gridBorder },
-            tick:  { stroke: t.gridBorder },
-            gridLine: { style: [{ stroke: 'transparent', lineDash: [0] }] },
-          },
-          number: {
-            label: { color: t.axisLabel, fontSize: 11, formatter: ({ value }) => formatNumber(value) },
-            line:  { stroke: t.gridBorder },
-            tick:  { stroke: t.gridBorder },
-            gridLine: { style: [{ stroke: t.gridBorder, lineDash: [0] }] },
-          },
-          time: {
-            label: { color: t.axisLabel, fontSize: 11 },
-            line:  { stroke: t.gridBorder },
-            tick:  { stroke: t.gridBorder },
-          },
-        },
-        title:    { color: t.foreColor },
-        subtitle: { color: t.axisLabel },
-        // Tooltip styling — AG renders tooltips via DOM, not canvas; the
-        // dark CSS class would override anyway, but these defaults
-        // already match the editor's gold-on-dark look.
-        tooltip: { delay: 50 },
-      },
-    },
-  };
-}
-
-
-// ── Bar chart ─────────────────────────────────────────────────────────
+// Phase 11.dark-editor — shared chart-level config. `theme.mode: 'dark'`
+// makes Apex's auto-derived colors (tooltips, dataLabels bg, etc.) match
+// the dark palette. `foreColor` sets the default text color for legends
+// and other global text bits.
+const CHART_BASE = {
+  toolbar:     { show: false },
+  fontFamily:  'inherit',
+  background:  'transparent',
+  foreColor:   theme.chart.foreColor,
+  animations:  { enabled: true, speed: 250 },
+};
+const CHART_THEME = { theme: { mode: 'dark' } };
+const COMMON_TOOLTIP = {
+  theme: 'dark',
+  style: { fontSize: '12px' },
+};
 
 export function barChartOptions({
   categories, series, height = 260,
   stacked = false, horizontal = false,
-  showDataLabels = false,
+  showDataLabels = false, borderRadius = 4,
   distributed = false, colors,
 }) {
-  const { rows, names, keys } = seriesToRowData(categories, series);
-  const palette = (Array.isArray(colors) && colors.length > 0) ? colors : theme.chart.palette;
-
-  // "distributed" mimics ApexCharts: a single series whose bars each pick
-  // a different palette color. AG doesn't have a flag for it — we replicate
-  // by giving each bar a different fill via itemStyler.
-  const opts = {
-    data: rows,
-    series: names.map((name, i) => ({
+  return {
+    chart: {
       type: 'bar',
-      direction: horizontal ? 'horizontal' : 'vertical',
-      xKey: '__x',
-      yKey: keys[i],
-      yName: name,
+      height,
       stacked,
-      cornerRadius: 4,
-      label: showDataLabels ? {
-        enabled: true,
-        color: theme.chart.foreColor,
-        fontSize: 11,
-        formatter: ({ value }) => formatNumber(value),
-      } : { enabled: false },
-      ...(distributed && i === 0
-        ? { itemStyler: ({ datum }) => ({
-              fill:   palette[rows.indexOf(datum) % palette.length],
-              stroke: palette[rows.indexOf(datum) % palette.length],
-            }) }
-        : {}),
-      tooltip: {
-        renderer: ({ datum, xKey, yKey, yName }) => ({
-          heading: String(datum[xKey] ?? ''),
-          title:   yName,
-          content: formatNumber(datum[yKey]),
-        }),
+      ...CHART_BASE,
+    },
+    ...CHART_THEME,
+    plotOptions: {
+      bar: {
+        horizontal,
+        columnWidth: '55%',
+        barHeight:   '70%',
+        borderRadius,
+        borderRadiusApplication: stacked ? 'end' : 'around',
+        distributed,
       },
-    })),
-    axes: [
-      { type: horizontal ? 'number' : 'category', position: 'bottom' },
-      { type: horizontal ? 'category' : 'number', position: 'left'   },
-    ],
-    legend: { enabled: names.length > 1, position: 'top' },
-    theme: makeTheme(),
-    height,
+    },
+    dataLabels: {
+      enabled: showDataLabels,
+      formatter: showDataLabels ? formatNumber : undefined,
+      style: { fontSize: '11px' },
+    },
+    stroke: { show: true, width: 2, colors: ['transparent'] },
+    xaxis: {
+      type: horizontal ? 'numeric' : 'category',
+      categories,
+      labels: horizontal ? { ...COMMON_AXIS_STYLE, formatter: formatNumber } : COMMON_AXIS_STYLE,
+      axisBorder: { color: theme.chart.gridBorder },
+      axisTicks:  { color: theme.chart.gridBorder },
+    },
+    yaxis: {
+      labels: horizontal ? COMMON_AXIS_STYLE : { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+    },
+    tooltip: { y: { formatter: formatNumber } },
+    legend: { show: series.length > 1, position: 'top', fontSize: '12px' },
+    colors: Array.isArray(colors) && colors.length > 0 ? colors : theme.chart.palette,
+    grid: COMMON_GRID,
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
-  return opts;
 }
-
-
-// ── Line chart ────────────────────────────────────────────────────────
 
 export function lineChartOptions({
   categories, series, height = 260,
   curve = 'smooth', strokeWidth = 2, showMarkers = false,
 }) {
-  const { rows, names, keys } = seriesToRowData(categories, series);
   return {
-    data: rows,
-    series: names.map((name, i) => ({
+    chart: {
       type: 'line',
-      xKey: '__x',
-      yKey: keys[i],
-      yName: name,
-      interpolation: { type: curve === 'smooth' ? 'smooth' : 'linear' },
-      strokeWidth,
-      marker: { enabled: showMarkers, size: 6 },
-      tooltip: {
-        renderer: ({ datum, xKey, yKey, yName }) => ({
-          heading: String(datum[xKey] ?? ''),
-          title:   yName,
-          content: formatNumber(datum[yKey]),
-        }),
-      },
-    })),
-    axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'number',   position: 'left'   },
-    ],
-    legend: { enabled: names.length > 1, position: 'top' },
-    theme: makeTheme(),
-    height,
+      height,
+      zoom: { enabled: false },
+      ...CHART_BASE,
+    },
+    ...CHART_THEME,
+    stroke: { width: strokeWidth, curve },
+    dataLabels: { enabled: false },
+    markers: { size: showMarkers ? 4 : 0, hover: { size: 6 } },
+    xaxis: {
+      type: 'category',
+      categories,
+      labels: { ...COMMON_AXIS_STYLE, rotate: 0 },
+      axisBorder: { color: theme.chart.gridBorder },
+      axisTicks:  { color: theme.chart.gridBorder },
+    },
+    yaxis: {
+      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+    },
+    tooltip: { shared: true, intersect: false, y: { formatter: formatNumber } },
+    legend: { show: series.length > 1, position: 'top', fontSize: '12px' },
+    colors: theme.chart.palette,
+    grid: COMMON_GRID,
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
 }
-
-
-// ── Area chart ────────────────────────────────────────────────────────
 
 export function areaChartOptions({
   categories, series, height = 260,
   curve = 'smooth', strokeWidth = 2, showMarkers = false,
   fillOpacity = 0.45,
 }) {
-  const { rows, names, keys } = seriesToRowData(categories, series);
-  return {
-    data: rows,
-    series: names.map((name, i) => ({
-      type: 'area',
-      xKey: '__x',
-      yKey: keys[i],
-      yName: name,
-      interpolation: { type: curve === 'smooth' ? 'smooth' : 'linear' },
-      strokeWidth,
-      fillOpacity,
-      marker: { enabled: showMarkers, size: 6 },
-      tooltip: {
-        renderer: ({ datum, xKey, yKey, yName }) => ({
-          heading: String(datum[xKey] ?? ''),
-          title:   yName,
-          content: formatNumber(datum[yKey]),
-        }),
-      },
-    })),
-    axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'number',   position: 'left'   },
-    ],
-    legend: { enabled: names.length > 1, position: 'top' },
-    theme: makeTheme(),
-    height,
+  const opts = lineChartOptions({
+    categories, series, height, curve, strokeWidth, showMarkers,
+  });
+  opts.chart.type = 'area';
+  opts.fill = {
+    type: 'gradient',
+    gradient: {
+      opacityFrom: fillOpacity,
+      opacityTo:   Math.max(0, fillOpacity - 0.4),
+      shadeIntensity: 0.3,
+    },
   };
+  return opts;
 }
-
 
 // ── Combo chart (dual-axis: bars + lines) ─────────────────────────────
 // Single query, column-split. Each series carries kind ('bar'|'line') and
-// axis ('left'|'right'). Series bind to the left/right number axis via each
-// axis's `keys` (the safe __yN keys). A number axis is emitted only when at
-// least one series targets it.
-
+// axis ('left'|'right'). We emit an ApexCharts mixed chart: the data series
+// each set their own `type`, and we build (at most) two y-axes — one per
+// side. Each side's axis binds ALL of its series via an array `seriesName`
+// so they share a single scale (callers MUST pass unique, non-empty series
+// names so the binding resolves — see ComboChart.jsx).
 export function comboChartOptions({
   categories, series, height = 260,
   leftTitle = '', rightTitle = '',
   curve = 'smooth', strokeWidth = 2, showMarkers = false,
   stacked = false, showDataLabels = false,
 }) {
-  const { rows, names, keys } = seriesToRowData(categories, series);
+  const leftNames  = series.filter((s) => s.axis !== 'right').map((s) => s.name);
+  const rightNames = series.filter((s) => s.axis === 'right').map((s) => s.name);
 
-  const leftKeys = [];
-  const rightKeys = [];
-  series.forEach((s, i) => {
-    (s.axis === 'right' ? rightKeys : leftKeys).push(keys[i]);
-  });
+  const axisTitle = (text) =>
+    (text ? { text, style: { color: theme.chart.axisLabel, fontSize: '11px', fontWeight: 500 } } : undefined);
 
-  const agSeries = names.map((name, i) => {
-    const base = {
-      xKey:  '__x',
-      yKey:  keys[i],
-      yName: name,
-      tooltip: {
-        renderer: ({ datum, xKey, yKey, yName }) => ({
-          heading: String(datum[xKey] ?? ''),
-          title:   yName,
-          content: formatNumber(datum[yKey]),
-        }),
-      },
-    };
-    if ((series[i] && series[i].kind) === 'line') {
-      return {
-        ...base,
-        type: 'line',
-        interpolation: { type: curve === 'smooth' ? 'smooth' : 'linear' },
-        strokeWidth,
-        marker: { enabled: showMarkers, size: 6 },
-      };
-    }
-    return {
-      ...base,
-      type: 'bar',
-      stacked,
-      cornerRadius: 4,
-      label: showDataLabels ? {
-        enabled: true, color: theme.chart.foreColor, fontSize: 11,
-        formatter: ({ value }) => formatNumber(value),
-      } : { enabled: false },
-    };
-  });
-
-  const axes = [{ type: 'category', position: 'bottom' }];
-  if (leftKeys.length) {
-    axes.push({
-      type: 'number', position: 'left', keys: leftKeys,
-      title: leftTitle ? { text: leftTitle, color: theme.chart.axisLabel } : undefined,
+  const yaxis = [];
+  if (leftNames.length) {
+    yaxis.push({
+      seriesName: leftNames,
+      opposite: false,
+      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+      title: axisTitle(leftTitle),
     });
   }
-  if (rightKeys.length) {
-    axes.push({
-      type: 'number', position: 'right', keys: rightKeys,
-      title: rightTitle ? { text: rightTitle, color: theme.chart.axisLabel } : undefined,
+  if (rightNames.length) {
+    yaxis.push({
+      seriesName: rightNames,
+      opposite: true,
+      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+      title: axisTitle(rightTitle),
     });
   }
-  if (!leftKeys.length && !rightKeys.length) {
-    axes.push({ type: 'number', position: 'left' });
+  if (!yaxis.length) {
+    yaxis.push({ labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber } });
   }
+
+  // Per-series stroke: line series get the configured width, bars get 0.
+  const strokeWidths = series.map((s) => (s.kind === 'line' ? strokeWidth : 0));
+  // Data labels only make sense on bars in a combo — enable per bar-series.
+  const barIndexes = series
+    .map((s, i) => (s.kind === 'line' ? -1 : i))
+    .filter((i) => i >= 0);
 
   return {
-    data: rows,
-    series: agSeries,
-    axes,
-    legend: { enabled: names.length > 1, position: 'top' },
-    theme: makeTheme(),
-    height,
+    chart: {
+      type: 'line',          // base type; each series overrides via its own `type`
+      height,
+      stacked,
+      ...CHART_BASE,
+    },
+    ...CHART_THEME,
+    plotOptions: {
+      bar: {
+        columnWidth: '55%',
+        borderRadius: 4,
+        borderRadiusApplication: stacked ? 'end' : 'around',
+      },
+    },
+    stroke: { width: strokeWidths, curve },
+    markers: { size: showMarkers ? 4 : 0, hover: { size: 6 } },
+    dataLabels: {
+      enabled: showDataLabels,
+      enabledOnSeries: showDataLabels ? barIndexes : undefined,
+      formatter: showDataLabels ? formatNumber : undefined,
+      style: { fontSize: '11px' },
+    },
+    xaxis: {
+      type: 'category',
+      categories,
+      labels: COMMON_AXIS_STYLE,
+      axisBorder: { color: theme.chart.gridBorder },
+      axisTicks:  { color: theme.chart.gridBorder },
+    },
+    yaxis,
+    tooltip: { shared: true, intersect: false, y: { formatter: formatNumber } },
+    legend: { show: series.length > 1, position: 'top', fontSize: '12px' },
+    colors: theme.chart.palette,
+    grid: COMMON_GRID,
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
 }
-
-
-// ── Pie / Donut chart ─────────────────────────────────────────────────
 
 export function pieChartOptions({
-  labels, values, donut = false, height = 260,
+  labels, donut = false, height = 260,
   legendPosition = 'right', showDataLabels = true,
 }) {
-  const safeLabels = normalizeLabels(labels);
-  const data = safeLabels.map((lab, i) => ({
-    label: String(lab ?? ''),
-    value: (values || [])[i] ?? 0,
-  }));
-
-  const total = data.reduce((acc, r) => acc + (Number(r.value) || 0), 0);
-
   return {
-    data,
-    series: [{
+    chart: {
       type: donut ? 'donut' : 'pie',
-      angleKey: 'value',
-      legendItemKey: 'label',
-      calloutLabelKey: showDataLabels ? 'label' : undefined,
-      sectorLabelKey: showDataLabels ? 'value' : undefined,
-      sectorLabel: showDataLabels ? {
-        color: theme.chart.foreColor,
-        fontSize: 11,
-        fontWeight: 500,
-        formatter: ({ value }) => formatNumber(value),
-      } : { enabled: false },
-      calloutLabel: showDataLabels ? {
-        color: theme.chart.axisLabel,
-        fontSize: 11,
-      } : { enabled: false },
-      ...(donut ? {
-        innerRadiusRatio: 0.6,
-        innerLabels: total > 0 ? [
-          { text: 'Toplam', fontSize: 11, color: theme.chart.axisLabel },
-          { text: formatNumber(total), fontSize: 20, fontWeight: 700, color: theme.chart.foreColor },
-        ] : [],
-      } : {}),
-      strokes: [theme.colors.bgCard],
-      strokeWidth: 1,
-      tooltip: {
-        renderer: ({ datum }) => ({
-          heading: String(datum.label ?? ''),
-          content: formatNumber(datum.value),
-        }),
-      },
-    }],
-    legend: { enabled: true, position: legendPosition },
-    theme: makeTheme(),
-    height,
+      height,
+      ...CHART_BASE,
+    },
+    ...CHART_THEME,
+    labels,
+    colors: theme.chart.palette,
+    legend: { position: legendPosition, fontSize: '12px' },
+    dataLabels: {
+      enabled: showDataLabels,
+      style: { fontSize: '11px', fontWeight: 500 },
+      dropShadow: { enabled: false },
+    },
+    tooltip: { y: { formatter: formatNumber } },
+    plotOptions: donut
+      ? { pie: { donut: { size: '60%', labels: { show: true, total: { show: true, label: 'Toplam', formatter: formatNumber } } } } }
+      : {},
+    stroke: { width: 1, colors: [theme.colors.bgCard] },
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
 }
-
-
-// ── Heatmap (enterprise) ──────────────────────────────────────────────
-// Input mirrors the Apex shape:
-//   categories: x-axis labels, e.g. ['Mon', 'Tue', ...]
-//   series:     [{name: 'AM', values: [...]}, {name: 'PM', values: [...]}]
-// AG Charts wants long-format data (one row per cell), so we melt.
 
 export function heatmapOptions({ categories, series, height = 280, showValues = true }) {
-  const x = normalizeLabels(categories);
-  const ySeries = series.map((s) => s.name || '');
-  const data = [];
-  series.forEach((s, j) => {
-    (s.values || []).forEach((v, i) => {
-      data.push({ x: x[i], y: ySeries[j], value: v ?? null });
-    });
-  });
-
   return {
-    data,
-    series: [{
+    chart: {
       type: 'heatmap',
-      xKey: 'x',
-      yKey: 'y',
-      colorKey: 'value',
-      label: {
-        enabled: showValues,
-        color: theme.chart.foreColor,
-        fontSize: 10,
-        formatter: ({ value }) => formatNumber(value),
+      height,
+      ...CHART_BASE,
+    },
+    ...CHART_THEME,
+    dataLabels: { enabled: showValues, style: { fontSize: '10px' } },
+    colors: [theme.chart.palette[0]],
+    xaxis: {
+      type: 'category',
+      categories,
+      labels: COMMON_AXIS_STYLE,
+    },
+    yaxis: { labels: COMMON_AXIS_STYLE },
+    plotOptions: {
+      heatmap: {
+        radius: 4,
+        enableShades: true,
+        shadeIntensity: 0.5,
+        useFillColorAsStroke: false,
       },
-      tooltip: {
-        renderer: ({ datum }) => ({
-          heading: `${datum.x} · ${datum.y}`,
-          content: formatNumber(datum.value),
-        }),
-      },
-    }],
-    gradientLegend: { enabled: true, position: 'right' },
-    axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'category', position: 'left'   },
-    ],
-    theme: makeTheme(),
-    height,
+    },
+    tooltip: { y: { formatter: formatNumber } },
+    legend: { show: false },
+    grid: COMMON_GRID,
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
 }
 
-
-// ── Radial bar / gauge (enterprise) ───────────────────────────────────
-// We use AG Charts' radial-gauge here. It naturally shows a single value
-// against a scale and supports gradient fills + center labels — a good
-// match for the previous Apex radialBar (which was a gauge too).
-
 export function radialBarOptions({ value, max = 100, label = '', height = 260 }) {
-  const pct = max > 0 ? Math.round((Number(value) / max) * 100) : 0;
-  const palette = theme.chart.palette;
+  // ApexCharts radialBar takes percentages; we normalize against `max`.
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return {
-    type: 'radial-gauge',
-    value: Number(value) || 0,
-    scale: {
-      min: 0,
-      max,
-      label: { enabled: false },
+    chart: {
+      type: 'radialBar',
+      height,
+      ...CHART_BASE,
     },
-    bar: {
-      enabled: true,
-      fill: palette[0],
-      strokeWidth: 0,
+    ...CHART_THEME,
+    series: [pct],
+    plotOptions: {
+      radialBar: {
+        startAngle: -135,
+        endAngle: 135,
+        track: { background: theme.chart.gridBorder, strokeWidth: '100%' },
+        dataLabels: {
+          name: { fontSize: '12px', color: theme.chart.axisLabel, offsetY: -10 },
+          value: {
+            fontSize: '28px',
+            fontWeight: 700,
+            color: theme.chart.foreColor,
+            formatter: () => formatNumber(value),
+          },
+        },
+        hollow: { size: '58%' },
+      },
     },
-    secondaryLabel: {
-      text: label || `Hedefin %${pct}`,
-      color: theme.chart.axisLabel,
-      fontSize: 12,
+    fill: {
+      type: 'gradient',
+      gradient: { shade: 'light', shadeIntensity: 0.4, gradientToColors: [theme.chart.palette[1]], stops: [0, 100] },
     },
-    label: {
-      formatter: ({ value: v }) => formatNumber(v),
-      color: theme.chart.foreColor,
-      fontSize: 26,
-      fontWeight: 700,
-    },
-    theme: makeTheme(),
-    height,
+    colors: [theme.chart.palette[0]],
+    stroke: { lineCap: 'round' },
+    labels: [label || `Hedefin %${pct}`],
+    noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
 }

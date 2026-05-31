@@ -1,4 +1,4 @@
-import { AgCharts } from 'ag-charts-react';
+import Chart from 'react-apexcharts';
 import { heatmapOptions, normalizeLabels } from './chartHelpers.js';
 
 export default function Heatmap({ block }) {
@@ -7,11 +7,11 @@ export default function Heatmap({ block }) {
   // ship with ``categories`` (Apex-style). Accept both so existing library
   // imports render without manual repair.
   const categories = normalizeLabels(config.x_axis ?? config.categories);
-  // Manifest series shape stays Apex-style ({name, values}); the helper
-  // melts it into AG's long-format heatmap rows.
+  // ApexCharts heatmap wants each series row as {x, y} pairs along the
+  // shared category axis.
   const series = (config.series || []).map((s) => ({
     name: s.name || '',
-    values: s.values || [],
+    data: (s.values || []).map((v, i) => ({ x: categories[i] ?? String(i), y: v })),
   }));
 
   if (categories.length === 0 || series.length === 0) {
@@ -28,7 +28,7 @@ export default function Heatmap({ block }) {
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (
     <div className="chart-wrapper">
-      <AgCharts key={remountKey} options={options} />
+      <Chart key={remountKey} options={options} series={series} type="heatmap" height={280} />
     </div>
   );
 }

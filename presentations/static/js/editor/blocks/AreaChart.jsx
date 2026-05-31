@@ -1,4 +1,4 @@
-import { AgCharts } from 'ag-charts-react';
+import Chart from 'react-apexcharts';
 import { areaChartOptions, normalizeLabels } from './chartHelpers.js';
 
 export default function AreaChart({ block }) {
@@ -8,7 +8,7 @@ export default function AreaChart({ block }) {
   const categories = normalizeLabels(config.x_axis ?? config.categories);
   const series = (config.series || []).map((s) => ({
     name: s.name || '',
-    values: s.values || [],
+    data: s.values || [],
   }));
 
   if (categories.length === 0 || series.length === 0) {
@@ -28,7 +28,7 @@ export default function AreaChart({ block }) {
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (
     <div className="chart-wrapper">
-      <AgCharts key={remountKey} options={options} />
+      <Chart key={remountKey} options={options} series={series} type="area" height={260} />
     </div>
   );
 }
