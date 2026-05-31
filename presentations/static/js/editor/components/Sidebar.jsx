@@ -28,7 +28,19 @@ export default function Sidebar({ width, onResizeStart }) {
 function EditSidebar({ onPresent, width, onResizeStart }) {
   const layoutEditMode = useStore((s) => s.layoutEditMode);
   const manifest       = useStore((s) => s.manifest);
+  const mode           = useStore((s) => s.mode);
   const hasBlocks      = (manifest?.blocks?.length || 0) > 0;
+  const isSnapshot     = mode === 'snapshot';
+
+  // Editor lives at .../presentations/<pid>; Hazırlık at
+  // .../presentations/hazirlik/<pid>. Keşif→Hazırlık→Sunum share the same pid,
+  // so we just insert the `hazirlik/` segment before the pid. Deriving from
+  // the live pathname keeps it correct under reverse-proxy SCRIPT_NAME
+  // prefixes (same approach as lib/api.js).
+  function goToHazirlik() {
+    const base = window.location.pathname.replace(/\/$/, '');
+    window.location.href = base.replace(/\/([^/]+)$/, '/hazirlik/$1');
+  }
 
   return (
     <aside className="editor-sidebar" style={width ? { width } : undefined}>
@@ -43,6 +55,17 @@ function EditSidebar({ onPresent, width, onResizeStart }) {
               so the label reads as a proper section heading, not a chip. */}
           <div className="sidebar-label sidebar-label--heading">
             <span>Veri Kaynakları</span>
+            {!isSnapshot && (
+              <button
+                type="button"
+                className="back-to-hazirlik"
+                onClick={goToHazirlik}
+                title="Aynı sepetle Hazırlık ekranına dön — küçültme / düzenleme için"
+              >
+                <ArrowLeft size={12} strokeWidth={2} />
+                <span>Hazırlığa Dön</span>
+              </button>
+            )}
           </div>
           <Basket />
         </div>
