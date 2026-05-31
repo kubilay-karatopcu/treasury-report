@@ -1076,11 +1076,17 @@ function SourcesSidebar({
               className="back-to-kesif"
               onClick={() => {
                 // Hazırlık: .../presentations/hazirlik/<pid>; Keşif workbench:
-                // .../presentations/atolye/kesif. Swap the trailing segments so
-                // the URL survives reverse-proxy SCRIPT_NAME prefixes (same
-                // pathname-derivation approach as lib/api.js).
-                const base = window.location.pathname.replace(/\/$/, "");
-                window.location.href = base.replace(/\/hazirlik\/[^/]+$/, "/atolye/kesif");
+                // .../presentations/atolye/kesif. Pass ?pid=<pid> so Keşif
+                // RESUMES this presentation's basket (not a fresh draft) —
+                // otherwise the basket looks empty on return. Swap the trailing
+                // segments so the URL survives reverse-proxy SCRIPT_NAME prefixes
+                // (same pathname-derivation approach as lib/api.js).
+                const path = window.location.pathname.replace(/\/$/, "");
+                const m = path.match(/\/hazirlik\/([^/]+)$/);
+                const kesif = path.replace(/\/hazirlik\/[^/]+$/, "/atolye/kesif");
+                window.location.href = m
+                  ? `${kesif}?pid=${encodeURIComponent(m[1])}`
+                  : kesif;
               }}
               title="Keşif ekranına dön — sepeti düzenle / tablo ekle"
             >
