@@ -1057,14 +1057,20 @@ body.prisma .empty-start__divider::before,
 body.prisma .empty-start__divider::after {
   background: var(--editor-border) !important;
 }
-body.prisma .empty-start__manual {
+/* Specificity NOTE: editor.css ships a light base rule
+   `.editor-root .canvas-content--empty .empty-start__manual { background:#fff !important }`
+   (0,3,0). `body.prisma .empty-start__manual` (0,2,1) loses the !important
+   tie-break to it, so the button rendered white on dark. Match the base
+   chain (+ body.prisma) to win the cascade. */
+body.prisma .editor-root .canvas-content--empty .empty-start__manual {
   background: transparent !important;
   border: 1px solid var(--editor-accent) !important;
   color: var(--editor-accent) !important;
+  box-shadow: none !important;
   font-weight: 500;
   letter-spacing: 0.02em;
 }
-body.prisma .empty-start__manual:hover {
+body.prisma .editor-root .canvas-content--empty .empty-start__manual:hover {
   background: var(--editor-accent-soft) !important;
   color: var(--gold-soft) !important;
   border-color: var(--gold-soft) !important;
