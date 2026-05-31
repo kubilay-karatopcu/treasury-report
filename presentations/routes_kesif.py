@@ -85,24 +85,39 @@ def atolye_root():
     return redirect(url_for("presentations.atolye_kesif"))
 
 
-def _build_workbench_payload(sicil: str, initial_view: str) -> dict:
+def _build_workbench_payload(
+    sicil: str, initial_view: str, resume_pid: str | None = None
+) -> dict:
     """Phase 11.workbench — shared payload for the unified Atölye Workbench
     (Keşif / Bloklar / Süreçler all share the same React shell).
 
     `initial_view` selects which center renders first: "tablolar" (graph),
     "bloklar" (library grid), or "surecler" (process placeholder). All
     endpoints are bundled so view swaps don't need server round-trips.
+
+    `resume_pid` re-enters Keşif for an already-promoted (real) presentation
+    — e.g. the "Keşife Dön" button on Hazırlık. We then resume THAT pid's
+    basket instead of the user's current draft: no new draft is minted, basket
+    edits + "Hazırlık'a geç" target this pid directly (see kesif_draft_promote).
+    A draft pid or empty input falls through to the normal current-draft flow.
     """
-    draft = _draft_manager().get_or_create_current(sicil)
+    resume = resume_pid if (resume_pid and not is_draft_pid(resume_pid)) else None
+    if resume:
+        pid = resume
+        created_at = ""
+    else:
+        draft = _draft_manager().get_or_create_current(sicil)
+        pid = draft.pid
+        created_at = draft.created_at
     title = ""
     try:
-        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, draft.pid)
+        sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, pid)
         manifest = sess.get_manifest() or {}
         basket = manifest.get("basket") or []
         title = (manifest.get("meta") or {}).get("title") or ""
     except Exception:
         basket = []
-        log.warning("workbench: failed to preload draft basket", exc_info=True)
+        log.warning("workbench: failed to preload basket for %s", pid, exc_info=True)
 
     return {
         "initial_view": initial_view,
@@ -112,8 +127,8 @@ def _build_workbench_payload(sicil: str, initial_view: str) -> dict:
             "department": getattr(current_user, "department", "") or "",
         },
         "draft": {
-            "pid": draft.pid,
-            "created_at": draft.created_at,
+            "pid": pid,
+            "created_at": created_at,
             "basket_count": len(basket),
             # Phase 12.kesif-header: title shown in the workshop strip.
             # Falls back to a friendly default — the user can edit it.
@@ -127,7 +142,7 @@ def _build_workbench_payload(sicil: str, initial_view: str) -> dict:
             "catalog_list": url_for("presentations.list_catalog"),
             "catalog_detail_template": "/presentations/catalog/{schema}/{table}",
             "catalog_graph": url_for("presentations.catalog_graph"),
-            "basket_update": f"/presentations/{draft.pid}/basket",
+            "basket_update": f"/presentations/{pid}/basket",
             "draft_promote": url_for("presentations.kesif_draft_promote"),
             # Phase 12.kesif-header endpoints — workshop title persistence
             # + explicit "Kaydet" button.
@@ -148,7 +163,7 @@ def _build_workbench_payload(sicil: str, initial_view: str) -> dict:
             ).replace("__TEAM__", "{team}").replace("__BID__", "{bid}"),
         },
         "chat": {
-            "history": _chat_history_for_draft(sicil, draft.pid),
+            "history": _chat_history_for_draft(sicil, pid),
         },
     }
 
@@ -158,7 +173,10 @@ def _build_workbench_payload(sicil: str, initial_view: str) -> dict:
 def atolye_kesif():
     """Atölye Workbench — Tablolar (graph) view."""
     sicil = getattr(current_user, "sicil", None) or ""
-    payload = _build_workbench_payload(sicil, initial_view="tablolar")
+    resume_pid = (request.args.get("pid") or "").strip() or None
+    payload = _build_workbench_payload(
+        sicil, initial_view="tablolar", resume_pid=resume_pid
+    )
     return render_template(
         "presentations/atolye/kesif.html",
         kesif_json=json.dumps(payload, ensure_ascii=False, default=str),
@@ -909,11 +927,14 @@ def kesif_draft_promote():
         current = mgr.get_or_create_current(sicil)
         draft_pid = current.pid
 
-    if not is_draft_pid(draft_pid):
-        return _json({"error": "Geçersiz taslak."}, status=400)
+    # `draft_pid` may be a real (already-promoted) pid when the user re-entered
+    # Keşif from Hazırlık/Sunum via "Keşife Dön" (resume mode). There is nothing
+    # to promote then — basket edits were persisted live to the pid — so we
+    # forward straight back to Hazırlık for the SAME pid (no new presentation).
+    is_draft = is_draft_pid(draft_pid)
 
-    # Snapshot the draft's basket BEFORE promotion — promote() deletes
-    # the draft manifest, so we have to capture the table IDs first.
+    # Snapshot the basket BEFORE promotion — promote() deletes the draft
+    # manifest, so we have to capture the table IDs first.
     basket_ids: list[str] = []
     try:
         sess = current_app.config["SESSION_REGISTRY"].get_or_create(sicil, draft_pid)
@@ -933,20 +954,27 @@ def kesif_draft_promote():
             "error": "Sepete en az 1 tablo ekleyin — boş sepetle hazırlığa geçilemez.",
         }, status=400)
 
-    try:
-        new_pid = mgr.promote(sicil, draft_pid, title=title)
-    except Exception as exc:
-        log.exception("kesif: draft promote failed")
-        return _json({"error": str(exc)}, status=400)
+    if is_draft:
+        try:
+            new_pid = mgr.promote(sicil, draft_pid, title=title)
+        except Exception as exc:
+            log.exception("kesif: draft promote failed")
+            return _json({"error": str(exc)}, status=400)
+    else:
+        # Resume mode: keep the same real pid; forward nav re-opens its scope.
+        new_pid = draft_pid
 
-    if basket_ids:
-        # de-dup while preserving order, then encode as ?seed=…
+    if is_draft and basket_ids:
+        # Newly promoted pid is fresh — forward the basket via ?seed so Hazırlık
+        # picks it up. de-dup while preserving order.
         seen: set[str] = set()
         unique = [t for t in basket_ids if not (t in seen or seen.add(t))]
         hazirlik_url = url_for(
             "presentations.hazirlik", pid=new_pid, seed=",".join(unique)
         )
     else:
+        # Resume (real pid): the scope already exists for this pid — DON'T
+        # re-seed, that would clobber existing Hazırlık ER/scope state.
         hazirlik_url = url_for("presentations.hazirlik", pid=new_pid)
     return _json({
         "ok": True,
