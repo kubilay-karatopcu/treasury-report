@@ -506,6 +506,20 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
         doc = store.load(schema, name)
     except Exception:
         return []
+    # Phase 7 human-verified bindings override the Phase 6.5.b suggested tag, so
+    # a column bound via the documentation UI reads as concept-bound everywhere
+    # the frontend uses this: the grid concept chip, agModelToFilters (which
+    # routes concept columns to *pinned* filters — the only kind routing can use
+    # to shrink a table), and suggested join edges. Matches AppCatalog/compiler.
+    bind_concept: dict[str, str] = {}
+    bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    if bc is not None:
+        try:
+            for b in bc.get_bindings(schema, name):
+                if getattr(b, "column", None) and getattr(b, "concept", None):
+                    bind_concept[b.column] = b.concept
+        except Exception:
+            pass
     out: list[dict[str, Any]] = []
     for col, cd in (getattr(doc, "columns", {}) or {}).items():
         lk = getattr(cd, "lookup", None)
@@ -518,7 +532,7 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
         out.append({
             "name": col,
             "type": getattr(cd, "type", None),
-            "concept": getattr(cd, "suggested_semantic_tag", None),
+            "concept": bind_concept.get(col) or getattr(cd, "suggested_semantic_tag", None),
             "filter_role": fr,
             "join_key": join_key,
             "lookup": ({"table": lk.table, "key": lk.key, "display": lk.display} if lk else None),
@@ -1279,6 +1293,91 @@ def scope_preview(pid: str):
         "rows": rows,
         "row_count": int(len(df)),
     })
+
+
+@presentations_bp.route("/<pid>/scope/preview-derivation", methods=["POST"])
+@login_required
+def scope_preview_derivation(pid: str):
+    """Sample a derived (aggregate / calculated) basket item at design time.
+
+    The Hazırlık drawer can aggregate a single source in-browser, but it can't
+    preview a ``calculated`` derivation (window functions, multi-source joins).
+    We fetch a bounded sample of each source from Oracle, register them into an
+    in-memory DuckDB under their aliases, and run the *same* SQL the fetch pass
+    compiles (``compile_calculated_sql`` / ``compile_aggregate_sql``). The
+    result is illustrative — Sunum re-runs the derivation over the full pull.
+
+    Request:  ``{"scope": <draft>, "alias": "..."}``
+    Response: ``{"ok": true, "data_columns": [...], "rows": [...],
+                 "row_count": int, "derived": true}``.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    if not isinstance(scope_in, dict) or not alias:
+        return _json({"ok": False, "errors": ["scope ve alias zorunlu"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    item = next((b for b in scope.basket if b.alias == alias), None)
+    if item is None or item.derivation is None:
+        return _json({"ok": False, "errors": [f"'{alias}' türetilmiş bir tablo değil"]}, status=400)
+
+    d = item.derivation
+    src_aliases = [d.source_alias] if d.kind == "aggregate" else list(d.source_aliases)
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
+
+    from presentations import duck
+    from presentations.scope.fetch import compile_aggregate_sql, compile_calculated_sql
+    import pandas as pd
+
+    SAMPLE = 5000  # bounded source pull — preview is illustrative, not the full run
+    conn = duck.connect_duckdb(":memory:")
+    try:
+        for sa in src_aliases:
+            src = next((b for b in scope.basket if b.alias == sa), None)
+            if src is None:
+                return _json({"ok": False, "errors": [f"Kaynak '{sa}' basket'te yok"]}, status=400)
+            if src.derivation is not None:
+                return _json({"ok": False, "errors": [
+                    f"'{sa}' başka bir türetilmiş tablo — iç içe türetme önizlemesi desteklenmiyor"]}, status=400)
+            if src.table_ref is not None:
+                full = f"{src.table_ref.schema_name}.{src.table_ref.name}"
+                sql = f"SELECT * FROM {full} FETCH FIRST {SAMPLE} ROWS ONLY"
+            elif getattr(src, "sql", None):
+                sql = f"SELECT * FROM ({src.sql}) _src FETCH FIRST {SAMPLE} ROWS ONLY"
+            else:
+                return _json({"ok": False, "errors": [f"Kaynak '{sa}' önizlenemiyor"]}, status=400)
+            try:
+                df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{sa}",
+                                 query=sql, query_params={})
+            except Exception as exc:
+                msg = str(exc).strip().splitlines()[0][:240]
+                return _json({"ok": False, "phase": "oracle", "errors": [f"{sa}: {msg}"]}, status=502)
+            duck.register_dataframe(conn, sa, df if df is not None else pd.DataFrame())
+
+        compiled = compile_aggregate_sql(item) if d.kind == "aggregate" else compile_calculated_sql(item)
+        try:
+            out_df = conn.execute(f"SELECT * FROM ({compiled}) AS _d LIMIT 200").fetchdf()
+        except Exception as exc:
+            msg = str(exc).strip().splitlines()[0][:240]
+            return _json({"ok": False, "phase": "duckdb", "errors": [msg], "sql": compiled}, status=400)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    cols = [str(c) for c in out_df.columns]
+    rows = [[duck._jsonable(v) for v in r] for r in out_df.itertuples(index=False, name=None)]
+    return _json({"ok": True, "columns": [{"name": c} for c in cols],
+                  "data_columns": cols, "rows": rows,
+                  "row_count": int(len(out_df)), "derived": True})
 
 
 # ── Sunum scope banner (§6.3) ────────────────────────────────────────────────

@@ -64,6 +64,7 @@ const ROUTING_OVERRIDE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/ro
 const ROUTING_RECOMPUTE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/recompute-routing`);
 const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-draft`);
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
+const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
@@ -2128,8 +2129,19 @@ function App() {
     setPreviewLoading(true); setPreview({ alias });
     try {
       let data;
-      if (item.derivation) {
-        // Derived: fetch source's raw rows, aggregate in-browser. Preview is a
+      if (item.derivation && item.derivation.kind === "calculated") {
+        // Calculated derivations (window functions, multi-source joins) can't
+        // be computed in-browser — the server runs the compiled SQL over a
+        // DuckDB sample of the sources. Illustrative; Sunum re-runs it full.
+        const r = await fetch(PREVIEW_DERIVATION_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope, alias }),
+        });
+        data = await r.json();
+        if (!data.ok) throw new Error((data.errors || ["Türetilmiş önizleme başarısız"]).join("; "));
+        data = { ...data, derived: true };
+      } else if (item.derivation) {
+        // Aggregate: fetch source's raw rows, aggregate in-browser. Preview is a
         // sample so aggregates are illustrative — Sunum re-runs the derivation
         // on the full pull via DuckDB (see scope/fetch.compile_aggregate_sql).
         const src = scope.basket.find((b) => b.alias === item.derivation.source_alias);
@@ -2196,15 +2208,28 @@ function App() {
 
     const hasFilters = pinned.length > 0 || raw.length > 0;
     if (hasFilters) {
-      setScope((s) => ({
-        ...s,
-        filters: {
-          ...s.filters,
-          pinned: [...(s.filters.pinned || []), ...pinned],
-          // replace previous raw filters for this alias with the current grid state
-          raw: [...(s.filters.raw || []).filter((f) => f.alias !== alias), ...raw],
-        },
-      }));
+      setScope((s) => {
+        const next = {
+          ...s,
+          filters: {
+            ...s.filters,
+            pinned: [...(s.filters.pinned || []), ...pinned],
+            // replace previous raw filters for this alias with the current grid state
+            raw: [...(s.filters.raw || []).filter((f) => f.alias !== alias), ...raw],
+          },
+        };
+        // A freshly-pinned date range on a partition column can flip the table
+        // lazy→cached, and a tighter projection shrinks bytes/row — recompute so
+        // the node badge/size reflect the filter now, not only at build. Mirrors
+        // addTableFromCatalog; best-effort (build re-runs it authoritatively).
+        fetch(ROUTING_RECOMPUTE_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: next }),
+        }).then((r) => r.json()).then((data) => {
+          if (data && data.ok) setScope(data.scope);
+        }).catch(() => {});
+        return next;
+      });
     }
 
     if (!hasFilters && !projUpdated) {
