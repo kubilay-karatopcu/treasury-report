@@ -415,7 +415,7 @@ class Join(BaseModel):
 
 # ── Filters ─────────────────────────────────────────────────────────────────
 
-FilterOp = Literal["between", "in", "not_in", "eq", "last_n_days"]
+FilterOp = Literal["between", "in", "not_in", "eq", "last_n_days", "gt", "gte", "lt", "lte"]
 
 
 def _iso(v: Any) -> Any:

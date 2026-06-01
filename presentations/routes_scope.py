@@ -1380,6 +1380,65 @@ def scope_preview_derivation(pid: str):
                   "row_count": int(len(out_df)), "derived": True})
 
 
+@presentations_bp.route("/<pid>/scope/distinct", methods=["GET"])
+@login_required
+def scope_distinct(pid: str):
+    """Distinct values for a string column flagged ``get_distinct`` in the table
+    doc — feeds the Filtreleme tab's checkbox list. Prefers the nightly
+    ``distinct_values_sample`` (no Oracle hit); otherwise runs a capped live
+    ``SELECT DISTINCT``. Guarded: only ``get_distinct`` columns are served, and
+    SQL uses the doc's validated ALL_CAPS identifiers (never raw request args).
+    """
+    schema = (request.args.get("schema") or "").strip()
+    table = (request.args.get("table") or "").strip()
+    column = (request.args.get("column") or "").strip()
+    if not table or not column:
+        return _json({"ok": False, "error": "table ve column zorunlu"}, status=400)
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 1000))
+    except ValueError:
+        limit = 200
+
+    store = current_app.config.get("TABLE_DOC_STORE")
+    doc = None
+    if store is not None:
+        try:
+            doc = store.load(schema, table)
+        except Exception:
+            doc = None
+    col_doc = (getattr(doc, "columns", {}) or {}).get(column) if doc is not None else None
+    if col_doc is None or not getattr(col_doc, "get_distinct", False):
+        return _json({"ok": False, "error": "Bu kolon için get_distinct etkin değil."}, status=400)
+
+    from presentations import duck
+
+    sample = getattr(col_doc, "distinct_values_sample", None)
+    if sample:
+        return _json({"ok": True, "source": "sample",
+                      "values": [duck._jsonable(v) for v in sample[:limit]]})
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": False, "error": "DATA_CLIENT yapılandırılmamış."}, status=500)
+    # Use the doc's validated identifiers (col_doc exists ⇒ `column` is a real
+    # ALL_CAPS column key; schema_name/table are ALL_CAPS-validated by the doc).
+    safe_col = column
+    full = f"{getattr(doc, 'schema_name', schema)}.{getattr(doc, 'table', table)}"
+    sql = (f"SELECT DISTINCT {safe_col} AS V FROM {full} "
+           f"WHERE {safe_col} IS NOT NULL FETCH FIRST {limit} ROWS ONLY")
+    try:
+        df = dc.get_data(base_prefix=None, dataset=f"distinct::{full}::{safe_col}",
+                         query=sql, query_params={})
+    except Exception as exc:
+        msg = str(exc).strip().splitlines()[0][:240]
+        return _json({"ok": False, "error": msg}, status=502)
+    import pandas as pd
+    if df is None:
+        df = pd.DataFrame()
+    vals = [duck._jsonable(r[0]) for r in df.itertuples(index=False, name=None)]
+    return _json({"ok": True, "source": "live", "values": vals})
+
+
 # ── Sunum scope banner (§6.3) ────────────────────────────────────────────────
 
 def load_scope_for_manifest(manifest: dict | None):
