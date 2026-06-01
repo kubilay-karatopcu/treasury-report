@@ -171,25 +171,27 @@ export default function FilterPanel({ alias, columns = [], onSave, onFetchDistin
               )}
 
               {c._t === 'num' && (
-                <div className="hz-fp-ed hz-fp-numrow">
-                  <select value={ed.op || 'gt'} onChange={(e) => setEd(c.name, { op: e.target.value })}>
-                    {NUM_OPS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-                  </select>
-                  {(ed.op || 'gt') === 'in' ? (
-                    <input type="text" placeholder="100, 200, 300" value={ed.values || ''}
-                           onChange={(e) => setEd(c.name, { values: e.target.value })} />
-                  ) : ed.op === 'between' ? (
-                    <>
-                      <input type="number" placeholder="min" value={ed.from ?? ''}
-                             onChange={(e) => setEd(c.name, { from: e.target.value })} />
-                      <span className="hz-fp-sep">ve</span>
-                      <input type="number" placeholder="max" value={ed.to ?? ''}
-                             onChange={(e) => setEd(c.name, { to: e.target.value })} />
-                    </>
-                  ) : (
-                    <input type="number" placeholder="değer" value={ed.value ?? ''}
-                           onChange={(e) => setEd(c.name, { value: e.target.value })} />
-                  )}
+                <div className="hz-fp-ed">
+                  <div className="hz-fp-numrow">
+                    <select value={ed.op || 'gt'} onChange={(e) => setEd(c.name, { op: e.target.value })}>
+                      {NUM_OPS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                    </select>
+                    {(ed.op || 'gt') === 'in' ? (
+                      <input type="text" placeholder="100, 200, 300" value={ed.values || ''}
+                             onChange={(e) => setEd(c.name, { values: e.target.value })} />
+                    ) : ed.op === 'between' ? (
+                      <>
+                        <input type="number" placeholder="min" value={ed.from ?? ''}
+                               onChange={(e) => setEd(c.name, { from: e.target.value })} />
+                        <span className="hz-fp-sep">ve</span>
+                        <input type="number" placeholder="max" value={ed.to ?? ''}
+                               onChange={(e) => setEd(c.name, { to: e.target.value })} />
+                      </>
+                    ) : (
+                      <input type="number" placeholder="değer" value={ed.value ?? ''}
+                             onChange={(e) => setEd(c.name, { value: e.target.value })} />
+                    )}
+                  </div>
                 </div>
               )}
 

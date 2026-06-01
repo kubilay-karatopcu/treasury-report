@@ -430,6 +430,11 @@
 .hz-fp-ed input:focus, .hz-fp-ed select:focus, .hz-fp-ed textarea:focus { outline: none; border-color: #3b82f6; }
 .hz-fp-ed textarea { resize: vertical; min-height: 28px; flex: 1 1 160px; }
 .hz-fp-ed input[type="text"], .hz-fp-ed input[type="number"] { width: 110px; }
+/* Numeric row stays on ONE line and grows right — inputs share the width
+   (between = min/max) instead of wrapping downward. */
+.hz-fp-numrow { flex-wrap: nowrap; }
+.hz-fp-numrow input[type="number"], .hz-fp-numrow input[type="text"] { width: auto; flex: 1 1 60px; min-width: 48px; }
+.hz-fp-numrow select { flex: 0 0 auto; }
 .hz-fp-sep { color: #6b7680; font-size: 12px; }
 .hz-fp-hint { font-size: 10px; color: #6b7680; }
 .hz-fp-err { font-size: 11px; color: #f87171; }
