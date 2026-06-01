@@ -1531,6 +1531,7 @@ function ConceptHeader(props) {
 
 function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct }) {
   const apiRef = useRef(null);
+  const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
 
   const handleReady = (p) => {
@@ -1595,9 +1596,18 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           {preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}
         </span>
         <div className="hz-preview-actions">
-          <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters} title="Görünür kolonları + aktif filtreleri scope'a yaz">
-            <Save size={13} /> Görünümü kaydet
-          </button>
+          {tab === "filter" && !isDerived ? (
+            <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
+                    onClick={() => filterSaveRef.current && filterSaveRef.current()}
+                    title="Filtreleri scope'a yaz (boyut yeniden hesaplanır)">
+              <Save size={13} /> Filtreyi kaydet
+            </button>
+          ) : (
+            <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters}
+                    title="Görünür kolonları + aktif grid filtrelerini scope'a yaz">
+              <Save size={13} /> Görünümü kaydet
+            </button>
+          )}
           <button
             className="ts-btn ts-btn--sm"
             disabled={!preview || preview.error || isDerived}
@@ -1642,6 +1652,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                 <FilterPanel
                   alias={preview.alias}
                   columns={COLS_BY_ALIAS[preview.alias] || []}
+                  saveRef={filterSaveRef}
                   onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
                   onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
                 />
@@ -2273,8 +2284,9 @@ function App() {
     const pinned = [], raw = [];
     for (const s of specs) {
       const concept = s.concept || null;
-      // gt/gte/lt/lte aren't emitted by the Phase 7 compiler → always raw.
-      const compilerSafe = s.op === "between" || s.op === "in" || s.op === "eq";
+      // The Phase 7 compiler emits only between/in/eq, for dimension/time
+      // concepts — numeric column predicates (incl. ranges) always go raw.
+      const compilerSafe = s.type !== "num" && (s.op === "between" || s.op === "in" || s.op === "eq");
       if (concept && compilerSafe) {
         const f = { id: `pf_${concept}_${rid()}`, concept, op: s.op, applies_to: [alias] };
         if (s.op === "between") { f.from = s.from; f.to = s.to; }

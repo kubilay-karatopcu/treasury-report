@@ -59,6 +59,26 @@ def test_raw_between_resolves_relative_dates():
     assert date.today() in date_binds
 
 
+def test_raw_between_numeric():
+    # Filtreleme numeric "aralık" (between/AND) → raw between with numeric binds.
+    scope = load_scope_from_dict({"scope": {
+        "presentation_id": "p", "version": 1, "created_by": "A16438",
+        "created_at": "2025-01-01T00:00:00Z",
+        "basket": [{
+            "alias": "tbl", "table_ref": {"schema": "EDW", "name": "T"},
+            "projection": {"columns": ["AMT"], "include_all": False},
+            "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1000},
+        }],
+        "filters": {"pinned": [], "interactive": [], "raw": [
+            {"id": "rf_amt", "alias": "tbl", "column": "AMT", "op": "between", "from": 10, "to": 20},
+        ]},
+        "joins": [],
+    }})
+    clauses, binds = _raw_predicates(scope, scope.basket[0])
+    assert any("AMT BETWEEN" in c for c in clauses)
+    assert 10 in binds.values() and 20 in binds.values()
+
+
 def test_as_date_grammar():
     assert _as_date("today") == date.today()
     assert _as_date("today - 7d") == date.today() - timedelta(days=7)

@@ -12,13 +12,13 @@
  * filter, attaches the alias/id, and triggers the routing recompute. Relative
  * date exprs are stored verbatim; the backend resolves them at fetch time.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { _resolveDateExpr } from '../shared/dateExpr.js';
 
 const NUM_OPS = [
   { v: 'gt', label: '>' }, { v: 'gte', label: '≥' },
   { v: 'lt', label: '<' }, { v: 'lte', label: '≤' },
-  { v: 'eq', label: '=' }, { v: 'in', label: 'IN' },
+  { v: 'between', label: 'aralık' }, { v: 'eq', label: '=' }, { v: 'in', label: 'IN' },
 ];
 
 function classify(type) {
@@ -44,10 +44,9 @@ function relPreview(from, to) {
   return `→ ${f || '…'} – ${t || '…'}`;
 }
 
-export default function FilterPanel({ alias, columns = [], onSave, onFetchDistinct }) {
+export default function FilterPanel({ alias, columns = [], onSave, onFetchDistinct, saveRef }) {
   const [edits, setEdits] = useState({});       // { col: editorState }
   const [distinct, setDistinct] = useState({}); // { col: {loading, values, error} }
-  const [savedMsg, setSavedMsg] = useState('');
 
   const cols = useMemo(
     () => (columns || []).filter((c) => c && c.name).map((c) => ({ ...c, _t: classify(c.type) })),
@@ -92,6 +91,11 @@ export default function FilterPanel({ alias, columns = [], onSave, onFetchDistin
           const values = splitList(ed.values).map(numOrStr);
           if (!values.length) continue;
           spec = { op: 'in', values };
+        } else if (op === 'between') {
+          const from = String(ed.from ?? '').trim();
+          const to = String(ed.to ?? '').trim();
+          if (from === '' || to === '') continue;
+          spec = { op: 'between', from: numOrStr(from), to: numOrStr(to) };
         } else {
           const v = String(ed.value ?? '').trim();
           if (v === '') continue;
@@ -109,10 +113,13 @@ export default function FilterPanel({ alias, columns = [], onSave, onFetchDistin
 
   async function save() {
     const specs = buildSpecs();
-    if (!specs.length) { setSavedMsg('Aktif filtre yok.'); return; }
+    if (!specs.length) return;
     await onSave(specs);
-    setSavedMsg(`${specs.length} filtre kaydedildi.`);
   }
+  // Bridge the save action up to the drawer header's single save button — the
+  // panel has no footer button of its own. Re-set every render so the closure
+  // (which reads the latest `edits`) stays current.
+  useEffect(() => { if (saveRef) saveRef.current = save; });
 
   if (!cols.length) {
     return <div className="hz-fp-empty">Bu kaynağın kolon bilgisi yok.</div>;
@@ -168,11 +175,21 @@ export default function FilterPanel({ alias, columns = [], onSave, onFetchDistin
                   <select value={ed.op || 'gt'} onChange={(e) => setEd(c.name, { op: e.target.value })}>
                     {NUM_OPS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                   </select>
-                  {(ed.op || 'gt') === 'in'
-                    ? <input type="text" placeholder="100, 200, 300" value={ed.values || ''}
-                             onChange={(e) => setEd(c.name, { values: e.target.value })} />
-                    : <input type="number" placeholder="değer" value={ed.value ?? ''}
-                             onChange={(e) => setEd(c.name, { value: e.target.value })} />}
+                  {(ed.op || 'gt') === 'in' ? (
+                    <input type="text" placeholder="100, 200, 300" value={ed.values || ''}
+                           onChange={(e) => setEd(c.name, { values: e.target.value })} />
+                  ) : ed.op === 'between' ? (
+                    <>
+                      <input type="number" placeholder="min" value={ed.from ?? ''}
+                             onChange={(e) => setEd(c.name, { from: e.target.value })} />
+                      <span className="hz-fp-sep">ve</span>
+                      <input type="number" placeholder="max" value={ed.to ?? ''}
+                             onChange={(e) => setEd(c.name, { to: e.target.value })} />
+                    </>
+                  ) : (
+                    <input type="number" placeholder="değer" value={ed.value ?? ''}
+                           onChange={(e) => setEd(c.name, { value: e.target.value })} />
+                  )}
                 </div>
               )}
 
@@ -212,10 +229,6 @@ export default function FilterPanel({ alias, columns = [], onSave, onFetchDistin
             </div>
           );
         })}
-      </div>
-      <div className="hz-fp-foot">
-        <button type="button" className="hz-fp-save" onClick={save}>Filtreyi kaydet</button>
-        {savedMsg && <span className="hz-fp-saved">{savedMsg}</span>}
       </div>
     </div>
   );
