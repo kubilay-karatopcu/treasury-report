@@ -416,19 +416,30 @@ app.config["PRESENTATIONS_ROUTING_HARD_CEILING_BYTES"] = int(
 # seed edilir → sonra local dir artık kaynak değil).
 _CONCEPT_DIR = Path(__file__).parent / "presentations" / "catalog" / "concepts"
 _BINDING_DIR = Path(__file__).parent / "presentations" / "catalog" / "tables"
+# PROD seeds an empty S3 from these git fixtures on first boot. Set
+# PRESENTATIONS_CONCEPTS_SEED=0 to start from a truly empty registry (team
+# curates concepts from scratch via the UI) — the fixtures stay in git for DEV
+# + tests, they just don't auto-populate S3. To fully reset an already-seeded
+# prod: set the flag AND clear the S3 prefixes once
+# (dc.delete_prefix("prisma-treasury/concepts/") +
+#  dc.delete_prefix("prisma-treasury/concept-bindings/")), then restart.
+# No effect in DEV (reads the dir directly). Table docs live in a separate S3
+# prefix and are never seeded from git, so they're untouched by a concept reset.
+_CONCEPTS_SEED = os.environ.get("PRESENTATIONS_CONCEPTS_SEED", "1").lower() not in ("0", "false", "no")
 if DEV_MODE:
     concept_registry = CachedConceptRegistry(_CONCEPT_DIR)
     app.config["CONCEPT_BINDING_CATALOG"] = CachedBindingCatalog(_BINDING_DIR)
 else:
-    concept_registry = S3ConceptRegistry(dc, fixtures_dir=_CONCEPT_DIR)
-    app.config["CONCEPT_BINDING_CATALOG"] = S3BindingCatalog(dc, fixtures_dir=_BINDING_DIR)
+    concept_registry = S3ConceptRegistry(dc, fixtures_dir=_CONCEPT_DIR if _CONCEPTS_SEED else None)
+    app.config["CONCEPT_BINDING_CATALOG"] = S3BindingCatalog(dc, fixtures_dir=_BINDING_DIR if _CONCEPTS_SEED else None)
 app.config["CONCEPT_REGISTRY"] = concept_registry
 # Back the semantic-tag allow-list (block validation + UI dropdown) with the
 # registry; SEMANTIC_TAGS_V0 stays as the baseline floor (zero regression).
 set_active_registry(concept_registry)
-logging.info("CONCEPT_REGISTRY: %d concepts | BINDING_CATALOG: %d tables (%s)",
+logging.info("CONCEPT_REGISTRY: %d concepts | BINDING_CATALOG: %d tables (%s, seed=%s)",
              len(concept_registry), len(app.config["CONCEPT_BINDING_CATALOG"]),
-             "DEV/dir" if DEV_MODE else "PROD/S3")
+             "DEV/dir" if DEV_MODE else "PROD/S3",
+             "on" if _CONCEPTS_SEED else "off")
 
 
 
