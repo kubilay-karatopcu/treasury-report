@@ -461,7 +461,10 @@ function buildEdges(scope) {
   // list is used as a fallback so initial page-load wiring (lookup info
   // from the table-doc store) still shows up — duplicates are deduped by
   // column pair below; dismissed suggestions are filtered out entirely.
-  const suggested = [...computeSuggestedEdges(scope.basket), ...SUGGESTED];
+  // Auto-suggested join edges disabled — too cluttered on the canvas. Manual
+  // joins (drag node→node) and confirmed scope.joins still render. Flip back to
+  // `[...computeSuggestedEdges(scope.basket), ...SUGGESTED]` to re-enable.
+  const suggested = [];
   const sugSeen = new Set();
   suggested.forEach((s, i) => {
     if (!aliases.has(s.left.alias) || !aliases.has(s.right.alias)) return;

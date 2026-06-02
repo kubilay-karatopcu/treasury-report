@@ -639,49 +639,20 @@ export default function ManualSqlEditor({ block, previewMode = false, onPreviewR
         </div>
       </Section>
 
-      <Section title={`Değişkenler ${bindNames.length ? `(${bindNames.length})` : ''}`}>
-        {bindNames.length === 0 && vars.length === 0 && (
-          <div className="props-form-hint">
-            SQL'inize <code>:isim</code> ekleyin; <strong>Şemayı Tara</strong>'da otomatik tanınır.
-          </div>
-        )}
-        {orphaned.length > 0 && (
-          <div className="props-orphan-warning">
-            <AlertTriangle size={12} strokeWidth={2} />
-            <span>
-              SQL'de geçmeyen değişken{orphaned.length > 1 ? 'ler' : ''}:{' '}
-              <strong>{orphaned.map((v) => v.name).join(', ')}</strong>.
-              İstersen aşağıdan sil.
-            </span>
-          </div>
-        )}
-        <div className="props-var-list">
-          {vars.map((v, i) => (
-            <VariableRow
-              key={`${v.name}-${i}`}
-              v={v}
-              onChange={(p) => updateVar(i, p)}
-              onRemove={() => removeVar(i)}
-              orphaned={!!v.name && !bindNames.includes(v.name)}
-            />
-          ))}
-        </div>
-        {/* The actual "execute" button lives below the variable list, so the
-            user's eye flows top→bottom: write SQL → tara → fill in defaults →
-            çalıştır. Buton sticks out as the primary CTA in this section. */}
-        <div className="props-run-row">
-          <button
-            type="button"
-            className="props-btn props-btn--primary props-btn--run"
-            onClick={() => handleRun('execute')}
-            disabled={busy || !sql.trim()}
-            title="Sorguyu değişkenlerle birlikte çalıştır"
-          >
-            <Play size={14} strokeWidth={2.2} className={busy ? 'spin' : ''} />
-            <span>{busy ? 'Çalışıyor…' : 'Çalıştır'}</span>
-          </button>
-        </div>
-      </Section>
+      {/* "Değişkenler" bölümü kaldırıldı — :bind değişkenleri yerine artık
+          concept filtreleri kullanılıyor. Yalnızca Çalıştır butonu kalır. */}
+      <div className="props-run-row">
+        <button
+          type="button"
+          className="props-btn props-btn--primary props-btn--run"
+          onClick={() => handleRun('execute')}
+          disabled={busy || !sql.trim()}
+          title="Sorguyu çalıştır"
+        >
+          <Play size={14} strokeWidth={2.2} className={busy ? 'spin' : ''} />
+          <span>{busy ? 'Çalışıyor…' : 'Çalıştır'}</span>
+        </button>
+      </div>
     </>
   );
 }
