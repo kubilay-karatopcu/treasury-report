@@ -10,7 +10,7 @@ import SaveModal       from './components/SaveModal.jsx';
 import SaveBlockModal  from './components/SaveBlockModal.jsx';
 import AddBlockPanel   from './components/AddBlockPanel.jsx';
 import ReportTitle     from './components/ReportTitle.jsx';
-import PropertiesPanel, { RefreshPolicyControls } from './components/PropertiesPanel.jsx';
+import PropertiesPanel from './components/PropertiesPanel.jsx';
 import TableDocsPanel  from './components/TableDocsPanel.jsx';
 import ChatBox         from './components/ChatBox.jsx';
 import { Sparkles, Plus, HelpCircle } from 'lucide-react';
@@ -609,10 +609,8 @@ function TemplateEditProperties({ block }) {
       </section>
 
       <TemplateManualEditor block={block} />
-
-      {/* Phase B — refresh policy editor. Same component used in the main
-          presentation editor's PropertiesPanel. */}
-      <RefreshPolicyControls block={block} />
+      {/* "Veri Yenileme Politikası" kaldırıldı — yenileme blok bazlı değil,
+          tablo bazlı yönetiliyor (Hazırlık'taki dataset cron'u). */}
     </div>
   );
 }
