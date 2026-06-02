@@ -48,7 +48,7 @@ _REL_RE = re.compile(
     r"""
     ^\s*
     today
-    (?:\s*-\s*(?P<n>\d+)(?P<unit>[dwmy]))?
+    (?:\s*-\s*(?P<n>\d+)\s*(?P<unit>[dwmy])?)?   # unit optional → defaults to days
     \s*$
     """,
     re.VERBOSE | re.IGNORECASE,
@@ -118,7 +118,7 @@ def parse_date_expr(expr: Any, today: date | None = None) -> date:
         if m.group("n") is None:
             return today
         n = int(m.group("n"))
-        unit = m.group("unit").lower()
+        unit = (m.group("unit") or "d").lower()   # bare "today - 7" → 7 days
         if unit == "d":
             return today - timedelta(days=n)
         if unit == "w":

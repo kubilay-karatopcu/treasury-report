@@ -30,11 +30,11 @@ export function _resolveDateExpr(v) {
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);   // ISO (date or datetime)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const rel = s.match(/^today(?:\s*-\s*(\d+)\s*([dwmy]))?$/i);
+  const rel = s.match(/^today(?:\s*-\s*(\d+)\s*([dwmy])?)?$/i);   // unit optional → days
   if (rel) {
     if (!rel[1]) return _toIsoDate(today);
     const n = parseInt(rel[1], 10);
-    const u = rel[2].toLowerCase();
+    const u = (rel[2] || 'd').toLowerCase();
     const d = new Date(today);
     if (u === 'd') d.setDate(d.getDate() - n);
     else if (u === 'w') d.setDate(d.getDate() - n * 7);
@@ -58,6 +58,6 @@ export function _resolveDateExpr(v) {
 export function isRelativeDateExpr(v) {
   if (!v || typeof v !== 'string') return false;
   const s = v.trim();
-  return /^today(\s*-\s*\d+\s*[dwmy])?$/i.test(s)
+  return /^today(\s*-\s*\d+\s*[dwmy]?)?$/i.test(s)
       || /^start_of_(month|year|quarter)$/i.test(s);
 }

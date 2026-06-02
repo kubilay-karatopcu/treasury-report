@@ -94,14 +94,16 @@ def rule_concept_coverage(scope: ScopeContract, catalog: Catalog):
 # ── Rule 4: pinned filter consistency ───────────────────────────────────────
 
 def _as_date(v):
+    # Resolve ISO, date objects, and the relative grammar (today, today - 7d,
+    # bare today - 7, start_of_month …) so the between-consistency check orders
+    # relative ranges correctly instead of comparing the raw exprs as strings.
     if isinstance(v, date):
         return v
-    if isinstance(v, str):
-        try:
-            return date.fromisoformat(v.strip()[:10])
-        except ValueError:
-            return None
-    return None
+    try:
+        from presentations.variables.resolver import parse_date_expr
+        return parse_date_expr(v)
+    except Exception:
+        return None
 
 
 def rule_pinned_consistency(scope: ScopeContract, catalog: Catalog):
@@ -110,10 +112,10 @@ def rule_pinned_consistency(scope: ScopeContract, catalog: Catalog):
         if f.op == "between":
             lo, hi = f.from_, f.to
             lo_d, hi_d = _as_date(lo), _as_date(hi)
-            inverted = (
-                (lo_d is not None and hi_d is not None and lo_d > hi_d)
-                or (lo_d is None and hi_d is None and lo is not None and hi is not None and lo > hi)
-            )
+            # Only flag when both endpoints resolve to real dates. Unresolvable
+            # values can't be ordered — skip rather than lexically comparing
+            # exprs (which wrongly ranks "today - 7d" > "today").
+            inverted = lo_d is not None and hi_d is not None and lo_d > hi_d
             if inverted:
                 errors.append(
                     f"Pinned filter '{f.id}': between requires from <= to "
