@@ -112,6 +112,18 @@ if DEV_MODE:
             r"DATE_TRUNC('month', \1)",
             s, flags=_re.IGNORECASE,
         )
+        # Bare TRUNC(date) → DATE_TRUNC('day', date). Oracle's TRUNC(date)
+        # defaults to day; DuckDB's TRUNC is numeric-only, so a DATE arg errors
+        # ("No function matches trunc(DATE)"). The Phase 7 time_truncation
+        # transform emits exactly this — TRUNC(col) — so concept filters on
+        # time-truncated columns work on the DEV fake_db too (real Oracle has
+        # native TRUNC(date), so this rewrite is DEV-only). `\bTRUNC` won't
+        # match inside the already-rewritten DATE_TRUNC( above (word boundary).
+        s = _re.sub(
+            r"\bTRUNC\s*\(\s*([A-Za-z_][\w$#.]*)\s*\)",
+            r"DATE_TRUNC('day', \1)",
+            s, flags=_re.IGNORECASE,
+        )
 
         # Aggregation gate Oracle'a göre WHERE ROWNUM <= N ekliyor — DuckDB
         # ROWNUM bilmiyor, LIMIT'e çevir. (WHERE ROWNUM clause'u tek koşul ise.)
