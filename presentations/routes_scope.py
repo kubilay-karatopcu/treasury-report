@@ -299,12 +299,23 @@ def _default_draft_scope(pid: str) -> ScopeContract:
 def _load_latest_scope_or_draft(pid: str) -> ScopeContract:
     """Resolve the scope to render on Hazırlık page load. Priority:
 
-    1. SCOPE_STORE.load_latest(pid) — the user already built once.
-    2. session.manifest.draft_scope — the user added tables / filters
-       in a prior visit but never clicked "Sunum'a geç". Auto-saved by
-       /scope/save-draft as they work.
+    1. session.manifest.draft_scope — the user's latest in-progress edits
+       (tables / filters), auto-saved by /scope/save-draft on every change and
+       CLEARED on build. A present draft is therefore always newer than the
+       last built version (uncommitted edits), so it must win — otherwise the
+       built version shadows those edits and the user loses them on the next
+       reload or Keşif round-trip (filters silently dropped).
+    2. SCOPE_STORE.load_latest(pid) — the last built version (draft cleared).
     3. Empty default — first visit on this presentation.
     """
+    try:
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        manifest = sess.get_manifest() or {}
+        draft = manifest.get("draft_scope")
+        if isinstance(draft, dict) and (draft.get("basket") or []):
+            return load_scope_from_dict({"scope": draft})
+    except Exception:
+        log.warning("hazirlik: draft load failed for %s", pid, exc_info=True)
     store = current_app.config.get("SCOPE_STORE")
     if store is not None:
         try:
@@ -313,15 +324,6 @@ def _load_latest_scope_or_draft(pid: str) -> ScopeContract:
                 return sc
         except Exception:
             log.warning("hazirlik: load_latest failed for %s", pid, exc_info=True)
-    # No persisted build — try the session-scoped draft.
-    try:
-        sess = _registry().get_or_create(current_user.sicil, pid)
-        manifest = sess.get_manifest() or {}
-        draft = manifest.get("draft_scope")
-        if isinstance(draft, dict):
-            return load_scope_from_dict({"scope": draft})
-    except Exception:
-        log.warning("hazirlik: draft load failed for %s", pid, exc_info=True)
     return _default_draft_scope(pid)
 
 
@@ -989,6 +991,10 @@ def build_scope(pid: str):
     }
     manifest["scope_ref"] = {"presentation_id": pid, "scope_version": version}
     manifest["version"] = int(manifest.get("version", 0)) + 1
+    # Built → this version is authoritative. Drop the in-progress draft so the
+    # next Hazırlık load uses the build, not a now-stale draft. (Draft-first
+    # priority in _load_latest_scope_or_draft relies on this clear.)
+    manifest.pop("draft_scope", None)
     session.set_manifest(manifest)
 
     return _json({
