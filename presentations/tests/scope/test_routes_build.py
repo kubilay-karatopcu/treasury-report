@@ -185,3 +185,35 @@ def test_editor_shows_scope_banner_after_build(client):
     assert 'class="scope-banner"' in page
     assert "Scope v1" in page
     assert "/presentations/hazirlik/p_build" in page
+
+
+def test_draft_priority_and_build_clears_draft(client, app):
+    """A post-build in-progress draft (e.g. a filter added but not yet built)
+    must win over the built version on reload — otherwise it's silently lost on
+    a Keşif round-trip. Build clears the draft so the next load uses the build.
+    """
+    reg = app.config["SESSION_REGISTRY"]
+
+    # A draft exists before build.
+    client.post("/presentations/p_build/scope/save-draft", json={"scope": _scope_body()["scope"]})
+    m0 = reg.get_or_create("A16438", "p_build").get_manifest() or {}
+    assert isinstance(m0.get("draft_scope"), dict)
+
+    # Build clears it.
+    assert client.post("/presentations/p_build/scope/build", json=_scope_body()).get_json()["ok"]
+    m1 = reg.get_or_create("A16438", "p_build").get_manifest() or {}
+    assert not m1.get("draft_scope")
+
+    # A post-build edit (a raw filter) lives only in the draft.
+    edited = {**_scope_body()["scope"],
+              "filters": {"pinned": [], "interactive": [], "raw": [
+                  {"id": "rf_b_x", "alias": "positions", "column": "BRANCH_ID",
+                   "op": "eq", "value": "402"}]}}
+    client.post("/presentations/p_build/scope/save-draft", json={"scope": edited})
+
+    # The draft (with the filter) must win over the built scope_v1.
+    from presentations.routes_scope import _load_latest_scope_or_draft
+    with app.test_request_context():
+        login_user(_FakeUser())
+        sc = _load_latest_scope_or_draft("p_build")
+    assert any(f.id == "rf_b_x" for f in sc.filters.raw)

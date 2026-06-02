@@ -618,24 +618,46 @@ function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
 
 // ── Build-confirm modal (re-entry warning, 8.e) ────────────────────────────
 
-function BuildConfirmModal({ preview, onConfirm, onCancel }) {
-  const { diff = {}, affected_blocks = [], summary = {}, parent_version } = preview;
+// Human-readable filter description for the diff chips (instead of raw ids
+// like "pf_as_of_time_buv45") — looks the filter up in the pending scope.
+function _opText(f) {
+  if (f.op === "between") return `${f.from ?? "…"} → ${f.to ?? "…"}`;
+  if (f.op === "in") return `∈ {${(f.values || []).join(", ")}}`;
+  if (f.op === "not_in") return `∉ {${(f.values || []).join(", ")}}`;
+  if (f.op === "eq") return `= ${f.value ?? (f.values || [])[0] ?? ""}`;
+  if (f.op === "last_n_days") return `son ${f.value ?? f.n ?? ""} gün`;
+  const sym = { gt: ">", gte: "≥", lt: "<", lte: "≤" }[f.op];
+  return sym ? `${sym} ${f.value ?? ""}` : (f.op || "");
+}
+function describeFilter(id, scope) {
+  const fs = (scope && scope.filters) || {};
+  const p = (fs.pinned || []).find((x) => x.id === id);
+  if (p) return `${p.concept}: ${_opText(p)}`;
+  const r = (fs.raw || []).find((x) => x.id === id);
+  if (r) return `${r.column}: ${_opText(r)}`;
+  return id;
+}
+
+function BuildConfirmModal({ preview, scope, onConfirm, onCancel }) {
+  const { diff = {}, affected_blocks = [], summary = {} } = preview;
   const breaking = summary.breaking || 0;
   const warning = summary.warning || 0;
   const blocks = affected_blocks;
 
-  // Section-by-section diff summary lines — only the non-empty ones.
+  // Section-by-section diff summary lines — only the non-empty ones. Filters
+  // render as human descriptions (concept/column + op + değerler), not raw ids.
+  const fdesc = (id) => describeFilter(id, scope);
   const lines = [];
   if (diff.added?.length) lines.push({ label: "Eklenen tablolar", items: diff.added });
   if (diff.removed?.length) lines.push({ label: "Çıkarılan tablolar", items: diff.removed });
   if (diff.changed?.length) lines.push({ label: "Değişen tablolar", items: diff.changed });
-  if (diff.filters?.added?.length) lines.push({ label: "Eklenen pinned filter", items: diff.filters.added });
-  if (diff.filters?.removed?.length) lines.push({ label: "Çıkarılan pinned filter", items: diff.filters.removed });
-  if (diff.filters?.modified?.length) lines.push({ label: "Değişen pinned filter", items: diff.filters.modified });
+  if (diff.filters?.added?.length) lines.push({ label: "Eklenen filtre", items: diff.filters.added.map(fdesc) });
+  if (diff.filters?.removed?.length) lines.push({ label: "Kaldırılan filtre", items: diff.filters.removed.map(fdesc) });
+  if (diff.filters?.modified?.length) lines.push({ label: "Değişen filtre", items: diff.filters.modified.map(fdesc) });
   if (diff.pin_flips?.length) {
     lines.push({
-      label: "Pin durumu değişen filter",
-      items: diff.pin_flips.map((p) => `${p.id} (${p.direction})`),
+      label: "Sabitleme durumu değişen filtre",
+      items: diff.pin_flips.map((p) => `${fdesc(p.id)} (${p.direction})`),
     });
   }
   if (diff.joins?.added?.length) lines.push({ label: "Eklenen join", items: diff.joins.added });
@@ -644,7 +666,7 @@ function BuildConfirmModal({ preview, onConfirm, onCancel }) {
 
   return (
     <Modal
-      title={`Scope güncellemesi · scope_v${parent_version} → yeni sürüm`}
+      title="Değişiklikleri onayla"
       size="md"
       onClose={onCancel}
       footer={
@@ -659,8 +681,11 @@ function BuildConfirmModal({ preview, onConfirm, onCancel }) {
         </>
       }
     >
+      <p className="hz-muted" style={{ marginTop: 0, fontSize: 12 }}>
+        Bu değişiklikler uygulanıp Sunum'a geçilecek (yeni bir sürüm kaydedilir).
+      </p>
       {lines.length === 0 ? (
-        <p className="hz-muted">Scope'ta görsel bir değişiklik yok ama yeni bir sürüm yazılacak.</p>
+        <p className="hz-muted">Görünür bir değişiklik yok — yine de onaylayıp Sunum'a geçebilirsin.</p>
       ) : (
         <div className="hz-build-diff">
           {lines.map((l, i) => (
@@ -2536,7 +2561,7 @@ function App() {
           onSave={({ lcol, rcol, kind }) => { addJoin(joinModal.left, lcol, joinModal.right, rcol, kind); setJoinModal(null); }} />
       )}
       {buildPreview && (
-        <BuildConfirmModal preview={buildPreview} onConfirm={confirmBuild} onCancel={cancelBuild} />
+        <BuildConfirmModal preview={buildPreview} scope={pendingScope} onConfirm={confirmBuild} onCancel={cancelBuild} />
       )}
       {refreshAlias && (() => {
         const it = (scope.basket || []).find((b) => b.alias === refreshAlias);
