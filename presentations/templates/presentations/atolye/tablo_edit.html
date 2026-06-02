@@ -476,6 +476,9 @@
       description: c.description || '',
       filterable: !!c.filterable,
       concept: c.concept || '',
+      transform_kind: c.transform_kind || 'identity',
+      tp_pairs: c.tp_pairs || '', tp_dim_table: c.tp_dim_table || '', tp_dim_key: c.tp_dim_key || '',
+      tp_dim_canonical: c.tp_dim_canonical || '', tp_ranges_concept: c.tp_ranges_concept || '',
       aggregatable: !!c.aggregatable,
       get_distinct: !!c.get_distinct,
       visible_in_ui: c.visible_in_ui !== false,  // default true
@@ -510,7 +513,8 @@
   $addBtn.addEventListener('click', () => {
     state.columns.push({
       name: '', type: '', description: '',
-      filterable: false, concept: '',
+      filterable: false, concept: '', transform_kind: 'identity',
+      tp_pairs: '', tp_dim_table: '', tp_dim_key: '', tp_dim_canonical: '', tp_ranges_concept: '',
       aggregatable: false, get_distinct: false, visible_in_ui: true,
       lookup: null,
     });
@@ -555,6 +559,42 @@
     if (current && !names.includes(current)) {
       state.partition_column = '';
     }
+  }
+
+  // Transform (mapping) picker — mirrors the Konseptler assign form. Shown once
+  // a filterable column has a concept; the chosen kind + params become the
+  // Phase 7 binding's transform server-side (_sync_column_bindings).
+  function renderTransform(col) {
+    const k = col.transform_kind || 'identity';
+    const opt = (v, label) => `<option value="${v}"${k === v ? ' selected' : ''}>${label}</option>`;
+    let params = '';
+    if (k === 'map') {
+      params = `<div class="field field--wide"><label>Eşlemeler — her satır: <code>tablo_değeri = KANONIK_KOD</code></label>`
+        + `<textarea rows="3" data-field="tp_pairs" placeholder="TL = TRY&#10;Dolar = USD">${escapeHtml(col.tp_pairs || '')}</textarea></div>`;
+    } else if (k === 'lookup') {
+      params = `<div class="form-grid">`
+        + `<div class="field"><label>Boyut tablosu</label><input type="text" data-field="tp_dim_table" value="${escapeHtml(col.tp_dim_table || '')}" placeholder="LOOKUP.DIM_BRANCH" /></div>`
+        + `<div class="field"><label>Join key</label><input type="text" data-field="tp_dim_key" value="${escapeHtml(col.tp_dim_key || '')}" placeholder="BRANCH_CODE" /></div>`
+        + `<div class="field"><label>Kanonik kolon</label><input type="text" data-field="tp_dim_canonical" value="${escapeHtml(col.tp_dim_canonical || '')}" placeholder="REGION_CODE" /></div>`
+        + `</div>`;
+    } else if (k === 'bucket_from_range') {
+      params = `<div class="field field--wide"><label>Aralık concept'i (ranges_concept)</label>`
+        + `<input type="text" data-field="tp_ranges_concept" value="${escapeHtml(col.tp_ranges_concept || '')}" placeholder="${escapeHtml(col.concept || '')}" /></div>`;
+    }
+    return `
+      <div class="form-grid">
+        <div class="field field--wide">
+          <label>Eşleme (transform)</label>
+          <select data-field="transform_kind">
+            ${opt('identity', 'identity — kolon zaten kanonik kod')}
+            ${opt('time_truncation', 'time_truncation — TRUNC(col) aralık')}
+            ${opt('map', 'map — tablo değeri → kanonik kod')}
+            ${opt('lookup', "lookup — boyut tablosu join'i")}
+            ${opt('bucket_from_range', 'bucket_from_range — sayısal kova')}
+          </select>
+        </div>
+      </div>
+      ${params}`;
   }
 
   // ── Column card renderer ──────────────────────────────────────────────
@@ -614,6 +654,7 @@
             <select data-field="concept">${conceptOptions}</select>
           </div>
         </div>
+        ${col.concept ? renderTransform(col) : ''}
         ` : ''}
 
         <label class="field-check">
@@ -703,6 +744,8 @@
       }
     } else if (e.target.tagName === 'SELECT') {
       col[field] = e.target.value;
+      // Concept / transform-kind changes show/hide dependent fields → re-render.
+      if (field === 'concept' || field === 'transform_kind') renderCols();
     }
   });
 
@@ -744,6 +787,9 @@
           description: c.description,
           filterable: c.filterable,
           concept: c.concept,
+          transform_kind: c.transform_kind,
+          tp_pairs: c.tp_pairs, tp_dim_table: c.tp_dim_table, tp_dim_key: c.tp_dim_key,
+          tp_dim_canonical: c.tp_dim_canonical, tp_ranges_concept: c.tp_ranges_concept,
           aggregatable: c.aggregatable,
           get_distinct: c.get_distinct,
           visible_in_ui: c.visible_in_ui,
@@ -763,8 +809,16 @@
         setStatus('Hata', 'error');
         return;
       }
-      setStatus(`Kaydedildi · ${data.columns_count} kolon`, 'saved');
-      setTimeout(() => setStatus('Hazır'), 3500);
+      const warns = data.warnings || [];
+      if (warns.length) {
+        $errorBox.style.display = 'block';
+        $errorBox.innerHTML = '<strong>Kaydedildi — bazı eşlemeler atlandı:</strong><ul>'
+          + warns.map(escapeHtml).map(w => `<li>${w}</li>`).join('') + '</ul>';
+        setStatus(`Kaydedildi · ${data.columns_count} kolon · ${warns.length} uyarı`, 'saved');
+      } else {
+        setStatus(`Kaydedildi · ${data.columns_count} kolon`, 'saved');
+        setTimeout(() => setStatus('Hazır'), 3500);
+      }
     } catch (e) {
       showErrors([String(e)]);
       setStatus('Hata', 'error');

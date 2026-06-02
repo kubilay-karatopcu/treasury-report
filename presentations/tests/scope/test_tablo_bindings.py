@@ -52,6 +52,30 @@ def test_sync_writes_only_filterable_with_concept(app):
     assert getattr(b.transform, "kind", None) == "identity"
 
 
+def test_sync_writes_chosen_transform(app):
+    with app.test_request_context():
+        _sync_column_bindings("ODS_TREASURY", "RES", [
+            {"name": "CCY", "filterable": True, "concept": "currency",
+             "transform_kind": "map", "tp_pairs": "TL = TRY\nDolar = USD"}])
+    bc = app.config["CONCEPT_BINDING_CATALOG"]
+    bc.reload()
+    bindings = bc.get_bindings("ODS_TREASURY", "RES")
+    assert len(bindings) == 1
+    assert bindings[0].transform.kind == "map"
+    assert bindings[0].transform.pairs == {"TL": "TRY", "Dolar": "USD"}
+
+
+def test_sync_skips_incomplete_map_with_warning(app):
+    with app.test_request_context():
+        warns = _sync_column_bindings("ODS_TREASURY", "RES", [
+            {"name": "CCY", "filterable": True, "concept": "currency",
+             "transform_kind": "map", "tp_pairs": ""}])  # map needs ≥1 pair
+    assert warns and "CCY" in warns[0]
+    bc = app.config["CONCEPT_BINDING_CATALOG"]
+    bc.reload()
+    assert len(bc.get_bindings("ODS_TREASURY", "RES")) == 0
+
+
 def test_sync_clears_binding_when_concept_removed(app):
     bc = app.config["CONCEPT_BINDING_CATALOG"]
     with app.test_request_context():
