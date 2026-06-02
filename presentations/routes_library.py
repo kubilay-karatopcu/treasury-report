@@ -147,17 +147,36 @@ def tablo_edit(schema: str, table: str):
     )
 
 
+def _transform_to_form(transform) -> dict:
+    """Inverse of the assign form's transform → flat editor fields, so the
+    table-doc editor shows the column's current mapping (like Konseptler)."""
+    if transform is None:
+        return {}
+    kind = getattr(transform, "kind", "identity")
+    out: dict = {"transform_kind": kind}
+    if kind == "map":
+        pairs = getattr(transform, "pairs", None) or {}
+        out["tp_pairs"] = "\n".join(f"{k} = {v}" for k, v in pairs.items())
+    elif kind == "lookup":
+        out["tp_dim_table"] = getattr(transform, "dim_table", "") or ""
+        out["tp_dim_key"] = getattr(transform, "dim_key", "") or ""
+        out["tp_dim_canonical"] = getattr(transform, "dim_canonical", "") or ""
+    elif kind == "bucket_from_range":
+        out["tp_ranges_concept"] = getattr(transform, "ranges_concept", "") or ""
+    return out
+
+
 def _table_doc_to_form(doc) -> dict:
     """Convert a TableDoc into the form payload the editor consumes. Each
-    column's ``concept`` is read from the Phase 7 binding catalog (human_verified
-    only) so the editor's Concept dropdown shows the current pick."""
-    bind_by_col: dict[str, str] = {}
+    column's ``concept`` + ``transform`` is read from the Phase 7 binding
+    catalog (human_verified) so the editor shows the current pick + mapping."""
+    bind_by_col: dict = {}
     try:
         bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
         if bc is not None:
             for b in bc.get_bindings(doc.schema_name, doc.table):  # verified_only
                 if getattr(b, "column", None) and getattr(b, "concept", None):
-                    bind_by_col[b.column] = b.concept
+                    bind_by_col[b.column] = b
     except Exception:
         pass
     columns: list[dict] = []
@@ -169,12 +188,20 @@ def _table_doc_to_form(doc) -> dict:
                 "key": col.lookup.key,
                 "display": col.lookup.display,
             }
+        b = bind_by_col.get(name)
+        tf = _transform_to_form(getattr(b, "transform", None)) if b is not None else {}
         columns.append({
             "name": name,
             "type": col.type,
             "description": col.description or "",
             "filterable": bool(col.filterable),
-            "concept": bind_by_col.get(name, ""),
+            "concept": (b.concept if b is not None else ""),
+            "transform_kind": tf.get("transform_kind", "identity"),
+            "tp_pairs": tf.get("tp_pairs", ""),
+            "tp_dim_table": tf.get("tp_dim_table", ""),
+            "tp_dim_key": tf.get("tp_dim_key", ""),
+            "tp_dim_canonical": tf.get("tp_dim_canonical", ""),
+            "tp_ranges_concept": tf.get("tp_ranges_concept", ""),
             "aggregatable": bool(col.aggregatable),
             "get_distinct": bool(col.get_distinct),
             "visible_in_ui": bool(col.visible_in_ui),
@@ -259,11 +286,13 @@ def tablo_save(schema: str, table: str):
         log.exception("tablo_save: store.save failed for %s.%s", schema, table)
         return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=500)
 
-    # Sync per-column concept picks → Phase 7 human_verified bindings so the
-    # filter compiler actually applies them (structured form path only).
+    # Sync per-column concept + transform picks → Phase 7 human_verified
+    # bindings so the filter compiler actually applies them (form path only).
+    binding_warnings: list[str] = []
     if isinstance(body.get("form"), dict):
         try:
-            _sync_column_bindings(doc.schema_name, doc.table, body["form"].get("columns") or [])
+            binding_warnings = _sync_column_bindings(
+                doc.schema_name, doc.table, body["form"].get("columns") or [])
         except Exception:
             log.exception("tablo_save: binding sync failed for %s.%s", schema, table)
 
@@ -272,6 +301,7 @@ def tablo_save(schema: str, table: str):
         "schema": doc.schema_name,
         "table": doc.table,
         "columns_count": len(doc.columns),
+        "warnings": binding_warnings,
     })
 
 
@@ -402,28 +432,51 @@ def _form_to_table_doc_dict(schema: str, table: str, form: dict) -> dict:
     return out
 
 
-def _sync_column_bindings(schema: str, table: str, columns: list) -> None:
-    """Persist the table doc's per-column concept picks as Phase 7 human_verified
-    identity bindings. The compiler only applies verified bindings, so a tag
-    alone wouldn't push the filter down — picking a concept here IS the human
-    verification. The form is authoritative for the columns it lists: filterable
-    + concept → binding; everything else → no binding. An existing human_verified
-    binding for the same (column, concept) is preserved verbatim so a richer
-    transform set via Konseptler isn't clobbered with identity.
-    """
+def _column_transform(col: dict) -> dict:
+    """Assemble a transform dict from the editor's flat transform fields,
+    mirroring the Konseptler assign form (reuses routes_kesif._build_transform)."""
+    from presentations.routes_kesif import _build_transform
+    kind = (col.get("transform_kind") or "identity").strip()
+    params: dict = {}
+    if kind == "map":
+        pairs: dict[str, str] = {}
+        for line in (col.get("tp_pairs") or "").split("\n"):
+            if "=" in line:
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip()
+                if k and v:
+                    pairs[k] = v
+        params = {"pairs": pairs}
+    elif kind == "lookup":
+        params = {
+            "dim_table": col.get("tp_dim_table"),
+            "dim_key": col.get("tp_dim_key"),
+            "dim_canonical": col.get("tp_dim_canonical"),
+        }
+    elif kind == "bucket_from_range":
+        params = {"ranges_concept": col.get("tp_ranges_concept")}
+    return _build_transform(kind, params)
+
+
+def _sync_column_bindings(schema: str, table: str, columns: list) -> list[str]:
+    """Persist each filterable column's concept + transform pick as a Phase 7
+    human_verified binding (the compiler only applies verified bindings, so a
+    tag alone wouldn't push the filter down — picking a concept + mapping here
+    IS the human verification). The form is authoritative for the columns it
+    lists: filterable + concept → binding with the chosen transform; everything
+    else → no binding. Returns warnings for columns whose transform was
+    incomplete (skipped so the binding doc stays valid)."""
+    warnings: list[str] = []
     bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
     if bc is None:
-        return
+        return warnings
+    from presentations.concepts.schema import ColumnBinding
     reg = current_app.config.get("CONCEPT_REGISTRY")
     raw = bc.get_raw_doc(schema, table)
     if not isinstance(raw, dict):
         raw = {}
     raw.setdefault("table", table)
     raw.setdefault("schema", schema)
-    prev: dict[tuple[str, str], dict] = {}
-    for b in (raw.get("concept_bindings") or []):
-        if isinstance(b, dict) and b.get("column") and b.get("concept"):
-            prev[(b["column"], b["concept"])] = b
     sicil = getattr(current_user, "sicil", None) or "unknown"
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     new_bindings: list[dict] = []
@@ -435,19 +488,23 @@ def _sync_column_bindings(schema: str, table: str, columns: list) -> None:
         if not name or not concept:
             continue
         if reg is not None and not reg.has(concept):
+            warnings.append(f"{name}: bilinmeyen concept '{concept}' — atlandı")
             continue
-        existing = prev.get((name, concept))
-        if isinstance(existing, dict) and existing.get("confidence") == "human_verified":
-            new_bindings.append(existing)
-        else:
-            new_bindings.append({
-                "concept": concept, "column": name,
-                "transform": {"kind": "identity"},
-                "confidence": "human_verified", "verified_by": sicil,
-                "verified_at": now,
-            })
+        candidate = {
+            "concept": concept, "column": name,
+            "transform": _column_transform(col),
+            "confidence": "human_verified", "verified_by": sicil,
+            "verified_at": now,
+        }
+        try:
+            ColumnBinding.model_validate(candidate)
+        except Exception:
+            warnings.append(f"{name} → {concept}: eşleme (transform) eksik/geçersiz — atlandı")
+            continue
+        new_bindings.append(candidate)
     raw["concept_bindings"] = new_bindings
     bc.save_doc(schema, table, raw)
+    return warnings
 
 
 # ════════════════════════════════════════════════════════════════════════
