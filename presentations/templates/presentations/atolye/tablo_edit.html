@@ -455,7 +455,7 @@
   </div>
 
   <script id="initial-form-data" type="application/json">{{ form_json | safe }}</script>
-  <script id="initial-options-data" type="application/json">{{ {'semantic_tags': semantic_tags, 'filter_roles': filter_roles} | tojson | safe }}</script>
+  <script id="initial-options-data" type="application/json">{{ {'concepts': concepts} | tojson | safe }}</script>
 {% endblock %}
 
 {% block scripts %}
@@ -475,9 +475,7 @@
       type: c.type || '',
       description: c.description || '',
       filterable: !!c.filterable,
-      filter_role: c.filter_role || '',
-      suggested_variable: c.suggested_variable || '',
-      suggested_semantic_tag: c.suggested_semantic_tag || '',
+      concept: c.concept || '',
       aggregatable: !!c.aggregatable,
       get_distinct: !!c.get_distinct,
       visible_in_ui: c.visible_in_ui !== false,  // default true
@@ -512,8 +510,7 @@
   $addBtn.addEventListener('click', () => {
     state.columns.push({
       name: '', type: '', description: '',
-      filterable: false, filter_role: '',
-      suggested_variable: '', suggested_semantic_tag: '',
+      filterable: false, concept: '',
       aggregatable: false, get_distinct: false, visible_in_ui: true,
       lookup: null,
     });
@@ -563,10 +560,10 @@
   // ── Column card renderer ──────────────────────────────────────────────
   function renderCol(col, idx) {
     const hasLookup = !!col.lookup;
-    const semTagOptions = '<option value="">— (yok)</option>' +
-      buildOptions(OPTS.semantic_tags, col.suggested_semantic_tag);
-    const filterRoleOptions = '<option value="">— (yok)</option>' +
-      buildOptions(OPTS.filter_roles, col.filter_role);
+    const conceptOptions = '<option value="">— (concept yok)</option>' +
+      (OPTS.concepts || []).map((c) =>
+        `<option value="${escapeHtml(c.id)}"${c.id === col.concept ? ' selected' : ''}>${escapeHtml(c.label)} · ${escapeHtml(c.id)}</option>`
+      ).join('');
 
     return `
       <div class="col-card" data-idx="${idx}">
@@ -610,21 +607,14 @@
           </label>
         </div>
 
+        ${col.filterable ? `
         <div class="form-grid">
-          <div class="field">
-            <label>Filtre Rolü</label>
-            <select data-field="filter_role" ${!col.filterable ? 'disabled' : ''}>${filterRoleOptions}</select>
-          </div>
-          <div class="field">
-            <label>Önerilen Değişken</label>
-            <input type="text" data-field="suggested_variable" value="${escapeHtml(col.suggested_variable)}"
-                   placeholder="ör: branch_id" />
-          </div>
-          <div class="field">
-            <label>Önerilen Semantic Tag</label>
-            <select data-field="suggested_semantic_tag">${semTagOptions}</select>
+          <div class="field field--wide">
+            <label>Concept</label>
+            <select data-field="concept">${conceptOptions}</select>
           </div>
         </div>
+        ` : ''}
 
         <label class="field-check">
           <input type="checkbox" data-field="has_lookup" ${hasLookup ? 'checked' : ''}/>
@@ -706,13 +696,8 @@
         if (grid) grid.style.display = e.target.checked ? '' : 'none';
       } else if (field === 'filterable') {
         col.filterable = e.target.checked;
-        // Filter role only makes sense when filterable; disable + clear when off.
-        const fr = card.querySelector('[data-field="filter_role"]');
-        if (fr) {
-          fr.disabled = !e.target.checked;
-          if (!e.target.checked) { fr.value = ''; col.filter_role = ''; }
-        }
-        updateSummary();
+        if (!e.target.checked) col.concept = '';   // concept only applies when filterable
+        renderCols();   // re-render to show/hide the Concept dropdown
       } else {
         col[field] = e.target.checked;
       }
@@ -758,9 +743,7 @@
           type: c.type,
           description: c.description,
           filterable: c.filterable,
-          filter_role: c.filter_role,
-          suggested_variable: c.suggested_variable,
-          suggested_semantic_tag: c.suggested_semantic_tag,
+          concept: c.concept,
           aggregatable: c.aggregatable,
           get_distinct: c.get_distinct,
           visible_in_ui: c.visible_in_ui,
@@ -936,8 +919,7 @@
     const mode = $ddlApplyRow.querySelector('input[name="ddl-mode"]:checked')?.value || 'append';
     const mk = (p) => ({
       name: p.name, type: p.type || '', description: '',
-      filterable: false, filter_role: '',
-      suggested_variable: '', suggested_semantic_tag: '',
+      filterable: false, concept: '',
       aggregatable: false, visible_in_ui: true, lookup: null,
     });
     let added = 0, dupes = 0;

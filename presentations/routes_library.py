@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -94,15 +95,17 @@ def tablo_edit(schema: str, table: str):
     a form-based editor. Save POSTs ``{form: {...}}`` to the same
     save endpoint; payload is rebuilt into the YAML shape server-side.
     """
-    from presentations.variables.semantic_tags import all_tags
-
-    # all_tags() returns dicts (id/label/description) — pick out just the ids
-    # for the dropdown, sorted with the 'other' escape hatch at the bottom.
+    # Concept dropdown options — the defined concepts from the registry. A
+    # filterable column picks one; it's persisted as a Phase 7 binding.
+    reg = current_app.config.get("CONCEPT_REGISTRY")
     try:
-        tag_ids = sorted([t["id"] for t in all_tags() if t.get("id") and t["id"] != "other"])
+        concepts = sorted(
+            ({"id": c.id, "label": getattr(c, "name", None) or c.id}
+             for c in (reg.all_concepts() if reg is not None else [])),
+            key=lambda x: x["id"],
+        )
     except Exception:
-        tag_ids = []
-    tag_ids.append("other")
+        concepts = []
 
     store = _table_store()
     exists = True
@@ -140,13 +143,23 @@ def tablo_edit(schema: str, table: str):
         form=form,
         form_json=json.dumps(form, ensure_ascii=False, default=str),
         meta=meta,
-        semantic_tags=tag_ids,
-        filter_roles=["time_axis", "dimension", "measure_threshold"],
+        concepts=concepts,
     )
 
 
 def _table_doc_to_form(doc) -> dict:
-    """Convert a TableDoc into the form payload the editor consumes."""
+    """Convert a TableDoc into the form payload the editor consumes. Each
+    column's ``concept`` is read from the Phase 7 binding catalog (human_verified
+    only) so the editor's Concept dropdown shows the current pick."""
+    bind_by_col: dict[str, str] = {}
+    try:
+        bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
+        if bc is not None:
+            for b in bc.get_bindings(doc.schema_name, doc.table):  # verified_only
+                if getattr(b, "column", None) and getattr(b, "concept", None):
+                    bind_by_col[b.column] = b.concept
+    except Exception:
+        pass
     columns: list[dict] = []
     for name, col in doc.columns.items():
         lookup = None
@@ -161,9 +174,7 @@ def _table_doc_to_form(doc) -> dict:
             "type": col.type,
             "description": col.description or "",
             "filterable": bool(col.filterable),
-            "filter_role": col.filter_role or "",
-            "suggested_variable": col.suggested_variable or "",
-            "suggested_semantic_tag": col.suggested_semantic_tag or "",
+            "concept": bind_by_col.get(name, ""),
             "aggregatable": bool(col.aggregatable),
             "get_distinct": bool(col.get_distinct),
             "visible_in_ui": bool(col.visible_in_ui),
@@ -247,6 +258,14 @@ def tablo_save(schema: str, table: str):
     except Exception as exc:
         log.exception("tablo_save: store.save failed for %s.%s", schema, table)
         return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=500)
+
+    # Sync per-column concept picks → Phase 7 human_verified bindings so the
+    # filter compiler actually applies them (structured form path only).
+    if isinstance(body.get("form"), dict):
+        try:
+            _sync_column_bindings(doc.schema_name, doc.table, body["form"].get("columns") or [])
+        except Exception:
+            log.exception("tablo_save: binding sync failed for %s.%s", schema, table)
 
     return _json({
         "ok": True,
@@ -352,15 +371,10 @@ def _form_to_table_doc_dict(schema: str, table: str, form: dict) -> dict:
 
         if col.get("filterable"):
             entry["filterable"] = True
-            fr = (col.get("filter_role") or "").strip()
-            if fr:
-                entry["filter_role"] = fr
-        sv = (col.get("suggested_variable") or "").strip()
-        if sv:
-            entry["suggested_variable"] = sv
-        sst = (col.get("suggested_semantic_tag") or "").strip()
-        if sst:
-            entry["suggested_semantic_tag"] = sst
+        # filter_role / suggested_variable / suggested_semantic_tag are no longer
+        # edited here — a filterable column picks a concept (registry), persisted
+        # as a Phase 7 human_verified binding (tablo_save → _sync_column_bindings),
+        # not on the table doc itself.
         if col.get("aggregatable"):
             entry["aggregatable"] = True
         if col.get("get_distinct"):
@@ -386,6 +400,54 @@ def _form_to_table_doc_dict(schema: str, table: str, form: dict) -> dict:
 
     out["columns"] = cols_dict
     return out
+
+
+def _sync_column_bindings(schema: str, table: str, columns: list) -> None:
+    """Persist the table doc's per-column concept picks as Phase 7 human_verified
+    identity bindings. The compiler only applies verified bindings, so a tag
+    alone wouldn't push the filter down — picking a concept here IS the human
+    verification. The form is authoritative for the columns it lists: filterable
+    + concept → binding; everything else → no binding. An existing human_verified
+    binding for the same (column, concept) is preserved verbatim so a richer
+    transform set via Konseptler isn't clobbered with identity.
+    """
+    bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    if bc is None:
+        return
+    reg = current_app.config.get("CONCEPT_REGISTRY")
+    raw = bc.get_raw_doc(schema, table)
+    if not isinstance(raw, dict):
+        raw = {}
+    raw.setdefault("table", table)
+    raw.setdefault("schema", schema)
+    prev: dict[tuple[str, str], dict] = {}
+    for b in (raw.get("concept_bindings") or []):
+        if isinstance(b, dict) and b.get("column") and b.get("concept"):
+            prev[(b["column"], b["concept"])] = b
+    sicil = getattr(current_user, "sicil", None) or "unknown"
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    new_bindings: list[dict] = []
+    for col in columns:
+        if not isinstance(col, dict) or not col.get("filterable"):
+            continue
+        name = (col.get("name") or "").strip().upper()
+        concept = (col.get("concept") or "").strip()
+        if not name or not concept:
+            continue
+        if reg is not None and not reg.has(concept):
+            continue
+        existing = prev.get((name, concept))
+        if isinstance(existing, dict) and existing.get("confidence") == "human_verified":
+            new_bindings.append(existing)
+        else:
+            new_bindings.append({
+                "concept": concept, "column": name,
+                "transform": {"kind": "identity"},
+                "confidence": "human_verified", "verified_by": sicil,
+                "verified_at": now,
+            })
+    raw["concept_bindings"] = new_bindings
+    bc.save_doc(schema, table, raw)
 
 
 # ════════════════════════════════════════════════════════════════════════
