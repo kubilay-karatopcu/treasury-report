@@ -479,6 +479,7 @@
       suggested_variable: c.suggested_variable || '',
       suggested_semantic_tag: c.suggested_semantic_tag || '',
       aggregatable: !!c.aggregatable,
+      get_distinct: !!c.get_distinct,
       visible_in_ui: c.visible_in_ui !== false,  // default true
       lookup: c.lookup ? {
         table: c.lookup.table || '',
@@ -513,7 +514,7 @@
       name: '', type: '', description: '',
       filterable: false, filter_role: '',
       suggested_variable: '', suggested_semantic_tag: '',
-      aggregatable: false, visible_in_ui: true,
+      aggregatable: false, get_distinct: false, visible_in_ui: true,
       lookup: null,
     });
     renderCols();
@@ -598,6 +599,10 @@
           <label class="field-check">
             <input type="checkbox" data-field="aggregatable" ${col.aggregatable ? 'checked' : ''}/>
             aggregatable
+          </label>
+          <label class="field-check" title="Filtreleme sekmesinde distinct değerleri checkbox olarak sun (düşük kardinaliteli boyut kolonları için)">
+            <input type="checkbox" data-field="get_distinct" ${col.get_distinct ? 'checked' : ''}/>
+            get_distinct
           </label>
           <label class="field-check">
             <input type="checkbox" data-field="visible_in_ui" ${col.visible_in_ui ? 'checked' : ''}/>
@@ -757,6 +762,7 @@
           suggested_variable: c.suggested_variable,
           suggested_semantic_tag: c.suggested_semantic_tag,
           aggregatable: c.aggregatable,
+          get_distinct: c.get_distinct,
           visible_in_ui: c.visible_in_ui,
           lookup: c.lookup,
         })),

@@ -124,6 +124,11 @@ class ColumnDoc(BaseModel):
     # Aggregation hint — Phase 7 uses this to recommend SUM/AVG columns.
     aggregatable: bool = False
 
+    # Filtreleme tab: when true, the preview's Filtreleme tab fetches the
+    # column's distinct values and offers them as checkboxes (low-cardinality
+    # dimensions). When false, the user types an IN list. Off by default.
+    get_distinct: bool = False
+
     # UI / LLM gating — internal-audit columns hide from both pickers.
     visible_in_ui: bool = True
 

@@ -391,6 +391,63 @@
 .hz-preview-body { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
 .hz-preview-body .ag-theme-alpine { --ag-grid-size: 4px; --ag-font-size: 12px; }
 
+/* ── Filtreleme tab (preview drawer) — dark, matches the AG grid ─────────── */
+.hz-preview-inner { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.hz-preview-tabs { display: flex; gap: 4px; padding: 5px 10px 0; background: #181d1f; border-bottom: 1px solid #2c3338; flex: 0 0 auto; }
+.hz-preview-tabs button {
+  border: none; background: none; padding: 5px 12px; font-size: 12px; font-weight: 600;
+  color: #9aa4ad; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.hz-preview-tabs button:hover { color: #e9ecef; }
+.hz-preview-tabs button.on { color: #60a5fa; border-bottom-color: #60a5fa; }
+.hz-preview-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+.hz-fp { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #181d1f; color: #e9ecef; }
+.hz-fp-empty { padding: 16px; color: #9aa4ad; font-size: 13px; }
+.hz-fp-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 12px; }
+.hz-fp-row {
+  display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: start;
+  padding: 8px 0; border-bottom: 1px solid #262c31;
+}
+.hz-fp-name { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
+.hz-fp-cn { font-size: 12px; font-weight: 600; color: #e9ecef; word-break: break-all; }
+.hz-fp-ty { font-size: 10px; color: #6b7680; text-transform: uppercase; letter-spacing: .04em; }
+.hz-fp-concept { font-size: 10px; color: #34d399; }
+.hz-fp-ed { display: flex; flex-direction: column; gap: 5px; }
+.hz-fp-modes { display: flex; gap: 4px; }
+.hz-fp-modes button {
+  border: 1px solid #343a40; background: #1f262b; border-radius: 5px; padding: 2px 9px;
+  font-size: 11px; color: #9aa4ad; cursor: pointer;
+}
+.hz-fp-modes button.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+.hz-fp-daterow, .hz-fp-numrow, .hz-fp-inrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hz-fp-ed input[type="date"], .hz-fp-ed input[type="text"], .hz-fp-ed input[type="number"],
+.hz-fp-ed select, .hz-fp-ed textarea {
+  border: 1px solid #343a40; border-radius: 5px; padding: 4px 7px; font-size: 12px;
+  color: #e9ecef; background: #11161a; font-family: inherit; color-scheme: dark;
+}
+.hz-fp-ed input::placeholder, .hz-fp-ed textarea::placeholder { color: #5b656e; }
+.hz-fp-ed input:focus, .hz-fp-ed select:focus, .hz-fp-ed textarea:focus { outline: none; border-color: #3b82f6; }
+.hz-fp-ed textarea { resize: vertical; min-height: 28px; flex: 1 1 160px; }
+.hz-fp-ed input[type="text"], .hz-fp-ed input[type="number"] { width: 110px; }
+/* Numeric row stays on ONE line and grows right — inputs share the width
+   (between = min/max) instead of wrapping downward. */
+.hz-fp-numrow { flex-wrap: nowrap; }
+.hz-fp-numrow input[type="number"], .hz-fp-numrow input[type="text"] { width: auto; flex: 1 1 60px; min-width: 48px; }
+.hz-fp-numrow select { flex: 0 0 auto; }
+.hz-fp-sep { color: #6b7680; font-size: 12px; }
+.hz-fp-hint { font-size: 10px; color: #6b7680; }
+.hz-fp-err { font-size: 11px; color: #f87171; }
+.hz-fp-op { font-size: 11px; color: #6b7680; font-weight: 600; }
+.hz-fp-btn {
+  border: 1px solid #343a40; background: #1f262b; border-radius: 5px; padding: 3px 10px;
+  font-size: 11px; color: #cbd3da; cursor: pointer;
+}
+.hz-fp-btn:hover { background: #2a3137; }
+.hz-fp-checks { display: flex; flex-wrap: wrap; gap: 4px 12px; max-height: 130px; overflow: auto; padding: 2px 0; }
+.hz-fp-check { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #cbd3da; }
+.hz-fp-check input { accent-color: #3b82f6; }
+
 .hz-toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
   background: #1e293b; color: #fff; padding: 8px 16px; border-radius: 8px;

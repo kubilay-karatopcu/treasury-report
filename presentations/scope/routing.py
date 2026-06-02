@@ -96,14 +96,16 @@ def _bytes_per_row(table_meta: TableMeta, projection: Projection) -> int:
 
 
 def _as_date(v) -> date | None:
+    # Accept date objects, ISO strings, and the relative grammar (today,
+    # today - 30d, start_of_month …) so a relative range shrinks the size
+    # estimate just like an absolute one (re-resolved on each recompute).
     if isinstance(v, date):
         return v
-    if isinstance(v, str):
-        try:
-            return date.fromisoformat(v.strip()[:10])
-        except ValueError:
-            return None
-    return None
+    try:
+        from presentations.variables.resolver import parse_date_expr
+        return parse_date_expr(v)
+    except Exception:
+        return None
 
 
 def _days_in_range(pinned: PinnedFilter) -> int | None:
