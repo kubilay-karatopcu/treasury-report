@@ -964,17 +964,19 @@ def kesif_draft_promote():
         # Resume mode: keep the same real pid; forward nav re-opens its scope.
         new_pid = draft_pid
 
-    if is_draft and basket_ids:
-        # Newly promoted pid is fresh — forward the basket via ?seed so Hazırlık
-        # picks it up. de-dup while preserving order.
+    if basket_ids:
+        # Forward the basket via ?seed so Hazırlık picks up EVERY table the user
+        # picked — including ones added on a "Keşife Dön" round-trip (resume).
+        # _seed_basket_from_query is idempotent (append-only; skips tables
+        # already in the scope), so re-seeding a resumed pid adds the new tables
+        # WITHOUT clobbering existing ER/scope state — filters, joins and
+        # projections on the already-present tables are left untouched.
         seen: set[str] = set()
         unique = [t for t in basket_ids if not (t in seen or seen.add(t))]
         hazirlik_url = url_for(
             "presentations.hazirlik", pid=new_pid, seed=",".join(unique)
         )
     else:
-        # Resume (real pid): the scope already exists for this pid — DON'T
-        # re-seed, that would clobber existing Hazırlık ER/scope state.
         hazirlik_url = url_for("presentations.hazirlik", pid=new_pid)
     return _json({
         "ok": True,
