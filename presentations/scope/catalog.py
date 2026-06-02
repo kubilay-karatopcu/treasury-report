@@ -203,6 +203,24 @@ class AppCatalog:
                 avg_bytes=None,  # Phase 6.5.b docs carry type, not avg_bytes.
                 concept=getattr(c, "suggested_semantic_tag", None),
             )
+        # Overlay Phase 7 human-verified bindings: a column bound to a concept
+        # wins over the Phase 6.5.b suggested tag, so the routing partition
+        # estimate (routing.estimate_post_scope_size) and concept coverage see
+        # the same column→concept mapping the compiler pushes down.
+        if self._bindings is not None:
+            try:
+                for b in self._bindings.get_bindings(schema, name):
+                    col, concept = getattr(b, "column", None), getattr(b, "concept", None)
+                    if not col or not concept:
+                        continue
+                    prev = cols.get(col)
+                    cols[col] = ColumnMeta(
+                        type=prev.type if prev else None,
+                        avg_bytes=prev.avg_bytes if prev else None,
+                        concept=concept,
+                    )
+            except Exception:
+                pass
         return TableMeta(
             schema_name=getattr(doc, "schema_name", schema) or schema,
             name=getattr(doc, "table", name) or name,
@@ -213,14 +231,23 @@ class AppCatalog:
         )
 
     def table_binds_concept(self, schema: str, name: str, concept_id: str) -> bool | None:
-        # Prefer human-verified Phase 7 bindings when available.
+        # Phase 7 human-verified bindings are authoritative: they are exactly
+        # what the filter compiler consults (concepts/compiler.get_binding, via
+        # scope/fetch._concept_pushdown), so a filter "has effect" on a table
+        # iff a usable binding exists. The old code called a non-existent
+        # `concepts_for_table`, swallowed the AttributeError, and fell through
+        # to the Phase 6.5.b tag — mis-warning "not bound" for bind-doc tables
+        # whose column carried no suggested_semantic_tag.
         if self._bindings is not None:
             try:
-                bound = self._bindings.concepts_for_table(schema, name)  # type: ignore[attr-defined]
-                if bound is not None:
-                    return concept_id in set(bound)
+                if self._bindings.get_binding(schema, name, concept_id) is not None:
+                    return True
+                if self._bindings.get_doc(schema, name) is not None:
+                    return False  # onboarded to Phase 7, but not this concept
             except Exception:
                 pass
+        # Legacy / not-yet-onboarded tables: fall back to the Phase 6.5.b
+        # suggested_semantic_tag carried on the column.
         tm = self.table_meta(schema, name)
         if tm is None:
             return None

@@ -506,6 +506,20 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
         doc = store.load(schema, name)
     except Exception:
         return []
+    # Phase 7 human-verified bindings override the Phase 6.5.b suggested tag, so
+    # a column bound via the documentation UI reads as concept-bound everywhere
+    # the frontend uses this: the grid concept chip, agModelToFilters (which
+    # routes concept columns to *pinned* filters — the only kind routing can use
+    # to shrink a table), and suggested join edges. Matches AppCatalog/compiler.
+    bind_concept: dict[str, str] = {}
+    bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    if bc is not None:
+        try:
+            for b in bc.get_bindings(schema, name):
+                if getattr(b, "column", None) and getattr(b, "concept", None):
+                    bind_concept[b.column] = b.concept
+        except Exception:
+            pass
     out: list[dict[str, Any]] = []
     for col, cd in (getattr(doc, "columns", {}) or {}).items():
         lk = getattr(cd, "lookup", None)
@@ -518,7 +532,7 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
         out.append({
             "name": col,
             "type": getattr(cd, "type", None),
-            "concept": getattr(cd, "suggested_semantic_tag", None),
+            "concept": bind_concept.get(col) or getattr(cd, "suggested_semantic_tag", None),
             "filter_role": fr,
             "join_key": join_key,
             "lookup": ({"table": lk.table, "key": lk.key, "display": lk.display} if lk else None),
@@ -1279,6 +1293,150 @@ def scope_preview(pid: str):
         "rows": rows,
         "row_count": int(len(df)),
     })
+
+
+@presentations_bp.route("/<pid>/scope/preview-derivation", methods=["POST"])
+@login_required
+def scope_preview_derivation(pid: str):
+    """Sample a derived (aggregate / calculated) basket item at design time.
+
+    The Hazırlık drawer can aggregate a single source in-browser, but it can't
+    preview a ``calculated`` derivation (window functions, multi-source joins).
+    We fetch a bounded sample of each source from Oracle, register them into an
+    in-memory DuckDB under their aliases, and run the *same* SQL the fetch pass
+    compiles (``compile_calculated_sql`` / ``compile_aggregate_sql``). The
+    result is illustrative — Sunum re-runs the derivation over the full pull.
+
+    Request:  ``{"scope": <draft>, "alias": "..."}``
+    Response: ``{"ok": true, "data_columns": [...], "rows": [...],
+                 "row_count": int, "derived": true}``.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    if not isinstance(scope_in, dict) or not alias:
+        return _json({"ok": False, "errors": ["scope ve alias zorunlu"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    item = next((b for b in scope.basket if b.alias == alias), None)
+    if item is None or item.derivation is None:
+        return _json({"ok": False, "errors": [f"'{alias}' türetilmiş bir tablo değil"]}, status=400)
+
+    d = item.derivation
+    src_aliases = [d.source_alias] if d.kind == "aggregate" else list(d.source_aliases)
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
+
+    from presentations import duck
+    from presentations.scope.fetch import compile_aggregate_sql, compile_calculated_sql
+    import pandas as pd
+
+    SAMPLE = 5000  # bounded source pull — preview is illustrative, not the full run
+    conn = duck.connect_duckdb(":memory:")
+    try:
+        for sa in src_aliases:
+            src = next((b for b in scope.basket if b.alias == sa), None)
+            if src is None:
+                return _json({"ok": False, "errors": [f"Kaynak '{sa}' basket'te yok"]}, status=400)
+            if src.derivation is not None:
+                return _json({"ok": False, "errors": [
+                    f"'{sa}' başka bir türetilmiş tablo — iç içe türetme önizlemesi desteklenmiyor"]}, status=400)
+            if src.table_ref is not None:
+                full = f"{src.table_ref.schema_name}.{src.table_ref.name}"
+                sql = f"SELECT * FROM {full} FETCH FIRST {SAMPLE} ROWS ONLY"
+            elif getattr(src, "sql", None):
+                sql = f"SELECT * FROM ({src.sql}) _src FETCH FIRST {SAMPLE} ROWS ONLY"
+            else:
+                return _json({"ok": False, "errors": [f"Kaynak '{sa}' önizlenemiyor"]}, status=400)
+            try:
+                df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{sa}",
+                                 query=sql, query_params={})
+            except Exception as exc:
+                msg = str(exc).strip().splitlines()[0][:240]
+                return _json({"ok": False, "phase": "oracle", "errors": [f"{sa}: {msg}"]}, status=502)
+            duck.register_dataframe(conn, sa, df if df is not None else pd.DataFrame())
+
+        compiled = compile_aggregate_sql(item) if d.kind == "aggregate" else compile_calculated_sql(item)
+        try:
+            out_df = conn.execute(f"SELECT * FROM ({compiled}) AS _d LIMIT 200").fetchdf()
+        except Exception as exc:
+            msg = str(exc).strip().splitlines()[0][:240]
+            return _json({"ok": False, "phase": "duckdb", "errors": [msg], "sql": compiled}, status=400)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    cols = [str(c) for c in out_df.columns]
+    rows = [[duck._jsonable(v) for v in r] for r in out_df.itertuples(index=False, name=None)]
+    return _json({"ok": True, "columns": [{"name": c} for c in cols],
+                  "data_columns": cols, "rows": rows,
+                  "row_count": int(len(out_df)), "derived": True})
+
+
+@presentations_bp.route("/<pid>/scope/distinct", methods=["GET"])
+@login_required
+def scope_distinct(pid: str):
+    """Distinct values for a string column flagged ``get_distinct`` in the table
+    doc — feeds the Filtreleme tab's checkbox list. Prefers the nightly
+    ``distinct_values_sample`` (no Oracle hit); otherwise runs a capped live
+    ``SELECT DISTINCT``. Guarded: only ``get_distinct`` columns are served, and
+    SQL uses the doc's validated ALL_CAPS identifiers (never raw request args).
+    """
+    schema = (request.args.get("schema") or "").strip()
+    table = (request.args.get("table") or "").strip()
+    column = (request.args.get("column") or "").strip()
+    if not table or not column:
+        return _json({"ok": False, "error": "table ve column zorunlu"}, status=400)
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 1000))
+    except ValueError:
+        limit = 200
+
+    store = current_app.config.get("TABLE_DOC_STORE")
+    doc = None
+    if store is not None:
+        try:
+            doc = store.load(schema, table)
+        except Exception:
+            doc = None
+    col_doc = (getattr(doc, "columns", {}) or {}).get(column) if doc is not None else None
+    if col_doc is None or not getattr(col_doc, "get_distinct", False):
+        return _json({"ok": False, "error": "Bu kolon için get_distinct etkin değil."}, status=400)
+
+    from presentations import duck
+
+    sample = getattr(col_doc, "distinct_values_sample", None)
+    if sample:
+        return _json({"ok": True, "source": "sample",
+                      "values": [duck._jsonable(v) for v in sample[:limit]]})
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": False, "error": "DATA_CLIENT yapılandırılmamış."}, status=500)
+    # Use the doc's validated identifiers (col_doc exists ⇒ `column` is a real
+    # ALL_CAPS column key; schema_name/table are ALL_CAPS-validated by the doc).
+    safe_col = column
+    full = f"{getattr(doc, 'schema_name', schema)}.{getattr(doc, 'table', table)}"
+    sql = (f"SELECT DISTINCT {safe_col} AS V FROM {full} "
+           f"WHERE {safe_col} IS NOT NULL FETCH FIRST {limit} ROWS ONLY")
+    try:
+        df = dc.get_data(base_prefix=None, dataset=f"distinct::{full}::{safe_col}",
+                         query=sql, query_params={})
+    except Exception as exc:
+        msg = str(exc).strip().splitlines()[0][:240]
+        return _json({"ok": False, "error": msg}, status=502)
+    import pandas as pd
+    if df is None:
+        df = pd.DataFrame()
+    vals = [duck._jsonable(r[0]) for r in df.itertuples(index=False, name=None)]
+    return _json({"ok": True, "source": "live", "values": vals})
 
 
 # ── Sunum scope banner (§6.3) ────────────────────────────────────────────────

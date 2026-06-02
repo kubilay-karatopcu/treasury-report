@@ -165,6 +165,7 @@ def _table_doc_to_form(doc) -> dict:
             "suggested_variable": col.suggested_variable or "",
             "suggested_semantic_tag": col.suggested_semantic_tag or "",
             "aggregatable": bool(col.aggregatable),
+            "get_distinct": bool(col.get_distinct),
             "visible_in_ui": bool(col.visible_in_ui),
             "lookup": lookup,
         })
@@ -362,6 +363,8 @@ def _form_to_table_doc_dict(schema: str, table: str, form: dict) -> dict:
             entry["suggested_semantic_tag"] = sst
         if col.get("aggregatable"):
             entry["aggregatable"] = True
+        if col.get("get_distinct"):
+            entry["get_distinct"] = True
         # visible_in_ui defaults True on the dataclass; only emit when False
         # so the YAML stays minimal.
         if col.get("visible_in_ui") is False:

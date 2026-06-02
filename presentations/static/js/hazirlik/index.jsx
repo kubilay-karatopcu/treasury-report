@@ -27,6 +27,7 @@ import "ag-grid-community/styles/ag-theme-alpine.css";
 // Veri Yükle: reuse Sunum's modal — editor/lib/api.js has the upload routes,
 // and api.js's API_BASE is hazirlik-aware (strips /hazirlik/ from the path).
 import UploadModal from "../editor/components/UploadModal.jsx";
+import FilterPanel from "./FilterPanel.jsx";
 import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2,
@@ -64,6 +65,8 @@ const ROUTING_OVERRIDE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/ro
 const ROUTING_RECOMPUTE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/recompute-routing`);
 const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-draft`);
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
+const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
+const DISTINCT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/distinct`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
@@ -1526,8 +1529,10 @@ function ConceptHeader(props) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct }) {
   const apiRef = useRef(null);
+  const filterSaveRef = useRef(null);
+  const [tab, setTab] = useState("data");
 
   const handleReady = (p) => {
     apiRef.current = p.api;
@@ -1591,9 +1596,18 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           {preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}
         </span>
         <div className="hz-preview-actions">
-          <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters} title="Görünür kolonları + aktif filtreleri scope'a yaz">
-            <Save size={13} /> Görünümü kaydet
-          </button>
+          {tab === "filter" && !isDerived ? (
+            <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
+                    onClick={() => filterSaveRef.current && filterSaveRef.current()}
+                    title="Filtreleri scope'a yaz (boyut yeniden hesaplanır)">
+              <Save size={13} /> Filtreyi kaydet
+            </button>
+          ) : (
+            <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters}
+                    title="Görünür kolonları + aktif grid filtrelerini scope'a yaz">
+              <Save size={13} /> Görünümü kaydet
+            </button>
+          )}
           <button
             className="ts-btn ts-btn--sm"
             disabled={!preview || preview.error || isDerived}
@@ -1609,24 +1623,42 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
         {loading && <p className="hz-muted" style={{ padding: 10 }}>Yükleniyor…</p>}
         {!loading && preview && preview.error && <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>}
         {!loading && preview && !preview.error && (
-          <>
+          <div className="hz-preview-inner">
             {isDerived && (
               <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
                 Türetilmiş tablo · kaynak tablonun örneği üzerinde hesaplandı. Sunum tam veri üzerinde yeniden hesaplayacak.
               </p>
             )}
-            <div className="ag-theme-alpine-dark" style={{ width: "100%", height: "100%" }}>
-              <AgGridReact
-                columnDefs={colDefs} rowData={rowData} animateRows
-                onGridReady={handleReady}
-                onFirstDataRendered={handleFirstDataRendered}
-                sideBar={{ toolPanels: ["columns", "filters"] }}
-                rowGroupPanelShow="always"
-                pivotPanelShow="always"
-                headerHeight={36}
-              />
+            {!isDerived && (
+              <div className="hz-preview-tabs">
+                <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
+                <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
+              </div>
+            )}
+            <div className="hz-preview-pane">
+              {(isDerived || tab === "data") ? (
+                <div className="ag-theme-alpine-dark" style={{ width: "100%", height: "100%" }}>
+                  <AgGridReact
+                    columnDefs={colDefs} rowData={rowData} animateRows
+                    onGridReady={handleReady}
+                    onFirstDataRendered={handleFirstDataRendered}
+                    sideBar={{ toolPanels: ["columns", "filters"] }}
+                    rowGroupPanelShow="always"
+                    pivotPanelShow="always"
+                    headerHeight={36}
+                  />
+                </div>
+              ) : (
+                <FilterPanel
+                  alias={preview.alias}
+                  columns={COLS_BY_ALIAS[preview.alias] || []}
+                  saveRef={filterSaveRef}
+                  onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
+                  onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
+                />
+              )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -2128,8 +2160,19 @@ function App() {
     setPreviewLoading(true); setPreview({ alias });
     try {
       let data;
-      if (item.derivation) {
-        // Derived: fetch source's raw rows, aggregate in-browser. Preview is a
+      if (item.derivation && item.derivation.kind === "calculated") {
+        // Calculated derivations (window functions, multi-source joins) can't
+        // be computed in-browser — the server runs the compiled SQL over a
+        // DuckDB sample of the sources. Illustrative; Sunum re-runs it full.
+        const r = await fetch(PREVIEW_DERIVATION_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope, alias }),
+        });
+        data = await r.json();
+        if (!data.ok) throw new Error((data.errors || ["Türetilmiş önizleme başarısız"]).join("; "));
+        data = { ...data, derived: true };
+      } else if (item.derivation) {
+        // Aggregate: fetch source's raw rows, aggregate in-browser. Preview is a
         // sample so aggregates are illustrative — Sunum re-runs the derivation
         // on the full pull via DuckDB (see scope/fetch.compile_aggregate_sql).
         const src = scope.basket.find((b) => b.alias === item.derivation.source_alias);
@@ -2196,15 +2239,28 @@ function App() {
 
     const hasFilters = pinned.length > 0 || raw.length > 0;
     if (hasFilters) {
-      setScope((s) => ({
-        ...s,
-        filters: {
-          ...s.filters,
-          pinned: [...(s.filters.pinned || []), ...pinned],
-          // replace previous raw filters for this alias with the current grid state
-          raw: [...(s.filters.raw || []).filter((f) => f.alias !== alias), ...raw],
-        },
-      }));
+      setScope((s) => {
+        const next = {
+          ...s,
+          filters: {
+            ...s.filters,
+            pinned: [...(s.filters.pinned || []), ...pinned],
+            // replace previous raw filters for this alias with the current grid state
+            raw: [...(s.filters.raw || []).filter((f) => f.alias !== alias), ...raw],
+          },
+        };
+        // A freshly-pinned date range on a partition column can flip the table
+        // lazy→cached, and a tighter projection shrinks bytes/row — recompute so
+        // the node badge/size reflect the filter now, not only at build. Mirrors
+        // addTableFromCatalog; best-effort (build re-runs it authoritatively).
+        fetch(ROUTING_RECOMPUTE_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: next }),
+        }).then((r) => r.json()).then((data) => {
+          if (data && data.ok) setScope(data.scope);
+        }).catch(() => {});
+        return next;
+      });
     }
 
     if (!hasFilters && !projUpdated) {
@@ -2218,6 +2274,68 @@ function App() {
 
     const snap = captureGridState();
     if (snap) setGridStateByAlias((s) => ({ ...s, [alias]: snap }));
+  };
+
+  // Filtreleme tab → turn the panel's value specs into pinned (concept) / raw
+  // (column) scope filters, replace this alias's panel-managed filters, then
+  // recompute routing so the node badge reflects the new size (a date range on
+  // a partition column can flip lazy→cached).
+  const saveFilterPanel = (alias, specs) => {
+    const pinned = [], raw = [];
+    for (const s of specs) {
+      const concept = s.concept || null;
+      // The Phase 7 compiler emits only between/in/eq, for dimension/time
+      // concepts — numeric column predicates (incl. ranges) always go raw.
+      const compilerSafe = s.type !== "num" && (s.op === "between" || s.op === "in" || s.op === "eq");
+      if (concept && compilerSafe) {
+        const f = { id: `pf_${concept}_${rid()}`, concept, op: s.op, applies_to: [alias] };
+        if (s.op === "between") { f.from = s.from; f.to = s.to; }
+        else if (s.op === "in") { f.values = s.values; }
+        else { f.values = [s.value]; }   // eq → compiler reads values[0]
+        pinned.push(f);
+      } else {
+        const f = { id: `rf_${String(s.column).toLowerCase()}_${rid()}`, alias, column: s.column, op: s.op };
+        if (s.op === "between") { f.from = s.from; f.to = s.to; }
+        else if (s.op === "in") { f.values = s.values; }
+        else { f.value = s.value; }      // eq / gt / gte / lt / lte
+        raw.push(f);
+      }
+    }
+    setScope((cur) => {
+      // Replace only THIS alias's panel-managed filters (single-alias pinned +
+      // raw on this alias); leave global ([]) and multi-alias filters intact.
+      const keptPinned = (cur.filters.pinned || []).filter(
+        (f) => !(Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === alias)
+      );
+      const keptRaw = (cur.filters.raw || []).filter((f) => f.alias !== alias);
+      const next = {
+        ...cur,
+        filters: { ...cur.filters, pinned: [...keptPinned, ...pinned], raw: [...keptRaw, ...raw] },
+      };
+      fetch(ROUTING_RECOMPUTE_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: next }),
+      }).then((r) => r.json()).then((data) => {
+        if (data && data.ok) setScope(data.scope);
+      }).catch(() => {});
+      return next;
+    });
+    setToast(`${pinned.length + raw.length} filtre kaydedildi.`);
+  };
+
+  // Distinct values for a get_distinct string column → Filtreleme checkbox list.
+  const fetchDistinct = async (alias, column) => {
+    const item = scope.basket.find((b) => b.alias === alias);
+    const tr = item?.table_ref;
+    if (!tr) throw new Error("Kaynak tablo bulunamadı");
+    const u = new URL(DISTINCT_URL, window.location.origin);
+    u.searchParams.set("schema", tr.schema || "");
+    u.searchParams.set("table", tr.name);
+    u.searchParams.set("column", column);
+    const r = await fetch(u.pathname + u.search);
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || "Distinct değerler alınamadı");
+    return data.values || [];
   };
 
   // Read the grid's row-grouping + value (aggregation) state → derived table.
@@ -2405,6 +2523,7 @@ function App() {
               })()}
               onResizeStart={startResize} onClose={() => setPreview(null)}
               onSaveFilters={saveFilters} onSaveAsTable={saveAsTable}
+              onSaveFilterPanel={saveFilterPanel} onFetchDistinct={fetchDistinct}
               savedGridState={gridStateByAlias[preview.alias]}
               onGridReady={(p) => { gridApiRef.current = p.api; window.__hzGridApi = p.api; }}
             />

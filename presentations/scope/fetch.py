@@ -43,14 +43,18 @@ SCOPE_FETCH_ROW_CAP = 5_000_000
 
 
 def _as_date(v: Any) -> date | None:
+    """Resolve a filter date value to a concrete date. Accepts date objects,
+    ISO strings, and the relative grammar (``today``, ``today - 30d``,
+    ``start_of_month`` …) via parse_date_expr — so a relative range stays
+    dynamic, re-resolving to the run date on every fetch (spec §3.3). Non-date
+    values → None."""
     if isinstance(v, date):
         return v
-    if isinstance(v, str):
-        try:
-            return date.fromisoformat(v.strip()[:10])
-        except ValueError:
-            return None
-    return None
+    try:
+        from presentations.variables.resolver import parse_date_expr
+        return parse_date_expr(v)
+    except Exception:
+        return None
 
 
 def _partition_pushdown(
@@ -102,6 +106,11 @@ def _raw_predicates(scope: ScopeContract, item: BasketItem) -> tuple[list[str], 
             b = f"{item.alias}_rf{i}"
             binds[b] = rf.value
             clauses.append(f"{col} = :{b}")
+        elif rf.op in ("gt", "gte", "lt", "lte") and rf.value is not None:
+            sym = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[rf.op]
+            b = f"{item.alias}_rf{i}"
+            binds[b] = rf.value
+            clauses.append(f"{col} {sym} :{b}")
     return clauses, binds
 
 
