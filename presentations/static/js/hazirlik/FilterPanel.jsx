@@ -13,7 +13,7 @@
  * date exprs are stored verbatim; the backend resolves them at fetch time.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { _resolveDateExpr } from '../shared/dateExpr.js';
+import { _resolveDateExpr, isRelativeDateExpr } from '../shared/dateExpr.js';
 
 const NUM_OPS = [
   { v: 'gt', label: '>' }, { v: 'gte', label: '≥' },
@@ -44,14 +44,61 @@ function relPreview(from, to) {
   return `→ ${f || '…'} – ${t || '…'}`;
 }
 
-export default function FilterPanel({ alias, columns = [], onSave, onFetchDistinct, saveRef }) {
-  const [edits, setEdits] = useState({});       // { col: editorState }
-  const [distinct, setDistinct] = useState({}); // { col: {loading, values, error} }
+// Inverse of buildSpecs — seed one editor state from a saved scope filter.
+function edFromFilter(t, f) {
+  if (t === 'date') {
+    const rel = isRelativeDateExpr(f.from) || isRelativeDateExpr(f.to);
+    return { mode: rel ? 'rel' : 'abs', from: f.from ?? '', to: f.to ?? '' };
+  }
+  if (t === 'num') {
+    if (f.op === 'in') return { op: 'in', values: (f.values || []).join(', ') };
+    if (f.op === 'between') return { op: 'between', from: f.from ?? '', to: f.to ?? '' };
+    return { op: f.op || 'gt', value: f.value ?? (f.values || [])[0] ?? '' };
+  }
+  return null;  // str handled inline (needs the get_distinct flag)
+}
 
+// Pre-populate the panel from the alias's already-saved filters so re-saving
+// preserves untouched columns (saveFilterPanel replaces this alias's set, so
+// without this the columns the user didn't re-enter would be dropped). pinned
+// filters are keyed by concept → mapped to the column realizing it.
+function editsFromExisting(cols, existing) {
+  if (!existing) return {};
+  const out = {};
+  const byConcept = {};
+  cols.forEach((c) => {
+    if (c.concept) (byConcept[c.concept] = byConcept[c.concept] || []).push(c.name);
+  });
+  const apply = (col, f) => {
+    if (col._t === 'str') {
+      const vals = f.values || (f.value != null ? [f.value] : []);
+      out[col.name] = col.get_distinct ? { checked: vals } : { text: vals.join(', ') };
+    } else {
+      const ed = edFromFilter(col._t, f);
+      if (ed) out[col.name] = ed;
+    }
+  };
+  (existing.raw || []).forEach((f) => {
+    const col = cols.find((c) => c.name === f.column);
+    if (col) apply(col, f);
+  });
+  (existing.pinned || []).forEach((f) => {
+    const name = (byConcept[f.concept] || [])[0];
+    const col = name && cols.find((c) => c.name === name);
+    if (col) apply(col, f);
+  });
+  return out;
+}
+
+export default function FilterPanel({ alias, columns = [], existing, onSave, onFetchDistinct, saveRef }) {
   const cols = useMemo(
     () => (columns || []).filter((c) => c && c.name).map((c) => ({ ...c, _t: classify(c.type) })),
     [columns]
   );
+  // Seed from the alias's saved filters (once per mount; the drawer is keyed by
+  // alias, so switching tables remounts with that table's own filters).
+  const [edits, setEdits] = useState(() => editsFromExisting(cols, existing));
+  const [distinct, setDistinct] = useState({}); // { col: {loading, values, error} }
 
   const setEd = (name, patch) =>
     setEdits((e) => ({ ...e, [name]: { ...(e[name] || {}), ...patch } }));

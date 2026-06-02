@@ -1529,7 +1529,7 @@ function ConceptHeader(props) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters }) {
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
@@ -1596,26 +1596,20 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           {preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}
         </span>
         <div className="hz-preview-actions">
-          {tab === "filter" && !isDerived ? (
+          {!isDerived && tab === "filter" && (
             <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
                     onClick={() => filterSaveRef.current && filterSaveRef.current()}
                     title="Filtreleri scope'a yaz (boyut yeniden hesaplanır)">
               <Save size={13} /> Filtreyi kaydet
             </button>
-          ) : (
-            <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error} onClick={onSaveFilters}
-                    title="Görünür kolonları + aktif grid filtrelerini scope'a yaz">
-              <Save size={13} /> Görünümü kaydet
+          )}
+          {!isDerived && tab === "data" && (
+            <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
+                    onClick={onSaveAsTable}
+                    title="Gruplama/aggregation'ı yeni bir tablo olarak kaydet">
+              <Database size={13} /> Tablo olarak kaydet
             </button>
           )}
-          <button
-            className="ts-btn ts-btn--sm"
-            disabled={!preview || preview.error || isDerived}
-            onClick={onSaveAsTable}
-            title={isDerived ? "Türetilmiş tablodan yeniden agregat yapılamaz" : "Gruplama/aggregation'ı yeni bir tablo olarak kaydet"}
-          >
-            <Database size={13} /> Tablo olarak kaydet
-          </button>
           <button className="hz-icon-btn" onClick={onClose}><X size={15} /></button>
         </div>
       </div>
@@ -1652,6 +1646,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                 <FilterPanel
                   alias={preview.alias}
                   columns={COLS_BY_ALIAS[preview.alias] || []}
+                  existing={existingFilters}
                   saveRef={filterSaveRef}
                   onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
                   onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
@@ -2524,6 +2519,10 @@ function App() {
               onResizeStart={startResize} onClose={() => setPreview(null)}
               onSaveFilters={saveFilters} onSaveAsTable={saveAsTable}
               onSaveFilterPanel={saveFilterPanel} onFetchDistinct={fetchDistinct}
+              existingFilters={{
+                pinned: (scope.filters.pinned || []).filter((f) => Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === preview.alias),
+                raw: (scope.filters.raw || []).filter((f) => f.alias === preview.alias),
+              }}
               savedGridState={gridStateByAlias[preview.alias]}
               onGridReady={(p) => { gridApiRef.current = p.api; window.__hzGridApi = p.api; }}
             />

@@ -112,3 +112,45 @@ def test_relative_range_shrinks_estimate():
     assert d.decision == "cached"
     assert d.estimated_bytes == 10 * 12000 * 200
     assert _days_in_range(pf) == 10
+
+
+def test_parse_relative_optional_unit():
+    # "today - 7" (no unit) defaults to days, same as "today - 7d".
+    from presentations.variables.resolver import parse_date_expr
+    assert parse_date_expr("today - 7") == date.today() - timedelta(days=7)
+    assert parse_date_expr("today - 7d") == date.today() - timedelta(days=7)
+    assert parse_date_expr("today") == date.today()
+
+
+def _pinned_scope(frm, to):
+    return load_scope_from_dict({"scope": {
+        "presentation_id": "p", "version": 1, "created_by": "A16438",
+        "created_at": "2025-01-01T00:00:00Z",
+        "basket": [{
+            "alias": "tbl", "table_ref": {"schema": "EDW", "name": "T"},
+            "projection": {"columns": ["D"], "include_all": False},
+            "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1},
+        }],
+        "filters": {"pinned": [
+            {"id": "pf_d", "concept": "as_of_time", "op": "between",
+             "from": frm, "to": to, "applies_to": []},
+        ], "interactive": [], "raw": []},
+        "joins": [],
+    }})
+
+
+def test_pinned_between_relative_not_inverted():
+    from presentations.scope.validators import rule_pinned_consistency
+    cat = DictCatalog.from_excerpt({"tables": {}, "concepts": {}})
+    errors, _ = rule_pinned_consistency(_pinned_scope("today - 7d", "today"), cat)
+    assert errors == []
+    # Bare-unit form must also pass.
+    errors2, _ = rule_pinned_consistency(_pinned_scope("today - 7", "today"), cat)
+    assert errors2 == []
+
+
+def test_pinned_between_relative_inverted_flagged():
+    from presentations.scope.validators import rule_pinned_consistency
+    cat = DictCatalog.from_excerpt({"tables": {}, "concepts": {}})
+    errors, _ = rule_pinned_consistency(_pinned_scope("today", "today - 7d"), cat)
+    assert len(errors) == 1 and "from <= to" in errors[0]
