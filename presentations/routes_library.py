@@ -215,6 +215,28 @@ def _table_doc_to_form(doc) -> dict:
     }
 
 
+def _invalidate_catalog_caches() -> None:
+    """Drop this process's catalog caches after a table-doc write so the
+    editor / Hazırlık / Sunum reflect the change immediately.
+
+    Best-effort and process-local — other gunicorn workers self-heal via the
+    store + loader TTL (see ``CachedTableDocStore`` / ``CatalogLoader``).
+    Without this, a freshly documented table stayed invisible to Sunum
+    ("kolon tanımı yok") until the TTL lapsed or the pod restarted.
+    """
+    try:
+        store = current_app.config.get("TABLE_DOC_STORE")
+        if store is not None and hasattr(store, "clear"):
+            store.clear()
+    except Exception:
+        log.exception("table-doc cache invalidate (store) failed")
+    try:
+        from presentations.catalog.api import _get_loader
+        _get_loader().invalidate()
+    except Exception:
+        log.exception("table-doc cache invalidate (loader) failed")
+
+
 @presentations_bp.route("/atolye/tablolar/<schema>/<table>/api/save", methods=["POST"])
 @login_required
 def tablo_save(schema: str, table: str):
@@ -296,6 +318,8 @@ def tablo_save(schema: str, table: str):
         except Exception:
             log.exception("tablo_save: binding sync failed for %s.%s", schema, table)
 
+    _invalidate_catalog_caches()
+
     return _json({
         "ok": True,
         "schema": doc.schema_name,
@@ -318,6 +342,7 @@ def tablo_delete(schema: str, table: str):
         return _json({"ok": False, "error": f"Silinemedi: {exc}"}, status=500)
     if not ok:
         return _json({"ok": False, "error": "Dokümante tablo bulunamadı."}, status=404)
+    _invalidate_catalog_caches()
     return _json({"ok": True, "schema": schema, "table": table})
 
 

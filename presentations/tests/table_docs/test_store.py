@@ -114,3 +114,34 @@ class TestCachedTableDocStore:
         cached.save(new_doc)
         again = cached.load("EDW", "TEST_TABLE")
         assert again.description == "updated"
+
+    def test_list_all_docs_refreshes_after_expiry(self, store):
+        # Regression: a permanent list cache hid tables documented by another
+        # gunicorn worker until pod restart ("kolon tanımı yok" in Sunum). The
+        # list must re-read the inner store once its TTL window lapses.
+        store.save(_example_doc("A_TABLE"))
+        cached = CachedTableDocStore(store)
+        assert {d.table for d in cached.list_all_docs()} == {"A_TABLE"}
+        # Another worker writes straight to the shared (inner) store.
+        store.save(_example_doc("B_TABLE"))
+        # Still within the TTL window → serves the cached snapshot.
+        assert {d.table for d in cached.list_all_docs()} == {"A_TABLE"}
+        # Force the list TTL to lapse → re-reads inner, now sees B_TABLE.
+        cached._listed_until = cached._now() - 1.0
+        assert {d.table for d in cached.list_all_docs()} == {"A_TABLE", "B_TABLE"}
+
+    def test_ttl_zero_disables_cache(self, store):
+        store.save(_example_doc("A_TABLE"))
+        cached = CachedTableDocStore(store, ttl_seconds=0)
+        assert {d.table for d in cached.list_all_docs()} == {"A_TABLE"}
+        store.save(_example_doc("B_TABLE"))
+        # No caching → every list re-reads the inner store immediately.
+        assert {d.table for d in cached.list_all_docs()} == {"A_TABLE", "B_TABLE"}
+
+    def test_clear_forces_relist(self, store):
+        store.save(_example_doc("A_TABLE"))
+        cached = CachedTableDocStore(store)
+        assert {d.table for d in cached.list_all_docs()} == {"A_TABLE"}
+        store.save(_example_doc("B_TABLE"))
+        cached.clear()  # what tablo_save triggers on the writing worker
+        assert {d.table for d in cached.list_all_docs()} == {"A_TABLE", "B_TABLE"}
