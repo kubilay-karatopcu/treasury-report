@@ -15,7 +15,7 @@ import TableDocsPanel  from './components/TableDocsPanel.jsx';
 import ChatBox         from './components/ChatBox.jsx';
 import { Sparkles, Plus, HelpCircle } from 'lucide-react';
 import useResizable from './lib/useResizable.js';
-import { draggableProps, dropBeforeProps, dropIntoProps, planDropRender } from './lib/dnd.js';
+import { draggableProps, dropBeforeProps, dropIntoProps, planDropRender, ghostProps } from './lib/dnd.js';
 import HelpModal from './components/HelpModal.jsx';
 import ManualSqlEditor from './components/ManualSqlEditor.jsx';
 import FilterBar from './components/FilterBar.jsx';
@@ -200,7 +200,8 @@ function SectionContainer({ section, layoutEditMode }) {
             if (it.kind === 'ghost') {
               const span = WIDTH_SPAN[it.width] ?? 12;
               return (
-                <div key="__dnd_ghost__" className="dnd-ghost" style={{ gridColumn: `span ${span}` }}>
+                <div key="__dnd_ghost__" className="dnd-ghost" style={{ gridColumn: `span ${span}` }}
+                     {...ghostProps()}>
                   <span className="dnd-ghost-label">{it.title}</span>
                 </div>
               );
