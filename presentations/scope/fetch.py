@@ -457,11 +457,43 @@ def fetch_cached_tables(
         log.info("scope.fetch_cached_tables: %s ← %s (%d rows)",
                  item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df))
 
+    # Pass 1.5 — filter-derivation nodes (Faz R1): re-query the SOURCE Oracle
+    # table with the node's embedded filters (compile_filter_sql) and materialise
+    # the result like a cached table. The source (main) is lazy and NOT
+    # materialised — the filter SELECT goes straight to Oracle. Runs before
+    # Pass 2 so an aggregate can sit on top of a filtered node.
+    for item in scope.basket:
+        d = item.derivation
+        if d is None or d.kind != "filter":
+            continue
+        if item.routing.decision != "cached":
+            continue   # lazy filter-node → on-demand fetch path (8.d), not here
+        if refetch_only is not None and item.alias not in refetch_only:
+            continue
+        sql, binds = compile_filter_sql(
+            scope, item, catalog,
+            concept_registry=concept_registry, binding_catalog=binding_catalog,
+        )
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"scope::{scope.presentation_id}/{item.alias}",
+            query=sql, query_params=binds,
+        )
+        if df is None:
+            df = pd.DataFrame()
+        if len(df.columns) > 0:
+            register_dataframe(conn, item.alias, df)
+        loaded[item.alias] = {"derived_from": d.source_alias, "rows": int(len(df))}
+        log.info("scope.fetch_cached_tables: %s ⇐ filter of %s (%d rows)",
+                 item.alias, d.source_alias, len(df))
+
     # Pass 2 — derived tables (aggregate + calculated), computed on DuckDB
     # over already-materialised source views. In partial-refresh mode we only
     # re-run when any source alias of the derivation was re-fetched.
     for item in scope.derived_items():
         d = item.derivation
+        if d.kind == "filter":
+            continue   # handled in Pass 1.5 (Oracle, not DuckDB)
         # Set of source aliases this derivation depends on.
         if d.kind == "aggregate":
             deps = {d.source_alias} if d.source_alias else set()
