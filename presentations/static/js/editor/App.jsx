@@ -15,6 +15,7 @@ import TableDocsPanel  from './components/TableDocsPanel.jsx';
 import ChatBox         from './components/ChatBox.jsx';
 import { Sparkles, Plus, HelpCircle } from 'lucide-react';
 import useResizable from './lib/useResizable.js';
+import { draggableProps, dropBeforeProps, dropIntoProps } from './lib/dnd.js';
 import HelpModal from './components/HelpModal.jsx';
 import ManualSqlEditor from './components/ManualSqlEditor.jsx';
 import FilterBar from './components/FilterBar.jsx';
@@ -176,10 +177,18 @@ export default function App({ initialManifest, mode = 'editor' }) {
 
 function SectionContainer({ section, layoutEditMode }) {
   const children = section.children || [];
+  const dropTargetId = useStore((s) => s.dropTargetId);
+  const draggingBlockId = useStore((s) => s.draggingBlockId);
+  // DnD aktif (layout düzenleme modunda + bir blok sürükleniyorken). Section'ın
+  // kendisi "sona ekle" drop bölgesi; slot'lar "öncesine ekle".
+  const dndOn = layoutEditMode && !!draggingBlockId;
   return (
     <section
-      className={`section-container${section.locked ? ' is-locked' : ''}`}
+      className={`section-container${section.locked ? ' is-locked' : ''}`
+        + (dndOn ? ' is-dnd-zone' : '')
+        + (dropTargetId === section.id ? ' is-dnd-over' : '')}
       data-block-id={section.id}
+      {...dropIntoProps(section.id, layoutEditMode)}
     >
       <BlockCard block={section} />
       {children.length > 0 && (
@@ -191,8 +200,12 @@ function SectionContainer({ section, layoutEditMode }) {
               <div
                 key={child.id}
                 data-block-id={child.id}
-                className={`block-slot block-slot--${width.replace('/', '-')}`}
+                className={`block-slot block-slot--${width.replace('/', '-')}`
+                  + (layoutEditMode ? ' is-draggable' : '')
+                  + (dropTargetId === child.id ? ' is-dnd-before' : '')}
                 style={{ gridColumn: `span ${span}` }}
+                {...draggableProps(child.id, layoutEditMode)}
+                {...dropBeforeProps(child.id, layoutEditMode)}
               >
                 <BlockCard block={child} />
               </div>

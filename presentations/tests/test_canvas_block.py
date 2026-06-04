@@ -97,18 +97,15 @@ def _section(sid, children):
 
 def test_move_section_child_into_canvas_yields_valid_manifest():
     # A leaf sits directly under a section next to an (empty) canvas. The
-    # moveBlockBetweenParents action emits: add clone to canvas/children/-,
-    # then remove the original. The result must validate.
+    # moveBlockBetweenParents action computes the post-move section locally and
+    # emits a single `replace /blocks/{si}` patch (both source and target are in
+    # section 0). The replaced section must validate and place k1 in the canvas.
     manifest = {
         "meta": {"title": "T"},
         "blocks": [_section("sec_1", [_canvas("cv_1", []), _kpi("k1", width="1/2")])],
     }
-    # k1 is at /blocks/0/children/1; canvas at /blocks/0/children/0.
-    clone = dict(_kpi("k1", width="1/2"))
-    patches = [
-        {"op": "add", "path": "/blocks/0/children/0/children/-", "value": clone},
-        {"op": "remove", "path": "/blocks/0/children/1"},
-    ]
+    new_section = _section("sec_1", [_canvas("cv_1", [_kpi("k1", width="1/2")])])
+    patches = [{"op": "replace", "path": "/blocks/0", "value": new_section}]
     after = apply_patches(manifest, patches)
     assert validate_manifest(after) == []
     # k1 now lives inside the canvas, and only there.
@@ -122,15 +119,32 @@ def test_eject_canvas_child_to_section_yields_valid_manifest():
         "meta": {"title": "T"},
         "blocks": [_section("sec_1", [_canvas("cv_1", [_kpi("k1"), _kpi("k2")])])],
     }
-    # Move k1 out of the canvas to the section. add to section/children/- first,
-    # then remove from canvas.
-    clone = dict(_kpi("k1"))
-    patches = [
-        {"op": "add", "path": "/blocks/0/children/-", "value": clone},
-        {"op": "remove", "path": "/blocks/0/children/0/children/0"},
-    ]
+    # Move k1 out of the canvas to the section (appended after the canvas).
+    new_section = _section("sec_1", [_canvas("cv_1", [_kpi("k2")]), _kpi("k1")])
+    patches = [{"op": "replace", "path": "/blocks/0", "value": new_section}]
     after = apply_patches(manifest, patches)
     assert validate_manifest(after) == []
     _, path = find_block_by_id(after, "k1")
     assert path == "/blocks/0/children/1"  # appended after the canvas
     assert len(after["blocks"][0]["children"][0]["children"]) == 1  # k2 remains in canvas
+
+
+def test_cross_section_move_replaces_both_sections():
+    # Dragging a block from section A into a canvas in section B emits TWO replace
+    # patches (one per affected top-level section). Both must validate.
+    manifest = {
+        "meta": {"title": "T"},
+        "blocks": [
+            _section("sec_a", [_kpi("k1")]),
+            _section("sec_b", [_canvas("cv_b", [])]),
+        ],
+    }
+    patches = [
+        {"op": "replace", "path": "/blocks/0", "value": _section("sec_a", [])},
+        {"op": "replace", "path": "/blocks/1",
+         "value": _section("sec_b", [_canvas("cv_b", [_kpi("k1")])])},
+    ]
+    after = apply_patches(manifest, patches)
+    assert validate_manifest(after) == []
+    _, path = find_block_by_id(after, "k1")
+    assert path == "/blocks/1/children/0/children/0"
