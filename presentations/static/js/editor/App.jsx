@@ -7,7 +7,7 @@ import Sidebar         from './components/Sidebar.jsx';
 import BlockCard       from './components/BlockCard.jsx';
 import ShareModal      from './components/ShareModal.jsx';
 import SaveModal       from './components/SaveModal.jsx';
-import SaveBlockModal  from './components/SaveBlockModal.jsx';
+import SaveBlockModal, { stripForTemplate } from './components/SaveBlockModal.jsx';
 import AddBlockPanel   from './components/AddBlockPanel.jsx';
 import ReportTitle     from './components/ReportTitle.jsx';
 import PropertiesPanel from './components/PropertiesPanel.jsx';
@@ -364,12 +364,60 @@ function Hint({ hasSelection }) {
    Bottom: PropertiesPanel-shaped form (ManualSqlEditor + title/type).
    Toolbar: "Şablonu güncelle (yeni sürüm)" → POST /blocks/api/save_new_version.
    ──────────────────────────────────────────────────────────────────────── */
+// Data-bound (SQL taşıyan) leaf blok tipleri — bunlarda SQL editörü gösterilir.
+const TEMPLATE_SQL_TYPES = new Set([
+  'kpi', 'bar_chart', 'line_chart', 'combo_chart', 'area_chart',
+  'pie_chart', 'heatmap', 'radial_bar', 'data_table',
+]);
+
+function _isTemplateComposite(t) { return t === 'carousel' || t === 'canvas'; }
+
+// Kök + tüm alt bloklar, düz liste (nav + validasyon için).
+function _flattenTemplateBlocks(root, depth = 0, out = []) {
+  out.push({ block: root, depth });
+  for (const c of (root.children || [])) _flattenTemplateBlocks(c, depth + 1, out);
+  return out;
+}
+
+function _isBlockDocumented(b) {
+  if (b.description && b.description.trim()) return true;
+  const doc = b.documentation || {};
+  return Object.values(doc).some((v) => v && String(v).trim());
+}
+
+// Kaydetmeden önce boş kalan alanları topla (her blok dökümante mi, data-bound
+// leaf'lerin SQL'i dolu mu).
+function _collectTemplateGaps(root) {
+  const gaps = [];
+  for (const { block: b } of _flattenTemplateBlocks(root)) {
+    const items = [];
+    if (!_isBlockDocumented(b)) items.push('dokümantasyon');
+    if (TEMPLATE_SQL_TYPES.has(b.type) && !((b.query || '').trim())) items.push('SQL sorgusu');
+    if (items.length) gaps.push({ id: b.id, title: b.title || b.id, type: b.type, items });
+  }
+  return gaps;
+}
+
 function TemplateEditView({ block, templateRef, templateNew }) {
   const setBlockField = useStore((s) => s.setBlockField);
+  const selectedBlockId = useStore((s) => s.selectedBlockId);
+  const manifest = useStore((s) => s.manifest);
+  const isComposite = _isTemplateComposite(block.type);
 
-  // Auto-preview on mount: trigger the same /blocks/api/preview the user
-  // would get by clicking Çalıştır. Saves them one click per page open.
-  // Only runs once per block.id; no-op if the block has no query yet.
+  // Düzenlenen blok: composite ise seçili alt-blok (ya da kabın kendisi),
+  // değilse kök blok. Seçim BlockCard/Carousel/Canvas tıklamasından gelir.
+  const activeBlock =
+    (isComposite && selectedBlockId ? getBlockById(manifest, selectedBlockId) : null) || block;
+
+  // Buton etiketi: ilk kez dökümante ediliyorsa "kütüphaneye ekle", daha önce
+  // dökümante edilmişse "yeni sürüm". İlk-yükleme durumunu sabitle (yazarken
+  // etiket oynamasın).
+  const firstTimeRef = useRef(null);
+  if (firstTimeRef.current === null) firstTimeRef.current = !_isBlockDocumented(block);
+
+  // Auto-preview on mount: leaf kök bloklarda /blocks/api/preview tetikle.
+  // Composite kökte query yok → no-op (alt blokların önizlemesi kendi
+  // Çalıştır'ları ile gelir).
   useEffect(() => {
     if (!block?.query) return;
     const baseUrl = window.location.pathname.replace(/\/blocks\/(edit|new).*/, '/blocks/api');
@@ -403,12 +451,20 @@ function TemplateEditView({ block, templateRef, templateNew }) {
 
   return (
     <div className="template-edit-root template-edit-root--side-by-side">
-      <TemplateEditToolbar templateRef={templateRef} templateNew={templateNew} blockId={block.id} />
+      <TemplateEditToolbar
+        templateRef={templateRef} templateNew={templateNew} blockId={block.id}
+        rootBlock={block} firstTime={firstTimeRef.current}
+      />
       <div className="template-edit-canvas">
         <BlockCard block={block} />
       </div>
       <div className="template-edit-properties">
-        <TemplateEditProperties block={block} />
+        {isComposite && <CompositeBlockNav rootBlock={block} activeId={activeBlock.id} />}
+        <TemplateEditProperties
+          key={activeBlock.id}
+          block={activeBlock}
+          isRoot={activeBlock.id === block.id}
+        />
       </div>
       <SaveBlockModal />
     </div>
@@ -416,7 +472,45 @@ function TemplateEditView({ block, templateRef, templateNew }) {
 }
 
 
-function TemplateEditToolbar({ templateRef, templateNew, blockId }) {
+// Composite (carousel/canvas) için blok gezgini — kabı + her alt bloğu seçilebilir
+// kılar, eksik (dökümantasyon/SQL) olanları işaretler.
+function CompositeBlockNav({ rootBlock, activeId }) {
+  const setSelectedBlock = useStore((s) => s.setSelectedBlock);
+  const items = _flattenTemplateBlocks(rootBlock);
+  return (
+    <section className="props-section">
+      <h4 className="props-section__title">Bloklar</h4>
+      <div className="te-nav-list">
+        {items.map(({ block: b, depth }) => {
+          const docOk = _isBlockDocumented(b);
+          const sqlOk = !TEMPLATE_SQL_TYPES.has(b.type) || !!((b.query || '').trim());
+          const ok = docOk && sqlOk;
+          const miss = [!docOk && 'dokümantasyon', !sqlOk && 'SQL'].filter(Boolean).join(', ');
+          return (
+            <button
+              key={b.id}
+              type="button"
+              className={`te-nav-item${b.id === activeId ? ' is-active' : ''}${ok ? '' : ' is-incomplete'}`}
+              style={{ paddingLeft: `${10 + depth * 16}px` }}
+              onClick={() => setSelectedBlock(b.id)}
+              title={ok ? 'Tamam' : `Eksik: ${miss}`}
+            >
+              <span className="te-nav-dot">{ok ? '●' : '○'}</span>
+              <span className="te-nav-title">{b.title || b.id}</span>
+              <span className="te-nav-type">{b.type}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="props-form-hint">
+        Her bloğu ve kabın kendisini ayrı ayrı dökümante et. ● tamam · ○ eksik.
+      </div>
+    </section>
+  );
+}
+
+
+function TemplateEditToolbar({ templateRef, templateNew, blockId, rootBlock, firstTime }) {
   const [busy, setBusy]     = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr]       = useState(null);
@@ -424,10 +518,26 @@ function TemplateEditToolbar({ templateRef, templateNew, blockId }) {
   const openSaveBlockModal = useStore((s) => s.openSaveBlockModal);
 
   async function handleSaveNewVersion() {
+    const block = manifest?.blocks?.[0]?.children?.[0];
+    if (!block) { setErr('Blok bulunamadı.'); return; }
+
+    // Boş alan uyarısı — composite ise tüm alt bloklar + kabın kendisi dökümante
+    // ve data-bound leaf'lerin SQL'i dolu olmalı. Eksikse kullanıcıyı uyar, ama
+    // yine de devam etme seçeneği ver.
+    const gaps = _collectTemplateGaps(block);
+    if (gaps.length) {
+      const lines = gaps
+        .map((g) => `• ${g.title} (${g.type}): ${g.items.join(', ')} eksik`)
+        .join('\n');
+      const proceed = window.confirm(
+        `Bazı alanlar boş:\n\n${lines}\n\nYine de kaydetmek istiyor musun?`,
+      );
+      if (!proceed) return;
+    }
+
     setBusy(true); setErr(null); setResult(null);
     try {
-      const block = manifest?.blocks?.[0]?.children?.[0];
-      if (!block) throw new Error('Blok bulunamadı.');
+      const isComposite = _isTemplateComposite(block.type);
       const baseUrl = window.location.pathname.replace(/\/blocks\/edit\/.*/, '/blocks/api');
       const resp = await fetch(`${baseUrl}/save_new_version`, {
         method: 'POST',
@@ -442,9 +552,11 @@ function TemplateEditToolbar({ templateRef, templateNew, blockId }) {
             owner: templateRef?.owner || undefined,
             tags: block.tags || [],
             documentation: block.documentation || undefined,
-            query: block.query || '',
-            variables: block.variables || [],
             visualization: { type: block.type, config: {} },
+            // Composite: SQL yok, alt blokları (doc + query dahil) gönder.
+            ...(isComposite
+              ? { kind: 'composite', query: '', children: (block.children || []).map(stripForTemplate) }
+              : { query: block.query || '', variables: block.variables || [] }),
           },
         }),
       });
@@ -461,6 +573,7 @@ function TemplateEditToolbar({ templateRef, templateNew, blockId }) {
   }
 
   const libraryUrl = window.location.pathname.replace(/\/blocks\/(edit\/.*|new).*/, '/blocks/');
+  const saveLabel = firstTime ? 'Bloğu kütüphaneye ekle' : 'Yeni sürüm olarak kaydet';
 
   return (
     <div className="template-edit-toolbar">
@@ -497,7 +610,7 @@ function TemplateEditToolbar({ templateRef, templateNew, blockId }) {
             onClick={handleSaveNewVersion}
             disabled={busy}
           >
-            {busy ? 'Kaydediliyor…' : 'Yeni sürüm olarak kaydet'}
+            {busy ? 'Kaydediliyor…' : saveLabel}
           </button>
         )}
       </div>
@@ -506,8 +619,9 @@ function TemplateEditToolbar({ templateRef, templateNew, blockId }) {
 }
 
 
-function TemplateEditProperties({ block }) {
+function TemplateEditProperties({ block, isRoot = true }) {
   const setBlockField = useStore((s) => s.setBlockField);
+  const showSql = TEMPLATE_SQL_TYPES.has(block.type);
   const [title, setTitle]             = useState(block.title || '');
   const [description, setDescription] = useState(block.description || '');
   const [tagsText, setTagsText]       = useState((block.tags || []).join(', '));
@@ -546,8 +660,14 @@ function TemplateEditProperties({ block }) {
 
   return (
     <div className="template-edit-form">
+      {!isRoot && (
+        <div className="te-active-banner">
+          Düzenlenen blok: <strong>{block.title || block.id}</strong>
+          <span className="te-active-type">{block.type}</span>
+        </div>
+      )}
       <section className="props-section">
-        <h4 className="props-section__title">Şablon Bilgileri</h4>
+        <h4 className="props-section__title">{isRoot ? 'Şablon Bilgileri' : 'Blok Bilgileri'}</h4>
         <div className="props-section__body">
           <div className="props-form-row">
             <label className="props-form-label">Başlık</label>
@@ -570,18 +690,20 @@ function TemplateEditProperties({ block }) {
               onBlur={() => { if (description !== (block.description || '')) commit('description', description); }}
             />
           </div>
-          <div className="props-form-row">
-            <label className="props-form-label">Etiketler</label>
-            <input
-              type="text"
-              className="props-input"
-              value={tagsText}
-              placeholder="mevduat, şube, top10"
-              onChange={(e) => setTagsText(e.target.value)}
-              onBlur={commitTags}
-            />
-            <div className="props-form-hint">Virgülle ayır</div>
-          </div>
+          {isRoot && (
+            <div className="props-form-row">
+              <label className="props-form-label">Etiketler</label>
+              <input
+                type="text"
+                className="props-input"
+                value={tagsText}
+                placeholder="mevduat, şube, top10"
+                onChange={(e) => setTagsText(e.target.value)}
+                onBlur={commitTags}
+              />
+              <div className="props-form-hint">Virgülle ayır</div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -635,9 +757,9 @@ function TemplateEditProperties({ block }) {
         </div>
       </section>
 
-      <TemplateManualEditor block={block} />
-      {/* "Veri Yenileme Politikası" kaldırıldı — yenileme blok bazlı değil,
-          tablo bazlı yönetiliyor (Hazırlık'taki dataset cron'u). */}
+      {/* SQL editörü yalnız data-bound leaf bloklarda — carousel/canvas (container)
+          kendi sorgusu olmadığından sadece dökümantasyon gösterilir. */}
+      {showSql && <TemplateManualEditor block={block} />}
     </div>
   );
 }

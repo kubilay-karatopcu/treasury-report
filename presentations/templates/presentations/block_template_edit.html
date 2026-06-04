@@ -228,6 +228,97 @@
   /* Tuval içi grid hücreleri şeffaf — child block-card'ları kendileri koyu. */
   #presentation-root.be-mount .template-edit-canvas .canvas-cell { background: transparent; }
 
+  /* Carousel genişliği SABİT kalsın — slide değişince kab genişleyip daralmasın
+     (nav butonu yerinden oynamasın). Kabı container'a kilitle; içerik genişliği
+     dikte etmesin. */
+  #presentation-root.be-mount .template-edit-canvas .carousel,
+  #presentation-root.be-mount .template-edit-canvas .canvas-block {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel-slide {
+    width: 100%;
+    min-width: 0;       /* geniş içerik (tablo/grafik) kabı şişirmesin */
+    box-sizing: border-box;
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel-slide .block-card {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* ── Composite blok gezgini (te-nav-*) — Atölye koyu dili ── */
+  #presentation-root.be-mount .te-nav-list { display: flex; flex-direction: column; gap: 3px; }
+  #presentation-root.be-mount .te-nav-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; text-align: left; cursor: pointer;
+    background: var(--bg-0); border: 1px solid var(--border-soft); border-radius: 0;
+    color: var(--ink-soft); font-family: var(--mono); font-size: 11.5px;
+    padding: 7px 10px;
+  }
+  #presentation-root.be-mount .te-nav-item:hover { border-color: var(--gold); color: var(--ink); }
+  #presentation-root.be-mount .te-nav-item.is-active {
+    border-color: var(--gold); background: rgba(212, 166, 86, 0.08); color: var(--ink);
+  }
+  #presentation-root.be-mount .te-nav-dot { color: #86efac; font-size: 10px; flex: 0 0 auto; }
+  #presentation-root.be-mount .te-nav-item.is-incomplete .te-nav-dot { color: #fca5a5; }
+  #presentation-root.be-mount .te-nav-title {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #presentation-root.be-mount .te-nav-type {
+    color: var(--ink-faint); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  #presentation-root.be-mount .te-active-banner {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-mute);
+    letter-spacing: 0.04em;
+    background: rgba(212, 166, 86, 0.06); border: 1px solid var(--border-soft);
+    padding: 8px 12px; display: flex; align-items: center; gap: 8px;
+  }
+  #presentation-root.be-mount .te-active-banner strong { color: var(--ink); }
+  #presentation-root.be-mount .te-active-type {
+    color: var(--ink-faint); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+
+  /* ── "Kaynak veriyi gör" modalı (ts-modal + src-*) — koyu tema ──
+     Bu sayfa editor_dark.css yüklemiyor → modal light geliyordu. */
+  #presentation-root.be-mount .ts-modal {
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+    color: var(--ink);
+  }
+  #presentation-root.be-mount .ts-modal-header {
+    background: var(--bg-0);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  #presentation-root.be-mount .ts-modal-title { color: var(--ink); }
+  #presentation-root.be-mount .ts-modal-close { color: var(--ink-mute); }
+  #presentation-root.be-mount .ts-modal-close:hover { color: var(--gold); }
+  #presentation-root.be-mount .ts-modal-body { background: var(--bg-1); color: var(--ink); }
+  #presentation-root.be-mount .ts-modal-footer {
+    background: var(--bg-0); border-top: 1px solid var(--border-soft);
+  }
+  #presentation-root.be-mount .src-meta-item { color: var(--ink-mute); }
+  #presentation-root.be-mount .src-reason { color: var(--ink-soft); }
+  #presentation-root.be-mount .src-section-title { color: var(--ink); }
+  #presentation-root.be-mount .src-sql {
+    background: var(--bg-0); color: var(--ink); border: 1px solid var(--border-soft);
+  }
+  #presentation-root.be-mount .src-copy-btn {
+    background: transparent; color: var(--ink-soft); border: 1px solid var(--border-soft);
+  }
+  #presentation-root.be-mount .src-copy-btn:hover { color: var(--gold); border-color: var(--gold); }
+  #presentation-root.be-mount .src-preview { color: var(--ink); }
+  #presentation-root.be-mount .src-preview th {
+    background: var(--bg-0); color: var(--ink-mute); border-color: var(--border-soft);
+  }
+  #presentation-root.be-mount .src-preview td { color: var(--ink-soft); border-color: var(--border-soft); }
+  #presentation-root.be-mount .src-empty,
+  #presentation-root.be-mount .src-null,
+  #presentation-root.be-mount .docs-empty { color: var(--ink-faint); }
+  #presentation-root.be-mount .btn-secondary {
+    background: transparent; color: var(--gold); border: 1px solid var(--gold); border-radius: 0;
+  }
+  #presentation-root.be-mount .btn-secondary:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+
   /* ── Properties (altta): tablo edit dark form aesthetic ─────────── */
   #presentation-root.be-mount .template-edit-properties {
     grid-area: unset;
@@ -620,5 +711,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=31"></script>
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=32"></script>
 {% endblock %}
