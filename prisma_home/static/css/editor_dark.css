@@ -1526,6 +1526,15 @@ body.prisma .carousel-slide-type {
   background: var(--editor-surface-2) !important;
   color: var(--editor-ink-mute) !important;
 }
+/* "+ Yeni slide" tip seçici dropdown (.props-inline-menu) — editor.css
+   #f8fafc bir tray + #ffffff chip'ler veriyor. Chip'ler .props-side-panel
+   içindeki <button>'lar olduğu için yukarıdaki geniş gold-outline kuralı
+   onları zaten karartıyor; ama tray <div>'i buton değil → açık kalıyordu
+   (karosele manuel slide eklerken görünen light yüzey buydu). */
+body.prisma .props-inline-menu {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-border) !important;
+}
 
 /* ═════════════════════════════════════════════════════════════════════
    "Blok Ekle" panel (AddBlockPanel) + library cards — editor.css uses a

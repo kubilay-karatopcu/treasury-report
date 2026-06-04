@@ -4,6 +4,27 @@ import useStore from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
 
 /**
+ * En içteki ilk seçilebilir bloğun id'si. Slide bir leaf'se kendi id'si;
+ * bir container (canvas/carousel) ise ilk çocuğa iner — madde 2'deki canvas
+ * bloğuyla ileriye dönük uyumlu (bir slide birden fazla blok içerebilir → ilki).
+ */
+function firstSelectableId(b) {
+  if (!b) return null;
+  const kids = b.children;
+  if (Array.isArray(kids) && kids.length) return firstSelectableId(kids[0]);
+  return b.id;
+}
+
+/** id, block'un alt ağacında (kendisi hariç) bulunuyor mu? */
+function subtreeContains(b, id) {
+  if (!b || !id) return false;
+  for (const c of (b.children || [])) {
+    if (c.id === id || subtreeContains(c, id)) return true;
+  }
+  return false;
+}
+
+/**
  * Carousel container — birden çok bloğu kart formatında üst üste tutar.
  * Üst barda başlık + slide geçiş okları. Slide BLOK'una tıklanırsa o slide
  * seçilir; başlık barına tıklanırsa carousel'in kendisi seçilir (Properties
@@ -41,15 +62,26 @@ export default function Carousel({ block }) {
   const safeIdx = total > 0 ? Math.min(idx, total - 1) : 0;
   const activeSlide = total > 0 ? slides[safeIdx] : null;
 
+  // Slide değişince, bu carousel'in bir slide-bloğu düzenleniyorsa (alt-blok
+  // seçili) properties paneli yeni slide'ın ilk bloğuna geçsin — aksi halde
+  // panel eski slide'da kalıyordu (madde 9). Yalnız carousel'in kendisi
+  // seçiliyse (carousel ayarları) seçim değiştirilmez.
+  function goTo(n) {
+    setIdx(n);
+    if (isEdit && subtreeContains(block, selectedBlockId)) {
+      const slide = slides[n];
+      if (slide) setSelectedBlock(firstSelectableId(slide));
+    }
+  }
   function prev(e) {
     e.stopPropagation();
     if (total === 0) return;
-    setIdx((safeIdx - 1 + total) % total);
+    goTo((safeIdx - 1 + total) % total);
   }
   function next(e) {
     e.stopPropagation();
     if (total === 0) return;
-    setIdx((safeIdx + 1) % total);
+    goTo((safeIdx + 1) % total);
   }
 
   return (
@@ -114,7 +146,7 @@ export default function Carousel({ block }) {
               key={i}
               type="button"
               className={`carousel-dot${i === safeIdx ? ' is-active' : ''}`}
-              onClick={(e) => { e.stopPropagation(); setIdx(i); }}
+              onClick={(e) => { e.stopPropagation(); goTo(i); }}
               title={`Slide ${i + 1}`}
             />
           ))}
