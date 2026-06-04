@@ -103,3 +103,57 @@ def test_no_where_noop(registry, catalog):
     r = _conv(sql, registry, catalog)
     assert r["rewritten_sql"] == sql
     assert r["seeded_filters"] == []
+
+
+# ── Madde 5 — :bind predicates on concept-bound columns → concept filters ───
+
+def test_bind_eq_segment_lifted(registry, catalog):
+    r = _conv("SELECT SUM(BALANCE_TRY) AS v FROM EDW.DEPOSITS_DAILY WHERE SEGMENT = :seg",
+              registry, catalog)
+    assert "{{concept_filters}}" in r["rewritten_sql"]
+    assert ":seg" not in r["rewritten_sql"]            # bind lifted out
+    assert len(r["seeded_filters"]) == 1
+    f = r["seeded_filters"][0]
+    assert f["semantic_tag"] == "segment"
+    assert f["default"] == []                          # no literal values → empty
+    assert f["allowed_values"]                         # populated from the registry
+    assert r["converted"][0] == {
+        "column": "SEGMENT", "concept": "segment", "values": [], "via": "bind",
+    }
+    assert r["lifted_binds"] == ["seg"]
+
+
+def test_bind_in_list_lifted(registry, catalog):
+    r = _conv("SELECT v FROM EDW.DEPOSITS_DAILY WHERE SEGMENT IN (:segs)", registry, catalog)
+    assert "{{concept_filters}}" in r["rewritten_sql"]
+    assert r["lifted_binds"] == ["segs"]
+    assert r["seeded_filters"][0]["semantic_tag"] == "segment"
+
+
+def test_bind_non_concept_column_warns(registry, catalog):
+    r = _conv("SELECT v FROM EDW.DEPOSITS_DAILY WHERE STATUS = :st", registry, catalog)
+    assert "{{concept_filters}}" not in r["rewritten_sql"]   # untouched
+    assert r["seeded_filters"] == []
+    assert r["lifted_binds"] == []
+    assert any("concept'e bağlı değil" in s for s in r["skipped"])
+
+
+def test_bind_reused_in_subquery_not_lifted(registry, catalog):
+    # :seg appears top-level AND in a subquery → lifting only the top-level one
+    # would double-filter/orphan the rest, so we skip + warn.
+    sql = ("SELECT v FROM EDW.DEPOSITS_DAILY WHERE SEGMENT = :seg "
+           "AND EXISTS (SELECT 1 FROM EDW.X WHERE SEGMENT = :seg)")
+    r = _conv(sql, registry, catalog)
+    assert r["rewritten_sql"] == sql
+    assert r["seeded_filters"] == []
+    assert r["lifted_binds"] == []
+    assert any("birden fazla yer" in s for s in r["skipped"])
+
+
+def test_bind_mixed_with_literal(registry, catalog):
+    r = _conv("SELECT v FROM EDW.DEPOSITS_DAILY WHERE SEGMENT = :seg AND STATUS = 'ACTIVE'",
+              registry, catalog)
+    assert "STATUS = 'ACTIVE'" in r["rewritten_sql"]    # non-concept literal kept
+    assert "{{concept_filters}}" in r["rewritten_sql"]
+    assert ":seg" not in r["rewritten_sql"]
+    assert r["lifted_binds"] == ["seg"]
