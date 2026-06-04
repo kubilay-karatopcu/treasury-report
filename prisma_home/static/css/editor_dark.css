@@ -1554,6 +1554,11 @@ body.prisma .dnd-ghost {
   background: var(--editor-accent-soft) !important;
   color: var(--editor-accent) !important;
 }
+body.prisma .container-drag-handle { color: var(--editor-ink-faint) !important; }
+body.prisma .container-drag-handle:hover {
+  color: var(--editor-accent) !important;
+  background: var(--editor-accent-soft) !important;
+}
 
 /* Slide list (carousel properties panel) */
 body.prisma .carousel-slide-row {
