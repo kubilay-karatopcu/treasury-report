@@ -49,6 +49,23 @@ export function findBlockPath(manifest, blockId) {
   return null;
 }
 
+// Bir bloğun parent'ının id'sini bul (section-child → section.id; container-child
+// → container.id). Top-level section'ın parent'ı yok → null. DnD "öncesine bırak"
+// için kullanılır.
+function _parentIdOf(manifest, blockId) {
+  for (const sec of manifest?.blocks || []) {
+    for (const c of (sec.children || [])) {
+      if (c.id === blockId) return sec.id;
+      if (CONTAINER_TYPES.has(c.type)) {
+        for (const gk of (c.children || [])) {
+          if (gk.id === blockId) return c.id;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function updateBlockInPlace(manifest, blockId, fn) {
   const sections = manifest.blocks.map((section) => {
     if (section.id === blockId) return fn(section);
@@ -563,55 +580,92 @@ const useStore = create((set) => ({
     return id;
   },
 
-  // Madde 3 (aşamalı DnD — önce menüyle taşıma) — bir leaf bloğu mevcut yerinden
-  // alıp başka bir parent'a (bir container: carousel/canvas VEYA bir section)
-  // taşı. Serbest sürükle-bırak (dnd-kit) ayrı/sonraki iş.
+  // Madde 3 — bir leaf bloğu başka bir parent'a (container carousel/canvas VEYA
+  // bir section) taşı. `beforeBlockId` verilirse hedef parent'ın children'ında o
+  // bloğun ÖNÜNE eklenir (sürükle-bırak ile sıra/konum) — yoksa sona eklenir
+  // (menüyle "Taşı"). Hem menü hem DnD bunu kullanır.
   //
-  // Sıra ÖNEMLİ: önce hedefe EKLE (`/children/-` append, source path'ini
-  // kaydırmaz çünkü ya daha derine ya da sona ekler), SONRA kaynaktan SİL —
-  // böylece remove'un index kaydırması add path'ini bozmaz. (Kaynak, hedefin alt
-  // ağacında olmamalı; UI bunu garanti eder.)
-  moveBlockBetweenParents: (blockId, targetParentId) => {
+  // Uygulama: manifest'i klonla, taşınan bloğu kaldır, hedefe yerleştir; sonra
+  // SADECE etkilenen üst-section'ları `replace /blocks/{si}` ile gönder. Bu,
+  // RFC6902 add/remove index aritmetiğinden kaçınır ve aynı-parent reorder dahil
+  // her senaryoda doğrudur (backend tüm manifest'i yine de doğruluyor).
+  moveBlockBetweenParents: (blockId, targetParentId, beforeBlockId = null) => {
     const state = useStore.getState();
     if (!state.manifest || !blockId || !targetParentId || blockId === targetParentId) return;
-    const src = findBlockPath(state.manifest, blockId);
-    const tgt = findBlockPath(state.manifest, targetParentId);
-    if (!src || !tgt) return;
 
-    // Kaynak: taşınan blok (leaf). Hedef parent: ya bir container (carousel/
-    // canvas) ya da bir section. Container ise loc.child, section ise loc.section.
-    const targetBlock = tgt.child ?? tgt.section;
-    const targetIsContainer = CONTAINER_TYPES.has(targetBlock.type);
-    const targetIsSection = targetBlock.type === 'section_header' && !tgt.child;
+    const m = JSON.parse(JSON.stringify(state.manifest));
+    const sloc = findBlockPath(m, blockId);
+    if (!sloc) return;
+    // Taşınanı parent array'inden çıkar (leaf VEYA container child; section değil).
+    let movedNode;
+    const srcSectionIdx = sloc.sectionIdx;
+    if (sloc.slideIdx != null) {
+      movedNode = m.blocks[sloc.sectionIdx].children[sloc.childIdx].children.splice(sloc.slideIdx, 1)[0];
+    } else if (sloc.childIdx != null) {
+      movedNode = m.blocks[sloc.sectionIdx].children.splice(sloc.childIdx, 1)[0];
+    } else {
+      return; // section'ın kendisini taşıma desteklenmiyor
+    }
+    if (!movedNode || movedNode.type === 'section_header') return;
+
+    // Hedefi KALDIRMA SONRASI bul (aynı parent içinde index kaymış olabilir).
+    const tloc = findBlockPath(m, targetParentId);
+    if (!tloc) return;
+    const targetNode = tloc.child ?? tloc.section;
+    const targetIsContainer = CONTAINER_TYPES.has(targetNode.type);
+    const targetIsSection = targetNode.type === 'section_header' && !tloc.child;
     if (!targetIsContainer && !targetIsSection) return;
+    // Container içine container atılamaz (nested container yok).
+    if (targetIsContainer && CONTAINER_TYPES.has(movedNode.type)) return;
+    // Carousel slide'ı width taşımaz.
+    if (targetNode.type === 'carousel' && 'width' in movedNode) delete movedNode.width;
 
-    // Zaten bu parent'ın içindeyse no-op (aynı container/section).
-    const srcParentPath = src.slideIdx != null
-      ? `/blocks/${src.sectionIdx}/children/${src.childIdx}`
-      : (src.childIdx != null ? `/blocks/${src.sectionIdx}` : null);
-    if (srcParentPath === tgt.path) return;
+    if (!Array.isArray(targetNode.children)) targetNode.children = [];
+    let idx = targetNode.children.length;
+    if (beforeBlockId) {
+      const bi = targetNode.children.findIndex((c) => c.id === beforeBlockId);
+      if (bi >= 0) idx = bi;
+    }
+    targetNode.children.splice(idx, 0, movedNode);
 
-    const clone = JSON.parse(JSON.stringify(src.child ?? src.section));
-    // Carousel slide'larında width yok (tek slide = tam genişlik); canvas/section
-    // hedeflerinde width = grid/satır span'i → korunur.
-    if (targetBlock.type === 'carousel' && 'width' in clone) delete clone.width;
-
-    const patches = [
-      { op: 'add', path: `${tgt.path}/children/-`, value: clone },
-      { op: 'remove', path: src.path },
-    ];
+    const changedSections = [...new Set([srcSectionIdx, tloc.sectionIdx])];
+    const patches = changedSections.map((si) => ({
+      op: 'replace', path: `/blocks/${si}`, value: m.blocks[si],
+    }));
     try {
-      set((s) => {
-        if (!s.manifest) return {};
-        const newManifest = _applyPatches(s.manifest, patches);
-        newManifest.version = (newManifest.version || 0) + 1;
-        return { manifest: newManifest, selectedBlockId: blockId };
-      });
+      set({ manifest: { ...m, version: (m.version || 0) + 1 }, selectedBlockId: blockId });
     } catch (err) {
       console.error('moveBlockBetweenParents local apply failed:', err);
       return;
     }
     submitPatches(patches).catch((e) => console.error('moveBlockBetweenParents persist failed:', e));
+  },
+
+  // ── Sürükle-bırak (native HTML5 DnD) durumu + bırakma aksiyonları ──────────
+  draggingBlockId: null,
+  dropTargetId: null,
+  setDragging:   (id) => set({ draggingBlockId: id, dropTargetId: null }),
+  endDragging:   ()   => set({ draggingBlockId: null, dropTargetId: null }),
+  setDropTarget: (id) => set((s) => (s.dropTargetId === id ? {} : { dropTargetId: id })),
+
+  // Sürüklenen bloğu `beforeBlockId`'nin ÖNÜNE bırak (o bloğun parent'ı içine).
+  dropBeforeBlock: (beforeBlockId) => {
+    const s = useStore.getState();
+    const draggedId = s.draggingBlockId;
+    set({ draggingBlockId: null, dropTargetId: null });
+    if (!draggedId || !beforeBlockId || draggedId === beforeBlockId) return;
+    const parentId = _parentIdOf(s.manifest, beforeBlockId);
+    if (!parentId) return;
+    s.moveBlockBetweenParents(draggedId, parentId, beforeBlockId);
+  },
+
+  // Sürüklenen bloğu bir container'ın/section'ın SONUNA bırak.
+  dropIntoParent: (parentId) => {
+    const s = useStore.getState();
+    const draggedId = s.draggingBlockId;
+    set({ draggingBlockId: null, dropTargetId: null });
+    if (!draggedId || !parentId || draggedId === parentId) return;
+    s.moveBlockBetweenParents(draggedId, parentId, null);
   },
 
   // Bloğu kendi parent array'inde yukarı/aşağı taşı (3 seviyeli generic).

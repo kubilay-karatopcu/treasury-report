@@ -4931,6 +4931,40 @@ body.theme-dark .props-sql-helper__table td code {
   min-width: 0;   /* grid child taşmasını engelle (charts vs.) */
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Sürükle-bırak (madde 3 aşama 2) — native HTML5 DnD görsel geri bildirimi.
+   .is-draggable: layout modunda sürüklenebilir slot/cell (grab cursor).
+   .is-dnd-zone:  bir blok sürüklenirken drop bölgesi ipucu (kesik çizgi).
+   .is-dnd-over:  container/section'a "sona ekle" hedefi (vurgulu).
+   .is-dnd-before: bir bloğun ÖNÜNE ekleme göstergesi (sol accent bar).
+   ────────────────────────────────────────────────────────────────────────── */
+.block-slot.is-draggable,
+.canvas-cell.is-draggable {
+  cursor: grab;
+}
+.block-slot.is-draggable:active,
+.canvas-cell.is-draggable:active {
+  cursor: grabbing;
+}
+.section-container.is-dnd-zone,
+.canvas-block.is-dnd-zone,
+.carousel.is-dnd-zone {
+  outline: 1px dashed rgba(32,107,196,0.35);
+  outline-offset: 2px;
+}
+.section-container.is-dnd-over,
+.canvas-block.is-dnd-over,
+.carousel.is-dnd-over {
+  outline: 2px dashed var(--ts-primary, #206bc4);
+  outline-offset: 2px;
+  background: rgba(32,107,196,0.05);
+}
+.block-slot.is-dnd-before,
+.canvas-cell.is-dnd-before {
+  box-shadow: inset 3px 0 0 0 var(--ts-primary, #206bc4);
+  border-radius: 6px;
+}
+
 /* Icon button (small square) */
 .props-btn--icon {
   width: 24px;

@@ -1,6 +1,7 @@
 import { LayoutGrid } from 'lucide-react';
 import useStore from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
+import { draggableProps, dropBeforeProps, dropIntoProps } from '../lib/dnd.js';
 
 /**
  * Canvas — genel container (madde 2). Çocuk leaf blokları bir 12-kolon CSS
@@ -23,8 +24,14 @@ export default function Canvas({ block }) {
   const setSelectedBlock = useStore((s) => s.setSelectedBlock);
   const mode             = useStore((s) => s.mode);
 
+  const layoutEditMode   = useStore((s) => s.layoutEditMode);
+  const dropTargetId     = useStore((s) => s.dropTargetId);
+  const draggingBlockId  = useStore((s) => s.draggingBlockId);
+
   const isCanvasSelected = selectedBlockId === block.id;
   const isEdit           = viewMode === 'edit' && mode !== 'snapshot';
+  const dndEnabled       = isEdit && layoutEditMode;
+  const dndOn            = dndEnabled && !!draggingBlockId;
 
   function selectCanvas(e) {
     if (!isEdit) return;
@@ -34,8 +41,11 @@ export default function Canvas({ block }) {
 
   return (
     <div
-      className={`canvas-block${isCanvasSelected ? ' is-selected' : ''}${block.locked ? ' is-locked' : ''}`}
+      className={`canvas-block${isCanvasSelected ? ' is-selected' : ''}${block.locked ? ' is-locked' : ''}`
+        + (dndOn ? ' is-dnd-zone' : '')
+        + (dropTargetId === block.id ? ' is-dnd-over' : '')}
       data-block-id={block.id}
+      {...dropIntoProps(block.id, dndEnabled)}
     >
       <div className="canvas-header">
         <button
@@ -60,8 +70,11 @@ export default function Canvas({ block }) {
           {children.map((child) => (
             <div
               key={child.id}
-              className="canvas-cell"
+              className={`canvas-cell${dndEnabled ? ' is-draggable' : ''}`
+                + (dropTargetId === child.id ? ' is-dnd-before' : '')}
               style={{ gridColumn: `span ${WIDTH_SPAN[child.width] || 12}` }}
+              {...draggableProps(child.id, dndEnabled)}
+              {...dropBeforeProps(child.id, dndEnabled)}
             >
               <BlockCard block={child} />
             </div>

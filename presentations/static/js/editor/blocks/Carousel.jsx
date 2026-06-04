@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import useStore from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
+import { dropIntoProps } from '../lib/dnd.js';
 
 /**
  * En içteki ilk seçilebilir bloğun id'si. Slide bir leaf'se kendi id'si;
@@ -48,8 +49,14 @@ export default function Carousel({ block }) {
     if (idx >= slides.length) setIdx(Math.max(0, slides.length - 1));
   }, [slides.length, idx]);
 
+  const layoutEditMode     = useStore((s) => s.layoutEditMode);
+  const dropTargetId       = useStore((s) => s.dropTargetId);
+  const draggingBlockId    = useStore((s) => s.draggingBlockId);
+
   const isCarouselSelected = selectedBlockId === block.id;
   const isEdit             = viewMode === 'edit' && mode !== 'snapshot';
+  const dndEnabled         = isEdit && layoutEditMode;
+  const dndOn              = dndEnabled && !!draggingBlockId;
 
   function selectCarousel(e) {
     if (!isEdit) return;
@@ -86,8 +93,11 @@ export default function Carousel({ block }) {
 
   return (
     <div
-      className={`carousel${isCarouselSelected ? ' is-selected' : ''}${block.locked ? ' is-locked' : ''}`}
+      className={`carousel${isCarouselSelected ? ' is-selected' : ''}${block.locked ? ' is-locked' : ''}`
+        + (dndOn ? ' is-dnd-zone' : '')
+        + (dropTargetId === block.id ? ' is-dnd-over' : '')}
       data-block-id={block.id}
+      {...dropIntoProps(block.id, dndEnabled)}
     >
       {/* Üst bar: başlık (tıklanır → carousel seçili olur) + slide oklar */}
       <div className="carousel-header">
