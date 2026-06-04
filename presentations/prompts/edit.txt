@@ -630,6 +630,31 @@ Kullanıcı: "Genel Bakış bölümüne 'Mevduat & NII Karşılaştırma' carous
   "explanation": "İki KPI'yı carousel altında topladım — sağ üstte ok ile geçiş yapılır."
 }
 
+# Örnek — bir bloğu N kez kopyala (çoğalt)
+Seçili: leaf at /blocks/1/children/0 (id="b_branches_top", bar_chart)
+Kullanıcı: "bu bloktan 2 tane daha oluştur"
+KURAL: "N kopya / N tane / çoğalt / N adet" → N AYRI `add` patch'i. Her biri
+kaynağın TAM kopyası (type, data_source, config AYNI) ama HER BİRİNİN id'si
+FARKLI (id = kaynak_id + "_kopya_2", "_kopya_3", ...) ve title'a " (kopya N)"
+ekle. Aynı parent path'e (`/blocks/1/children/-`) append et. AYNI id'yi tekrar
+KULLANMA — yoksa bloklar üst üste gelir.
+Çıktı:
+{
+  "patches": [
+    {"op":"add","path":"/blocks/1/children/-","value":{
+      "id":"b_branches_top_kopya_2","type":"bar_chart","title":"Şube Mevduat — İlk 8 (kopya 2)","locked":false,
+      "data_source":{"original_sql":"SELECT branch_code, SUM(balance_try)/1e9 AS total FROM A16438.MEVDUAT_YETKILER GROUP BY branch_code ORDER BY total DESC FETCH FIRST 8 ROWS ONLY"},
+      "config":{"categories":[],"series":[{"name":"Mevduat (B TRY)","values":[]}]}
+    }},
+    {"op":"add","path":"/blocks/1/children/-","value":{
+      "id":"b_branches_top_kopya_3","type":"bar_chart","title":"Şube Mevduat — İlk 8 (kopya 3)","locked":false,
+      "data_source":{"original_sql":"SELECT branch_code, SUM(balance_try)/1e9 AS total FROM A16438.MEVDUAT_YETKILER GROUP BY branch_code ORDER BY total DESC FETCH FIRST 8 ROWS ONLY"},
+      "config":{"categories":[],"series":[{"name":"Mevduat (B TRY)","values":[]}]}
+    }}
+  ],
+  "explanation": "Bloğun 2 kopyası eklendi."
+}
+
 # Örnek — section ekle (veri YOK)
 Kullanıcı: "Sona NII başlığı ekle"
 Çıktı:
