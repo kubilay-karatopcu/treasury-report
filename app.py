@@ -363,6 +363,12 @@ app.config["LIBRARY_BLOCK_CACHE"] = _LBC(
 )
 app.config["LIBRARY_REFRESH_DISPATCHER"] = _RD(max_workers=2)
 
+# Madde 4 — filter-aware post-scope size estimates (EXPLAIN PLAN cardinality),
+# computed in the background on the dispatcher above and cached here. Read by
+# the Hazırlık /scope/refine-sizes endpoint to update the node size badge.
+from presentations.scope.size_estimate import SizeEstimateStore as _SES
+app.config["SIZE_ESTIMATE_STORE"] = _SES()
+
 # NOT: Eski LibraryRefreshScheduler (LIBRARY_STORE warm-cache) kaldırıldı —
 # tek depo = BLOCK_STORE. Kütüphane bloklarının lazy_ttl önbelleği apply-filters
 # içinde per-request serve-stale + LIBRARY_REFRESH_DISPATCHER ile çalışmaya
