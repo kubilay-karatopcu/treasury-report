@@ -62,53 +62,73 @@ def _partition_pushdown(
 ) -> tuple[str, dict[str, Any]]:
     """Return (where_clause, binds) for a pinned date range on the partition
     column, or ("", {}) when not applicable."""
-    if catalog is None or item.table_ref is None:
+    if item.table_ref is None:
         return "", {}
-    tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
+    return _partition_pushdown_from(
+        item.table_ref, list(scope.pinned_filters_for_alias(item.alias)),
+        catalog, item.alias,
+    )
+
+
+def _partition_pushdown_from(
+    table_ref, pinned, catalog: Catalog | None, prefix: str,
+) -> tuple[str, dict[str, Any]]:
+    """List-based partition pushdown — shared by the cached-table fetch and the
+    filter-derivation compiler (Faz R1)."""
+    if catalog is None or table_ref is None:
+        return "", {}
+    tm = catalog.table_meta(table_ref.schema_name, table_ref.name)
     if tm is None or not tm.partition_column:
         return "", {}
     part_concept = tm.column_concept(tm.partition_column)
     if not part_concept:
         return "", {}
-    for pf in scope.pinned_filters_for_alias(item.alias):
+    for pf in pinned:
         if pf.op != "between" or pf.concept != part_concept:
             continue
         lo, hi = _as_date(pf.from_), _as_date(pf.to)
         if lo is None or hi is None:
             continue
-        lo_bind, hi_bind = f"{item.alias}_from", f"{item.alias}_to"
+        lo_bind, hi_bind = f"{prefix}_from", f"{prefix}_to"
         where = f"{tm.partition_column} BETWEEN :{lo_bind} AND :{hi_bind}"
         return where, {lo_bind: lo, hi_bind: hi}
     return "", {}
 
 
 def _raw_predicates(scope: ScopeContract, item: BasketItem) -> tuple[list[str], dict[str, Any]]:
-    """Fetch-time WHERE clauses for the alias's raw (non-concept) filters (§6R.4).
-    Parameterised binds only — values are never concatenated into SQL."""
+    """Fetch-time WHERE clauses for the alias's raw (non-concept) filters (§6R.4)."""
+    return _raw_predicates_from(scope.raw_filters_for_alias(item.alias), item.alias)
+
+
+def _raw_predicates_from(raw_filters, prefix: str) -> tuple[list[str], dict[str, Any]]:
+    """Compile a list of raw (column-level) filters into WHERE clauses + binds.
+    Parameterised binds only — values are never concatenated into SQL. `prefix`
+    namespaces the bind variables. Shared by the cached-table fetch (old path)
+    and the filter-derivation compiler (Faz R1)."""
     clauses: list[str] = []
     binds: dict[str, Any] = {}
-    for i, rf in enumerate(scope.raw_filters_for_alias(item.alias)):
+    for i, rf in enumerate(raw_filters):
         col = rf.column
         if rf.op in ("in", "not_in") and rf.values:
             names = []
             for j, v in enumerate(rf.values):
-                b = f"{item.alias}_rf{i}_{j}"
+                b = f"{prefix}_rf{i}_{j}"
                 binds[b] = v
                 names.append(f":{b}")
             op = "IN" if rf.op == "in" else "NOT IN"
             clauses.append(f"{col} {op} ({', '.join(names)})")
         elif rf.op == "between" and rf.from_ is not None and rf.to is not None:
-            bf, bt = f"{item.alias}_rf{i}_f", f"{item.alias}_rf{i}_t"
+            bf, bt = f"{prefix}_rf{i}_f", f"{prefix}_rf{i}_t"
             binds[bf] = _as_date(rf.from_) or rf.from_
             binds[bt] = _as_date(rf.to) or rf.to
             clauses.append(f"{col} BETWEEN :{bf} AND :{bt}")
         elif rf.op == "eq" and rf.value is not None:
-            b = f"{item.alias}_rf{i}"
+            b = f"{prefix}_rf{i}"
             binds[b] = rf.value
             clauses.append(f"{col} = :{b}")
         elif rf.op in ("gt", "gte", "lt", "lte") and rf.value is not None:
             sym = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[rf.op]
-            b = f"{item.alias}_rf{i}"
+            b = f"{prefix}_rf{i}"
             binds[b] = rf.value
             clauses.append(f"{col} {sym} :{b}")
     return clauses, binds
@@ -127,6 +147,19 @@ def _concept_pushdown(
 
     Returns ``(clauses, binds)`` ready to merge into the SELECT.
     """
+    if item.table_ref is None:
+        return [], {}
+    return _concept_pushdown_from(
+        item.table_ref, list(scope.pinned_filters_for_alias(item.alias)),
+        registry, binding_catalog,
+    )
+
+
+def _concept_pushdown_from(
+    table_ref, pinned, registry, binding_catalog,
+) -> tuple[list[str], dict[str, Any]]:
+    """List-based pinned concept-filter pushdown via the Phase 7 compiler —
+    shared by the cached-table fetch and the filter-derivation compiler."""
     if registry is None or binding_catalog is None:
         return [], {}
     from presentations.concepts.compiler import (
@@ -134,16 +167,12 @@ def _concept_pushdown(
         compile_filter_for_table,
     )
 
-    schema = item.table_ref.schema_name
-    name = item.table_ref.name
+    schema = table_ref.schema_name
+    name = table_ref.name
     clauses: list[str] = []
     binds: dict[str, Any] = {}
-    partition_concept = None
-    if hasattr(binding_catalog, "concept_bound_to_column"):
-        partition_concept = None  # binding_catalog doesn't have this — derive below
-    # Skip the partition date filter — already pushed via _partition_pushdown.
 
-    for pf in scope.pinned_filters_for_alias(item.alias):
+    for pf in pinned:
         # The variable resolver still handles last_n_days, so skip it here
         # (would require runtime "today" expression — out of scope for fetch).
         if pf.op == "last_n_days":
@@ -231,6 +260,59 @@ def compose_cached_sql(
     # Optional safety cap (used by the lazy on-demand path) — bounds the pull
     # when the byte estimate is wrong/absent or pinned filters don't narrow
     # enough. Cached fetches pass max_rows=None (routing keeps them small).
+    cap_sql = f" FETCH FIRST {int(max_rows)} ROWS ONLY" if max_rows else ""
+    return f"SELECT {cols} FROM {table}{where_sql}{cap_sql}", binds
+
+
+def compile_filter_sql(
+    scope: ScopeContract, item: BasketItem, catalog: Catalog | None = None,
+    *,
+    concept_registry=None, binding_catalog=None,
+    max_rows: int | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Faz R1 — compose the Oracle SELECT for a ``filter`` derivation node.
+
+    A filtered node re-queries its source main table (lazy Oracle table) with
+    the derivation's EMBEDDED filters: ``SELECT <proj> FROM <source table> WHERE
+    <filters>``. The source's ``table_ref`` + projection are inherited via
+    ``derivation.source_alias``. Relative dates resolve at call time, so the
+    materialised dataset is dynamic (a ``today - 7d`` filter re-shifts daily).
+
+    Predicate composition mirrors ``compose_cached_sql`` but reads from the
+    embedded ``derivation.filters`` instead of scope-level filters. Bind names
+    are namespaced by the node's alias. Raises when the source can't be resolved.
+    """
+    d = item.derivation
+    if d is None or d.kind != "filter":
+        raise ValueError(f"compile_filter_sql: '{item.alias}' is not a filter node")
+    source = scope.basket_item(d.source_alias)
+    if source is None or source.table_ref is None:
+        raise ValueError(
+            f"filter node '{item.alias}': source '{d.source_alias}' has no Oracle table"
+        )
+    table_ref = source.table_ref
+    table = f"{table_ref.schema_name}.{table_ref.name}"
+    # Projection: the node's own if set, else inherit the source's.
+    proj = item.projection if (item.projection and item.projection.columns) else source.projection
+    cols = "*" if (proj.include_all or not proj.columns) else ", ".join(proj.columns)
+
+    pinned = list(d.filters.pinned) if d.filters else []
+    raw = list(d.filters.raw) if d.filters else []
+
+    where_parts: list[str] = []
+    binds: dict[str, Any] = {}
+    pw, pb = _partition_pushdown_from(table_ref, pinned, catalog, item.alias)
+    if pw:
+        where_parts.append(pw)
+        binds.update(pb)
+    cw, cb = _concept_pushdown_from(table_ref, pinned, concept_registry, binding_catalog)
+    where_parts.extend(cw)
+    binds.update(cb)
+    rw, rb = _raw_predicates_from(raw, item.alias)
+    where_parts.extend(rw)
+    binds.update(rb)
+
+    where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
     cap_sql = f" FETCH FIRST {int(max_rows)} ROWS ONLY" if max_rows else ""
     return f"SELECT {cols} FROM {table}{where_sql}{cap_sql}", binds
 
