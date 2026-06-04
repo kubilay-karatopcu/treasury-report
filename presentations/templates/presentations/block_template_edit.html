@@ -23,7 +23,7 @@
 {% block head %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
-<link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=36">
+<link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=42">
 <style>
   /* ────────────────────────────────────────────────────────────────────
      Blok Editörü — Atölye · Kütüphane stiline tam adaptasyon
@@ -186,6 +186,48 @@
     color: var(--ink);
   }
 
+  /* Container önizleme (carousel / tuval) — editor.css'in light #ffffff
+     yüzeyleri burada editor_dark.css yüklü olmadığı için sızıyor; Atölye koyu
+     tokenleriyle boya (block-card deseni). */
+  #presentation-root.be-mount .template-edit-canvas .carousel,
+  #presentation-root.be-mount .template-edit-canvas .canvas-block {
+    background: var(--bg-0);
+    border: 1px solid var(--border-soft);
+    color: var(--ink);
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel.is-locked,
+  #presentation-root.be-mount .template-edit-canvas .canvas-block.is-locked {
+    background: var(--bg-1);
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel-header,
+  #presentation-root.be-mount .template-edit-canvas .canvas-header {
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel-title-btn,
+  #presentation-root.be-mount .template-edit-canvas .canvas-title-btn,
+  #presentation-root.be-mount .template-edit-canvas .carousel-title-text,
+  #presentation-root.be-mount .template-edit-canvas .canvas-title-text {
+    color: var(--ink);
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel-counter { color: var(--ink-mute); }
+  #presentation-root.be-mount .template-edit-canvas .carousel-nav-btn {
+    background: var(--bg-0);
+    border: 1px solid var(--border-soft);
+    color: var(--ink-soft);
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel-nav-btn:hover:not(:disabled) {
+    border-color: var(--gold); color: var(--gold);
+  }
+  #presentation-root.be-mount .template-edit-canvas .carousel-dot { background: var(--border-soft); }
+  #presentation-root.be-mount .template-edit-canvas .carousel-dot.is-active { background: var(--gold); }
+  #presentation-root.be-mount .template-edit-canvas .carousel-empty,
+  #presentation-root.be-mount .template-edit-canvas .canvas-empty {
+    color: var(--ink-mute);
+  }
+  /* Tuval içi grid hücreleri şeffaf — child block-card'ları kendileri koyu. */
+  #presentation-root.be-mount .template-edit-canvas .canvas-cell { background: transparent; }
+
   /* ── Properties (altta): tablo edit dark form aesthetic ─────────── */
   #presentation-root.be-mount .template-edit-properties {
     grid-area: unset;
@@ -194,10 +236,15 @@
     display: flex; flex-direction: column;
     gap: 18px;
   }
+  /* Form tam içerik genişliği (tablo edit sayfası gibi) — editor.css'in
+     880px/center kısıtını kaldır. */
   #presentation-root.be-mount .template-edit-form {
     display: flex; flex-direction: column;
     gap: 18px;
     background: transparent;
+    max-width: none;
+    margin: 0;
+    padding: 0;
   }
 
   /* Bölüm kartı — her props-section ayrı bir bg-1 panel. */
@@ -258,6 +305,8 @@
     font-size: 12.5px;
     line-height: 1.4;
     box-shadow: none;
+    width: 100%;
+    box-sizing: border-box;
   }
   #presentation-root.be-mount .props-input:focus,
   #presentation-root.be-mount .props-textarea:focus,
@@ -571,5 +620,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=17"></script>
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=31"></script>
 {% endblock %}
