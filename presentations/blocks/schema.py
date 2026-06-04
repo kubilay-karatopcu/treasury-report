@@ -214,7 +214,13 @@ class BlockDocumentation(BaseModel):
 
 # ── Visualization ─────────────────────────────────────────────────────────
 
-VizType = Literal["kpi", "kpi_grid", "line", "bar", "bar_chart", "line_chart", "table", "pie"]
+VizType = Literal[
+    "kpi", "kpi_grid", "line", "bar", "bar_chart", "line_chart", "table", "pie",
+    # Phase 12.container — composite (container) blocks. Carry no SQL; their
+    # `type` names the container kind. `canvas` is forward-compat for the
+    # generic layout container (madde 2).
+    "carousel", "canvas",
+]
 
 
 class Visualization(BaseModel):
@@ -364,7 +370,13 @@ class Block(BaseModel):
 
     documentation: BlockDocumentation | None = None
 
-    query: str = Field(min_length=1)
+    # Phase 6.5 = single SQL block (default). Phase 12.container = composite
+    # blocks (carousel/canvas): no SQL of their own — they hold child blocks
+    # verbatim (manifest sub-block shape) so the library can store & re-insert
+    # a whole container. `kind` discriminates; `_check_kind_shape` enforces it.
+    kind: Literal["single", "composite"] = "single"
+    query: str = ""
+    children: list[dict[str, Any]] | None = None
     variables: list[Variable] = Field(default_factory=list)
     visualization: Visualization
 
@@ -391,6 +403,27 @@ class Block(BaseModel):
             raise ValueError(
                 f"variable names must be unique within a block; duplicates: {dupes}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _check_kind_shape(self) -> "Block":
+        """single → needs a non-empty query, no children.
+        composite → needs children, a container viz type, no SQL."""
+        if self.kind == "composite":
+            if not self.children:
+                raise ValueError("composite block must carry a non-empty 'children' list")
+            for i, c in enumerate(self.children):
+                if not isinstance(c, dict) or not isinstance(c.get("type"), str) or not c.get("type"):
+                    raise ValueError(f"children[{i}] must be a dict with a non-empty string 'type'")
+            if self.visualization.type not in ("carousel", "canvas"):
+                raise ValueError(
+                    "composite block visualization.type must be 'carousel' or 'canvas'"
+                )
+        else:
+            if not (self.query or "").strip():
+                raise ValueError("single block requires a non-empty 'query'")
+            if self.children:
+                raise ValueError("single block must not carry 'children' (use kind='composite')")
         return self
 
 

@@ -265,8 +265,9 @@ function CarouselActions({ block }) {
 
 function SaveToLibrarySection({ block }) {
   const openModal = useStore((s) => s.openSaveBlockModal);
-  // Filter_bar / carousel kütüphane MVP scope dışında — şimdilik leaf bloklar.
-  if (block.type === 'carousel' || block.type === 'filter_bar') return null;
+  // filter_bar kütüphaneye kaydedilmez. Carousel/canvas → composite şablon
+  // (madde 1): SaveBlockModal container'ı children'ıyla kaydeder.
+  if (block.type === 'filter_bar') return null;
   return (
     <Section title="Şablon">
       <button

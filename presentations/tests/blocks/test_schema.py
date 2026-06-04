@@ -196,3 +196,69 @@ class TestVersioning:
             deprecated=True,
         )
         assert block.deprecated is True
+
+
+class TestCompositeBlock:
+    """Phase 12.container — carousel/canvas blocks stored as composite (no SQL,
+    children carried verbatim)."""
+
+    def _composite(self, **over):
+        kw = dict(
+            id="overview_carousel", version=1, title="Genel Bakış",
+            team="treasury", owner="A16438",
+            created_at="2026-05-21T10:00:00Z",
+            kind="composite",
+            visualization={"type": "carousel", "config": {}},
+            children=[
+                {"id": "sl1", "type": "kpi", "title": "Toplam",
+                 "data_source": {"original_sql": "SELECT 1 AS value"}, "config": {}},
+            ],
+        )
+        kw.update(over)
+        return Block(**kw)
+
+    def test_composite_parses(self):
+        b = self._composite()
+        assert b.kind == "composite"
+        assert b.query == ""                       # composite carries no SQL
+        assert b.visualization.type == "carousel"
+        assert len(b.children) == 1
+
+    def test_composite_round_trip(self):
+        b = self._composite()
+        reparsed = load_block_from_dict(block_to_dict(b))
+        assert reparsed.kind == "composite"
+        assert reparsed.children[0]["type"] == "kpi"
+
+    def test_canvas_kind_allowed(self):
+        b = self._composite(visualization={"type": "canvas", "config": {}})
+        assert b.visualization.type == "canvas"
+
+    def test_composite_without_children_rejected(self):
+        with pytest.raises(ValidationError):
+            self._composite(children=[])
+
+    def test_composite_bad_viz_type_rejected(self):
+        with pytest.raises(ValidationError):
+            self._composite(visualization={"type": "kpi", "config": {}})
+
+    def test_composite_child_without_type_rejected(self):
+        with pytest.raises(ValidationError):
+            self._composite(children=[{"id": "x"}])
+
+    def test_single_requires_query(self):
+        with pytest.raises(ValidationError):
+            Block(
+                id="block_a", version=1, title="x", team="treasury", owner="x",
+                created_at="2026-05-21T10:00:00Z",
+                visualization={"type": "kpi", "config": {}},  # query omitted → ""
+            )
+
+    def test_single_with_children_rejected(self):
+        with pytest.raises(ValidationError):
+            Block(
+                id="block_a", version=1, title="x", team="treasury", owner="x",
+                created_at="2026-05-21T10:00:00Z", query="SELECT 1",
+                visualization={"type": "kpi", "config": {}},
+                children=[{"id": "c", "type": "kpi"}],
+            )
