@@ -63,6 +63,7 @@ const CHAT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/chat`);
 const APPLY_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/apply-suggestion`);
 const ROUTING_OVERRIDE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/routing-override`);
 const ROUTING_RECOMPUTE_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/recompute-routing`);
+const REFINE_SIZES_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/refine-sizes`);
 const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-draft`);
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
 const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
@@ -108,6 +109,31 @@ function formatBytes(n) {
   if (n < 1_000_000) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(n < 100_000_000 ? 1 : 0)} MB`;
   return `${(n / 1_000_000_000).toFixed(n < 100_000_000_000 ? 1 : 0)} GB`;
+}
+
+// Madde 4 — merge background EXPLAIN PLAN size estimates (alias → {estimated_
+// bytes, rows, source}) into the scope's routing. Only the size number changes;
+// for system-decided tables the cached/lazy decision is recomputed from the
+// refined bytes (a tighter estimate can flip lazy→cached), while user overrides
+// keep their decision. Returns the same object when nothing changed so React
+// can bail on the setScope.
+function applySizeEstimates(scope, estimates) {
+  if (!estimates || !Object.keys(estimates).length) return scope;
+  const threshold = ROUTING_CONFIG.threshold_bytes;
+  let changed = false;
+  const basket = scope.basket.map((b) => {
+    const est = estimates[b.alias];
+    if (!est || !b.routing) return b;
+    if (b.routing.estimated_bytes === est.estimated_bytes &&
+        b.routing.estimate_source === est.source) return b;
+    const routing = { ...b.routing, estimated_bytes: est.estimated_bytes, estimate_source: est.source };
+    if (b.routing.decided_by !== "user") {
+      routing.decision = est.estimated_bytes <= threshold ? "cached" : "lazy";
+    }
+    changed = true;
+    return { ...b, routing };
+  });
+  return changed ? { ...scope, basket } : scope;
 }
 
 // table id ("SCHEMA.NAME") → catalog table (desc, columns…)
@@ -218,9 +244,15 @@ function TableNode({ data }) {
   const overrideTitle = overrideDisabled
     ? `Force cached reddedildi: tahmin ${formatBytes(estimatedBytes)} > hard ceiling ${formatBytes(ROUTING_CONFIG.hard_ceiling_bytes)}.`
     : (cached ? "Lazy'ye geç (Oracle'dan blok zamanında çek)" : "Cached'a geç (DuckDB'ye materialise)");
+  // Madde 4 — flag whether the size came from the optimizer (filter-aware) or
+  // the catalog-only partition estimate, so the tooltip is honest about it.
+  const measured = item.routing?.estimate_source === "explain_plan";
+  const sourceNote = measured
+    ? " (EXPLAIN PLAN ile ölçüldü — filtreleri hesaba katar)"
+    : " (katalog tahmini — sadece partition filtresini hesaba katar)";
   const decisionTitle = derived
     ? "Türetilmiş tablo — DuckDB'de hesaplanır."
-    : `Tahmini boyut: ${formatBytes(estimatedBytes)}. Karar: ${decidedBy === "user" ? "kullanıcı override'ı" : "sistem"}.`;
+    : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: ${decidedBy === "user" ? "kullanıcı override'ı" : "sistem"}.`;
   return (
     <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
       <div className="hz-node-head" style={headStyle}>
@@ -1819,6 +1851,30 @@ function App() {
   }, []);
   const edges = useMemo(() => buildEdges(scope), [scope]);
 
+  // Madde 4 — ask the server to refine post-scope sizes with EXPLAIN PLAN
+  // cardinality, then fold the results into the node badges. The estimate runs
+  // in the background (dedicated Oracle connection), so the endpoint returns
+  // ready hits immediately and reports the rest as `pending`; we re-poll a few
+  // times until they land. `scopeArg` is the scope to size (not React state) so
+  // a poll measures the snapshot it was kicked off for. attempt caps the poll.
+  const refineSizes = useCallback((scopeArg, attempt = 0) => {
+    fetch(REFINE_SIZES_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: scopeArg }),
+    }).then((r) => r.json()).then((data) => {
+      if (!data || !data.ok) return;
+      if (data.estimates && Object.keys(data.estimates).length) {
+        setScope((cur) => applySizeEstimates(cur, data.estimates));
+      }
+      if (data.pending && data.pending.length && attempt < 6) {
+        setTimeout(() => refineSizes(scopeArg, attempt + 1), 1800);
+      }
+    }).catch(() => { /* best effort — partition estimate stays */ });
+  }, []);
+
+  // Refine sizes for whatever filters/tables are already on the canvas at load.
+  useEffect(() => { refineSizes(DATA.scope); }, [refineSizes]);
+
   // Auto-save the draft scope to the session manifest 500ms after the last
   // mutation. Reload picks up where the user left off without going through
   // "Sunum'a geç". Initial DATA.scope mount is skipped (no-op POST).
@@ -2156,7 +2212,7 @@ function App() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope: next }),
       }).then((r) => r.json()).then((data) => {
-        if (data && data.ok) setScope(data.scope);
+        if (data && data.ok) { setScope(data.scope); refineSizes(data.scope); }
       }).catch(() => {});
       return next;
     });
@@ -2322,7 +2378,7 @@ function App() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ scope: next }),
         }).then((r) => r.json()).then((data) => {
-          if (data && data.ok) setScope(data.scope);
+          if (data && data.ok) { setScope(data.scope); refineSizes(data.scope); }
         }).catch(() => {});
         return next;
       });
@@ -2381,7 +2437,7 @@ function App() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope: next }),
       }).then((r) => r.json()).then((data) => {
-        if (data && data.ok) setScope(data.scope);
+        if (data && data.ok) { setScope(data.scope); refineSizes(data.scope); }
       }).catch(() => {});
       return next;
     });

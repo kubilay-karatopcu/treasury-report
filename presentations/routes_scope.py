@@ -29,15 +29,21 @@ from presentations import presentations_bp
 from presentations.blocks.store import _normalize_team_token
 from presentations.catalog.loader import DEFAULT_SCHEMA_DEPARTMENT_MAP
 from presentations.scope.catalog import AppCatalog
-from presentations.scope.fetch import fetch_cached_tables
+from presentations.scope.fetch import compose_cached_sql, fetch_cached_tables
 from presentations.scope.diff import diff_scopes, serialise_diff
 from presentations.scope.impact import compute_affected_blocks, serialise_affected, summarise
 from presentations.scope.routing import (
     DEFAULT_HARD_CEILING_BYTES,
     DEFAULT_THRESHOLD_BYTES,
     RoutingCeilingError,
+    _bytes_per_row,
     apply_user_override,
     decide_routing,
+)
+from presentations.scope.size_estimate import (
+    SizeEstimateStore,
+    estimate_bytes_via_explain,
+    fingerprint,
 )
 from presentations.scope.schema import (
     ScopeContract,
@@ -90,6 +96,16 @@ def _routing_threshold_bytes() -> int:
 def _routing_hard_ceiling_bytes() -> int:
     return int(current_app.config.get(
         "PRESENTATIONS_ROUTING_HARD_CEILING_BYTES", DEFAULT_HARD_CEILING_BYTES))
+
+
+def _size_estimate_store() -> SizeEstimateStore:
+    """The app-wide refined-size cache (madde 4). Lazily created so tests /
+    run_local that don't pre-register one in app.config still work."""
+    store = current_app.config.get("SIZE_ESTIMATE_STORE")
+    if store is None:
+        store = SizeEstimateStore()
+        current_app.config["SIZE_ESTIMATE_STORE"] = store
+    return store
 
 
 def _unentitled_tables(scope: ScopeContract) -> list[str]:
@@ -1146,6 +1162,90 @@ def scope_recompute_routing(pid: str):
         return _json({"ok": False, "errors": _flatten(exc)}, status=400)
     _refresh_routing(scope, _catalog())
     return _json({"ok": True, "scope": scope_to_dict(scope)["scope"]})
+
+
+@presentations_bp.route("/<pid>/scope/refine-sizes", methods=["POST"])
+@login_required
+def scope_refine_sizes(pid: str):
+    """Filter-aware size refinement via EXPLAIN PLAN (madde 4).
+
+    The catalog-only estimator (``recompute-routing``) only shrinks a table for
+    a pinned date range on its partition column. This endpoint refines the byte
+    estimate for *every* raw basket table using the Oracle optimizer's
+    cardinality, so non-partition filters (status / currency / segment …) move
+    the node size badge too.
+
+    For each raw table we compose the same projected, filtered SELECT the fetch
+    pass would run, fingerprint it, and:
+
+    - return a **fresh cached** estimate immediately (``estimates[alias]``); or
+    - **enqueue** a background EXPLAIN PLAN job (deduped per fingerprint on the
+      shared :class:`RefreshDispatcher`) and report the alias as ``pending``.
+
+    The frontend applies the returned estimates to the node badge and re-polls
+    while ``pending`` is non-empty. The optimizer call never scans data, but the
+    dedicated-connection setup is why this is background, not inline. User
+    routing overrides aren't touched here — only the size number is refined; the
+    cached/lazy decision is recomputed client-side from the refined bytes for
+    system-decided tables.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    if not isinstance(scope_in, dict):
+        return _json({"ok": False, "error": "scope required"}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    catalog = _catalog()
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    dc = current_app.config.get("DATA_CLIENT")
+    store = _size_estimate_store()
+    dispatcher = current_app.config.get("LIBRARY_REFRESH_DISPATCHER")
+    can_explain = dc is not None and hasattr(dc, "get_connection")
+
+    estimates: dict[str, dict[str, Any]] = {}
+    pending: list[str] = []
+    for item in scope.basket:
+        if item.derivation is not None or item.table_ref is None:
+            continue
+        try:
+            sql, binds = compose_cached_sql(
+                scope, item, catalog,
+                concept_registry=registry, binding_catalog=bindings,
+            )
+        except Exception:
+            log.warning("refine-sizes: compose failed for alias %s", item.alias,
+                        exc_info=True)
+            continue
+        key = fingerprint(sql, binds)
+        cached = store.get(key)
+        if cached is not None:
+            estimates[item.alias] = {
+                "estimated_bytes": cached["estimated_bytes"],
+                "rows": cached["rows"],
+                "source": cached["source"],
+            }
+            continue
+        if not (can_explain and dispatcher is not None):
+            continue
+        tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
+        bpr = _bytes_per_row(tm, item.projection) if tm is not None else 50
+
+        def _job(_sql=sql, _binds=binds, _bpr=bpr):
+            return estimate_bytes_via_explain(dc, _sql, _binds, _bpr)
+
+        def _on_success(res, _key=key):
+            if res is not None:
+                store.put(_key, rows=res["rows"],
+                          estimated_bytes=res["estimated_bytes"], source="explain_plan")
+
+        dispatcher.enqueue(cache_key=f"size::{pid}::{key}", fetch=_job, on_success=_on_success)
+        pending.append(item.alias)
+
+    return _json({"ok": True, "estimates": estimates, "pending": pending})
 
 
 @presentations_bp.route("/<pid>/scope/preview-sql", methods=["POST"])
