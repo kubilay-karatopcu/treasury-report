@@ -1545,15 +1545,14 @@ body.prisma .canvas-block.is-dnd-zone,
 body.prisma .carousel.is-dnd-zone {
   outline-color: var(--editor-border-strong) !important;
 }
-body.prisma .section-container.is-dnd-over,
-body.prisma .canvas-block.is-dnd-over,
 body.prisma .carousel.is-dnd-over {
   outline-color: var(--editor-accent) !important;
   background: var(--editor-accent-soft) !important;
 }
-body.prisma .block-slot.is-dnd-before,
-body.prisma .canvas-cell.is-dnd-before {
-  box-shadow: inset 3px 0 0 0 var(--editor-accent) !important;
+body.prisma .dnd-ghost {
+  border-color: var(--editor-accent) !important;
+  background: var(--editor-accent-soft) !important;
+  color: var(--editor-accent) !important;
 }
 
 /* Slide list (carousel properties panel) */

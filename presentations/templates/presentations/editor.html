@@ -21,9 +21,9 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine-dark.css">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=40">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=41">
   {# Phase 11.dark-editor — override layer; must load AFTER editor.css. #}
-  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=16">
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=17">
   <style>
     /* Editor view: pin the mount to the viewport with position:fixed so
        parent-chain layout (Tabler, dev banner, container-xl) can't push it
@@ -69,5 +69,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=26"></script>
+  <script src="{{ url_for('presentations.static', filename='js/bundle.js') }}?v=27"></script>
 {% endblock %}

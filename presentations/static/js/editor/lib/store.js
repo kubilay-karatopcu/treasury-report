@@ -49,21 +49,12 @@ export function findBlockPath(manifest, blockId) {
   return null;
 }
 
-// Bir bloğun parent'ının id'sini bul (section-child → section.id; container-child
-// → container.id). Top-level section'ın parent'ı yok → null. DnD "öncesine bırak"
-// için kullanılır.
-function _parentIdOf(manifest, blockId) {
-  for (const sec of manifest?.blocks || []) {
-    for (const c of (sec.children || [])) {
-      if (c.id === blockId) return sec.id;
-      if (CONTAINER_TYPES.has(c.type)) {
-        for (const gk of (c.children || [])) {
-          if (gk.id === blockId) return c.id;
-        }
-      }
-    }
-  }
-  return null;
+// Bir bloğu id ile bul ve nesnesini döndür (section / child / container child).
+// DnD önizlemesi sürüklenen bloğun width/title'ını buradan okur.
+export function getBlockById(manifest, blockId) {
+  const loc = findBlockPath(manifest, blockId);
+  if (!loc) return null;
+  return loc.slide ?? loc.child ?? loc.section ?? null;
 }
 
 function updateBlockInPlace(manifest, blockId, fn) {
@@ -642,30 +633,27 @@ const useStore = create((set) => ({
   },
 
   // ── Sürükle-bırak (native HTML5 DnD) durumu + bırakma aksiyonları ──────────
+  // dropPreview: { parentId, beforeId } — sürüklenen blok şu an bırakılırsa
+  // NEREYE gideceği. Render katmanı bunu kullanıp o noktaya bir "hayalet" kutu
+  // açar (diğer bloklar kayar → kullanıcı yeni layout'u bırakmadan görür).
   draggingBlockId: null,
-  dropTargetId: null,
-  setDragging:   (id) => set({ draggingBlockId: id, dropTargetId: null }),
-  endDragging:   ()   => set({ draggingBlockId: null, dropTargetId: null }),
-  setDropTarget: (id) => set((s) => (s.dropTargetId === id ? {} : { dropTargetId: id })),
+  dropPreview: null,
+  setDragging:   (id) => set({ draggingBlockId: id, dropPreview: null }),
+  endDragging:   ()   => set({ draggingBlockId: null, dropPreview: null }),
+  previewDrop: (parentId, beforeId) => set((s) => {
+    const p = s.dropPreview;
+    if (p && p.parentId === parentId && p.beforeId === (beforeId || null)) return {};
+    return { dropPreview: { parentId, beforeId: beforeId || null } };
+  }),
 
-  // Sürüklenen bloğu `beforeBlockId`'nin ÖNÜNE bırak (o bloğun parent'ı içine).
-  dropBeforeBlock: (beforeBlockId) => {
+  // Sürüklenen bloğu `parentId` içine, `beforeId` verilirse onun ÖNÜNE (yoksa
+  // sona) bırak — önizlemenin gösterdiği yere taşı.
+  commitDrop: (parentId, beforeId) => {
     const s = useStore.getState();
     const draggedId = s.draggingBlockId;
-    set({ draggingBlockId: null, dropTargetId: null });
-    if (!draggedId || !beforeBlockId || draggedId === beforeBlockId) return;
-    const parentId = _parentIdOf(s.manifest, beforeBlockId);
-    if (!parentId) return;
-    s.moveBlockBetweenParents(draggedId, parentId, beforeBlockId);
-  },
-
-  // Sürüklenen bloğu bir container'ın/section'ın SONUNA bırak.
-  dropIntoParent: (parentId) => {
-    const s = useStore.getState();
-    const draggedId = s.draggingBlockId;
-    set({ draggingBlockId: null, dropTargetId: null });
+    set({ draggingBlockId: null, dropPreview: null });
     if (!draggedId || !parentId || draggedId === parentId) return;
-    s.moveBlockBetweenParents(draggedId, parentId, null);
+    s.moveBlockBetweenParents(draggedId, parentId, beforeId || null);
   },
 
   // Bloğu kendi parent array'inde yukarı/aşağı taşı (3 seviyeli generic).
