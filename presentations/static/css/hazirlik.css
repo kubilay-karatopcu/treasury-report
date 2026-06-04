@@ -279,6 +279,16 @@
   white-space: nowrap;
 }
 
+/* Faz R1/F3 — filter-node "Kaynak Query" tab (generated Oracle SQL). */
+.hz-filter-sql { padding: 8px; height: 100%; overflow: auto; }
+.hz-sql-pre {
+  margin: 0; padding: 10px;
+  background: #0f172a; color: #e2e8f0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+  line-height: 1.5; border: 1px solid #334155; border-radius: 4px;
+  white-space: pre-wrap; word-break: break-word;
+}
+
 .hz-pop-meta { margin-bottom: 12px; font-size: 13px; color: #334155; }
 
 /* ════════════════════════════════════════════════════════════════════
