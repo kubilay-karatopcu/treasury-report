@@ -233,67 +233,47 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 function TableNode({ data }) {
   const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting, onEditRefresh } = data;
   const cached = item.routing?.decision === "cached";
+  // Faz R1 node tipleri: main (table_ref/sql) SABİT — lazy/cache toggle + cron yok;
+  // filter-node BOYUTLU (EXPLAIN PLAN) → cached/lazy rozeti + cron; aggregate/
+  // calculated DuckDB'de → "türetilmiş" (boyut yok).
+  const isFilter = item.derivation?.kind === "filter";
+  const sized = !derived || isFilter;          // boyut rozeti gösterilenler
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   const headStyle = !derived && color ? { background: color } : undefined;
   const estimatedBytes = item.routing?.estimated_bytes;
   const decidedBy = item.routing?.decided_by || "system";
-  const hardCeilingExceeded = (estimatedBytes || 0) > ROUTING_CONFIG.hard_ceiling_bytes;
-  const sizeText = derived ? null : formatBytes(estimatedBytes);
-  const overrideLabel = cached ? "→ lazy" : "→ cached";
-  const overrideDisabled = !cached && hardCeilingExceeded;
-  const overrideTitle = overrideDisabled
-    ? `Force cached reddedildi: tahmin ${formatBytes(estimatedBytes)} > hard ceiling ${formatBytes(ROUTING_CONFIG.hard_ceiling_bytes)}.`
-    : (cached ? "Lazy'ye geç (Oracle'dan blok zamanında çek)" : "Cached'a geç (DuckDB'ye materialise)");
+  const sizeText = sized ? formatBytes(estimatedBytes) : null;
   // Madde 4 — flag whether the size came from the optimizer (filter-aware) or
   // the catalog-only partition estimate, so the tooltip is honest about it.
   const measured = item.routing?.estimate_source === "explain_plan";
   const sourceNote = measured
     ? " (EXPLAIN PLAN ile ölçüldü — filtreleri hesaba katar)"
     : " (katalog tahmini — sadece partition filtresini hesaba katar)";
-  const decisionTitle = derived
+  const decisionTitle = (derived && !isFilter)
     ? "Türetilmiş tablo — DuckDB'de hesaplanır."
-    : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: ${decidedBy === "user" ? "kullanıcı override'ı" : "sistem"}.`;
+    : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: sistem (boyuta göre).`;
   return (
     <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
       <div className="hz-node-head" style={headStyle}>
         <span className="hz-node-alias"><Database size={12} /> {item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : item.alias}{item.sql && <span className="hz-sql-tag">SQL</span>}</span>
         <span
-          className={`hz-badge hz-badge--${derived ? "derived" : (cached ? "cached" : "lazy")}`}
+          className={`hz-badge hz-badge--${sized ? (cached ? "cached" : "lazy") : "derived"}`}
           title={decisionTitle}
         >
-          {derived
-            ? "türetilmiş"
-            : (cached ? `cached · ${sizeText}` : `lazy · ${sizeText}`)}
-          {decidedBy === "user" && !derived && <span className="hz-badge-user-mark"> ✦</span>}
+          {sized
+            ? (cached ? `cached · ${sizeText}` : `lazy · ${sizeText}`)
+            : "türetilmiş"}
         </span>
       </div>
       {!derived && (
         <div className="hz-node-routing">
           <span
             className="hz-proj-count"
-            title="Projection: önizleme'de gizlediğin kolonlar buradan düşer ('Görünümü kaydet' ile)"
+            title="Projeksiyon. Main node sabittir — lazy/cache ve cron yalnız filtreli (türetilmiş) node'larda."
           >
             {item.projection?.include_all ? `tümü (${colCount})` : `${item.projection?.columns?.length || 0}/${colCount} kolon`}
           </span>
-          <button
-            type="button"
-            className="hz-route-override"
-            disabled={overrideDisabled}
-            title={overrideTitle}
-            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onOverrideRouting && NODE_HANDLERS.onOverrideRouting(item.alias, cached ? "lazy" : "cached"); }}
-          >
-            {overrideLabel}
-          </button>
-          {cached && (
-            <button
-              type="button"
-              className="hz-route-override hz-refresh-btn"
-              title="Yenileme (cron) ayarla — cached dataset ne sıklıkla tazelensin"
-              onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
-            >
-              ⟳ {refreshLabel(item.refresh)}
-            </button>
-          )}
+          <span className="hz-main-lock" title="Main node — boyut sisteme göre; manuel toggle yok. Filtrele → türetilmiş node oluşur.">🔒 main</span>
         </div>
       )}
       {derived && (
@@ -355,8 +335,13 @@ const NODE_TYPES = { tableNode: TableNode };
 function nodeData(item) {
   const cols = COLS_BY_ALIAS[item.alias] || [];
   if (item.derivation) {
+    const d = item.derivation;
+    const kindLabel = d.kind === "filter" ? "filtre"
+      : d.kind === "calculated" ? "hesaplama" : "aggregate";
     return {
-      item, derived: true, desc: `${item.derivation.source_alias} → aggregate`,
+      item, derived: true, desc: `${d.source_alias} → ${kindLabel}`,
+      // Faz R1: filter-node boyutu hesaplanır (EXPLAIN PLAN) → rozet gösterilir;
+      // aggregate/calculated DuckDB'de → boyut yok (size=null).
       size: null, colCount: cols.length, keyCols: cols.filter((c) => c.join_key),
       color: null,   // derived → purple via .hz-node--derived class
     };
@@ -519,6 +504,33 @@ function buildEdges(scope) {
         label: `${concept ? `${concept} · ${kindLabel}` : kindLabel} · ⇧×`,
         kind: "suggested",
       },
+    });
+  });
+
+  // Faz R1 — derivation lineage edges (kaynak main node → türetilmiş node).
+  // filter node'unun edge'ine tıklayınca filtre ekranı + kaynak query açılır
+  // (App.onEdgeClick). aggregate/calculated için de lineage gösterilir.
+  scope.basket.forEach((b) => {
+    if (!b.derivation) return;
+    const d = b.derivation;
+    const sources = d.kind === "calculated"
+      ? (d.source_aliases || [])
+      : (d.source_alias ? [d.source_alias] : []);
+    sources.forEach((src) => {
+      if (!aliases.has(src) || !aliases.has(b.alias)) return;
+      edges.push({
+        id: `deriv_${b.alias}_${src}`,
+        source: src, target: b.alias,
+        sourceHandle: "__other__", targetHandle: "__other__",
+        type: "hzPairEdge",
+        className: `hz-edge hz-edge--derivation hz-edge--deriv-${d.kind}`,
+        data: {
+          derivation: true, derivedAlias: b.alias, sourceAlias: src,
+          derivKind: d.kind,
+          label: d.kind === "filter" ? "filtre →" : `${d.kind} →`,
+          kind: "derivation",
+        },
+      });
     });
   });
 
@@ -1922,7 +1934,10 @@ function App() {
         //   calculated — columns (each with a free-form SQL expr)
         if (item.derivation && !COLS_BY_ALIAS[item.alias]) {
           const d = item.derivation;
-          if (d.kind === "calculated") {
+          if (d.kind === "filter") {
+            // Faz R1 — filter-node şemayı değiştirmez; kaynağın kolonlarını miras alır.
+            COLS_BY_ALIAS[item.alias] = COLS_BY_ALIAS[d.source_alias] || [];
+          } else if (d.kind === "calculated") {
             COLS_BY_ALIAS[item.alias] = (d.columns || []).map((c) => ({
               name: c.name, concept: null, join_key: false,
               expr: c.expr,
@@ -2401,37 +2416,66 @@ function App() {
   // (column) scope filters, replace this alias's panel-managed filters, then
   // recompute routing so the node badge reflects the new size (a date range on
   // a partition column can flip lazy→cached).
+  // Faz R1 — "Filtreyi kaydet" artık scope.filters metadata'sı yazmaz; kaynak
+  // (main) node'a bağlı bir CACHED türetilmiş filter-node üretir/günceller.
+  // Filtre node'a GÖMÜLÜ (derivation.kind='filter'); backend onu Oracle'dan
+  // çekip parquet'e materialise eder, boyutunu EXPLAIN PLAN ile hesaplar.
+  // Deterministik alias (`<kaynak>_f`) → tekrar kaydedince aynı node güncellenir
+  // (her küçük değişiklikte yeni node patlaması olmaz).
   const saveFilterPanel = (alias, specs) => {
+    const derivedAlias = `${alias}_f`;
     const pinned = [], raw = [];
     for (const s of specs) {
       const concept = s.concept || null;
-      // The Phase 7 compiler emits only between/in/eq, for dimension/time
-      // concepts — numeric column predicates (incl. ranges) always go raw.
       const compilerSafe = s.type !== "num" && (s.op === "between" || s.op === "in" || s.op === "eq");
       if (concept && compilerSafe) {
-        const f = { id: `pf_${concept}_${rid()}`, concept, op: s.op, applies_to: [alias] };
+        const f = { id: `pf_${concept}_${rid()}`, concept, op: s.op, applies_to: [derivedAlias] };
         if (s.op === "between") { f.from = s.from; f.to = s.to; }
         else if (s.op === "in") { f.values = s.values; }
-        else { f.values = [s.value]; }   // eq → compiler reads values[0]
+        else { f.values = [s.value]; }
         pinned.push(f);
       } else {
-        const f = { id: `rf_${String(s.column).toLowerCase()}_${rid()}`, alias, column: s.column, op: s.op };
+        const f = { id: `rf_${String(s.column).toLowerCase()}_${rid()}`, alias: derivedAlias, column: s.column, op: s.op };
         if (s.op === "between") { f.from = s.from; f.to = s.to; }
         else if (s.op === "in") { f.values = s.values; }
-        else { f.value = s.value; }      // eq / gt / gte / lt / lte
+        else { f.value = s.value; }
         raw.push(f);
       }
     }
+    // Türetilmiş node kaynağın kolonlarını miras alır (render için).
+    COLS_BY_ALIAS[derivedAlias] = COLS_BY_ALIAS[alias] || [];
+    const existed = (scope.basket || []).some((b) => b.alias === derivedAlias);
+
     setScope((cur) => {
-      // Replace only THIS alias's panel-managed filters (single-alias pinned +
-      // raw on this alias); leave global ([]) and multi-alias filters intact.
+      let basket = [...cur.basket];
+      // Geçiş temizliği: kaynağın eski scope.filters metadata'sını sök (artık node).
       const keptPinned = (cur.filters.pinned || []).filter(
         (f) => !(Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === alias)
       );
       const keptRaw = (cur.filters.raw || []).filter((f) => f.alias !== alias);
+
+      if (pinned.length === 0 && raw.length === 0) {
+        // Filtre temizlendi → türetilmiş node'u kaldır.
+        return {
+          ...cur,
+          basket: basket.filter((b) => b.alias !== derivedAlias),
+          filters: { ...cur.filters, pinned: keptPinned, raw: keptRaw },
+        };
+      }
+
+      const filterNode = {
+        alias: derivedAlias,
+        derivation: { kind: "filter", source_alias: alias, filters: { pinned, raw } },
+        projection: { columns: [], include_all: true },   // kaynağı miras al
+        routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
+      };
+      const idx = basket.findIndex((b) => b.alias === derivedAlias);
+      if (idx >= 0) basket[idx] = { ...basket[idx], ...filterNode };
+      else basket = [...basket, filterNode];
+
       const next = {
-        ...cur,
-        filters: { ...cur.filters, pinned: [...keptPinned, ...pinned], raw: [...keptRaw, ...raw] },
+        ...cur, basket,
+        filters: { ...cur.filters, pinned: keptPinned, raw: keptRaw },
       };
       fetch(ROUTING_RECOMPUTE_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -2441,7 +2485,9 @@ function App() {
       }).catch(() => {});
       return next;
     });
-    setToast(`${pinned.length + raw.length} filtre kaydedildi.`);
+    setToast(existed
+      ? `'${derivedAlias}' filtreli node güncellendi.`
+      : `'${derivedAlias}' filtreli node oluşturuldu (cached).`);
   };
 
   // Distinct values for a get_distinct string column → Filtreleme checkbox list.
