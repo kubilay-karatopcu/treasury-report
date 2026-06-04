@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, RefreshCw, Lock, Unlock, Trash2, Layers, Plus, Save } from 'lucide-react';
-import useStore from '../lib/store.js';
+import { X, RefreshCw, Lock, Unlock, Trash2, Layers, Plus, Save, MoveRight } from 'lucide-react';
+import useStore, { CONTAINER_TYPES } from '../lib/store.js';
 import ManualSqlEditor from './ManualSqlEditor.jsx';
 
 const TYPE_LABELS = {
@@ -127,6 +127,7 @@ export default function PropertiesPanel({ width, onResizeStart }) {
 
         {isDataBound && <ManualSqlEditor block={block} />}
 
+        <MoveBlockSection block={block} />
         <CarouselActions block={block} />
         <CanvasActions block={block} />
 
@@ -389,6 +390,74 @@ function CanvasActions({ block }) {
   }
 
   return null;
+}
+
+
+// Madde 3 — menü ile bir leaf bloğu başka bir parent'a taşı: bir container
+// (carousel/canvas) ya da bir section. Serbest dnd-kit sürükle-bırak sonraki iş.
+function MoveBlockSection({ block }) {
+  const manifest    = useStore((s) => s.manifest);
+  const moveBetween = useStore((s) => s.moveBlockBetweenParents);
+  const [menu, setMenu] = useState(false);
+
+  // Sadece leaf bloklar taşınır — section_header ve container'ların kendisi değil.
+  if (block.type === 'section_header' || CONTAINER_TYPES.has(block.type)) return null;
+
+  // Bloğun mevcut parent'ını bul (hedef listesinden çıkarmak için).
+  let parent = null;  // { kind: 'section'|'container', id }
+  for (const sec of manifest?.blocks || []) {
+    for (const c of (sec.children || [])) {
+      if (c.id === block.id) { parent = { kind: 'section', id: sec.id }; }
+      if (CONTAINER_TYPES.has(c.type)) {
+        for (const gk of (c.children || [])) {
+          if (gk.id === block.id) { parent = { kind: 'container', id: c.id }; }
+        }
+      }
+    }
+  }
+
+  // Hedef listesi: tüm section'lar + container'lar (mevcut parent hariç, kendisi hariç).
+  const targets = [];
+  for (const sec of (manifest?.blocks || [])) {
+    if (!(parent?.kind === 'section' && parent.id === sec.id)) {
+      targets.push({ id: sec.id, label: `Bölüm: ${sec.title || sec.id}`, kind: 'section' });
+    }
+    for (const c of (sec.children || [])) {
+      if (!CONTAINER_TYPES.has(c.type)) continue;
+      if (parent?.kind === 'container' && parent.id === c.id) continue;
+      const tag = c.type === 'carousel' ? 'Carousel' : 'Tuval';
+      targets.push({ id: c.id, label: `${tag}: ${c.title || c.id}`, kind: c.type });
+    }
+  }
+  if (targets.length === 0) return null;
+
+  return (
+    <Section title="Taşı">
+      <Row label="Başka bir yere taşı" hint="Bloğu bir container'a (carousel/tuval) veya başka bir bölüme taşı.">
+        <button
+          type="button"
+          className="props-btn props-btn--block"
+          onClick={() => setMenu((v) => !v)}
+        >
+          <MoveRight size={13} strokeWidth={2} />
+          <span>Taşı…</span>
+        </button>
+        {menu && (
+          <div className="props-inline-menu">
+            {targets.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className="props-inline-menu-item"
+                onClick={() => { setMenu(false); moveBetween(block.id, t.id); }}
+                title={t.label}
+              >{t.label}</button>
+            ))}
+          </div>
+        )}
+      </Row>
+    </Section>
+  );
 }
 
 
