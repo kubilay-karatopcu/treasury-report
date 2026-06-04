@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import useStore, { getBlockById } from './lib/store.js';
 import { fetchUserInfo } from './lib/api.js';
 // Header.jsx is now imported by Sidebar.jsx (toolbar lives inside the
