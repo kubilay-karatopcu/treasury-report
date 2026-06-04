@@ -266,7 +266,18 @@
 /* Edges */
 .hz-edge--confirmed .react-flow__edge-path { stroke: #206bc4; stroke-width: 2; }
 .hz-edge--suggested .react-flow__edge-path { stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 5 4; }
+/* Faz R1 — derivation lineage (main → türetilmiş). filter = mor düz, agg/calc = mor kesik. */
+.hz-edge--derivation .react-flow__edge-path { stroke: #7c3aed; stroke-width: 2; }
+.hz-edge--deriv-filter .react-flow__edge-path { stroke-dasharray: none; }
+.hz-edge--deriv-aggregate .react-flow__edge-path,
+.hz-edge--deriv-calculated .react-flow__edge-path { stroke-dasharray: 4 3; }
 .react-flow__edge-text { font-size: 10px; fill: #64748b; }
+
+/* Main node kilidi — manuel toggle yok rozeti. */
+.hz-main-lock {
+  font-size: 10px; color: #94a3b8; letter-spacing: .02em;
+  white-space: nowrap;
+}
 
 .hz-pop-meta { margin-bottom: 12px; font-size: 13px; color: #334155; }
 
