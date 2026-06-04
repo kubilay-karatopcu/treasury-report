@@ -63,6 +63,29 @@ export function dropIntoProps(parentId, enabled) {
   };
 }
 
+// Hayalet kutunun kendi drop prop'ları — KRİTİK: hayalet üstüne gelince mevcut
+// önizlemeyi KORUR (previewDrop ÇAĞIRMAZ) ve event'i durdurur. Yoksa hayaletin
+// altındaki section'ın "sona ekle" handler'ı devreye girer → hayalet sona kayar →
+// imleç eski slot'a döner → önizleme geri döner → sonsuz titreme. stopPropagation
+// + preventDefault hayaleti pasif (önizlemeyi sabitleyen) bir drop bölgesi yapar.
+export function ghostProps() {
+  return {
+    onDragOver: (e) => {
+      if (!useStore.getState().draggingBlockId) return;
+      e.preventDefault();
+      e.stopPropagation();   // mevcut dropPreview'i değiştirme → sabit kalır
+    },
+    onDrop: (e) => {
+      const st = useStore.getState();
+      if (!st.draggingBlockId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const dp = st.dropPreview;
+      if (dp) st.commitDrop(dp.parentId, dp.beforeId);
+    },
+  };
+}
+
 /**
  * Sürüklerken bir parent'ın (section/canvas) çocuk listesinin nasıl render
  * edileceğini planla. Dönen `items` her elemanı şu şekildedir:

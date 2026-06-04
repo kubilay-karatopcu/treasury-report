@@ -1,7 +1,7 @@
 import { LayoutGrid, GripVertical } from 'lucide-react';
 import useStore, { getBlockById } from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
-import { draggableProps, dropBeforeProps, dropIntoProps, planDropRender } from '../lib/dnd.js';
+import { draggableProps, dropBeforeProps, dropIntoProps, planDropRender, ghostProps } from '../lib/dnd.js';
 
 /**
  * Canvas — genel container (madde 2). Çocuk leaf blokları bir 12-kolon CSS
@@ -82,7 +82,8 @@ export default function Canvas({ block }) {
             if (it.kind === 'ghost') {
               return (
                 <div key="__dnd_ghost__" className="dnd-ghost"
-                     style={{ gridColumn: `span ${WIDTH_SPAN[it.width] || 12}` }}>
+                     style={{ gridColumn: `span ${WIDTH_SPAN[it.width] || 12}` }}
+                     {...ghostProps()}>
                   <span className="dnd-ghost-label">{it.title}</span>
                 </div>
               );
