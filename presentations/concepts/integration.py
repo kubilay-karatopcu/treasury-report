@@ -136,6 +136,37 @@ def _parse_predicate(conjunct: str) -> tuple[str | None, list[str]]:
     return None, []
 
 
+# Madde 5 — :bind predicate detection. The user keeps writing `:filter_bind`
+# placeholders; on "Şemayı Tara" we lift those on concept-bound columns into
+# concept filters (empty default — they pick values in the filter bar).
+_EQ_BIND_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_$#]*)\s*=\s*:([A-Za-z_][A-Za-z0-9_]*)\s*$")
+_IN_BIND_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_$#]*)\s+IN\s*\(\s*(:[^)]+)\)\s*$", re.IGNORECASE)
+_BIND_TOK_RE = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _parse_bind_predicate(conjunct: str) -> tuple[str | None, list[str]]:
+    """Return (column, [bind_names]) for `COL = :x` / `COL IN (:x[, :y ...])`,
+    else (None, []). Only pure bind-placeholder IN lists qualify (rejects
+    mixed literal/bind lists and IN (subquery))."""
+    m = _EQ_BIND_RE.match(conjunct)
+    if m:
+        return m.group(1), [m.group(2)]
+    m = _IN_BIND_RE.match(conjunct)
+    if m:
+        col, inner = m.group(1), m.group(2)
+        binds = _BIND_TOK_RE.findall(inner)
+        residue = _BIND_TOK_RE.sub("", inner)
+        if binds and residue.replace(",", "").strip() == "":
+            return col, binds
+    return None, []
+
+
+def _bind_occurrences(sql: str, name: str) -> int:
+    """How many times `:name` appears in the SQL (word-boundary safe). >1 means
+    the bind is reused (e.g. in a subquery) → unsafe to auto-lift."""
+    return len(re.findall(rf"(?<![A-Za-z0-9_]):{re.escape(name)}(?![A-Za-z0-9_])", sql))
+
+
 def _reverse_translate(binding, table_values: list[str]) -> list[str] | None:
     """Table literal(s) → canonical code(s). None if any value can't translate."""
     kind = binding.transform.kind
@@ -163,7 +194,8 @@ def conceptualize_query(sql: str, schema: str, table: str, catalog, registry) ->
       - ``converted``      : ``[{column, concept, values}]`` for UI display.
       - ``skipped``        : human-readable reasons anything was left as-is.
     """
-    result = {"rewritten_sql": sql, "seeded_filters": [], "converted": [], "skipped": []}
+    result = {"rewritten_sql": sql, "seeded_filters": [], "converted": [],
+              "skipped": [], "lifted_binds": []}
 
     where_m = _toplevel_matches(sql, _WHERE_RE)
     if not where_m:
@@ -183,24 +215,65 @@ def conceptualize_query(sql: str, schema: str, table: str, catalog, registry) ->
 
     kept: list[str] = []
     by_concept: dict[str, list[str]] = {}
+    lifted_binds: list[str] = []
     for cj in _split_top_and(where_text):
         if cj == SENTINEL or re.match(r"^1\s*=\s*1$", cj):
             continue
+
+        # 1) Literal predicate (`COL = '...'` / `COL IN ('a','b')`) — existing path.
         col, vals = _parse_predicate(cj)
-        binding = bindings.get(col.upper()) if col else None
+        if col is not None:
+            binding = bindings.get(col.upper())
+            if binding is None:
+                kept.append(cj)
+                continue
+            canon = _reverse_translate(binding, vals)
+            if canon is None:
+                kept.append(cj)
+                result["skipped"].append(f"{col}: değer concept'e çevrilemedi, hardcoded kaldı")
+                continue
+            bucket = by_concept.setdefault(binding.concept, [])
+            for c in canon:
+                if c not in bucket:
+                    bucket.append(c)
+            result["converted"].append({"column": col, "concept": binding.concept, "values": canon})
+            continue
+
+        # 2) :bind predicate (`COL = :x` / `COL IN (:x, :y)`) — madde 5.
+        bcol, bnames = _parse_bind_predicate(cj)
+        if bcol is None:
+            kept.append(cj)
+            continue
+        binding = bindings.get(bcol.upper())
         if binding is None:
             kept.append(cj)
+            result["skipped"].append(
+                f"{bcol}: concept'e bağlı değil — :{', :'.join(bnames)} concept'e çevrilemedi "
+                f"(Konseptler'den bu kolonu bir concept'e bağlayabilirsin)"
+            )
             continue
-        canon = _reverse_translate(binding, vals)
-        if canon is None:
+        if binding.transform.kind not in ("identity", "map"):
             kept.append(cj)
-            result["skipped"].append(f"{col}: değer concept'e çevrilemedi, hardcoded kaldı")
+            result["skipped"].append(
+                f"{bcol}: '{binding.transform.kind}' transform — :bind otomatik concept'e çevrilmedi"
+            )
             continue
-        bucket = by_concept.setdefault(binding.concept, [])
-        for c in canon:
-            if c not in bucket:
-                bucket.append(c)
-        result["converted"].append({"column": col, "concept": binding.concept, "values": canon})
+        multi = [n for n in bnames if _bind_occurrences(sql, n) > 1]
+        if multi:
+            # Same bind reused (subquery / multiple places) — lifting only the
+            # top-level occurrence would double-filter or orphan the rest.
+            kept.append(cj)
+            result["skipped"].append(
+                f"{bcol}: :{', :'.join(multi)} birden fazla yerde (alt sorgu?) kullanılıyor — "
+                f"concept'e otomatik çevrilmedi; ya tek yerde kullan ya da her konuma {SENTINEL} ekle"
+            )
+            continue
+        # Lift: route the column → concept; default empty (user picks in the bar).
+        by_concept.setdefault(binding.concept, [])
+        lifted_binds.extend(bnames)
+        result["converted"].append(
+            {"column": bcol, "concept": binding.concept, "values": [], "via": "bind"}
+        )
 
     if not by_concept:
         return result
@@ -220,6 +293,7 @@ def conceptualize_query(sql: str, schema: str, table: str, catalog, registry) ->
             "allowed_values": codes,
             "default": list(canon_vals),
         })
+    result["lifted_binds"] = lifted_binds
     return result
 
 

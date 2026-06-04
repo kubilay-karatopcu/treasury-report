@@ -1257,6 +1257,16 @@ def run_block_manual(pid: str, bid: str):
                     res = conceptualize_query(query, schema, table, cat_snap, eff)
                     if res["seeded_filters"] or res["skipped"]:
                         conceptualize = res
+                    # Madde 5 — lifted :bind'ler concept filtreye taşındı; SQL'i
+                    # ve blok değişkenlerini de güncelle ki orphan :bind kalmasın
+                    # (rewritten_sql'de o bind artık yok).
+                    lifted = set(res.get("lifted_binds") or [])
+                    if lifted:
+                        block["query"] = res["rewritten_sql"]
+                        block["variables"] = [
+                            v for v in (block.get("variables") or [])
+                            if v.get("name") not in lifted
+                        ]
             except Exception:
                 current_app.logger.exception("conceptualize during scan failed")
 
