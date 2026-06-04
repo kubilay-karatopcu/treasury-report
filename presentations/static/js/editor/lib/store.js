@@ -7,80 +7,92 @@ import {
 
 // ── Helpers for nested manifest navigation ─────────────────────────────────
 
-// Level-2 container block types — they live inside section.children and hold
-// leaf blocks at level 3. carousel = slides (one shown at a time); canvas =
-// 12-column grid (madde 2). Path/traversal logic treats them identically.
+// Container block types that carry `children`. carousel = slides (one shown at a
+// time); canvas = 12-column grid (madde 2). A carousel slide may itself be a
+// canvas → nesting can reach section > carousel > canvas > leaf. Path/traversal
+// logic is fully recursive so any depth works.
 export const CONTAINER_TYPES = new Set(['carousel', 'canvas']);
 
+function _isContainer(b) {
+  return b && (b.type === 'section_header' || CONTAINER_TYPES.has(b.type)) && Array.isArray(b.children);
+}
+
+// Locate a block at ANY nesting depth. Returns rich location info:
+//   block      — the found block object
+//   path       — JSON pointer to it (e.g. /blocks/0/children/1/children/2)
+//   parentPath — JSON pointer to its parent ARRAY (e.g. /blocks/0/children/1/children)
+//   siblings   — the parent array; index — its position in it
+//   + backward-compat (best-effort for ≤3 levels): section/child/slide + *Idx
 export function findBlockPath(manifest, blockId) {
-  const sections = manifest?.blocks || [];
-  for (let si = 0; si < sections.length; si++) {
-    const section = sections[si];
-    if (section.id === blockId) {
-      return { section, sectionIdx: si, child: null, childIdx: null, slide: null, slideIdx: null, path: `/blocks/${si}` };
-    }
-    const children = section.children || [];
-    for (let ci = 0; ci < children.length; ci++) {
-      const child = children[ci];
-      if (child.id === blockId) {
-        return {
-          section, sectionIdx: si,
-          child, childIdx: ci,
-          slide: null, slideIdx: null,
-          path: `/blocks/${si}/children/${ci}`,
-        };
+  const blocks = manifest?.blocks || [];
+  let found = null;
+  (function walk(arr, basePath) {
+    for (let i = 0; i < arr.length && !found; i++) {
+      const b = arr[i];
+      const path = `${basePath}/${i}`;
+      if (b.id === blockId) {
+        found = { block: b, path, parentPath: basePath, siblings: arr, index: i };
+        return;
       }
-      // Container (carousel/canvas) çocukları — 3. seviye
-      if (CONTAINER_TYPES.has(child.type)) {
-        const kids = child.children || [];
-        for (let ki = 0; ki < kids.length; ki++) {
-          if (kids[ki].id === blockId) {
-            return {
-              section, sectionIdx: si,
-              child, childIdx: ci,
-              slide: kids[ki], slideIdx: ki,
-              path: `/blocks/${si}/children/${ci}/children/${ki}`,
-            };
-          }
-        }
-      }
+      if (_isContainer(b)) walk(b.children, `${path}/children`);
     }
-  }
-  return null;
+  })(blocks, '/blocks');
+  if (!found) return null;
+  const segs = found.path.split('/').filter(Boolean);   // blocks,0,children,1,...
+  const idxs = [];
+  for (let k = 1; k < segs.length; k += 2) idxs.push(parseInt(segs[k], 10));
+  const section = blocks[idxs[0]] ?? null;
+  const child = (idxs.length >= 2 && section) ? (section.children || [])[idxs[1]] ?? null : null;
+  const slide = (idxs.length >= 3 && child) ? (child.children || [])[idxs[2]] ?? null : null;
+  return {
+    block: found.block, path: found.path, parentPath: found.parentPath,
+    siblings: found.siblings, index: found.index,
+    sectionIdx: idxs[0] ?? null,
+    childIdx: idxs.length >= 2 ? idxs[1] : null,
+    slideIdx: idxs.length >= 3 ? idxs[2] : null,
+    section, child, slide,
+  };
 }
 
-// Bir bloğu id ile bul ve nesnesini döndür (section / child / container child).
-// DnD önizlemesi sürüklenen bloğun width/title'ını buradan okur.
+// Bir bloğu id ile bul ve nesnesini döndür (herhangi derinlik).
 export function getBlockById(manifest, blockId) {
-  const loc = findBlockPath(manifest, blockId);
-  if (!loc) return null;
-  return loc.slide ?? loc.child ?? loc.section ?? null;
+  return findBlockPath(manifest, blockId)?.block ?? null;
 }
 
+// JSON pointer (/blocks/0/children/1 …) → o konumdaki blok nesnesi (herhangi
+// derinlik). Trailing field segment'i yoktur; sadece blok kimliği yolu beklenir.
+function _nodeAtPointer(manifest, pointer) {
+  const parts = (pointer || '').split('/').filter(Boolean);   // blocks,0,children,1
+  let arr = manifest?.blocks || [];
+  let node = null;
+  let k = 1;
+  while (k < parts.length) {
+    const idx = parseInt(parts[k], 10);
+    if (Number.isNaN(idx) || idx < 0 || idx >= arr.length) return null;
+    node = arr[idx];
+    if (parts[k + 1] === 'children') { arr = node.children || []; k += 2; }
+    else break;
+  }
+  return node;
+}
+
+// Apply `fn` to the block with `blockId` anywhere in the tree (immutable;
+// clones only the touched path). Recursive → any nesting depth.
 function updateBlockInPlace(manifest, blockId, fn) {
-  const sections = manifest.blocks.map((section) => {
-    if (section.id === blockId) return fn(section);
-    const children = section.children || [];
+  function recur(arr) {
     let touched = false;
-    const newChildren = children.map((c) => {
-      if (c.id === blockId) { touched = true; return fn(c); }
-      // Container (carousel/canvas) çocukları — 3. seviye nesting
-      if (CONTAINER_TYPES.has(c.type) && Array.isArray(c.children)) {
-        let kidTouched = false;
-        const newKids = c.children.map((kid) => {
-          if (kid.id === blockId) { kidTouched = true; return fn(kid); }
-          return kid;
-        });
-        if (kidTouched) {
-          touched = true;
-          return { ...c, children: newKids };
-        }
+    const out = arr.map((b) => {
+      if (b.id === blockId) { touched = true; return fn(b); }
+      if (_isContainer(b)) {
+        const res = recur(b.children);
+        if (res.touched) { touched = true; return { ...b, children: res.out }; }
       }
-      return c;
+      return b;
     });
-    return touched ? { ...section, children: newChildren } : section;
-  });
-  return { ...manifest, blocks: sections };
+    return { out, touched };
+  }
+  const res = recur(manifest.blocks || []);
+  return res.touched ? { ...manifest, blocks: res.out } : manifest;
 }
 
 // ── Empty block templates (used when user manually adds blocks) ────────────
@@ -92,20 +104,14 @@ function updateBlockInPlace(manifest, blockId, fn) {
  */
 function _collectUsedSemanticTags(manifest) {
   const tags = new Set();
-  for (const section of manifest?.blocks || []) {
-    for (const child of section?.children || []) {
-      for (const v of (child.variables || [])) {
+  (function walk(arr) {
+    for (const b of arr || []) {
+      for (const v of (b.variables || [])) {
         if (v.semantic_tag) tags.add(v.semantic_tag);
       }
-      if (CONTAINER_TYPES.has(child.type)) {
-        for (const kid of (child.children || [])) {
-          for (const v of (kid.variables || [])) {
-            if (v.semantic_tag) tags.add(v.semantic_tag);
-          }
-        }
-      }
+      if (_isContainer(b)) walk(b.children);
     }
-  }
+  })(manifest?.blocks || []);
   return tags;
 }
 
@@ -179,20 +185,14 @@ function _computeAutoBindPatches(manifest, filterDef) {
     }
   }
 
-  const sections = manifest.blocks || [];
-  for (let si = 0; si < sections.length; si++) {
-    const sec = sections[si];
-    const children = sec.children || [];
-    for (let ci = 0; ci < children.length; ci++) {
-      const child = children[ci];
-      visit(child, `/blocks/${si}/children/${ci}`);
-      if (CONTAINER_TYPES.has(child.type) && Array.isArray(child.children)) {
-        for (let sli = 0; sli < child.children.length; sli++) {
-          visit(child.children[sli], `/blocks/${si}/children/${ci}/children/${sli}`);
-        }
-      }
+  (function walk(arr, basePath) {
+    for (let i = 0; i < (arr || []).length; i++) {
+      const b = arr[i];
+      const path = `${basePath}/${i}`;
+      visit(b, path);
+      if (_isContainer(b)) walk(b.children, `${path}/children`);
     }
-  }
+  })(manifest.blocks || [], '/blocks');
   return out;
 }
 
@@ -338,7 +338,7 @@ const useStore = create((set) => ({
     if (!state.manifest) return;
     const loc = findBlockPath(state.manifest, blockId);
     if (!loc) return;
-    const target = loc.child ?? loc.section;
+    const target = loc.block;
     const newLocked = !target.locked;
 
     set((s) => ({
@@ -355,7 +355,7 @@ const useStore = create((set) => ({
     if (!state.manifest) return;
     const loc = findBlockPath(state.manifest, blockId);
     if (!loc) return;
-    const target = loc.child ?? loc.section;
+    const target = loc.block;
     const goingToFull = width === 'full' || !width;
     const hadWidth = 'width' in target;
 
@@ -522,9 +522,9 @@ const useStore = create((set) => ({
     const state = useStore.getState();
     if (!state.manifest || !carouselId || !slideType) return;
     const loc = findBlockPath(state.manifest, carouselId);
-    if (!loc?.child || loc.child.type !== 'carousel') return;
+    if (!loc || loc.block?.type !== 'carousel') return;
 
-    const slides = loc.child.children || [];
+    const slides = loc.block.children || [];
     const id = (slideType === 'narrative' ? 't_' : 'b_') + Math.random().toString(36).slice(2, 8);
     const newSlide = _emptyBlockTemplate(id, slideType);
     if ('width' in newSlide) delete newSlide.width;  // carousel kontrolünde
@@ -550,9 +550,9 @@ const useStore = create((set) => ({
     const state = useStore.getState();
     if (!state.manifest || !canvasId || !blockType) return;
     const loc = findBlockPath(state.manifest, canvasId);
-    if (!loc?.child || loc.child.type !== 'canvas') return;
+    if (!loc || loc.block?.type !== 'canvas') return;
 
-    const kids = loc.child.children || [];
+    const kids = loc.block.children || [];
     const prefix = blockType === 'narrative' ? 't_' : 'b_';
     const id = prefix + Math.random().toString(36).slice(2, 8);
     const newBlock = _emptyBlockTemplate(id, blockType);
@@ -586,37 +586,43 @@ const useStore = create((set) => ({
 
     const m = JSON.parse(JSON.stringify(state.manifest));
     const sloc = findBlockPath(m, blockId);
-    if (!sloc) return;
-    // Taşınanı parent array'inden çıkar (leaf VEYA container child; section değil).
-    let movedNode;
+    if (!sloc || sloc.childIdx == null) return;   // section'ın kendisi taşınmaz
     const srcSectionIdx = sloc.sectionIdx;
-    if (sloc.slideIdx != null) {
-      const container = m.blocks[sloc.sectionIdx].children[sloc.childIdx];
-      movedNode = container.children.splice(sloc.slideIdx, 1)[0];
-      // Carousel'in son slide'ı dışarı taşındıysa carousel boş kalır — manifest
-      // carousel'de ≥1 slide şart koşar → boş carousel'i çöz (section'dan kaldır).
-      // Canvas boş kalabilir (Madde 2), o yüzden sadece carousel.
-      if (container.type === 'carousel' && (container.children || []).length === 0) {
-        m.blocks[sloc.sectionIdx].children.splice(sloc.childIdx, 1);
-      }
-    } else if (sloc.childIdx != null) {
-      movedNode = m.blocks[sloc.sectionIdx].children.splice(sloc.childIdx, 1)[0];
-    } else {
-      return; // section'ın kendisini taşıma desteklenmiyor
-    }
+    // Taşınanı parent array'inden çıkar (path-tabanlı → herhangi derinlik).
+    const movedNode = sloc.siblings.splice(sloc.index, 1)[0];
     if (!movedNode || movedNode.type === 'section_header') return;
+    // Carousel'in son slide'ı dışarı taşındıysa carousel boş kalır — manifest
+    // carousel'de ≥1 slide şart koşar → boş carousel'i çöz (parent'ından kaldır).
+    // Canvas boş kalabilir (Madde 2), o yüzden sadece carousel.
+    const parentPtr = sloc.parentPath.replace(/\/children$/, '');
+    if (parentPtr !== '/blocks') {
+      const parentContainer = _nodeAtPointer(m, parentPtr);
+      if (parentContainer && parentContainer.type === 'carousel'
+          && (parentContainer.children || []).length === 0) {
+        const gloc = findBlockPath(m, parentContainer.id);
+        if (gloc) gloc.siblings.splice(gloc.index, 1);
+      }
+    }
 
     // Hedefi KALDIRMA SONRASI bul (aynı parent içinde index kaymış olabilir).
     const tloc = findBlockPath(m, targetParentId);
     if (!tloc) return;
-    const targetNode = tloc.child ?? tloc.section;
+    const targetNode = tloc.block;
     const targetIsContainer = CONTAINER_TYPES.has(targetNode.type);
-    const targetIsSection = targetNode.type === 'section_header' && !tloc.child;
+    const targetIsSection = targetNode.type === 'section_header';
     if (!targetIsContainer && !targetIsSection) return;
-    // Container içine container atılamaz (nested container yok).
-    if (targetIsContainer && CONTAINER_TYPES.has(movedNode.type)) return;
-    // Carousel slide'ı width taşımaz.
-    if (targetNode.type === 'carousel' && 'width' in movedNode) delete movedNode.width;
+    // Yuvalama kuralları: bir container taşınıyorsa — canvas yalnız section veya
+    // CAROUSEL içine girebilir (slide olur); carousel yalnız section içine.
+    // Canvas içine hiçbir container giremez. (Leaf her yere girer.)
+    if (CONTAINER_TYPES.has(movedNode.type)) {
+      if (targetNode.type === 'canvas') return;
+      if (targetNode.type === 'carousel' && movedNode.type === 'carousel') return;
+    }
+    // Carousel'e LEAF slide eklenince width taşınmaz (tek slide = tam genişlik).
+    // Canvas slide (carousel içindeki tuval) kendi grid'ini taşır → dokunma.
+    if (targetNode.type === 'carousel' && movedNode.type !== 'canvas' && 'width' in movedNode) {
+      delete movedNode.width;
+    }
 
     if (!Array.isArray(targetNode.children)) targetNode.children = [];
     let idx = targetNode.children.length;
@@ -663,28 +669,17 @@ const useStore = create((set) => ({
     s.moveBlockBetweenParents(draggedId, parentId, beforeId || null);
   },
 
-  // Bloğu kendi parent array'inde yukarı/aşağı taşı (3 seviyeli generic).
-  // direction: -1 (yukarı) | +1 (aşağı). Seçim korunur.
+  // Bloğu kendi parent array'inde yukarı/aşağı taşı (herhangi derinlik —
+  // parentPath/index generic). direction: -1 (yukarı) | +1 (aşağı). Seçim korunur.
   moveBlock: (blockId, direction) => {
     const state = useStore.getState();
     if (!state.manifest || !blockId || !direction) return;
     const loc = findBlockPath(state.manifest, blockId);
     if (!loc) return;
 
-    let arr, fromIdx, parentPath;
-    if (loc.slideIdx != null) {
-      arr = loc.child.children || [];
-      fromIdx = loc.slideIdx;
-      parentPath = `/blocks/${loc.sectionIdx}/children/${loc.childIdx}/children`;
-    } else if (loc.childIdx != null) {
-      arr = loc.section.children || [];
-      fromIdx = loc.childIdx;
-      parentPath = `/blocks/${loc.sectionIdx}/children`;
-    } else {
-      arr = state.manifest.blocks || [];
-      fromIdx = loc.sectionIdx;
-      parentPath = '/blocks';
-    }
+    const arr = loc.siblings;
+    const fromIdx = loc.index;
+    const parentPath = loc.parentPath;
 
     const toIdx = fromIdx + direction;
     if (toIdx < 0 || toIdx >= arr.length) return;
@@ -729,42 +724,20 @@ const useStore = create((set) => ({
     submitPatches(patches).catch((e) => console.error('reorderSlide persist failed:', e));
   },
 
-  // Slide'ı carousel'den çıkar → bulunduğu section'ın children sonuna taşı
+  // Bir bloğu container'ından (carousel/canvas) çıkar → üst-section'ın sonuna
+  // taşı. Herhangi derinlikteki blok için çalışır; robust move yolunu (boş
+  // carousel'i çözme dahil) kullanır. (CarouselActions + CanvasActions çağırır.)
   removeSlideFromCarousel: (slideId) => {
     const state = useStore.getState();
     if (!state.manifest || !slideId) return;
     const loc = findBlockPath(state.manifest, slideId);
-    if (!loc || loc.slideIdx == null) {
-      console.warn('removeSlideFromCarousel: slide not found or not in carousel', slideId);
+    if (!loc || loc.childIdx == null) {
+      console.warn('removeSlideFromCarousel: blok bir container içinde değil', slideId);
       return;
     }
-    const slideClone = JSON.parse(JSON.stringify(loc.slide || {}));
-    const carouselPath = `/blocks/${loc.sectionIdx}/children/${loc.childIdx}`;
-    const sectionPath  = `/blocks/${loc.sectionIdx}`;
-
-    // 1) carousel'den sil  2) section.children sonuna append
-    const patches = [
-      { op: 'remove', path: `${carouselPath}/children/${loc.slideIdx}` },
-      { op: 'add', path: `${sectionPath}/children/-`, value: slideClone },
-    ];
-
-    try {
-      set((s) => {
-        if (!s.manifest) return {};
-        const newManifest = _applyPatches(s.manifest, patches);
-        newManifest.version = (newManifest.version || 0) + 1;
-        return {
-          manifest: newManifest,
-          // Slide hâlâ var ama farklı bir yerde — selection'ı kaldır, kullanıcı
-          // tekrar tıklasın. Bu beyaz-ekran riskini de ortadan kaldırır.
-          selectedBlockId: null,
-        };
-      });
-    } catch (err) {
-      console.error('removeSlideFromCarousel local apply failed:', err);
-      return;
-    }
-    submitPatches(patches).catch((e) => console.error('removeSlideFromCarousel persist failed:', e));
+    const sectionId = loc.section?.id;
+    if (!sectionId) return;
+    useStore.getState().moveBlockBetweenParents(slideId, sectionId, null);
   },
 
   // Block silme — leaf, section_header (children dahil) veya carousel slide.
@@ -1052,7 +1025,7 @@ const useStore = create((set) => ({
     if (!loc) return;
 
     const segments = fieldPath.split('.').filter(Boolean);
-    const target = loc.child ?? loc.section;
+    const target = loc.block;
     // Check if the deepest field exists already (replace) or not (add).
     let existed = true;
     let cursor = target;

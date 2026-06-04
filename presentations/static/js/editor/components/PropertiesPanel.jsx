@@ -49,15 +49,37 @@ function findBlock(blocks, id) {
   for (const b of blocks) {
     if (b.id === id) return b;
     if (Array.isArray(b.children)) {
-      for (const c of b.children) {
-        if (c.id === id) return c;
-        // Container (carousel/canvas) çocukları — 3. seviye
-        if ((c.type === 'carousel' || c.type === 'canvas') && Array.isArray(c.children)) {
-          for (const s of c.children) {
-            if (s.id === id) return s;
-          }
-        }
-      }
+      const hit = findBlock(b.children, id);   // recursive — herhangi derinlik
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+// Bir bloğun direkt parent'ının tipini bul (carousel/canvas/section_header) —
+// "çıkar" butonlarının görünürlüğü için. Herhangi derinlik. (id top-level ise
+// veya bulunamazsa null.)
+function parentTypeOf(blocks, id, parentType = null) {
+  if (!Array.isArray(blocks)) return null;
+  for (const b of blocks) {
+    if (b.id === id) return parentType;
+    if (Array.isArray(b.children)) {
+      const hit = parentTypeOf(b.children, id, b.type);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
+
+// Bir bloğun direkt parent'ının id'sini bul (herhangi derinlik). Top-level ise
+// veya bulunamazsa null. DnD/menü hedef listesinde mevcut parent'ı dışlamak için.
+function parentIdOf(blocks, id, parentBlockId = null) {
+  if (!Array.isArray(blocks)) return null;
+  for (const b of blocks) {
+    if (b.id === id) return parentBlockId;
+    if (Array.isArray(b.children)) {
+      const found = parentIdOf(b.children, id, b.id);
+      if (found !== null) return found;
     }
   }
   return null;
@@ -232,17 +254,8 @@ function CarouselActions({ block }) {
     );
   }
 
-  // Slide seçili (carousel.children içindeki leaf) — carousel'den çıkar butonu
-  const isSlide = (() => {
-    for (const sec of manifest?.blocks || []) {
-      for (const c of (sec.children || [])) {
-        if (c.type === 'carousel' && (c.children || []).some((s) => s.id === block.id)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  })();
+  // Slide seçili (parent'ı carousel) — carousel'den çıkar butonu
+  const isSlide = parentTypeOf(manifest?.blocks, block.id) === 'carousel';
 
   if (isSlide) {
     return (
@@ -360,17 +373,8 @@ function CanvasActions({ block }) {
     );
   }
 
-  // Canvas child seçili (canvas.children içindeki leaf) — tuval'dan çıkar.
-  const isCanvasChild = (() => {
-    for (const sec of manifest?.blocks || []) {
-      for (const c of (sec.children || [])) {
-        if (c.type === 'canvas' && (c.children || []).some((s) => s.id === block.id)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  })();
+  // Canvas child seçili (parent'ı canvas) — tuval'dan çıkar.
+  const isCanvasChild = parentTypeOf(manifest?.blocks, block.id) === 'canvas';
 
   if (isCanvasChild) {
     return (
@@ -403,32 +407,26 @@ function MoveBlockSection({ block }) {
   // Sadece leaf bloklar taşınır — section_header ve container'ların kendisi değil.
   if (block.type === 'section_header' || CONTAINER_TYPES.has(block.type)) return null;
 
-  // Bloğun mevcut parent'ını bul (hedef listesinden çıkarmak için).
-  let parent = null;  // { kind: 'section'|'container', id }
-  for (const sec of manifest?.blocks || []) {
-    for (const c of (sec.children || [])) {
-      if (c.id === block.id) { parent = { kind: 'section', id: sec.id }; }
-      if (CONTAINER_TYPES.has(c.type)) {
-        for (const gk of (c.children || [])) {
-          if (gk.id === block.id) { parent = { kind: 'container', id: c.id }; }
+  // Bloğun mevcut parent id'sini bul (hedef listesinden çıkarmak için).
+  const parentId = parentIdOf(manifest?.blocks, block.id);
+
+  // Hedef listesi: tüm section'lar + container'lar (herhangi derinlik), mevcut
+  // parent + kendisi hariç. Container içine container atılamayacağı kuralı
+  // moveBlockBetweenParents'ta zorlanır; burada leaf taşındığı için hepsi geçerli.
+  const targets = [];
+  (function walk(arr, depthTag) {
+    for (const b of (arr || [])) {
+      if (b.type === 'section_header') {
+        if (b.id !== parentId) targets.push({ id: b.id, label: `Bölüm: ${b.title || b.id}` });
+      } else if (CONTAINER_TYPES.has(b.type)) {
+        if (b.id !== parentId && b.id !== block.id) {
+          const tag = b.type === 'carousel' ? 'Carousel' : 'Tuval';
+          targets.push({ id: b.id, label: `${tag}: ${b.title || b.id}` });
         }
       }
+      if (Array.isArray(b.children)) walk(b.children);
     }
-  }
-
-  // Hedef listesi: tüm section'lar + container'lar (mevcut parent hariç, kendisi hariç).
-  const targets = [];
-  for (const sec of (manifest?.blocks || [])) {
-    if (!(parent?.kind === 'section' && parent.id === sec.id)) {
-      targets.push({ id: sec.id, label: `Bölüm: ${sec.title || sec.id}`, kind: 'section' });
-    }
-    for (const c of (sec.children || [])) {
-      if (!CONTAINER_TYPES.has(c.type)) continue;
-      if (parent?.kind === 'container' && parent.id === c.id) continue;
-      const tag = c.type === 'carousel' ? 'Carousel' : 'Tuval';
-      targets.push({ id: c.id, label: `${tag}: ${c.title || c.id}`, kind: c.type });
-    }
-  }
+  })(manifest?.blocks || []);
   if (targets.length === 0) return null;
 
   return (

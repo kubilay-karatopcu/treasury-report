@@ -38,30 +38,66 @@ def test_canvas_is_a_child_container():
     assert "canvas" in CHILD_CONTAINER_TYPES
 
 
+_SECTION_CTX = frozenset({"carousel", "canvas"})   # section.children context
+
+
 def test_canvas_with_leaf_children_is_valid():
     block = _canvas("cv_1", [_kpi("k1"), _kpi("k2", width="1/2")])
-    assert validate_block(block, allow_container=True) == []
+    assert validate_block(block, allow_containers=_SECTION_CTX) == []
 
 
 def test_empty_canvas_is_valid():
     # Unlike carousel (>=1 slide), an empty canvas is a valid starting state.
-    assert validate_block(_canvas("cv_e", []), allow_container=True) == []
+    assert validate_block(_canvas("cv_e", []), allow_containers=_SECTION_CTX) == []
 
 
-def test_canvas_not_allowed_at_top_level_or_outside_section_children():
-    errors = validate_block(_canvas("cv_x", [_kpi("k1")]), allow_container=False)
-    assert any("sadece section.children" in e for e in errors)
+def test_canvas_not_allowed_when_no_containers_permitted():
+    errors = validate_block(_canvas("cv_x", [_kpi("k1")]), allow_containers=frozenset())
+    assert any("bu konumda olamaz" in e for e in errors)
 
 
 def test_canvas_rejects_nested_container_child():
+    # canvas.children are leaf-only — a canvas inside a canvas is rejected.
     nested = _canvas("cv_outer", [_canvas("cv_inner", [_kpi("k1")])])
-    errors = validate_block(nested, allow_container=True)
-    assert any("canvas" in e for e in errors)
+    errors = validate_block(nested, allow_containers=_SECTION_CTX)
+    assert any("cv_inner" in e for e in errors)
 
 
 def test_canvas_child_may_carry_width():
     block = _canvas("cv_w", [_kpi("k1", width="1/3"), _kpi("k2", width="2/3")])
-    assert validate_block(block, allow_container=True) == []
+    assert validate_block(block, allow_containers=_SECTION_CTX) == []
+
+
+# ── canvas-as-carousel-slide (deeper nesting: carousel > canvas > leaf) ──────
+
+def test_carousel_may_contain_a_canvas_slide():
+    # A carousel slide may itself be a canvas (multi-block grid).
+    block = _carousel("cr_1", [_kpi("k1"), _canvas("cv_slide", [_kpi("k2"), _kpi("k3")])])
+    assert validate_block(block, allow_containers=_SECTION_CTX) == []
+
+
+def test_carousel_rejects_nested_carousel():
+    block = _carousel("cr_outer", [_carousel("cr_inner", [_kpi("k1")])])
+    errors = validate_block(block, allow_containers=_SECTION_CTX)
+    assert any("cr_inner" in e for e in errors)
+
+
+def test_canvas_slide_in_carousel_validates_in_manifest_and_is_traversable():
+    manifest = {
+        "meta": {"title": "T"},
+        "blocks": [{
+            "id": "sec_1", "type": "section_header", "title": "S",
+            "locked": False, "config": {},
+            "children": [_carousel("cr_1", [_canvas("cv_s", [_kpi("deep_kpi")])])],
+        }],
+    }
+    assert validate_manifest(manifest) == []
+    # The level-4 leaf is reachable + correctly pathed.
+    ids = {b.get("id") for b in iter_all_blocks(manifest)}
+    assert {"sec_1", "cr_1", "cv_s", "deep_kpi"} <= ids
+    block, path = find_block_by_id(manifest, "deep_kpi")
+    assert block["id"] == "deep_kpi"
+    assert path == "/blocks/0/children/0/children/0/children/0"
 
 
 def test_manifest_with_canvas_section_validates():

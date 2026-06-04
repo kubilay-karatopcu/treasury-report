@@ -6,16 +6,9 @@ import re
 from presentations.patch import validate_patches
 
 
-# Path patterns we recognise:
-# - /blocks/{N}                                    — section level
-# - /blocks/{N}/<field>                            — section field
-# - /blocks/{N}/children/{M}                       — leaf block OR container (carousel/canvas)
-# - /blocks/{N}/children/{M}/<field>
-# - /blocks/{N}/children/{M}/children/{K}          — child inside a container (slide / canvas block)
-# - /blocks/{N}/children/{M}/children/{K}/<field>
-_SECTION_PATH_RE = re.compile(r"^/blocks/(?P<si>\d+)(?:/[^/].*)?$")
-_LEAF_PATH_RE    = re.compile(r"^/blocks/(?P<si>\d+)/children/(?P<ci>\d+)(?:/[^/].*)?$")
-_SLIDE_PATH_RE   = re.compile(r"^/blocks/(?P<si>\d+)/children/(?P<ci>\d+)/children/(?P<ki>\d+)(?:/[^/].*)?$")
+# Block paths are arbitrarily nested: /blocks/{i}(/children/{j})*  followed by an
+# optional field segment. We walk the index segments generically rather than
+# matching a fixed depth, so section > carousel > canvas > leaf (4 levels) works.
 
 
 def validate_patch(state):
@@ -77,83 +70,64 @@ def _check_selection_scope(manifest, patches, selected_block_id):
     return out
 
 
-def _check_locked_blocks(manifest, patches):
-    """Reject patches touching a locked section or a locked leaf inside a section.
+def _block_chain_for_path(manifest, path):
+    """Resolve a block patch path to the chain of blocks it descends through —
+    e.g. [section, carousel, canvas, leaf] for a 4-level path. Stops at the
+    deepest fully-addressed block (a trailing field segment like '/title' or
+    '/config/value' is ignored). Returns [] for non-block paths."""
+    if not path.startswith("/blocks/"):
+        return []
+    segs = path.lstrip("/").split("/")   # ['blocks', '0', 'children', '1', ...]
+    chain = []
+    cur_arr = manifest.get("blocks", [])
+    k = 1
+    while k < len(segs) and segs[k].isdigit():
+        idx = int(segs[k])
+        if not (0 <= idx < len(cur_arr)):
+            break
+        node = cur_arr[idx]
+        chain.append(node)
+        # Descend only if the next segment is exactly 'children'.
+        if k + 1 < len(segs) and segs[k + 1] == "children":
+            cur_arr = node.get("children", []) or []
+            k += 2
+        else:
+            break
+    return chain
 
-    A section is locked if `section.locked == True`. A leaf is locked if
-    `child.locked == True` OR if its parent section is locked (lock cascades
-    down — a locked section freezes its entire subtree).
+
+def _check_locked_blocks(manifest, patches):
+    """Reject patches touching a locked block or any locked ancestor.
+
+    A block is frozen if its own ``locked`` is True OR any ancestor container
+    (section / carousel / canvas) is locked — lock cascades down the whole
+    subtree, at any nesting depth. A direct UI unlock of a top-level section
+    (path ending in ``/locked``) is allowed when no ancestor is locked.
     """
     errors = []
-    sections = manifest.get("blocks", [])
-
     for i, p in enumerate(patches):
         path = p.get("path", "")
-
-        # Slide path (most specific) — kontrol sırası önemli, leaf'ten önce
-        m_slide = _SLIDE_PATH_RE.match(path)
-        if m_slide:
-            si = int(m_slide.group("si"))
-            ci = int(m_slide.group("ci"))
-            ki = int(m_slide.group("ki"))
-            if 0 <= si < len(sections):
-                section = sections[si]
-                if section.get("locked"):
-                    errors.append(
-                        f"patch[{i}]: bölüm '{section.get('title','?')}' kilitli"
-                    )
-                    continue
-                children = section.get("children", []) or []
-                if 0 <= ci < len(children):
-                    container = children[ci]
-                    if container.get("locked"):
-                        errors.append(
-                            f"patch[{i}]: {container.get('type','container')} "
-                            f"'{container.get('id','?')}' kilitli"
-                        )
-                        continue
-                    grandkids = container.get("children", []) or []
-                    if 0 <= ki < len(grandkids) and grandkids[ki].get("locked"):
-                        errors.append(
-                            f"patch[{i}]: blok '{grandkids[ki].get('id','?')}' kilitli"
-                        )
+        chain = _block_chain_for_path(manifest, path)
+        if not chain:
             continue
-
-        # Leaf path (or carousel container as a whole).
-        m_leaf = _LEAF_PATH_RE.match(path)
-        if m_leaf:
-            si = int(m_leaf.group("si"))
-            ci = int(m_leaf.group("ci"))
-            if 0 <= si < len(sections):
-                section = sections[si]
-                if section.get("locked"):
-                    errors.append(
-                        f"patch[{i}]: bölüm '{section.get('title','?')}' kilitli, "
-                        f"içindeki bloklar değiştirilemez"
-                    )
-                    continue
-                children = section.get("children", []) or []
-                if 0 <= ci < len(children) and children[ci].get("locked"):
-                    errors.append(
-                        f"patch[{i}]: blok '{children[ci].get('id','?')}' kilitli"
-                    )
+        # Any locked ANCESTOR freezes the target.
+        locked_anc = next((a for a in chain[:-1] if a.get("locked")), None)
+        if locked_anc is not None:
+            errors.append(
+                f"patch[{i}]: {locked_anc.get('type', 'blok')} "
+                f"'{locked_anc.get('id', '?')}' kilitli"
+            )
             continue
-
-        m_sec = _SECTION_PATH_RE.match(path)
-        if m_sec:
-            si = int(m_sec.group("si"))
-            if 0 <= si < len(sections) and sections[si].get("locked"):
-                # Allow the user to UNLOCK via direct UI patch — but the LLM
-                # path goes through the immutable-fields check in validate_patches
-                # so it can't write `locked` anyway. Here we only need to
-                # protect non-/locked writes.
-                # (If the path is exactly /blocks/N/locked, the immutability
-                # check in patch.py rejects it for LLM patches.)
-                if not path.endswith("/locked"):
-                    errors.append(
-                        f"patch[{i}]: bölüm '{sections[si].get('title','?')}' kilitli"
-                    )
-
+        # The target itself. A top-level section may still be unlocked via a
+        # direct /locked write (the immutable-fields check guards LLM patches).
+        target = chain[-1]
+        if target.get("locked"):
+            is_section = len(chain) == 1
+            if not (is_section and path.endswith("/locked")):
+                errors.append(
+                    f"patch[{i}]: {target.get('type', 'blok')} "
+                    f"'{target.get('id', '?')}' kilitli"
+                )
     return errors
 
 
