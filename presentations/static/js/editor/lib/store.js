@@ -591,7 +591,14 @@ const useStore = create((set) => ({
     let movedNode;
     const srcSectionIdx = sloc.sectionIdx;
     if (sloc.slideIdx != null) {
-      movedNode = m.blocks[sloc.sectionIdx].children[sloc.childIdx].children.splice(sloc.slideIdx, 1)[0];
+      const container = m.blocks[sloc.sectionIdx].children[sloc.childIdx];
+      movedNode = container.children.splice(sloc.slideIdx, 1)[0];
+      // Carousel'in son slide'ı dışarı taşındıysa carousel boş kalır — manifest
+      // carousel'de ≥1 slide şart koşar → boş carousel'i çöz (section'dan kaldır).
+      // Canvas boş kalabilir (Madde 2), o yüzden sadece carousel.
+      if (container.type === 'carousel' && (container.children || []).length === 0) {
+        m.blocks[sloc.sectionIdx].children.splice(sloc.childIdx, 1);
+      }
     } else if (sloc.childIdx != null) {
       movedNode = m.blocks[sloc.sectionIdx].children.splice(sloc.childIdx, 1)[0];
     } else {

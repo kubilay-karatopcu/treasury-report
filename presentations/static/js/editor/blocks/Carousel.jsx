@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import useStore from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
-import { dropIntoProps } from '../lib/dnd.js';
+import { draggableProps, dropIntoProps } from '../lib/dnd.js';
 
 /**
  * En içteki ilk seçilebilir bloğun id'si. Slide bir leaf'se kendi id'si;
@@ -144,7 +144,12 @@ export default function Carousel({ block }) {
           Henüz slide yok. Carousel'i seçip <strong>“+ Slide ekle”</strong> ile başlat.
         </div>
       ) : (
-        <div className="carousel-slide" data-slide-id={activeSlide.id}>
+        <div
+          className={`carousel-slide${dndEnabled ? ' is-draggable' : ''}`
+            + (draggingBlockId === activeSlide.id ? ' is-dnd-dragging' : '')}
+          data-slide-id={activeSlide.id}
+          {...draggableProps(activeSlide.id, dndEnabled)}
+        >
           <BlockCard block={activeSlide} />
         </div>
       )}
