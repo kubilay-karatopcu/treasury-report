@@ -224,7 +224,7 @@ class Derivation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["aggregate", "calculated"] = "aggregate"
+    kind: Literal["aggregate", "calculated", "filter"] = "aggregate"
     # aggregate-only ----------------------------------------------------
     source_alias: Alias | None = None
     group_by: list[str] = Field(default_factory=list)
@@ -233,30 +233,50 @@ class Derivation(BaseModel):
     source_aliases: list[Alias] = Field(default_factory=list)
     join_keys: list[CalculatedJoinKey] = Field(default_factory=list)
     columns: list[CalculatedColumn] = Field(default_factory=list)
+    # filter-only (Faz R1) — bir main node'dan filtreyle türetilen, cache'lenip
+    # cron'lanabilen alt-node. `source_alias` lineage (edge bundan çizilir);
+    # `filters` GÖMÜLÜ (scope-level filters değil). Compiler kaynağın table_ref'i
+    # + bu filtrelerle Oracle `SELECT … WHERE …` üretir; relative tarihler her
+    # materialize'da yeniden çözülür → dinamik dataset. (Forward-ref: Filters
+    # aşağıda tanımlı → modül sonunda model_rebuild.)
+    filters: "Filters | None" = None
 
     @model_validator(mode="after")
     def _kind_shape(self) -> "Derivation":
         if self.kind == "aggregate":
             if self.source_alias is None:
                 raise ValueError("aggregate derivation: source_alias zorunlu")
-            if self.source_aliases or self.join_keys or self.columns:
+            if self.source_aliases or self.join_keys or self.columns or self.filters:
                 raise ValueError(
-                    "aggregate derivation: source_aliases / join_keys / columns "
-                    "alanları sadece kind='calculated' için kullanılır"
+                    "aggregate derivation: source_aliases / join_keys / columns / "
+                    "filters alanları yalnız calculated/filter kind için kullanılır"
                 )
             if not self.group_by and not self.measures:
                 raise ValueError(
                     "aggregate derivation: group_by ya da measures'tan en az biri olmalı"
+                )
+        elif self.kind == "filter":
+            # Faz R1 — main node'dan filtreyle türetilen alt-node.
+            if self.source_alias is None:
+                raise ValueError("filter derivation: source_alias zorunlu")
+            if self.source_aliases or self.join_keys or self.columns \
+                    or self.group_by or self.measures:
+                raise ValueError(
+                    "filter derivation: yalnız source_alias + filters kullanılır"
+                )
+            if self.filters is None or not (self.filters.pinned or self.filters.raw):
+                raise ValueError(
+                    "filter derivation: en az bir pinned ya da raw filtre gerekli"
                 )
         elif self.kind == "calculated":
             if not self.source_aliases:
                 raise ValueError("calculated derivation: en az bir source_aliases gerekli")
             if not self.columns:
                 raise ValueError("calculated derivation: en az bir output column gerekli")
-            if self.source_alias is not None or self.group_by or self.measures:
+            if self.source_alias is not None or self.group_by or self.measures or self.filters:
                 raise ValueError(
-                    "calculated derivation: source_alias / group_by / measures "
-                    "alanları sadece kind='aggregate' için kullanılır"
+                    "calculated derivation: source_alias / group_by / measures / "
+                    "filters alanları yalnız aggregate/filter kind için kullanılır"
                 )
             # Multi-source requires explicit join_keys; single-source needs none.
             if len(self.source_aliases) > 1 and not self.join_keys:
@@ -521,6 +541,12 @@ class Filters(BaseModel):
     pinned: list[PinnedFilter] = Field(default_factory=list)
     interactive: list[InteractiveFilter] = Field(default_factory=list)
     raw: list[RawFilter] = Field(default_factory=list)
+
+
+# Faz R1 — Derivation.filters: "Filters" forward-ref'ini şimdi çöz (Filters
+# burada tanımlandı). BasketItem ⊃ Derivation olduğundan onu da tazele.
+Derivation.model_rebuild()
+BasketItem.model_rebuild()
 
 
 # ── Status ──────────────────────────────────────────────────────────────────
