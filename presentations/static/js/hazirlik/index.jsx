@@ -31,7 +31,7 @@ import FilterPanel from "./FilterPanel.jsx";
 import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2,
-  Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag,
+  Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag, Code2,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -945,12 +945,20 @@ function RefreshModal({ item, onSave, onClose }) {
 // Sunum'daki blok+manuel SQL akışının Hazırlık karşılığı: tablo adı + SQL yaz →
 // önizle/doğrula → saklama (cached/lazy) → cached ise cron. Sonuç scope.basket'e
 // bir `sql` dataset olarak eklenir.
-function SqlDatasetModal({ existingAliases, onSave, onClose }) {
-  const [alias, setAlias] = useState("");
-  const [sql, setSql] = useState("");
-  const [routing, setRouting] = useState("cached");
-  const [refresh, setRefresh] = useState({ kind: "manual" });
-  const [preview, setPreview] = useState(null);
+function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
+  const isEdit = !!existing;
+  const [alias, setAlias] = useState(existing?.alias || "");
+  const [sql, setSql] = useState(existing?.sql || "");
+  const [routing, setRouting] = useState(existing?.routing || "cached");
+  const [refresh, setRefresh] = useState(existing?.refresh || { kind: "manual" });
+  // Edit modunda mevcut kolonlarla başla → kullanıcı SQL'e dokunmadan da
+  // "Kaydet" edebilir; SQL'i değiştirince textarea onChange preview'i sıfırlar
+  // (setPreview(null)) → yeniden doğrulama gerekir.
+  const [preview, setPreview] = useState(
+    isEdit && (existing.columns || []).length
+      ? { columns: existing.columns, rows: [], row_count: 0 }
+      : null,
+  );
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
 
@@ -974,7 +982,7 @@ function SqlDatasetModal({ existingAliases, onSave, onClose }) {
   const canSave = sql.trim() && preview && preview.columns.length > 0;
   const save = () => {
     onSave({
-      alias: makeAlias(alias || "sql_tablo", existingAliases),
+      alias: isEdit ? existing.alias : makeAlias(alias || "sql_tablo", existingAliases),
       sql: sql.trim(),
       columns: preview.columns,
       routing,
@@ -983,14 +991,16 @@ function SqlDatasetModal({ existingAliases, onSave, onClose }) {
   };
 
   return (
-    <Modal title="Manuel SQL Tablo" size="lg" onClose={onClose} footer={
+    <Modal title={isEdit ? "Manuel SQL Tablo — Düzenle" : "Manuel SQL Tablo"} size="lg" onClose={onClose} footer={
       <>
         <button className="ts-btn" onClick={onClose}>Vazgeç</button>
-        <button className="ts-btn ts-btn--primary" disabled={!canSave} onClick={save}>Tablo Ekle</button>
+        <button className="ts-btn ts-btn--primary" disabled={!canSave} onClick={save}>{isEdit ? "Kaydet" : "Tablo Ekle"}</button>
       </>
     }>
       <label className="hz-field">Tablo adı (alias)
         <input type="text" value={alias} placeholder="ör. gunluk_pozisyon"
+          disabled={isEdit}
+          title={isEdit ? "Düzenlemede tablo adı değiştirilemez (referanslar bozulmasın)" : undefined}
           onChange={(e) => setAlias(e.target.value)} />
       </label>
       <label className="hz-field">SQL (SELECT / WITH)
@@ -1031,7 +1041,7 @@ function SqlDatasetModal({ existingAliases, onSave, onClose }) {
 function SourcesSidebar({
   scope, onOpenDocs, libraryBlocks, chat,
   hiddenAliases, onToggleVisibility,
-  goingToSunum, onGoToSunum, onUpload, onAddSql,
+  goingToSunum, onGoToSunum, onUpload, onAddSql, onEditSql,
 }) {
   // Phase 11.hazirlik-polish: sidebar shows ONLY what's in MY basket
   // (no longer the full DOMAINS tree). Split into Tablolar + Bloklar
@@ -1202,6 +1212,16 @@ function SourcesSidebar({
                           title="Tablo dökümanını göster"
                         >
                           <Info size={12} strokeWidth={1.8} />
+                        </button>
+                      )}
+                      {it.isSql && (
+                        <button
+                          type="button"
+                          className="sources-table-eye"
+                          onClick={(e) => { e.stopPropagation(); onEditSql && onEditSql(it.alias); }}
+                          title="SQL kaynağını düzenle"
+                        >
+                          <Code2 size={12} strokeWidth={1.8} />
                         </button>
                       )}
                     </div>
@@ -2002,6 +2022,28 @@ function App() {
     setToast(`'${alias}' yenileme güncellendi`);
   }, []);
 
+  // Madde 8 — manuel SQL dataset kaynağını düzenle. Pure-local: basket[i].sql'i
+  // güncelle; debounced save-draft persist eder, [scope] effect node'u (colCount)
+  // yeniler. Routing user-decided olduğundan recompute-routing gerekmez.
+  const [editSqlAlias, setEditSqlAlias] = useState(null);
+  const saveSqlEdit = useCallback(({ alias, sql, columns, routing, refresh }) => {
+    setScope((s) => ({
+      ...s,
+      basket: (s.basket || []).map((b) => (b.alias === alias ? {
+        ...b,
+        sql,
+        projection: { ...(b.projection || {}), columns: columns || [], include_all: false },
+        routing: { ...(b.routing || {}), decision: routing, decided_by: "user" },
+        refresh: (routing === "cached" && refresh) ? refresh : undefined,
+      } : b)),
+    }));
+    COLS_BY_ALIAS[alias] = (columns || []).map((c) => ({
+      name: c, type: null, concept: null, join_key: false, lookup: null,
+    }));
+    setEditSqlAlias(null);
+    setToast(`'${alias}' SQL güncellendi`);
+  }, []);
+
 
   const applySuggestion = useCallback(async (turnId, suggestion) => {
     setApplyingId(suggestion.id);
@@ -2508,6 +2550,7 @@ function App() {
           onGoToSunum={goToSunum}
           onUpload={() => setUploadOpen(true)}
           onAddSql={() => setSqlModalOpen(true)}
+          onEditSql={(alias) => setEditSqlAlias(alias)}
           chat={{
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
@@ -2583,6 +2626,23 @@ function App() {
           onClose={() => setSqlModalOpen(false)}
         />
       )}
+      {editSqlAlias && (() => {
+        const it = (scope.basket || []).find((b) => b.alias === editSqlAlias);
+        return it ? (
+          <SqlDatasetModal
+            existingAliases={(scope.basket || []).map((b) => b.alias)}
+            existing={{
+              alias: it.alias,
+              sql: it.sql || "",
+              routing: it.routing?.decision || "cached",
+              refresh: it.refresh || { kind: "manual" },
+              columns: it.projection?.columns || [],
+            }}
+            onSave={saveSqlEdit}
+            onClose={() => setEditSqlAlias(null)}
+          />
+        ) : null;
+      })()}
       <UploadModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
