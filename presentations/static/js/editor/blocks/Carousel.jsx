@@ -50,13 +50,14 @@ export default function Carousel({ block }) {
   }, [slides.length, idx]);
 
   const layoutEditMode     = useStore((s) => s.layoutEditMode);
-  const dropTargetId       = useStore((s) => s.dropTargetId);
+  const dropPreview        = useStore((s) => s.dropPreview);
   const draggingBlockId    = useStore((s) => s.draggingBlockId);
 
   const isCarouselSelected = selectedBlockId === block.id;
   const isEdit             = viewMode === 'edit' && mode !== 'snapshot';
   const dndEnabled         = isEdit && layoutEditMode;
   const dndOn              = dndEnabled && !!draggingBlockId;
+  const isDropOver         = dropPreview && dropPreview.parentId === block.id;
 
   function selectCarousel(e) {
     if (!isEdit) return;
@@ -95,7 +96,7 @@ export default function Carousel({ block }) {
     <div
       className={`carousel${isCarouselSelected ? ' is-selected' : ''}${block.locked ? ' is-locked' : ''}`
         + (dndOn ? ' is-dnd-zone' : '')
-        + (dropTargetId === block.id ? ' is-dnd-over' : '')}
+        + (isDropOver ? ' is-dnd-over' : '')}
       data-block-id={block.id}
       {...dropIntoProps(block.id, dndEnabled)}
     >

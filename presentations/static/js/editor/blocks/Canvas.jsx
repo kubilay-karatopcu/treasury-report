@@ -1,7 +1,7 @@
 import { LayoutGrid } from 'lucide-react';
-import useStore from '../lib/store.js';
+import useStore, { getBlockById } from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
-import { draggableProps, dropBeforeProps, dropIntoProps } from '../lib/dnd.js';
+import { draggableProps, dropBeforeProps, dropIntoProps, planDropRender } from '../lib/dnd.js';
 
 /**
  * Canvas — genel container (madde 2). Çocuk leaf blokları bir 12-kolon CSS
@@ -25,13 +25,16 @@ export default function Canvas({ block }) {
   const mode             = useStore((s) => s.mode);
 
   const layoutEditMode   = useStore((s) => s.layoutEditMode);
-  const dropTargetId     = useStore((s) => s.dropTargetId);
+  const dropPreview      = useStore((s) => s.dropPreview);
   const draggingBlockId  = useStore((s) => s.draggingBlockId);
+  const manifest         = useStore((s) => s.manifest);
+  const draggedBlock     = draggingBlockId ? getBlockById(manifest, draggingBlockId) : null;
 
   const isCanvasSelected = selectedBlockId === block.id;
   const isEdit           = viewMode === 'edit' && mode !== 'snapshot';
   const dndEnabled       = isEdit && layoutEditMode;
   const dndOn            = dndEnabled && !!draggingBlockId;
+  const items            = planDropRender(children, block.id, dropPreview, draggingBlockId, draggedBlock);
 
   function selectCanvas(e) {
     if (!isEdit) return;
@@ -42,8 +45,7 @@ export default function Canvas({ block }) {
   return (
     <div
       className={`canvas-block${isCanvasSelected ? ' is-selected' : ''}${block.locked ? ' is-locked' : ''}`
-        + (dndOn ? ' is-dnd-zone' : '')
-        + (dropTargetId === block.id ? ' is-dnd-over' : '')}
+        + (dndOn ? ' is-dnd-zone' : '')}
       data-block-id={block.id}
       {...dropIntoProps(block.id, dndEnabled)}
     >
@@ -60,25 +62,37 @@ export default function Canvas({ block }) {
         </button>
       </div>
 
-      {children.length === 0 ? (
+      {items.length === 0 ? (
         <div className="canvas-empty">
           Tuval boş. Tuval'ı seçip <strong>“+ Blok ekle”</strong> ile başlat —
           bloklar 12-kolon grid'de yan yana dizilir (genişliği Properties'ten ayarla).
         </div>
       ) : (
         <div className="canvas-grid">
-          {children.map((child) => (
-            <div
-              key={child.id}
-              className={`canvas-cell${dndEnabled ? ' is-draggable' : ''}`
-                + (dropTargetId === child.id ? ' is-dnd-before' : '')}
-              style={{ gridColumn: `span ${WIDTH_SPAN[child.width] || 12}` }}
-              {...draggableProps(child.id, dndEnabled)}
-              {...dropBeforeProps(child.id, dndEnabled)}
-            >
-              <BlockCard block={child} />
-            </div>
-          ))}
+          {items.map((it) => {
+            if (it.kind === 'ghost') {
+              return (
+                <div key="__dnd_ghost__" className="dnd-ghost"
+                     style={{ gridColumn: `span ${WIDTH_SPAN[it.width] || 12}` }}>
+                  <span className="dnd-ghost-label">{it.title}</span>
+                </div>
+              );
+            }
+            const child = it.block;
+            return (
+              <div
+                key={child.id}
+                className={`canvas-cell${dndEnabled ? ' is-draggable' : ''}`
+                  + (it.dim ? ' is-dnd-dragging' : '')
+                  + (it.hidden ? ' is-dnd-hidden' : '')}
+                style={{ gridColumn: `span ${WIDTH_SPAN[child.width] || 12}` }}
+                {...draggableProps(child.id, dndEnabled)}
+                {...dropBeforeProps(block.id, child.id, dndEnabled)}
+              >
+                <BlockCard block={child} />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

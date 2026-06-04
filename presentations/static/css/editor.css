@@ -4933,10 +4933,12 @@ body.theme-dark .props-sql-helper__table td code {
 
 /* ──────────────────────────────────────────────────────────────────────────
    Sürükle-bırak (madde 3 aşama 2) — native HTML5 DnD görsel geri bildirimi.
-   .is-draggable: layout modunda sürüklenebilir slot/cell (grab cursor).
-   .is-dnd-zone:  bir blok sürüklenirken drop bölgesi ipucu (kesik çizgi).
-   .is-dnd-over:  container/section'a "sona ekle" hedefi (vurgulu).
-   .is-dnd-before: bir bloğun ÖNÜNE ekleme göstergesi (sol accent bar).
+   .is-draggable:    layout modunda sürüklenebilir slot/cell (grab cursor).
+   .is-dnd-zone:     bir blok sürüklenirken drop bölgesi ipucu (kesik çizgi).
+   .is-dnd-over:     carousel'e "sona ekle" hedefi (vurgulu; grid'lerde ghost var).
+   .dnd-ghost:       bırakılırsa bloğun GİDECEĞİ yeri gösteren hayalet kutu — grid
+                     içine yerleşir, diğer bloklar kayar → canlı yeni-layout.
+   .is-dnd-dragging: sürüklenen bloğun origin'deki soluk hali.
    ────────────────────────────────────────────────────────────────────────── */
 .block-slot.is-draggable,
 .canvas-cell.is-draggable {
@@ -4952,17 +4954,45 @@ body.theme-dark .props-sql-helper__table td code {
   outline: 1px dashed rgba(32,107,196,0.35);
   outline-offset: 2px;
 }
-.section-container.is-dnd-over,
-.canvas-block.is-dnd-over,
 .carousel.is-dnd-over {
   outline: 2px dashed var(--ts-primary, #206bc4);
   outline-offset: 2px;
   background: rgba(32,107,196,0.05);
 }
-.block-slot.is-dnd-before,
-.canvas-cell.is-dnd-before {
-  box-shadow: inset 3px 0 0 0 var(--ts-primary, #206bc4);
-  border-radius: 6px;
+.dnd-ghost {
+  min-height: 64px;
+  border: 2px dashed var(--ts-primary, #206bc4);
+  border-radius: 8px;
+  background: rgba(32,107,196,0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  color: var(--ts-primary, #206bc4);
+  font-size: 0.8rem;
+  font-weight: 600;
+  animation: dnd-ghost-pulse 1.1s ease-in-out infinite;
+}
+.dnd-ghost-label {
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes dnd-ghost-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+.block-slot.is-dnd-dragging,
+.canvas-cell.is-dnd-dragging {
+  opacity: 0.4;
+  filter: grayscale(0.3);
+}
+/* Sürüklenen blok, hedef parent içinde önizlenirken: layout'tan çıkar ama DOM'da
+   kalır (dragend güvenliği). Hayalet onun yeni yerini gösterir. */
+.block-slot.is-dnd-hidden,
+.canvas-cell.is-dnd-hidden {
+  display: none;
 }
 
 /* Icon button (small square) */

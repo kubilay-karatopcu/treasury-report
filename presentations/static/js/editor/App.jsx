@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import useStore        from './lib/store.js';
+import useStore, { getBlockById } from './lib/store.js';
 import { fetchUserInfo } from './lib/api.js';
 // Header.jsx is now imported by Sidebar.jsx (toolbar lives inside the
 // left rail above the chat). Removed from the App.jsx tree.
@@ -15,7 +15,7 @@ import TableDocsPanel  from './components/TableDocsPanel.jsx';
 import ChatBox         from './components/ChatBox.jsx';
 import { Sparkles, Plus, HelpCircle } from 'lucide-react';
 import useResizable from './lib/useResizable.js';
-import { draggableProps, dropBeforeProps, dropIntoProps } from './lib/dnd.js';
+import { draggableProps, dropBeforeProps, dropIntoProps, planDropRender } from './lib/dnd.js';
 import HelpModal from './components/HelpModal.jsx';
 import ManualSqlEditor from './components/ManualSqlEditor.jsx';
 import FilterBar from './components/FilterBar.jsx';
@@ -177,23 +177,35 @@ export default function App({ initialManifest, mode = 'editor' }) {
 
 function SectionContainer({ section, layoutEditMode }) {
   const children = section.children || [];
-  const dropTargetId = useStore((s) => s.dropTargetId);
+  const dropPreview = useStore((s) => s.dropPreview);
   const draggingBlockId = useStore((s) => s.draggingBlockId);
+  const manifest = useStore((s) => s.manifest);
+  const draggedBlock = draggingBlockId ? getBlockById(manifest, draggingBlockId) : null;
   // DnD aktif (layout düzenleme modunda + bir blok sürükleniyorken). Section'ın
-  // kendisi "sona ekle" drop bölgesi; slot'lar "öncesine ekle".
+  // kendisi "sona ekle" drop bölgesi; slot'lar "öncesine ekle". Render listesi
+  // sürüklerken hayalet kutuyu içerir (canlı yeni-layout önizlemesi).
   const dndOn = layoutEditMode && !!draggingBlockId;
+  const items = planDropRender(children, section.id, dropPreview, draggingBlockId, draggedBlock);
   return (
     <section
       className={`section-container${section.locked ? ' is-locked' : ''}`
-        + (dndOn ? ' is-dnd-zone' : '')
-        + (dropTargetId === section.id ? ' is-dnd-over' : '')}
+        + (dndOn ? ' is-dnd-zone' : '')}
       data-block-id={section.id}
       {...dropIntoProps(section.id, layoutEditMode)}
     >
       <BlockCard block={section} />
-      {children.length > 0 && (
+      {items.length > 0 && (
         <div className="section-children-grid">
-          {children.map((child) => {
+          {items.map((it, i) => {
+            if (it.kind === 'ghost') {
+              const span = WIDTH_SPAN[it.width] ?? 12;
+              return (
+                <div key="__dnd_ghost__" className="dnd-ghost" style={{ gridColumn: `span ${span}` }}>
+                  <span className="dnd-ghost-label">{it.title}</span>
+                </div>
+              );
+            }
+            const child = it.block;
             const width = child.width || 'full';
             const span = WIDTH_SPAN[width] ?? 12;
             return (
@@ -202,10 +214,11 @@ function SectionContainer({ section, layoutEditMode }) {
                 data-block-id={child.id}
                 className={`block-slot block-slot--${width.replace('/', '-')}`
                   + (layoutEditMode ? ' is-draggable' : '')
-                  + (dropTargetId === child.id ? ' is-dnd-before' : '')}
+                  + (it.dim ? ' is-dnd-dragging' : '')
+                  + (it.hidden ? ' is-dnd-hidden' : '')}
                 style={{ gridColumn: `span ${span}` }}
                 {...draggableProps(child.id, layoutEditMode)}
-                {...dropBeforeProps(child.id, layoutEditMode)}
+                {...dropBeforeProps(section.id, child.id, layoutEditMode)}
               >
                 <BlockCard block={child} />
               </div>
