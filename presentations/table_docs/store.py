@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Iterable, Optional, Protocol
 
@@ -237,33 +238,58 @@ class S3TableDocStore:
 # ── Process-level cache ──────────────────────────────────────────────────
 
 class CachedTableDocStore:
-    """Wrap any TableDocStore with an in-memory dict cache.
+    """Wrap any TableDocStore with a TTL-bounded in-memory cache.
 
-    Cache invalidation: process restart only. The cron writes back at most
-    once a day, so a stale cache for one tick is acceptable.
+    The store is read-mostly (the nightly cron plus the data team's manual
+    edits via the Tablolar UI), so a short staleness window is acceptable.
+    But the cache must NOT be permanent: in a multi-worker deployment a table
+    documented by one gunicorn worker has to become visible to the workers
+    serving Sunum / Hazırlık, which never share process memory. A permanent
+    cache kept freshly documented tables invisible until pod restart — the
+    "kolon tanımı yok" bug.
+
+    Each entry — both single docs and the full ``list_all_docs`` snapshot —
+    carries a deadline ``ttl_seconds`` into the future; past it we re-read the
+    inner store, so other workers' writes surface within one TTL window.
+    ``ttl_seconds <= 0`` disables caching entirely (always defers to the inner
+    store), which is handy in tests. Writes through this wrapper
+    (``save`` / ``delete``) update the local cache immediately so the writing
+    worker sees its own change without waiting for the TTL.
     """
 
-    def __init__(self, inner: TableDocStore):
+    def __init__(self, inner: TableDocStore, ttl_seconds: float = 60.0):
         self._inner = inner
-        self._cache: dict[tuple[str, str], TableDoc] = {}
-        self._listed_all = False
+        self._ttl = float(ttl_seconds)
+        self._cache: dict[tuple[str, str], tuple[float, TableDoc]] = {}
+        self._listed_until: float = 0.0
+
+    def _now(self) -> float:
+        return time.monotonic()
+
+    def _fresh(self, deadline: float) -> bool:
+        return self._ttl > 0 and deadline > self._now()
+
+    def _remember(self, doc: TableDoc) -> None:
+        self._cache[(doc.schema_name, doc.table)] = (self._now() + self._ttl, doc)
 
     def exists(self, schema: str, table: str) -> bool:
-        if (schema, table) in self._cache:
+        entry = self._cache.get((schema, table))
+        if entry is not None and self._fresh(entry[0]):
             return True
         return self._inner.exists(schema, table)
 
     def load(self, schema: str, table: str) -> TableDoc:
         key = (schema, table)
-        if key in self._cache:
-            return self._cache[key]
+        entry = self._cache.get(key)
+        if entry is not None and self._fresh(entry[0]):
+            return entry[1]
         doc = self._inner.load(schema, table)
-        self._cache[key] = doc
+        self._remember(doc)
         return doc
 
     def save(self, doc: TableDoc) -> TableDoc:
         saved = self._inner.save(doc)
-        self._cache[(saved.schema_name, saved.table)] = saved
+        self._remember(saved)
         return saved
 
     def delete(self, schema: str, table: str) -> bool:
@@ -275,14 +301,14 @@ class CachedTableDocStore:
         return self._inner.list_tables(schema)
 
     def list_all_docs(self) -> list[TableDoc]:
-        if self._listed_all:
-            return list(self._cache.values())
+        if self._ttl > 0 and self._listed_until > self._now():
+            return [doc for _, doc in self._cache.values()]
         docs = self._inner.list_all_docs()
         for doc in docs:
-            self._cache[(doc.schema_name, doc.table)] = doc
-        self._listed_all = True
+            self._remember(doc)
+        self._listed_until = self._now() + self._ttl
         return docs
 
     def clear(self) -> None:
         self._cache.clear()
-        self._listed_all = False
+        self._listed_until = 0.0
