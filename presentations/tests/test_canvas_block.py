@@ -29,6 +29,11 @@ def _canvas(bid: str, children) -> dict:
             "config": {}, "children": children}
 
 
+def _carousel(bid: str, children) -> dict:
+    return {"id": bid, "type": "carousel", "locked": False, "title": "Cr",
+            "config": {}, "children": children}
+
+
 def test_canvas_is_a_child_container():
     assert "canvas" in CHILD_CONTAINER_TYPES
 
@@ -148,3 +153,21 @@ def test_cross_section_move_replaces_both_sections():
     assert validate_manifest(after) == []
     _, path = find_block_by_id(after, "k1")
     assert path == "/blocks/1/children/0/children/0"
+
+
+def test_dragging_last_slide_out_dissolves_empty_carousel():
+    # A carousel with a single slide. Dragging that slide out to the section
+    # would empty the carousel — invalid (carousel needs >=1 slide). The move
+    # action dissolves the now-empty carousel, so the emitted section is valid.
+    manifest = {
+        "meta": {"title": "T"},
+        "blocks": [_section("sec_1", [_carousel("cr_1", [_kpi("k1")]), _kpi("k2")])],
+    }
+    # After: carousel gone, k1 lives directly in the section.
+    new_section = _section("sec_1", [_kpi("k2"), _kpi("k1")])
+    patches = [{"op": "replace", "path": "/blocks/0", "value": new_section}]
+    after = apply_patches(manifest, patches)
+    assert validate_manifest(after) == []
+    assert find_block_by_id(after, "cr_1")[0] is None   # carousel dissolved
+    _, path = find_block_by_id(after, "k1")
+    assert path == "/blocks/0/children/1"
