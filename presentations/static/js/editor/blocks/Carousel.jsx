@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Layers, GripVertical } from 'lucide-react';
 import useStore from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
 import { draggableProps, dropIntoProps } from '../lib/dnd.js';
@@ -100,8 +100,17 @@ export default function Carousel({ block }) {
       data-block-id={block.id}
       {...dropIntoProps(block.id, dndEnabled)}
     >
-      {/* Üst bar: başlık (tıklanır → carousel seçili olur) + slide oklar */}
+      {/* Üst bar: sürükleme tutamacı + başlık (tıklanır → carousel seçili olur) + slide oklar */}
       <div className="carousel-header">
+        {dndEnabled && (
+          <span
+            className="container-drag-handle"
+            title="Sürükle: carousel'i taşı"
+            {...draggableProps(block.id, dndEnabled)}
+          >
+            <GripVertical size={14} strokeWidth={2} />
+          </span>
+        )}
         <button
           type="button"
           className="carousel-title-btn"

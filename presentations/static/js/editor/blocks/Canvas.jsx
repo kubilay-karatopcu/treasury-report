@@ -1,4 +1,4 @@
-import { LayoutGrid } from 'lucide-react';
+import { LayoutGrid, GripVertical } from 'lucide-react';
 import useStore, { getBlockById } from '../lib/store.js';
 import BlockCard from '../components/BlockCard.jsx';
 import { draggableProps, dropBeforeProps, dropIntoProps, planDropRender } from '../lib/dnd.js';
@@ -50,6 +50,15 @@ export default function Canvas({ block }) {
       {...dropIntoProps(block.id, dndEnabled)}
     >
       <div className="canvas-header">
+        {dndEnabled && (
+          <span
+            className="container-drag-handle"
+            title="Sürükle: tuvali taşı"
+            {...draggableProps(block.id, dndEnabled)}
+          >
+            <GripVertical size={14} strokeWidth={2} />
+          </span>
+        )}
         <button
           type="button"
           className="canvas-title-btn"
