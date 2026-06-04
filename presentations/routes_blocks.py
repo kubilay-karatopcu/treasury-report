@@ -218,6 +218,49 @@ def block_edit(team: str, block_id: str, version: int | None = None):
     except BlockNotFoundError:
         return _json({"error": f"block {team}/{block_id} not found"}, status=404)
 
+    if block.kind == "composite":
+        # Container template (carousel/canvas): render the container with its
+        # children so the editor shows it rather than a broken single chart.
+        # Per-slide SQL editing happens once the block is inserted into a real
+        # presentation, not in the template editor (graceful, read-only-ish).
+        synthetic_manifest = {
+            "id": f"tmpl_{team}_{block.id}_v{block.version}",
+            "version": 1,
+            "owner_id": getattr(current_user, "sicil", "") or "",
+            "meta": {
+                "title": block.title,
+                "eyebrow": f"Şablon: {team}/{block.id}",
+                "date": block.created_at.strftime("%Y-%m-%d"),
+                "author_label": block.owner,
+            },
+            "template_ref": {
+                "team": block.team, "id": block.id, "version": block.version,
+                "owner": block.owner, "description": block.description,
+                "tags": list(block.tags),
+                "documentation": block.documentation.model_dump() if block.documentation else None,
+                "composite": True,
+            },
+            "blocks": [{
+                "id": f"sec_{block.id}",
+                "type": "section_header",
+                "title": "",
+                "children": [{
+                    "id": f"b_{block.id}",
+                    "type": block.visualization.type,   # carousel / canvas
+                    "title": block.title,
+                    "locked": False,
+                    "children": json.loads(json.dumps(block.children or [])),
+                }],
+            }],
+        }
+        return render_template(
+            "presentations/block_template_edit.html",
+            manifest_json=json.dumps(
+                synthetic_manifest, ensure_ascii=False, default=_json_default,
+            ),
+            template_ref={"team": team, "id": block.id, "version": block.version},
+        )
+
     # Synthesize a 1-section, 1-block manifest with manual_sql=true so the
     # editor's ManualSqlEditor takes over the Properties form. Empty config
     # seed gets filled by the first preview call.
@@ -378,6 +421,11 @@ def _validate_block_payload(payload: dict[str, Any]) -> tuple[Block | None, dict
             "errors": _flatten_pydantic_errors(exc),
             "warnings": [],
         }
+
+    if block.kind == "composite":
+        # Container blocks (carousel/canvas) carry no SQL of their own — schema
+        # validation is sufficient; their children re-run when inserted.
+        return block, {"ok": True, "phase": "schema", "errors": [], "warnings": []}
 
     sql_result = validate_sql(
         block.query,
@@ -627,6 +675,17 @@ def api_preview():
     if block is None or not result["ok"]:
         return _json(result, status=400)
 
+    if block.kind == "composite":
+        # No single SQL to run — container preview is a no-op with a note.
+        return _json({
+            "ok": True, "composite": True, "rows": [], "columns": [],
+            "meta": {"warnings": [
+                "Bu blok bir container (carousel/canvas) — birim SQL önizlemesi yok. "
+                "Sunuma eklediğinde içindeki bloklar çalışır."
+            ]},
+            "block": None,
+        })
+
     try:
         df, meta = _run_block(block, overrides)
     except ResolutionError as exc:
@@ -827,6 +886,19 @@ def block_library_preview(team: str, block_id: str, version: int | None = None):
     )
 
 
+def _freshen_ids(nodes: list) -> list:
+    """Assign fresh ids to every node (and descendant) in a block subtree so a
+    cloned container can't collide with ids already in the target manifest."""
+    import secrets as _sec
+    for n in nodes:
+        if isinstance(n, dict):
+            n["id"] = "b_" + _sec.token_urlsafe(6)
+            kids = n.get("children")
+            if isinstance(kids, list):
+                _freshen_ids(kids)
+    return nodes
+
+
 @presentations_bp.route("/<pid>/blocks/insert-from-library", methods=["POST"])
 @login_required
 def insert_block_from_library(pid: str):
@@ -861,41 +933,51 @@ def insert_block_from_library(pid: str):
     if not manifest:
         return _json({"error": "Sunum bulunamadı."}, status=404)
 
-    # Map viz type as in block_edit (same normalization).
-    canvas_type = block.visualization.type
-    if canvas_type not in {
-        "kpi", "bar_chart", "line_chart", "area_chart",
-        "pie_chart", "heatmap", "radial_bar", "data_table",
-    }:
-        canvas_type = {
-            "bar":   "bar_chart",
-            "line":  "line_chart",
-            "table": "data_table",
-            "pie":   "pie_chart",
-            "kpi_grid": "kpi",
-        }.get(canvas_type, "bar_chart")
-
     new_bid = "b_" + _sec.token_urlsafe(6)
-    new_block = {
-        "id":      new_bid,
-        "type":    canvas_type,
-        "title":   block.title,
-        "locked":  False,
-        "manual_sql": True,
-        "query":   block.query,
-        "variables": [
-            v.model_dump(mode="json", exclude_none=True) for v in block.variables
-        ],
-        "config":      _seed_config_for(canvas_type),
-        "data_source": {"original_sql": block.query},
-        # Track origin so future polish (e.g. "imported from library" badge)
-        # can be added without re-deriving from blocks.
-        "imported_from": {
-            "team":    block.team,
-            "id":      block.id,
-            "version": block.version,
-        },
-    }
+    imported_from = {"team": block.team, "id": block.id, "version": block.version}
+
+    if block.kind == "composite":
+        # Container (carousel/canvas): re-insert the whole subtree, freshening
+        # every id so it can't collide with blocks already in the manifest.
+        new_block = {
+            "id":       new_bid,
+            "type":     block.visualization.type,   # carousel / canvas
+            "title":    block.title,
+            "locked":   False,
+            "children": _freshen_ids(json.loads(json.dumps(block.children or []))),
+            "imported_from": imported_from,
+        }
+    else:
+        # Map viz type as in block_edit (same normalization).
+        canvas_type = block.visualization.type
+        if canvas_type not in {
+            "kpi", "bar_chart", "line_chart", "area_chart",
+            "pie_chart", "heatmap", "radial_bar", "data_table",
+        }:
+            canvas_type = {
+                "bar":   "bar_chart",
+                "line":  "line_chart",
+                "table": "data_table",
+                "pie":   "pie_chart",
+                "kpi_grid": "kpi",
+            }.get(canvas_type, "bar_chart")
+
+        new_block = {
+            "id":      new_bid,
+            "type":    canvas_type,
+            "title":   block.title,
+            "locked":  False,
+            "manual_sql": True,
+            "query":   block.query,
+            "variables": [
+                v.model_dump(mode="json", exclude_none=True) for v in block.variables
+            ],
+            "config":      _seed_config_for(canvas_type),
+            "data_source": {"original_sql": block.query},
+            # Track origin so future polish (e.g. "imported from library" badge)
+            # can be added without re-deriving from blocks.
+            "imported_from": imported_from,
+        }
 
     # Append to the last existing section. If no section, create one.
     blocks = manifest.get("blocks") or []

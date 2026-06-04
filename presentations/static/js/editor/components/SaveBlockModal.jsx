@@ -31,6 +31,24 @@ function slugify(s) {
 
 
 /**
+ * Bir container'ı (carousel/canvas) şablon olarak kaydederken alt blokları
+ * sadeleştir: çalışma anındaki ağır/eski veriyi (data_source.rows /
+ * preview_rows) atıp yalnız yeniden çalıştırılabilir SQL'i (original_sql)
+ * sakla. config (stil) korunur — insert sonrası SQL yeniden koşunca veri dolar.
+ */
+function stripForTemplate(node) {
+  if (!node || typeof node !== 'object') return node;
+  const out = { ...node };
+  if (out.data_source && typeof out.data_source === 'object') {
+    const sql = out.data_source.original_sql || out.data_source.sql || '';
+    out.data_source = sql ? { original_sql: sql } : undefined;
+  }
+  if (Array.isArray(out.children)) out.children = out.children.map(stripForTemplate);
+  return out;
+}
+
+
+/**
  * Tek kütüphane = BLOCK_STORE (Phase 6.5). Yalnızca SQL (query) taşıyan bloklar
  * kütüphaneye kaydedilebilir; dataset'e bağlı / config-only bloklar scope'a
  * özgü olduğundan taşınabilir değildir ve kaydedilemez. (Eski LIBRARY_STORE
@@ -63,8 +81,12 @@ export default function SaveBlockModal() {
     setBusy(false); setErr(null); setResult(null);
   }, [modal, block?.title, block?.id]);
 
-  // Yalnız SQL taşıyan bloklar kütüphaneye kaydedilebilir.
-  const saveable = typeof block?.query === 'string' && (block.query || '').trim().length > 0;
+  // SQL taşıyan leaf bloklar VEYA içi dolu container'lar (carousel/canvas)
+  // kütüphaneye kaydedilebilir.
+  const isContainer = block?.type === 'carousel' || block?.type === 'canvas';
+  const saveable = isContainer
+    ? (Array.isArray(block?.children) && block.children.length > 0)
+    : (typeof block?.query === 'string' && (block.query || '').trim().length > 0);
 
   // Auto-derive team from userInfo.department; fall back to sicil.
   const team = userInfo?.department
@@ -75,31 +97,46 @@ export default function SaveBlockModal() {
     if (busy) return;
     setBusy(true); setErr(null); setResult(null);
     try {
-      if (typeof block?.query !== 'string' || !(block.query || '').trim()) {
+      if (!saveable) {
         throw new Error(
-          'Bu blok kütüphaneye kaydedilemez — yalnız SQL (sorgu) taşıyan '
-          + 'bloklar şablon olarak kaydedilebilir. Properties panelinde SQL '
-          + "yazıp Çalıştır'a bastıktan sonra deneyin.",
+          isContainer
+            ? 'Boş container kaydedilemez — önce içine en az bir blok ekleyin.'
+            : 'Bu blok kütüphaneye kaydedilemez — yalnız SQL (sorgu) taşıyan '
+              + 'bloklar şablon olarak kaydedilebilir. Properties panelinde SQL '
+              + "yazıp Çalıştır'a bastıktan sonra deneyin.",
         );
       }
       if (!blockSlug.trim()) throw new Error('Blok kimliği zorunlu.');
       if (!name.trim()) throw new Error('Blok adı zorunlu.');
 
-      const meta = await saveBlockAsTemplate({
-        block: {
-          id: blockSlug.trim(),
-          version: 1,
-          title: name.trim(),
-          team,
-          owner: userInfo?.sicil || undefined,
-          tags: [],
-          query: block.query || '',
-          variables: block.variables || [],
-          visualization: { type: block.type, config: {} },
-          // description / documentation deliberately omitted — filled later
-          // from /blocks/edit/<team>/<id>.
-        },
-      });
+      const blockBody = isContainer
+        ? {
+            id: blockSlug.trim(),
+            version: 1,
+            title: name.trim(),
+            team,
+            owner: userInfo?.sicil || undefined,
+            tags: [],
+            kind: 'composite',
+            query: '',
+            children: (block.children || []).map(stripForTemplate),
+            variables: [],
+            visualization: { type: block.type, config: {} },
+          }
+        : {
+            id: blockSlug.trim(),
+            version: 1,
+            title: name.trim(),
+            team,
+            owner: userInfo?.sicil || undefined,
+            tags: [],
+            query: block.query || '',
+            variables: block.variables || [],
+            visualization: { type: block.type, config: {} },
+            // description / documentation deliberately omitted — filled later
+            // from /blocks/edit/<team>/<id>.
+          };
+      const meta = await saveBlockAsTemplate({ block: blockBody });
       setResult({ name: name.trim(), team: meta.team, id: meta.id, version: meta.version });
     } catch (e) {
       const detail = (e.errors && e.errors.length) ? e.errors.join('; ') : (e.message || String(e));
