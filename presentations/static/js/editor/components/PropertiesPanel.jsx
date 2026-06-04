@@ -15,6 +15,7 @@ const TYPE_LABELS = {
   data_table:     'Tablo',
   narrative:      'Metin',
   carousel:       'Carousel',
+  canvas:         'Tuval',
 };
 
 const SLIDE_TYPES = [
@@ -50,8 +51,8 @@ function findBlock(blocks, id) {
     if (Array.isArray(b.children)) {
       for (const c of b.children) {
         if (c.id === id) return c;
-        // Carousel slides — 3. seviye
-        if (c.type === 'carousel' && Array.isArray(c.children)) {
+        // Container (carousel/canvas) çocukları — 3. seviye
+        if ((c.type === 'carousel' || c.type === 'canvas') && Array.isArray(c.children)) {
           for (const s of c.children) {
             if (s.id === id) return s;
           }
@@ -127,6 +128,7 @@ export default function PropertiesPanel({ width, onResizeStart }) {
         {isDataBound && <ManualSqlEditor block={block} />}
 
         <CarouselActions block={block} />
+        <CanvasActions block={block} />
 
         {!isSection && <SaveToLibrarySection block={block} />}
 
@@ -259,6 +261,133 @@ function CarouselActions({ block }) {
   }
 
   // Diğer durumlar (normal section.child leaf veya section_header): hiçbir şey
+  return null;
+}
+
+
+function CanvasActions({ block }) {
+  const manifest                = useStore((s) => s.manifest);
+  const addBlockToCanvas        = useStore((s) => s.addBlockToCanvas);
+  const moveBlock               = useStore((s) => s.moveBlock);
+  const removeSlideFromCarousel = useStore((s) => s.removeSlideFromCarousel);  // container-agnostik eject
+  const setSelectedBlock        = useStore((s) => s.setSelectedBlock);
+  const deleteBlock             = useStore((s) => s.deleteBlock);
+
+  const [addMenu, setAddMenu] = useState(false);
+
+  // Canvas seçili → child listesi + blok ekle. Bloklar 12-kolon grid'de yan
+  // yana; sıra grid akışını belirler (genişlik Genel sekmesindeki "Genişlik").
+  if (block.type === 'canvas') {
+    const kids = block.children || [];
+    return (
+      <Section title={`Bloklar (${kids.length})`}>
+        {kids.length === 0 ? (
+          <div className="props-form-hint" style={{ padding: 6 }}>
+            Henüz blok yok — aşağıdan ekle. Genişlikle yan yana diz.
+          </div>
+        ) : (
+          <div className="carousel-slide-list">
+            {kids.map((c, i) => (
+              <div key={c.id} className="carousel-slide-row">
+                <button
+                  type="button"
+                  className="carousel-slide-row__label"
+                  onClick={() => setSelectedBlock(c.id)}
+                  title="Blok ayarlarını aç"
+                >
+                  <span className="carousel-slide-idx">{i + 1}.</span>
+                  <span className="carousel-slide-title">{c.title || c.id}</span>
+                  <span className="carousel-slide-type">{TYPE_LABELS[c.type] || c.type}</span>
+                </button>
+                <div className="carousel-slide-row__actions">
+                  <button
+                    type="button"
+                    className="props-btn props-btn--icon"
+                    onClick={() => moveBlock(c.id, -1)}
+                    disabled={i === 0}
+                    title="Öne al"
+                  >↑</button>
+                  <button
+                    type="button"
+                    className="props-btn props-btn--icon"
+                    onClick={() => moveBlock(c.id, +1)}
+                    disabled={i === kids.length - 1}
+                    title="Geri al"
+                  >↓</button>
+                  <button
+                    type="button"
+                    className="props-btn props-btn--icon props-btn--icon-danger"
+                    onClick={() => {
+                      if (window.confirm(`'${c.title || c.id}' bloğu silinsin mi?`)) {
+                        deleteBlock(c.id);
+                      }
+                    }}
+                    title="Bloğu sil"
+                  >🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Row label="Blok ekle">
+          <button
+            type="button"
+            className="props-btn props-btn--primary props-btn--block"
+            onClick={() => setAddMenu((v) => !v)}
+          >
+            <Plus size={13} strokeWidth={2.5} />
+            <span>Yeni blok</span>
+          </button>
+          {addMenu && (
+            <div className="props-inline-menu">
+              {SLIDE_TYPES.map((t) => (
+                <button
+                  key={t.type}
+                  type="button"
+                  className="props-inline-menu-item"
+                  onClick={() => {
+                    setAddMenu(false);
+                    addBlockToCanvas(block.id, t.type);
+                  }}
+                >{t.label}</button>
+              ))}
+            </div>
+          )}
+        </Row>
+      </Section>
+    );
+  }
+
+  // Canvas child seçili (canvas.children içindeki leaf) — tuval'dan çıkar.
+  const isCanvasChild = (() => {
+    for (const sec of manifest?.blocks || []) {
+      for (const c of (sec.children || [])) {
+        if (c.type === 'canvas' && (c.children || []).some((s) => s.id === block.id)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  })();
+
+  if (isCanvasChild) {
+    return (
+      <Section title="Bu Blok">
+        <Row label="Tuval'dan çıkar" hint="Blok tuvalden ayrılır ve aynı section'ın sonuna taşınır.">
+          <button
+            type="button"
+            className="props-btn props-btn--block"
+            onClick={() => removeSlideFromCarousel(block.id)}
+          >
+            <Layers size={13} strokeWidth={2} />
+            <span>Tuval'dan çıkar</span>
+          </button>
+        </Row>
+      </Section>
+    );
+  }
+
   return null;
 }
 

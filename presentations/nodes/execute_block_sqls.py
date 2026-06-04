@@ -16,7 +16,7 @@ from flask import current_app
 
 from presentations.aggregation_gate import GateError
 from presentations.duck import execute_block_sql, build_upload_lookup
-from presentations.manifest import DATA_SOURCE_TYPES, find_block_by_id
+from presentations.manifest import CHILD_CONTAINER_TYPES, DATA_SOURCE_TYPES, find_block_by_id
 
 log = logging.getLogger(__name__)
 
@@ -375,28 +375,29 @@ def execute_block_sqls(state):
                 if btype == "section_header" and isinstance(value.get("children"), list):
                     for child in value["children"]:
                         if isinstance(child, dict):
-                            if child.get("type") == "carousel":
-                                # Carousel children'a recursively SQL execute et
+                            if child.get("type") in CHILD_CONTAINER_TYPES:
+                                # Container (carousel/canvas) çocuklarına recursively
+                                # SQL execute et.
                                 _strip_data_source(child)
-                                for slide in (child.get("children") or []):
-                                    if isinstance(slide, dict):
-                                        _execute_one_block(slide, dc, conn, state, errors, i, "add",
+                                for grandchild in (child.get("children") or []):
+                                    if isinstance(grandchild, dict):
+                                        _execute_one_block(grandchild, dc, conn, state, errors, i, "add",
                                                            upload_lookup, s3_get)
-                                        if slide.get("id"):
-                                            handled_block_ids.add(slide["id"])
+                                        if grandchild.get("id"):
+                                            handled_block_ids.add(grandchild["id"])
                             else:
                                 _execute_one_block(child, dc, conn, state, errors, i, "add",
                                                    upload_lookup, s3_get)
                                 if child.get("id"):
                                     handled_block_ids.add(child["id"])
-                elif btype == "carousel" and isinstance(value.get("children"), list):
-                    # Carousel doğrudan eklendi (section.children/-)
-                    for slide in value["children"]:
-                        if isinstance(slide, dict):
-                            _execute_one_block(slide, dc, conn, state, errors, i, "add",
+                elif btype in CHILD_CONTAINER_TYPES and isinstance(value.get("children"), list):
+                    # Container doğrudan eklendi (section.children/-)
+                    for grandchild in value["children"]:
+                        if isinstance(grandchild, dict):
+                            _execute_one_block(grandchild, dc, conn, state, errors, i, "add",
                                                upload_lookup, s3_get)
-                            if slide.get("id"):
-                                handled_block_ids.add(slide["id"])
+                            if grandchild.get("id"):
+                                handled_block_ids.add(grandchild["id"])
             continue
 
         # ── Case B: sub-path replace (e.g. /blocks/X/.../data_source/original_sql
@@ -485,7 +486,7 @@ def _block_pointer_from_path(path: str) -> str | None:
 def _resolve_block_from_path(manifest, path: str):
     """Walk a JSON-Pointer-style path and return the nearest containing block
     (the one with a `type` field). Returns None if the path doesn't land in a
-    block subtree. Handles 3-level nesting: section > carousel > slide."""
+    block subtree. Handles 3-level nesting: section > container > child."""
     if not manifest or not isinstance(path, str) or not path.startswith("/blocks/"):
         return None
     parts = path.lstrip("/").split("/")
@@ -508,15 +509,15 @@ def _resolve_block_from_path(manifest, path: str):
         if child_idx >= len(children):
             return section
         child = children[child_idx]
-        # 3. seviye — slide inside carousel
-        if len(parts) >= 6 and parts[4] == "children" and child.get("type") == "carousel":
+        # 3. seviye — container (carousel/canvas) çocuğu
+        if len(parts) >= 6 and parts[4] == "children" and child.get("type") in CHILD_CONTAINER_TYPES:
             try:
-                slide_idx = int(parts[5])
+                grandchild_idx = int(parts[5])
             except ValueError:
                 return child
-            slides = child.get("children") or []
-            if slide_idx < len(slides):
-                return slides[slide_idx]
+            grandkids = child.get("children") or []
+            if grandchild_idx < len(grandkids):
+                return grandkids[grandchild_idx]
             return child
         return child
     return section

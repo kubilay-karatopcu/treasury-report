@@ -1510,6 +1510,35 @@ body.prisma .carousel-dot { background: var(--editor-border-strong) !important; 
 body.prisma .carousel-dot:hover { background: var(--editor-ink-faint) !important; }
 body.prisma .carousel-dot.is-active { background: var(--editor-accent) !important; }
 body.prisma .carousel-empty { color: var(--editor-ink-faint) !important; }
+
+/* Canvas container (madde 2) — aynı carousel deseni: editor.css #ffffff /
+   #fafbfc yüzeyleri token redirect'e ulaşmıyor, PRISMA yüzeyleriyle boya.
+   Grid/cell şeffaf → override gerekmez; child kartları kendileri kararıyor. */
+body.prisma .canvas-block {
+  background: var(--editor-surface-1) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .canvas-block.is-locked { background: var(--editor-surface) !important; }
+body.prisma .canvas-block.is-selected {
+  border-color: var(--editor-accent) !important;
+  box-shadow: 0 0 0 1px var(--editor-accent) !important;
+}
+body.prisma .canvas-header {
+  background: var(--editor-surface-2) !important;
+  border-bottom-color: var(--editor-border) !important;
+}
+body.prisma .canvas-title-btn { color: var(--editor-ink) !important; }
+body.prisma .canvas-title-btn:hover:not(:disabled) {
+  background: var(--editor-surface-3) !important;
+  border-color: var(--editor-border-strong) !important;
+}
+body.prisma .canvas-block.is-selected .canvas-title-btn {
+  background: var(--editor-accent-soft) !important;
+  border-color: var(--editor-accent) !important;
+  color: var(--editor-accent) !important;
+}
+body.prisma .canvas-empty { color: var(--editor-ink-faint) !important; }
+
 /* Slide list (carousel properties panel) */
 body.prisma .carousel-slide-row {
   background: var(--editor-surface-1) !important;

@@ -7,6 +7,11 @@ import {
 
 // ── Helpers for nested manifest navigation ─────────────────────────────────
 
+// Level-2 container block types — they live inside section.children and hold
+// leaf blocks at level 3. carousel = slides (one shown at a time); canvas =
+// 12-column grid (madde 2). Path/traversal logic treats them identically.
+export const CONTAINER_TYPES = new Set(['carousel', 'canvas']);
+
 export function findBlockPath(manifest, blockId) {
   const sections = manifest?.blocks || [];
   for (let si = 0; si < sections.length; si++) {
@@ -25,15 +30,15 @@ export function findBlockPath(manifest, blockId) {
           path: `/blocks/${si}/children/${ci}`,
         };
       }
-      // Carousel slides — 3. seviye
-      if (child.type === 'carousel') {
-        const slides = child.children || [];
-        for (let ki = 0; ki < slides.length; ki++) {
-          if (slides[ki].id === blockId) {
+      // Container (carousel/canvas) çocukları — 3. seviye
+      if (CONTAINER_TYPES.has(child.type)) {
+        const kids = child.children || [];
+        for (let ki = 0; ki < kids.length; ki++) {
+          if (kids[ki].id === blockId) {
             return {
               section, sectionIdx: si,
               child, childIdx: ci,
-              slide: slides[ki], slideIdx: ki,
+              slide: kids[ki], slideIdx: ki,
               path: `/blocks/${si}/children/${ci}/children/${ki}`,
             };
           }
@@ -51,16 +56,16 @@ function updateBlockInPlace(manifest, blockId, fn) {
     let touched = false;
     const newChildren = children.map((c) => {
       if (c.id === blockId) { touched = true; return fn(c); }
-      // Carousel slides — 3. seviye nesting
-      if (c.type === 'carousel' && Array.isArray(c.children)) {
-        let slideTouched = false;
-        const newSlides = c.children.map((slide) => {
-          if (slide.id === blockId) { slideTouched = true; return fn(slide); }
-          return slide;
+      // Container (carousel/canvas) çocukları — 3. seviye nesting
+      if (CONTAINER_TYPES.has(c.type) && Array.isArray(c.children)) {
+        let kidTouched = false;
+        const newKids = c.children.map((kid) => {
+          if (kid.id === blockId) { kidTouched = true; return fn(kid); }
+          return kid;
         });
-        if (slideTouched) {
+        if (kidTouched) {
           touched = true;
-          return { ...c, children: newSlides };
+          return { ...c, children: newKids };
         }
       }
       return c;
@@ -84,9 +89,9 @@ function _collectUsedSemanticTags(manifest) {
       for (const v of (child.variables || [])) {
         if (v.semantic_tag) tags.add(v.semantic_tag);
       }
-      if (child.type === 'carousel') {
-        for (const slide of (child.children || [])) {
-          for (const v of (slide.variables || [])) {
+      if (CONTAINER_TYPES.has(child.type)) {
+        for (const kid of (child.children || [])) {
+          for (const v of (kid.variables || [])) {
             if (v.semantic_tag) tags.add(v.semantic_tag);
           }
         }
@@ -173,7 +178,7 @@ function _computeAutoBindPatches(manifest, filterDef) {
     for (let ci = 0; ci < children.length; ci++) {
       const child = children[ci];
       visit(child, `/blocks/${si}/children/${ci}`);
-      if (child.type === 'carousel' && Array.isArray(child.children)) {
+      if (CONTAINER_TYPES.has(child.type) && Array.isArray(child.children)) {
         for (let sli = 0; sli < child.children.length; sli++) {
           visit(child.children[sli], `/blocks/${si}/children/${ci}/children/${sli}`);
         }
@@ -190,7 +195,7 @@ function _emptyBlockTemplate(id, type) {
   // user or by the LLM, the shape is identical — only one editor surface in
   // Properties handles both.
   const base = { id, type, title: _defaultTitle(type), locked: false };
-  const dataBound = !['narrative', 'carousel'].includes(type);
+  const dataBound = !['narrative', 'carousel', 'canvas'].includes(type);
   if (dataBound) {
     base.query = '';
     base.variables = [];
@@ -227,6 +232,8 @@ function _emptyBlockTemplate(id, type) {
       return { ...base, config: { text: 'Metin yazın…' } };
     case 'carousel':
       return { ...base, title: 'Yeni Carousel', config: {}, children: [] };
+    case 'canvas':
+      return { ...base, title: 'Yeni Tuval', config: {}, children: [] };
     default:
       return { ...base, config: {} };
   }
@@ -245,6 +252,7 @@ function _defaultTitle(type) {
     data_table:  'Yeni Tablo',
     narrative:   'Yeni Metin',
     carousel:    'Yeni Carousel',
+    canvas:      'Yeni Tuval',
   };
   return map[type] || 'Yeni Blok';
 }
@@ -524,6 +532,34 @@ const useStore = create((set) => ({
       return { manifest: newManifest, selectedBlockId: id };
     });
     submitPatches([patch]).catch((e) => console.error('addSlideToCarousel persist failed:', e));
+    return id;
+  },
+
+  // Canvas'a yeni boş leaf blok ekle (madde 2). Carousel slide'ından farkı:
+  // width KORUNUR (canvas 12-kolon grid'inde child'ın width'i kolon span'ini
+  // verir, varsayılan full = tam satır). Yeni blok seçilir → Properties hemen.
+  addBlockToCanvas: (canvasId, blockType) => {
+    const state = useStore.getState();
+    if (!state.manifest || !canvasId || !blockType) return;
+    const loc = findBlockPath(state.manifest, canvasId);
+    if (!loc?.child || loc.child.type !== 'canvas') return;
+
+    const kids = loc.child.children || [];
+    const prefix = blockType === 'narrative' ? 't_' : 'b_';
+    const id = prefix + Math.random().toString(36).slice(2, 8);
+    const newBlock = _emptyBlockTemplate(id, blockType);
+
+    const patch = {
+      op: 'add',
+      path: `${loc.path}/children/${kids.length}`,
+      value: newBlock,
+    };
+    set((s) => {
+      const newManifest = _applyPatches(s.manifest, [patch]);
+      newManifest.version = (newManifest.version || 0) + 1;
+      return { manifest: newManifest, selectedBlockId: id };
+    });
+    submitPatches([patch]).catch((e) => console.error('addBlockToCanvas persist failed:', e));
     return id;
   },
 

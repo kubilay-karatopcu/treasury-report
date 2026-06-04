@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
-  X, Plus, Search, Layers,
+  X, Plus, Search, Layers, LayoutGrid,
   TrendingUp, BarChart3, Activity, PieChart as PieIcon,
   Grid3x3, Table as TableIcon, FileText,
 } from 'lucide-react';
@@ -18,6 +18,7 @@ const BASE_BLOCKS = [
   { type: 'data_table', label: 'Tablo',       desc: 'Veri tablosu (AG Grid)' },
   { type: 'narrative',  label: 'Metin',       desc: 'Markdown narrative — yorum/açıklama' },
   { type: 'carousel',   label: 'Carousel',    desc: 'Aynı yerde birden çok blok (toggleable)' },
+  { type: 'canvas',     label: 'Tuval',       desc: 'Container — bloklar 12-kolon grid\'de yan yana' },
 ];
 
 function TypeIcon({ type, size = 14 }) {
@@ -33,6 +34,7 @@ function TypeIcon({ type, size = 14 }) {
     case 'data_table': return <TableIcon  {...p} />;
     case 'narrative':  return <FileText   {...p} />;
     case 'carousel':   return <Layers     {...p} />;
+    case 'canvas':     return <LayoutGrid {...p} />;
     default:           return <FileText   {...p} />;
   }
 }

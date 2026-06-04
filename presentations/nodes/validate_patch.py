@@ -9,9 +9,9 @@ from presentations.patch import validate_patches
 # Path patterns we recognise:
 # - /blocks/{N}                                    — section level
 # - /blocks/{N}/<field>                            — section field
-# - /blocks/{N}/children/{M}                       — leaf block OR carousel (under section)
+# - /blocks/{N}/children/{M}                       — leaf block OR container (carousel/canvas)
 # - /blocks/{N}/children/{M}/<field>
-# - /blocks/{N}/children/{M}/children/{K}          — slide inside carousel
+# - /blocks/{N}/children/{M}/children/{K}          — child inside a container (slide / canvas block)
 # - /blocks/{N}/children/{M}/children/{K}/<field>
 _SECTION_PATH_RE = re.compile(r"^/blocks/(?P<si>\d+)(?:/[^/].*)?$")
 _LEAF_PATH_RE    = re.compile(r"^/blocks/(?P<si>\d+)/children/(?P<ci>\d+)(?:/[^/].*)?$")
@@ -105,16 +105,17 @@ def _check_locked_blocks(manifest, patches):
                     continue
                 children = section.get("children", []) or []
                 if 0 <= ci < len(children):
-                    carousel = children[ci]
-                    if carousel.get("locked"):
+                    container = children[ci]
+                    if container.get("locked"):
                         errors.append(
-                            f"patch[{i}]: carousel '{carousel.get('id','?')}' kilitli"
+                            f"patch[{i}]: {container.get('type','container')} "
+                            f"'{container.get('id','?')}' kilitli"
                         )
                         continue
-                    slides = carousel.get("children", []) or []
-                    if 0 <= ki < len(slides) and slides[ki].get("locked"):
+                    grandkids = container.get("children", []) or []
+                    if 0 <= ki < len(grandkids) and grandkids[ki].get("locked"):
                         errors.append(
-                            f"patch[{i}]: slide '{slides[ki].get('id','?')}' kilitli"
+                            f"patch[{i}]: blok '{grandkids[ki].get('id','?')}' kilitli"
                         )
             continue
 
