@@ -242,15 +242,21 @@ def _validate_chart_style(block: dict) -> list[str]:
 
 # ── Block validators ─────────────────────────────────────────────────────────
 
-def validate_block(block: dict, *, allow_section: bool = False, allow_container: bool = False) -> list[str]:
+def validate_block(
+    block: dict, *, allow_section: bool = False,
+    allow_containers: frozenset[str] = frozenset(),
+) -> list[str]:
     """Validate a single block.
 
     `allow_section`: True when validating a top-level block (section_header
     is only allowed at the top level).
-    `allow_container`: True when validating section.children (a container —
-    carousel/canvas — can sit next to leaf blocks). False inside a container's
-    children (only leaves; nested containers are not allowed yet).
-    """
+    `allow_containers`: which CHILD container types (carousel/canvas) may appear
+    at this position. Nesting rules:
+      - section.children  → {carousel, canvas}  (containers next to leaves)
+      - carousel.children → {canvas}            (a slide may be a canvas layout)
+      - canvas.children   → {}                  (leaves only — no deeper nesting)
+    This bounds depth at section > carousel > canvas > leaf (no carousel-in-
+    carousel / canvas-in-canvas)."""
     errors: list[str] = []
     btype = block.get("type")
     bid = block.get("id", "?")
@@ -289,9 +295,10 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_container:
             f"Block {bid!r}: section_header sadece üst seviyede olabilir"
         )
         return errors
-    if btype in CHILD_CONTAINER_TYPES and not allow_container:
+    if btype in CHILD_CONTAINER_TYPES and btype not in allow_containers:
         errors.append(
-            f"Block {bid!r}: {btype} sadece section.children içinde olabilir"
+            f"Block {bid!r}: {btype} bu konumda olamaz "
+            f"(izinli container'lar: {sorted(allow_containers) or 'yok'})"
         )
         return errors
 
@@ -350,19 +357,20 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_container:
             errors.append(f"Block {bid!r}: data_table config missing 'rows' (must be list)")
 
     elif btype == "section_header":
-        # Children: leaf OR carousel.
+        # Children: leaf VEYA container (carousel/canvas).
         children = block.get("children", [])
         if not isinstance(children, list):
             errors.append(f"Block {bid!r}: section_header.children must be a list")
         else:
             for i, child in enumerate(children):
                 child_errors = validate_block(
-                    child, allow_section=False, allow_container=True,
+                    child, allow_section=False,
+                    allow_containers=CHILD_CONTAINER_TYPES,   # carousel | canvas
                 )
                 errors.extend(f"section[{bid!r}].children[{i}]: {e}" for e in child_errors)
 
     elif btype == "carousel":
-        # Children: SADECE leaf (nested carousel veya section yok).
+        # Children: leaf VEYA canvas (bir slide çok-bloklu tuval olabilir).
         children = block.get("children", [])
         if not isinstance(children, list):
             errors.append(f"Block {bid!r}: carousel.children must be a list")
@@ -371,7 +379,8 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_container:
         else:
             for i, child in enumerate(children):
                 child_errors = validate_block(
-                    child, allow_section=False, allow_container=False,
+                    child, allow_section=False,
+                    allow_containers=frozenset({"canvas"}),   # slide = leaf | canvas
                 )
                 errors.extend(f"carousel[{bid!r}].children[{i}]: {e}" for e in child_errors)
         # `active_idx` opsiyonel, varsa integer ve range içinde olmalı
@@ -393,7 +402,8 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_container:
         else:
             for i, child in enumerate(children):
                 child_errors = validate_block(
-                    child, allow_section=False, allow_container=False,
+                    child, allow_section=False,
+                    allow_containers=frozenset(),   # leaf-only (no deeper nesting)
                 )
                 errors.extend(f"canvas[{bid!r}].children[{i}]: {e}" for e in child_errors)
     
@@ -501,33 +511,34 @@ def iter_all_blocks(manifest: dict):
     """Yield every block (sections + their children + carousel slides) flat.
     Useful for operations that need to see every leaf, like locked-block check
     or LLM context summary."""
-    for section in manifest.get("blocks", []):
-        yield section
-        for child in section.get("children", []) or []:
-            yield child
-            # Container'ların (carousel/canvas) çocuklarını da yield et
-            if child.get("type") in CHILD_CONTAINER_TYPES:
-                for grandchild in child.get("children", []) or []:
-                    yield grandchild
+    def _walk(blocks):
+        for b in blocks or []:
+            yield b
+            # Container'ların (section/carousel/canvas) çocuklarına recursively in
+            if b.get("type") in CONTAINER_BLOCK_TYPES:
+                yield from _walk(b.get("children", []) or [])
+
+    yield from _walk(manifest.get("blocks", []))
 
 
 def find_block_by_id(manifest: dict, block_id: str):
-    """Locate a block anywhere in the manifest. Returns (block, path) or
-    (None, None). `path` is the JSON-pointer-style path you can target with
-    a patch (e.g. '/blocks/0/children/2' or
-    '/blocks/0/children/2/children/1' for a carousel slide)."""
-    for si, section in enumerate(manifest.get("blocks", [])):
-        if section.get("id") == block_id:
-            return section, f"/blocks/{si}"
-        for ci, child in enumerate(section.get("children", []) or []):
-            if child.get("id") == block_id:
-                return child, f"/blocks/{si}/children/{ci}"
-            # Container çocukları (carousel slide / canvas child) — 3. seviye
-            if child.get("type") in CHILD_CONTAINER_TYPES:
-                for ki, grandchild in enumerate(child.get("children", []) or []):
-                    if grandchild.get("id") == block_id:
-                        return grandchild, f"/blocks/{si}/children/{ci}/children/{ki}"
-    return None, None
+    """Locate a block anywhere in the manifest (any nesting depth). Returns
+    (block, path) or (None, None). `path` is the JSON-pointer-style path you can
+    target with a patch — e.g. '/blocks/0/children/2' (leaf), or
+    '/blocks/0/children/1/children/0/children/2' for a leaf inside a canvas that
+    is itself a carousel slide (section > carousel > canvas > leaf)."""
+    def _walk(blocks, base):
+        for i, b in enumerate(blocks or []):
+            path = f"{base}/{i}"
+            if b.get("id") == block_id:
+                return b, path
+            if b.get("type") in CONTAINER_BLOCK_TYPES:
+                hit = _walk(b.get("children", []) or [], f"{path}/children")
+                if hit[0] is not None:
+                    return hit
+        return None, None
+
+    return _walk(manifest.get("blocks", []), "/blocks")
 
 
 def _validate_data_source(block: dict) -> list[str]:

@@ -16,7 +16,7 @@ from flask import current_app
 
 from presentations.aggregation_gate import GateError
 from presentations.duck import execute_block_sql, build_upload_lookup
-from presentations.manifest import CHILD_CONTAINER_TYPES, DATA_SOURCE_TYPES, find_block_by_id
+from presentations.manifest import DATA_SOURCE_TYPES, find_block_by_id
 
 log = logging.getLogger(__name__)
 
@@ -306,12 +306,33 @@ def _strip_data_source(value):
 
 
 def _strip_value_tree(value):
+    """Recursively drop data_source from a whole-block value and all descendants
+    (any nesting depth) — used on the no-session / no-DataClient fallback."""
     if not isinstance(value, dict):
         return
     _strip_data_source(value)
     for child in (value.get("children") or []):
-        if isinstance(child, dict):
-            _strip_data_source(child)
+        _strip_value_tree(child)
+
+
+def _execute_block_subtree(node, dc, conn, state, errors, patch_idx,
+                           upload_lookup, s3_get, handled_block_ids):
+    """Recursively run SQL for every data-bound leaf in a whole-block value of
+    any nesting depth (section > carousel > canvas > leaf). Containers carry no
+    SQL of their own → their data_source is stripped; leaves are executed."""
+    if not isinstance(node, dict):
+        return
+    if node.get("type") in DATA_SOURCE_TYPES:
+        _execute_one_block(node, dc, conn, state, errors, patch_idx, "add",
+                           upload_lookup, s3_get)
+        if node.get("id"):
+            handled_block_ids.add(node["id"])
+        return
+    _strip_data_source(node)
+    if isinstance(node.get("children"), list):
+        for child in node["children"]:
+            _execute_block_subtree(child, dc, conn, state, errors, patch_idx,
+                                   upload_lookup, s3_get, handled_block_ids)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -371,33 +392,11 @@ def execute_block_sqls(state):
                 if value.get("id"):
                     handled_block_ids.add(value["id"])
             else:
-                _strip_data_source(value)
-                if btype == "section_header" and isinstance(value.get("children"), list):
-                    for child in value["children"]:
-                        if isinstance(child, dict):
-                            if child.get("type") in CHILD_CONTAINER_TYPES:
-                                # Container (carousel/canvas) çocuklarına recursively
-                                # SQL execute et.
-                                _strip_data_source(child)
-                                for grandchild in (child.get("children") or []):
-                                    if isinstance(grandchild, dict):
-                                        _execute_one_block(grandchild, dc, conn, state, errors, i, "add",
-                                                           upload_lookup, s3_get)
-                                        if grandchild.get("id"):
-                                            handled_block_ids.add(grandchild["id"])
-                            else:
-                                _execute_one_block(child, dc, conn, state, errors, i, "add",
-                                                   upload_lookup, s3_get)
-                                if child.get("id"):
-                                    handled_block_ids.add(child["id"])
-                elif btype in CHILD_CONTAINER_TYPES and isinstance(value.get("children"), list):
-                    # Container doğrudan eklendi (section.children/-)
-                    for grandchild in value["children"]:
-                        if isinstance(grandchild, dict):
-                            _execute_one_block(grandchild, dc, conn, state, errors, i, "add",
-                                               upload_lookup, s3_get)
-                            if grandchild.get("id"):
-                                handled_block_ids.add(grandchild["id"])
+                # Container (section / carousel / canvas) — kendi SQL'i yok;
+                # alt ağaçtaki her data-bound leaf'i recursively çalıştır
+                # (herhangi derinlik: section > carousel > canvas > leaf).
+                _execute_block_subtree(value, dc, conn, state, errors, i,
+                                       upload_lookup, s3_get, handled_block_ids)
             continue
 
         # ── Case B: sub-path replace (e.g. /blocks/X/.../data_source/original_sql
@@ -472,55 +471,42 @@ def _block_pointer_from_path(path: str) -> str | None:
     """
     if not isinstance(path, str) or not path.startswith("/blocks/"):
         return None
-    parts = path.lstrip("/").split("/")
-    if len(parts) < 2:
+    parts = path.lstrip("/").split("/")   # ['blocks','0','children','1',...]
+    if len(parts) < 2 or not parts[1].isdigit():
         return None
-    # 3-level slide (en spesifik)
-    if len(parts) >= 6 and parts[2] == "children" and parts[4] == "children":
-        return "/blocks/" + parts[1] + "/children/" + parts[3] + "/children/" + parts[5]
-    if len(parts) >= 4 and parts[2] == "children":
-        return "/blocks/" + parts[1] + "/children/" + parts[3]
-    return "/blocks/" + parts[1]
+    # Longest prefix of the form /blocks/<i>(/children/<j>)* — any depth.
+    ptr = ["blocks", parts[1]]
+    k = 2
+    while k + 1 < len(parts) and parts[k] == "children" and parts[k + 1].isdigit():
+        ptr.extend(("children", parts[k + 1]))
+        k += 2
+    return "/" + "/".join(ptr)
 
 
 def _resolve_block_from_path(manifest, path: str):
-    """Walk a JSON-Pointer-style path and return the nearest containing block
-    (the one with a `type` field). Returns None if the path doesn't land in a
-    block subtree. Handles 3-level nesting: section > container > child."""
+    """Walk a JSON-Pointer-style path and return the deepest fully-addressed
+    block (the one with a `type` field). Returns None if the path doesn't land
+    in a block subtree. Handles any nesting depth: section > carousel > canvas >
+    leaf."""
     if not manifest or not isinstance(path, str) or not path.startswith("/blocks/"):
         return None
     parts = path.lstrip("/").split("/")
-    if len(parts) < 2:
+    if len(parts) < 2 or not parts[1].isdigit():
         return None
-    try:
-        section_idx = int(parts[1])
-    except ValueError:
-        return None
-    blocks = manifest.get("blocks") or []
-    if section_idx >= len(blocks):
-        return None
-    section = blocks[section_idx]
-    if len(parts) >= 4 and parts[2] == "children":
-        try:
-            child_idx = int(parts[3])
-        except ValueError:
-            return section
-        children = section.get("children") or []
-        if child_idx >= len(children):
-            return section
-        child = children[child_idx]
-        # 3. seviye — container (carousel/canvas) çocuğu
-        if len(parts) >= 6 and parts[4] == "children" and child.get("type") in CHILD_CONTAINER_TYPES:
-            try:
-                grandchild_idx = int(parts[5])
-            except ValueError:
-                return child
-            grandkids = child.get("children") or []
-            if grandchild_idx < len(grandkids):
-                return grandkids[grandchild_idx]
-            return child
-        return child
-    return section
+    arr = manifest.get("blocks") or []
+    node = None
+    k = 1
+    while k < len(parts) and parts[k].isdigit():
+        idx = int(parts[k])
+        if idx >= len(arr):
+            return node   # deepest valid block addressed so far
+        node = arr[idx]
+        if k + 1 < len(parts) and parts[k + 1] == "children":
+            arr = node.get("children") or []
+            k += 2
+        else:
+            break
+    return node
 
 
 def _simulate_subpath_patch(block: dict, patch: dict):
@@ -531,14 +517,14 @@ def _simulate_subpath_patch(block: dict, patch: dict):
     op = patch.get("op")
     path = patch.get("path", "")
     parts = path.lstrip("/").split("/")
-    # We expect the path to start at /blocks/X[/children/Y]/<rest...>.
-    # Strip the head down to the block-relative part.
-    if len(parts) >= 4 and parts[2] == "children":
-        rest = parts[4:]   # everything after /blocks/X/children/Y/
-    elif len(parts) >= 2:
-        rest = parts[2:]   # everything after /blocks/X/
-    else:
+    # Strip the head down to the block-relative remainder, at ANY nesting depth
+    # (/blocks/X(/children/Y)*/<rest...>). _block_pointer_from_path gives the
+    # block identity prefix; everything after it is the in-block field path.
+    ptr = _block_pointer_from_path(path)
+    if ptr is None:
         return None
+    head_len = len(ptr.lstrip("/").split("/"))
+    rest = parts[head_len:]
     if not rest:
         return None
 

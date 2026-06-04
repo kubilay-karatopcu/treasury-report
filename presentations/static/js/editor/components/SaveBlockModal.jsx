@@ -69,10 +69,7 @@ export default function SaveBlockModal() {
   const [result, setResult]           = useState(null);
 
   const blockId = modal?.blockId;
-  const block = blockId && manifest ? findBlockPath(manifest, blockId)?.slide
-                                    || findBlockPath(manifest, blockId)?.child
-                                    || findBlockPath(manifest, blockId)?.section
-                                    : null;
+  const block = blockId && manifest ? (findBlockPath(manifest, blockId)?.block ?? null) : null;
 
   useEffect(() => {
     if (!modal) return;

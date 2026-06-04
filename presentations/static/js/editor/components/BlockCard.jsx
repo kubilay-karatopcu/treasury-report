@@ -93,11 +93,8 @@ export default function BlockCard({ block }) {
     if (!s.manifest) return { canUp: false, canDown: false };
     const loc = findBlockPath(s.manifest, block.id);
     if (!loc) return { canUp: false, canDown: false };
-    let arr, idx;
-    if (loc.slideIdx != null)      { arr = loc.child.children || [];   idx = loc.slideIdx; }
-    else if (loc.childIdx != null) { arr = loc.section.children || []; idx = loc.childIdx; }
-    else                            { arr = s.manifest.blocks || [];    idx = loc.sectionIdx; }
-    return { canUp: idx > 0, canDown: idx < arr.length - 1 };
+    // parentPath/index generic — herhangi derinlik (canvas-in-carousel dahil).
+    return { canUp: loc.index > 0, canDown: loc.index < (loc.siblings.length - 1) };
   });
 
   const [sourceOpen, setSourceOpen] = useState(false);
