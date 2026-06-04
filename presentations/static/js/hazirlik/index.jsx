@@ -67,6 +67,7 @@ const REFINE_SIZES_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/refine
 const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-draft`);
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
 const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
+const FILTER_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/filter-preview`);
 const DISTINCT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/distinct`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
@@ -1678,6 +1679,9 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
   }, [preview]);
 
   const isDerived = !!preview?.derived;
+  const isFilter = !!preview?.isFilter;   // Faz R1/F3 — filter-node (query tab'lı)
+  // Node değişince tab'ı sıfırla (filter-node'da "filter" tab yok vs.).
+  useEffect(() => { setTab("data"); }, [preview?.alias]);
   return (
     <div className="hz-preview" style={{ height }}>
       <div className="hz-preview-resize" onMouseDown={onResizeStart} title="Sürükle: yükseklik" />
@@ -1710,19 +1714,42 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
         {!loading && preview && preview.error && <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>}
         {!loading && preview && !preview.error && (
           <div className="hz-preview-inner">
-            {isDerived && (
+            {isDerived && !isFilter && (
               <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
                 Türetilmiş tablo · kaynak tablonun örneği üzerinde hesaplandı. Sunum tam veri üzerinde yeniden hesaplayacak.
               </p>
             )}
-            {!isDerived && (
+            {(!isDerived || isFilter) && (
               <div className="hz-preview-tabs">
                 <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
-                <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
+                {!isDerived && (
+                  <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
+                )}
+                {isFilter && (
+                  <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak Query</button>
+                )}
               </div>
             )}
             <div className="hz-preview-pane">
-              {(isDerived || tab === "data") ? (
+              {isFilter && tab === "query" ? (
+                <div className="hz-filter-sql ts-scroll">
+                  <pre className="hz-sql-pre">{preview.sql || "—"}</pre>
+                  <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
+                    Bu Oracle sorgusu kaynak tablodan filtreyle üretilir (relative tarihler her
+                    materialize'da dinamik çözülür). Filtreyi düzenlemek için kaynak (main) node'u
+                    seçip <strong>Filtreleme</strong>'den değiştir — tekrar kaydedince bu node güncellenir.
+                  </p>
+                </div>
+              ) : (!isDerived && tab === "filter") ? (
+                <FilterPanel
+                  alias={preview.alias}
+                  columns={COLS_BY_ALIAS[preview.alias] || []}
+                  existing={existingFilters}
+                  saveRef={filterSaveRef}
+                  onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
+                  onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
+                />
+              ) : (
                 <div className="ag-theme-alpine-dark" style={{ width: "100%", height: "100%" }}>
                   <AgGridReact
                     columnDefs={colDefs} rowData={rowData} animateRows
@@ -1734,15 +1761,6 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                     headerHeight={36}
                   />
                 </div>
-              ) : (
-                <FilterPanel
-                  alias={preview.alias}
-                  columns={COLS_BY_ALIAS[preview.alias] || []}
-                  existing={existingFilters}
-                  saveRef={filterSaveRef}
-                  onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
-                  onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
-                />
               )}
             </div>
           </div>
@@ -2176,7 +2194,19 @@ function App() {
     }
   }, [addJoin]);
 
+  // showPreview aşağıda tanımlı (TDZ) → onEdgeClick içinde ref ile çağır.
+  const showPreviewRef = useRef(null);
   const onEdgeClick = useCallback((_e, edge) => {
+    // Faz R1/F3 — derivation lineage edge (main → türetilmiş): filter ise
+    // türetilmiş node'un drawer'ını aç (Kaynak Query görünür) + kaynağı
+    // Filtreleme'den düzenle ipucu. agg/calc ise türetilmiş önizlemeyi aç.
+    if (edge.data?.derivation) {
+      showPreviewRef.current && showPreviewRef.current(edge.data.derivedAlias);
+      if (edge.data.derivKind === "filter") {
+        setToast(`Filtreyi düzenlemek için kaynak node '${edge.data.sourceAlias}' → Filtreleme.`);
+      }
+      return;
+    }
     if (edge.data?.suggested) {
       // Shift-click on a suggested edge dismisses it (stored in
       // scope.dismissed_suggestions so it survives reloads).
@@ -2307,6 +2337,16 @@ function App() {
         data = await r.json();
         if (!data.ok) throw new Error((data.errors || ["Türetilmiş önizleme başarısız"]).join("; "));
         data = { ...data, derived: true };
+      } else if (item.derivation && item.derivation.kind === "filter") {
+        // Faz R1/F3 — filter-node: sunucu compile_filter_sql ile kaynak query'yi
+        // üretir, capped örneği koşar ve SQL'i döner ("Kaynak Query" tab için).
+        const r = await fetch(FILTER_PREVIEW_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope, alias }),
+        });
+        data = await r.json();
+        if (!data.ok) throw new Error((data.errors || ["Filtre önizleme başarısız"]).join("; "));
+        data = { ...data, derived: true, isFilter: true };
       } else if (item.derivation) {
         // Aggregate: fetch source's raw rows, aggregate in-browser. Preview is a
         // sample so aggregates are illustrative — Sunum re-runs the derivation
@@ -2341,6 +2381,7 @@ function App() {
     } catch (e) { setPreview({ alias, error: String(e) }); }
     finally { setPreviewLoading(false); }
   }, [scope]);
+  showPreviewRef.current = showPreview;   // onEdgeClick'in çağırması için güncel tut
 
   // Click a node → open its preview drawer. Click the SAME node again →
   // collapse the drawer (toggle behavior). Click anywhere on the empty

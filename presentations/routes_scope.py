@@ -1315,6 +1315,67 @@ def scope_preview_sql(pid: str):
                   "row_count": int(len(df)), "warnings": chk.warnings})
 
 
+@presentations_bp.route("/<pid>/scope/filter-preview", methods=["POST"])
+@login_required
+def scope_filter_preview(pid: str):
+    """Faz R1/F3 — preview a filter-derivation node + return its generated source
+    SQL. Compiles ``compile_filter_sql`` (Oracle SELECT against the source main
+    table with the node's embedded filters), runs a row-capped sample, and
+    returns rows + the SQL so the Hazırlık drawer can show a "Kaynak Query" tab.
+
+    Request:  ``{"scope": <draft>, "alias": "<filter node>"}``
+    Response: ``{ok, columns, data_columns, rows, row_count, sql}``.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    if not isinstance(scope_in, dict) or not alias:
+        return _json({"ok": False, "errors": ["scope ve alias zorunlu"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    item = scope.basket_item(alias)
+    if item is None or item.derivation is None or item.derivation.kind != "filter":
+        return _json({"ok": False, "errors": [f"'{alias}' bir filter-node değil"]}, status=400)
+
+    try:
+        sql, binds = compile_filter_sql(
+            scope, item, _catalog(),
+            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
+            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+            max_rows=200,   # sample only
+        )
+    except Exception as exc:
+        return _json({"ok": False, "phase": "compile", "errors": [str(exc)]}, status=400)
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        # No Oracle (DEV stub) — still return the SQL so the query tab works.
+        return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
+                      "row_count": 0, "sql": sql})
+
+    import pandas as pd
+    from presentations import duck
+    try:
+        df = dc.get_data(base_prefix=None, dataset=f"filter-preview::{pid}/{alias}",
+                         query=sql, query_params=binds)
+    except Exception as exc:
+        msg = str(exc).strip().splitlines()[0][:240]
+        # SQL still useful even if the sample run failed.
+        return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
+                      "row_count": 0, "sql": sql, "warnings": [msg]})
+
+    if df is None:
+        df = pd.DataFrame()
+    cols = [str(c) for c in df.columns]
+    rows = [[duck._jsonable(v) for v in r]
+            for r in df.head(200).itertuples(index=False, name=None)]
+    return _json({"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
+                  "row_count": int(len(df)), "sql": sql})
+
+
 @presentations_bp.route("/<pid>/scope/routing-override", methods=["POST"])
 @login_required
 def scope_routing_override(pid: str):
