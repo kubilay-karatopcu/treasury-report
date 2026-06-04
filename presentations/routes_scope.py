@@ -177,6 +177,9 @@ def _refresh_routing(scope: ScopeContract, catalog: AppCatalog) -> None:
         item.routing.decided_by = "system"
         item.routing.estimated_bytes = decision.estimated_bytes
         item.routing.threshold_bytes = decision.threshold_bytes
+        # Recompute reverts to the catalog/partition estimate → drop any stale
+        # "explain_plan" marker; refine-sizes re-sets it after EXPLAIN PLAN.
+        item.routing.estimate_source = None
 
 
 @presentations_bp.route("/<pid>/scope", methods=["POST"])

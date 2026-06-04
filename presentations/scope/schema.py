@@ -138,6 +138,11 @@ class Routing(BaseModel):
     # The cap that was applied at decision time (audit only — the live cap is a
     # config value). Optional so a contract can be recorded without it.
     threshold_bytes: int | None = None
+    # Which estimator produced `estimated_bytes` (madde 4): "explain_plan" when
+    # refined via Oracle cardinality, else the catalog/partition estimate. UI
+    # hint only — the frontend round-trips it on the scope, so the schema must
+    # accept it (extra="forbid" otherwise rejects the whole POST).
+    estimate_source: str | None = None
 
 
 class NodePosition(BaseModel):
