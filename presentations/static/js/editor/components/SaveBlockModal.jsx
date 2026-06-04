@@ -201,8 +201,13 @@ export default function SaveBlockModal() {
 
               {!saveable && (
                 <div className="save-error">
-                  Bu blok kütüphaneye kaydedilemez — yalnız SQL (sorgu) taşıyan bloklar
-                  kaydedilebilir. Dataset'e bağlı / metin blokları taşınabilir değildir.
+                  {isContainer
+                    ? 'Bu container boş — önce içine en az bir blok/slide ekleyin, '
+                      + 'sonra kaydedin. (İçi dolu carousel/tuval kütüphaneye '
+                      + 'kaydedilebilir.)'
+                    : 'Bu blok kütüphaneye kaydedilemez — yalnız SQL (sorgu) taşıyan '
+                      + 'bloklar kaydedilebilir. Dataset\'e bağlı / metin blokları '
+                      + 'taşınabilir değildir.'}
                 </div>
               )}
 
