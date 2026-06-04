@@ -77,6 +77,68 @@ DATA_BOUND_BLOCK_TYPES = {
 }
 
 
+def _collect_block_ids(manifest) -> set:
+    """Manifest'teki tüm blok id'leri (iç içe children dahil)."""
+    ids: set = set()
+
+    def walk(b):
+        if not isinstance(b, dict):
+            return
+        bid = b.get("id")
+        if isinstance(bid, str):
+            ids.add(bid)
+        for c in (b.get("children") or []):
+            walk(c)
+
+    for b in (manifest or {}).get("blocks", []):
+        walk(b)
+    return ids
+
+
+def _unique_id(desired: str, taken: set) -> str:
+    base = desired or "blok"
+    if base not in taken:
+        return base
+    n = 2
+    while f"{base}_{n}" in taken:
+        n += 1
+    return f"{base}_{n}"
+
+
+def _uniquify_subtree_ids(block: dict, taken: set) -> None:
+    """Eklenen bir bloğun (ve tüm alt bloklarının) id'lerini `taken`'a karşı
+    benzersizleştir; üretilen yeni id'leri `taken`'a ekle."""
+    if not isinstance(block, dict):
+        return
+    bid = block.get("id")
+    new = _unique_id(bid if isinstance(bid, str) else "", taken)
+    block["id"] = new
+    taken.add(new)
+    for c in (block.get("children") or []):
+        _uniquify_subtree_ids(c, taken)
+
+
+def _ensure_unique_block_ids(state, patches):
+    """Güvenlik ağı: 'N kopya oluştur' derken LLM (özellikle Qwen GGUF) aynı
+    id'yi tekrar kullanabiliyor → bloklar üst üste geliyor, hedefleme
+    belirsizleşiyor, frontend React key çakışıyor. /blocks altına `add` edilen
+    her bloğun (+ alt bloklarının) id'sini manifest'te ve bu batch içinde zaten
+    görülenlere karşı benzersizleştir. `replace` (yerinde düzenleme — id korunur)
+    ve /filters add'leri dokunulmaz."""
+    if not patches:
+        return patches
+    taken = _collect_block_ids(state.manifest)
+    for p in patches:
+        if p.get("op") != "add":
+            continue
+        if not str(p.get("path") or "").startswith("/blocks"):
+            continue
+        v = p.get("value")
+        if isinstance(v, dict) and v.get("type"):
+            _uniquify_subtree_ids(v, taken)
+    return patches
+
+
 def generate_patch(state):
     """
     Read state.user_message + state.manifest + state.selected_block_id,
@@ -134,6 +196,13 @@ def generate_patch(state):
         patches = _rewrite_unchanged_sqls(state, patches, llm, catalog)
     except Exception as exc:
         log.warning("generate_patch: SQL rewrite failed (non-fatal): %s", exc)
+
+    # ── Benzersiz blok id güvencesi: 'N kopya' isteklerinde LLM aynı id'yi
+    # tekrar kullanabiliyor; eklenen blokların id'lerini benzersizleştir.
+    try:
+        patches = _ensure_unique_block_ids(state, patches)
+    except Exception as exc:
+        log.warning("generate_patch: id-dedupe failed (non-fatal): %s", exc)
 
     state.pending_patches = patches
     state.explanation = explanation
