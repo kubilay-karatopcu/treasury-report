@@ -18,6 +18,7 @@ import RadialBar      from '../blocks/RadialBar.jsx';
 import DataTable      from '../blocks/DataTable.jsx';
 import Narrative      from '../blocks/Narrative.jsx';
 import Carousel       from '../blocks/Carousel.jsx';
+import Canvas         from '../blocks/Canvas.jsx';
 
 const BLOCK_MAP = {
   section_header: SectionHeader,
@@ -32,6 +33,7 @@ const BLOCK_MAP = {
   data_table:     DataTable,
   narrative:      Narrative,
   carousel:       Carousel,
+  canvas:         Canvas,
 };
 
 const TYPE_LABELS = {
@@ -106,8 +108,8 @@ export default function BlockCard({ block }) {
   if (!Component) return null;
 
   // Section headers render as visual dividers — no card wrapper.
-  // Carousel kendi card chrome'unu yönetir — BlockCard wrap'i bypass.
-  if (block.type === 'section_header' || block.type === 'carousel') {
+  // Container'lar (carousel/canvas) kendi card chrome'unu yönetir — wrap bypass.
+  if (block.type === 'section_header' || block.type === 'carousel' || block.type === 'canvas') {
     return <Component block={block} />;
   }
 

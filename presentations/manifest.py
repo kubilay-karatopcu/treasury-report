@@ -75,9 +75,12 @@ LEAF_BLOCK_TYPES = frozenset({
     "data_table",       # AG Grid table block
 })
 
-# section_header — yalnızca top-level; children: leaf VEYA carousel
-# carousel       — yalnızca section.children içinde; children: leaf ONLY
-CONTAINER_BLOCK_TYPES = frozenset({"section_header", "carousel"})
+# section_header — yalnızca top-level; children: leaf VEYA container (carousel/canvas)
+# carousel       — yalnızca section.children içinde; children: leaf ONLY (>=1 slide)
+# canvas         — yalnızca section.children içinde; children: leaf ONLY (0+; 12-kol grid)
+#                  (madde 2 — genel container; leaf-only, nested container ileriki iş)
+CHILD_CONTAINER_TYPES = frozenset({"carousel", "canvas"})
+CONTAINER_BLOCK_TYPES = frozenset({"section_header"}) | CHILD_CONTAINER_TYPES
 
 BLOCK_TYPES = LEAF_BLOCK_TYPES | CONTAINER_BLOCK_TYPES
 
@@ -239,13 +242,14 @@ def _validate_chart_style(block: dict) -> list[str]:
 
 # ── Block validators ─────────────────────────────────────────────────────────
 
-def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: bool = False) -> list[str]:
+def validate_block(block: dict, *, allow_section: bool = False, allow_container: bool = False) -> list[str]:
     """Validate a single block.
 
     `allow_section`: True when validating a top-level block (section_header
     is only allowed at the top level).
-    `allow_carousel`: True when validating section.children (carousel can sit
-    next to leaf blocks). False inside carousel.children (only leaves).
+    `allow_container`: True when validating section.children (a container —
+    carousel/canvas — can sit next to leaf blocks). False inside a container's
+    children (only leaves; nested containers are not allowed yet).
     """
     errors: list[str] = []
     btype = block.get("type")
@@ -285,9 +289,9 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
             f"Block {bid!r}: section_header sadece üst seviyede olabilir"
         )
         return errors
-    if btype == "carousel" and not allow_carousel:
+    if btype in CHILD_CONTAINER_TYPES and not allow_container:
         errors.append(
-            f"Block {bid!r}: carousel sadece section.children içinde olabilir"
+            f"Block {bid!r}: {btype} sadece section.children içinde olabilir"
         )
         return errors
 
@@ -353,7 +357,7 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
         else:
             for i, child in enumerate(children):
                 child_errors = validate_block(
-                    child, allow_section=False, allow_carousel=True,
+                    child, allow_section=False, allow_container=True,
                 )
                 errors.extend(f"section[{bid!r}].children[{i}]: {e}" for e in child_errors)
 
@@ -367,7 +371,7 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
         else:
             for i, child in enumerate(children):
                 child_errors = validate_block(
-                    child, allow_section=False, allow_carousel=False,
+                    child, allow_section=False, allow_container=False,
                 )
                 errors.extend(f"carousel[{bid!r}].children[{i}]: {e}" for e in child_errors)
         # `active_idx` opsiyonel, varsa integer ve range içinde olmalı
@@ -377,6 +381,21 @@ def validate_block(block: dict, *, allow_section: bool = False, allow_carousel: 
                 errors.append(f"Block {bid!r}: carousel.active_idx must be integer")
             elif isinstance(children, list) and not (0 <= ai < len(children)):
                 errors.append(f"Block {bid!r}: carousel.active_idx {ai} out of range")
+
+    elif btype == "canvas":
+        # Genel container (madde 2). Children: SADECE leaf — bir 12-kolon CSS
+        # grid'de yan yana dizilir (her child'ın `width`'i kolon span'ini verir).
+        # Boş canvas geçerli (kullanıcı blok ekleyene kadar boş-state gösterilir);
+        # carousel'in aksine min-slide kuralı yok. Nested container ileriki iş.
+        children = block.get("children", [])
+        if not isinstance(children, list):
+            errors.append(f"Block {bid!r}: canvas.children must be a list")
+        else:
+            for i, child in enumerate(children):
+                child_errors = validate_block(
+                    child, allow_section=False, allow_container=False,
+                )
+                errors.extend(f"canvas[{bid!r}].children[{i}]: {e}" for e in child_errors)
     
     if "data_source" in block:
         errors.extend(_validate_data_source(block))
@@ -486,10 +505,10 @@ def iter_all_blocks(manifest: dict):
         yield section
         for child in section.get("children", []) or []:
             yield child
-            # Carousel'in slide'larını da yield et
-            if child.get("type") == "carousel":
-                for slide in child.get("children", []) or []:
-                    yield slide
+            # Container'ların (carousel/canvas) çocuklarını da yield et
+            if child.get("type") in CHILD_CONTAINER_TYPES:
+                for grandchild in child.get("children", []) or []:
+                    yield grandchild
 
 
 def find_block_by_id(manifest: dict, block_id: str):
@@ -503,11 +522,11 @@ def find_block_by_id(manifest: dict, block_id: str):
         for ci, child in enumerate(section.get("children", []) or []):
             if child.get("id") == block_id:
                 return child, f"/blocks/{si}/children/{ci}"
-            # Carousel slides — 3. seviye nesting
-            if child.get("type") == "carousel":
-                for ki, slide in enumerate(child.get("children", []) or []):
-                    if slide.get("id") == block_id:
-                        return slide, f"/blocks/{si}/children/{ci}/children/{ki}"
+            # Container çocukları (carousel slide / canvas child) — 3. seviye
+            if child.get("type") in CHILD_CONTAINER_TYPES:
+                for ki, grandchild in enumerate(child.get("children", []) or []):
+                    if grandchild.get("id") == block_id:
+                        return grandchild, f"/blocks/{si}/children/{ci}/children/{ki}"
     return None, None
 
 
