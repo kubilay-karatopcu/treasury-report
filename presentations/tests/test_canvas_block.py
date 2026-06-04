@@ -13,6 +13,7 @@ from presentations.manifest import (
     validate_block,
     validate_manifest,
 )
+from presentations.patch import apply_patches
 
 
 def _kpi(bid: str, **extra) -> dict:
@@ -85,3 +86,51 @@ def test_traversal_sees_canvas_children():
     block, path = find_block_by_id(manifest, "k2")
     assert block["id"] == "k2"
     assert path == "/blocks/0/children/0/children/1"
+
+
+# ── Madde 3 — cross-parent move contract (frontend emits these patches) ──────
+
+def _section(sid, children):
+    return {"id": sid, "type": "section_header", "title": "S", "locked": False,
+            "config": {}, "children": children}
+
+
+def test_move_section_child_into_canvas_yields_valid_manifest():
+    # A leaf sits directly under a section next to an (empty) canvas. The
+    # moveBlockBetweenParents action emits: add clone to canvas/children/-,
+    # then remove the original. The result must validate.
+    manifest = {
+        "meta": {"title": "T"},
+        "blocks": [_section("sec_1", [_canvas("cv_1", []), _kpi("k1", width="1/2")])],
+    }
+    # k1 is at /blocks/0/children/1; canvas at /blocks/0/children/0.
+    clone = dict(_kpi("k1", width="1/2"))
+    patches = [
+        {"op": "add", "path": "/blocks/0/children/0/children/-", "value": clone},
+        {"op": "remove", "path": "/blocks/0/children/1"},
+    ]
+    after = apply_patches(manifest, patches)
+    assert validate_manifest(after) == []
+    # k1 now lives inside the canvas, and only there.
+    _, path = find_block_by_id(after, "k1")
+    assert path == "/blocks/0/children/0/children/0"
+    assert len(after["blocks"][0]["children"]) == 1  # section now holds only the canvas
+
+
+def test_eject_canvas_child_to_section_yields_valid_manifest():
+    manifest = {
+        "meta": {"title": "T"},
+        "blocks": [_section("sec_1", [_canvas("cv_1", [_kpi("k1"), _kpi("k2")])])],
+    }
+    # Move k1 out of the canvas to the section. add to section/children/- first,
+    # then remove from canvas.
+    clone = dict(_kpi("k1"))
+    patches = [
+        {"op": "add", "path": "/blocks/0/children/-", "value": clone},
+        {"op": "remove", "path": "/blocks/0/children/0/children/0"},
+    ]
+    after = apply_patches(manifest, patches)
+    assert validate_manifest(after) == []
+    _, path = find_block_by_id(after, "k1")
+    assert path == "/blocks/0/children/1"  # appended after the canvas
+    assert len(after["blocks"][0]["children"][0]["children"]) == 1  # k2 remains in canvas
