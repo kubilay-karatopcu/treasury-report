@@ -29,7 +29,7 @@ from presentations import presentations_bp
 from presentations.blocks.store import _normalize_team_token
 from presentations.catalog.loader import DEFAULT_SCHEMA_DEPARTMENT_MAP
 from presentations.scope.catalog import AppCatalog
-from presentations.scope.fetch import compose_cached_sql, fetch_cached_tables
+from presentations.scope.fetch import compile_filter_sql, compose_cached_sql, fetch_cached_tables
 from presentations.scope.diff import diff_scopes, serialise_diff
 from presentations.scope.impact import compute_affected_blocks, serialise_affected, summarise
 from presentations.scope.routing import (
@@ -1212,13 +1212,27 @@ def scope_refine_sizes(pid: str):
     estimates: dict[str, dict[str, Any]] = {}
     pending: list[str] = []
     for item in scope.basket:
-        if item.derivation is not None or item.table_ref is None:
+        # Raw Oracle table → compose_cached_sql; filter-node (Faz R1) →
+        # compile_filter_sql (re-queries the source Oracle table). Both are
+        # EXPLAIN-PLAN-able. aggregate/calculated run on DuckDB → skip here.
+        is_filter = item.derivation is not None and item.derivation.kind == "filter"
+        if not is_filter and (item.derivation is not None or item.table_ref is None):
             continue
         try:
-            sql, binds = compose_cached_sql(
-                scope, item, catalog,
-                concept_registry=registry, binding_catalog=bindings,
-            )
+            if is_filter:
+                sql, binds = compile_filter_sql(
+                    scope, item, catalog,
+                    concept_registry=registry, binding_catalog=bindings,
+                )
+                # bytes/row from the SOURCE table's metadata (same columns).
+                src = scope.basket_item(item.derivation.source_alias)
+                src_ref = src.table_ref if src is not None else None
+            else:
+                sql, binds = compose_cached_sql(
+                    scope, item, catalog,
+                    concept_registry=registry, binding_catalog=bindings,
+                )
+                src_ref = item.table_ref
         except Exception:
             log.warning("refine-sizes: compose failed for alias %s", item.alias,
                         exc_info=True)
@@ -1234,8 +1248,10 @@ def scope_refine_sizes(pid: str):
             continue
         if not (can_explain and dispatcher is not None):
             continue
-        tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
-        bpr = _bytes_per_row(tm, item.projection) if tm is not None else 50
+        tm = catalog.table_meta(src_ref.schema_name, src_ref.name) if src_ref else None
+        proj = item.projection if (item.projection and item.projection.columns) else (
+            src.projection if is_filter and src is not None else item.projection)
+        bpr = _bytes_per_row(tm, proj) if tm is not None else 50
 
         def _job(_sql=sql, _binds=binds, _bpr=bpr):
             return estimate_bytes_via_explain(dc, _sql, _binds, _bpr)

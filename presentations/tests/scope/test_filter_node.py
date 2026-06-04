@@ -7,13 +7,25 @@ dates stay dynamic. These tests lock the SQL shape and schema rules.
 """
 from __future__ import annotations
 
+import duckdb
+import pandas as pd
 import pytest
 
-from presentations.scope.fetch import compile_filter_sql
+from presentations.scope.fetch import compile_filter_sql, fetch_cached_tables
 from presentations.scope.schema import (
     BasketItem, Derivation, Filters, PinnedFilter, Projection, RawFilter,
     Routing, ScopeContract, TableRef,
 )
+
+
+class _StubDC:
+    def __init__(self, df):
+        self.df = df
+        self.calls = []
+
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+        self.calls.append({"dataset": dataset, "query": query, "params": query_params})
+        return self.df.copy()
 
 
 def _scope(basket):
@@ -102,3 +114,26 @@ def test_compile_raises_when_source_missing():
     scope = _scope([_filter_node("orphan", "nonexistent", raw=raw)])
     with pytest.raises(ValueError):
         compile_filter_sql(scope, scope.basket_item("orphan"))
+
+
+# ── materialize: filter-node fetched from Oracle → DuckDB view ───────────
+
+def test_fetch_materialises_filter_node_from_oracle():
+    raw = [RawFilter(id="rf_1", alias="dep_active", column="STATUS", op="eq", value="ACTIVE")]
+    # main = lazy (not materialised); filter-node = cached (materialised here).
+    scope = _scope([_main(), _filter_node("dep_active", "dep_main", raw=raw)])
+    dc = _StubDC(pd.DataFrame({"BRANCH": [1, 2], "BALANCE": [10, 20], "AS_OF": ["x", "y"]}))
+    conn = duckdb.connect(":memory:")
+
+    loaded = fetch_cached_tables(dc, conn, scope)
+
+    # Oracle was queried with the filtered SELECT (not the bare table).
+    assert len(dc.calls) == 1
+    assert "WHERE" in dc.calls[0]["query"] and "STATUS = :" in dc.calls[0]["query"]
+    # The filter-node is registered as a DuckDB view + reported as derived.
+    assert loaded["dep_active"]["derived_from"] == "dep_main"
+    assert loaded["dep_active"]["rows"] == 2
+    n = conn.execute('SELECT COUNT(*) FROM "dep_active"').fetchone()[0]
+    assert n == 2
+    # The lazy main table was NOT fetched (no Oracle pull for it).
+    assert "dep_main" not in loaded
