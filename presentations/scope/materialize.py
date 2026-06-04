@@ -32,6 +32,7 @@ from presentations.duck import register_dataframe
 from presentations.scope.fetch import (
     compile_aggregate_sql,
     compile_calculated_sql,
+    compile_filter_sql,
     compose_cached_sql,
 )
 from presentations.scope.schema import BasketItem, ScopeContract
@@ -164,6 +165,22 @@ def _compute_dataset_df(
 
     if item.table_ref is not None:
         sql, binds = compose_cached_sql(
+            scope, item, catalog,
+            concept_registry=concept_registry, binding_catalog=binding_catalog,
+        )
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"dataset::{scope.presentation_id}/{item.alias}",
+            query=sql, query_params=binds,
+        )
+        return (df if df is not None else pd.DataFrame()), sql
+
+    # Filter-node (Faz R1): re-query the SOURCE Oracle table with the embedded
+    # filters (compile_filter_sql). The source (main) is lazy → not materialised;
+    # the filter SELECT hits Oracle directly and only the small filtered result
+    # is persisted to parquet, so Sunum reads it like any other cached dataset.
+    if item.derivation is not None and item.derivation.kind == "filter":
+        sql, binds = compile_filter_sql(
             scope, item, catalog,
             concept_registry=concept_registry, binding_catalog=binding_catalog,
         )

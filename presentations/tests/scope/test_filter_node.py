@@ -137,3 +137,22 @@ def test_fetch_materialises_filter_node_from_oracle():
     assert n == 2
     # The lazy main table was NOT fetched (no Oracle pull for it).
     assert "dep_main" not in loaded
+
+
+# ── materialize: filter-node → parquet (Sunum dataset path, F4) ──────────
+
+def test_materialize_computes_filter_node_from_oracle():
+    from presentations.scope.materialize import _compute_dataset_df
+    raw = [RawFilter(id="rf_1", alias="dep_7d", column="AS_OF", op="between",
+                     **{"from": "today - 7d", "to": "today"})]
+    scope = _scope([_main(), _filter_node("dep_7d", "dep_main", raw=raw)])
+    dc = _StubDC(pd.DataFrame({"BRANCH": [1], "BALANCE": [5], "AS_OF": ["z"]}))
+    df, sql = _compute_dataset_df(
+        dc, scope, scope.basket_item("dep_7d"),
+        catalog=None, concept_registry=None, binding_catalog=None,
+        visited=frozenset(),
+    )
+    # Filter-node materialises by re-querying the SOURCE Oracle table (filtered).
+    assert "FROM EDW.DEPOSITS WHERE" in sql and "AS_OF BETWEEN :" in sql
+    assert len(df) == 1
+    assert dc.calls and dc.calls[0]["query"] == sql
