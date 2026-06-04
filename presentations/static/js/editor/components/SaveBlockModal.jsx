@@ -36,7 +36,7 @@ function slugify(s) {
  * preview_rows) atıp yalnız yeniden çalıştırılabilir SQL'i (original_sql)
  * sakla. config (stil) korunur — insert sonrası SQL yeniden koşunca veri dolar.
  */
-function stripForTemplate(node) {
+export function stripForTemplate(node) {
   if (!node || typeof node !== 'object') return node;
   const out = { ...node };
   if (out.data_source && typeof out.data_source === 'object') {
