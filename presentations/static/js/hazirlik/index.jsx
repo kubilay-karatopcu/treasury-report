@@ -233,7 +233,7 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting, onEditRefresh } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, inactive } = data;
   const cached = item.routing?.decision === "cached";
   // Faz R1 node tipleri: main (table_ref/sql) SABİT — lazy/cache toggle + cron yok;
   // filter-node BOYUTLU (EXPLAIN PLAN) → cached/lazy rozeti + cron; aggregate/
@@ -255,8 +255,9 @@ function TableNode({ data }) {
     ? "Türetilmiş tablo — DuckDB'de hesaplanır."
     : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: sistem (boyuta göre).`;
   return (
-    <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
+    <div className={`hz-node${derived ? " hz-node--derived" : ""}${inactive ? " is-inactive" : ""}`}>
       <div className="hz-node-head" style={headStyle}>
+        {inactive && <span className="hz-node-inactive-tag" title="Pasif — Sunum'a alınmaz (sol menüden tıklayıp aktif et)">pasif</span>}
         <span className="hz-node-alias"><Database size={12} /> {item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : item.alias}{item.sql && <span className="hz-sql-tag">SQL</span>}</span>
         <span
           className={`hz-badge hz-badge--${sized ? (cached ? "cached" : "lazy") : "derived"}`}
@@ -1297,7 +1298,7 @@ function SourcesSidebar({
                         type="button"
                         className="hz-basket-row__main sources-table"
                         onClick={() => onToggleVisibility && onToggleVisibility(it.alias)}
-                        title={hidden ? "Görünür yap" : "Görünümden gizle"}
+                        title={hidden ? "Pasif — tıkla: aktif et (Sunum'a al)" : "Aktif — tıkla: pasif yap (Sunum'a alma, node kararır)"}
                       >
                         <span className="hz-basket-row__viz" aria-hidden>
                           {hidden ? <EyeOff size={12} strokeWidth={1.8} /> : <Eye size={12} strokeWidth={1.8} />}
@@ -1343,7 +1344,7 @@ function SourcesSidebar({
                         type="button"
                         className="hz-basket-row__main sources-table"
                         onClick={() => onToggleVisibility && onToggleVisibility(b.alias)}
-                        title={hidden ? "Görünür yap" : "Görünümden gizle"}
+                        title={hidden ? "Pasif — tıkla: aktif et (Sunum'a al)" : "Aktif — tıkla: pasif yap (Sunum'a alma, node kararır)"}
                       >
                         <span className="hz-basket-row__viz" aria-hidden>
                           {hidden ? <EyeOff size={12} strokeWidth={1.8} /> : <Eye size={12} strokeWidth={1.8} />}
@@ -1945,12 +1946,15 @@ function App() {
   // sidebar's "Tablolar" rows toggle entries in this set; the nodes
   // reconciliation effect applies it to each node's `hidden` flag.
   // React Flow drops edges connected to hidden nodes automatically.
-  const [hiddenAliases, setHiddenAliases] = useState(() => new Set());
+  // Faz R/B — pasif (Sunum'a gitmeyecek) alias'lar scope'ta kalıcı tutulur.
+  // Sol menüden tıklayınca aktif/pasif olur; pasif node canvas'ta kararır
+  // (gizlenmez); build yalnız aktifleri Sunum'a alır.
+  const inactiveAliases = useMemo(() => new Set(scope.inactive_aliases || []), [scope.inactive_aliases]);
   const toggleAliasVisibility = useCallback((alias) => {
-    setHiddenAliases((s) => {
-      const n = new Set(s);
-      if (n.has(alias)) n.delete(alias); else n.add(alias);
-      return n;
+    setScope((s) => {
+      const set = new Set(s.inactive_aliases || []);
+      if (set.has(alias)) set.delete(alias); else set.add(alias);
+      return { ...s, inactive_aliases: [...set] };
     });
   }, []);
   const edges = useMemo(() => buildEdges(scope), [scope]);
@@ -2007,13 +2011,11 @@ function App() {
         .filter((n) => aliasesInScope.has(n.id))
         .map((n) => {
           const item = scope.basket.find((b) => b.alias === n.id);
-          // Apply current visibility on every reconcile — hiddenAliases
-          // mutates independently of `scope`, so this effect picks it up
-          // via the dependency list below.
-          const hidden = hiddenAliases.has(n.id);
+          // Faz R/B — pasif node GİZLENMEZ, kararır (data.inactive → TableNode dim).
+          const inactive = inactiveAliases.has(n.id);
           return item
-            ? { ...n, hidden, data: enrichNodeData(item, scope) }
-            : { ...n, hidden };
+            ? { ...n, hidden: false, data: { ...enrichNodeData(item, scope), inactive } }
+            : { ...n, hidden: false };
         });
       const known = new Set(kept.map((n) => n.id));
       const added = [];
@@ -2046,14 +2048,14 @@ function App() {
         added.push({
           id: item.alias, type: "tableNode",
           position: { x: 100 + (seq % 3) * 340, y: 100 + Math.floor(seq / 3) * 240 },
-          hidden: hiddenAliases.has(item.alias),
-          data: enrichNodeData(item, scope),
+          hidden: false,
+          data: { ...enrichNodeData(item, scope), inactive: inactiveAliases.has(item.alias) },
         });
       });
       return [...kept, ...added];
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, hiddenAliases]);
+  }, [scope, inactiveAliases]);
 
   // ── Stage-2 LLM chat (8.f) ─────────────────────────────────────────────────
   const [chatHistory, setChatHistory] = useState([]);
@@ -2716,10 +2718,30 @@ function App() {
 
   const _finalisedScope = () => {
     const pos = Object.fromEntries(nodes.map((n) => [n.id, n.position]));
-    return {
-      ...scope,
-      basket: scope.basket.map((b) => pos[b.alias] ? { ...b, layout: { x: pos[b.alias].x, y: pos[b.alias].y } } : b),
-    };
+    // Faz R/B — Sunum'a yalnız AKTİF node'lar gider. Pasifleri çıkar; ama bir
+    // aktif türetilmiş node'un KAYNAĞI (derivation.source_alias — filter/aggregate/
+    // calculated için compile/materialize'a gerekli) pasif olsa bile geri eklenir
+    // (lazy kaynak materialise olmadığı için Sunum'u şişirmez). derived_from (sql)
+    // kaynakları gerçek Oracle tablolarıdır → basket'te durması gerekmez.
+    const inactive = new Set(scope.inactive_aliases || []);
+    const keep = new Set(scope.basket.filter((b) => !inactive.has(b.alias)).map((b) => b.alias));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const b of scope.basket) {
+        if (!keep.has(b.alias) || !b.derivation) continue;
+        const d = b.derivation;
+        const srcs = d.kind === "calculated" ? (d.source_aliases || [])
+          : (d.source_alias ? [d.source_alias] : []);
+        for (const s of srcs) { if (!keep.has(s)) { keep.add(s); changed = true; } }
+      }
+    }
+    const basket = scope.basket
+      .filter((b) => keep.has(b.alias))
+      .map((b) => pos[b.alias] ? { ...b, layout: { x: pos[b.alias].x, y: pos[b.alias].y } } : b);
+    const joins = (scope.joins || []).filter(
+      (j) => keep.has(j.left.alias) && keep.has(j.right.alias));
+    return { ...scope, basket, joins, inactive_aliases: [] };
   };
 
   const _commitBuild = async (finalScope) => {
@@ -2794,7 +2816,7 @@ function App() {
         <SourcesSidebar
           scope={scope}
           libraryBlocks={DATA.library_blocks || []}
-          hiddenAliases={hiddenAliases}
+          hiddenAliases={inactiveAliases}
           onToggleVisibility={toggleAliasVisibility}
           onOpenDocs={(t) => setDocsTable((cur) => (cur && cur.id === t.id ? null : t))}
           goingToSunum={busy}
