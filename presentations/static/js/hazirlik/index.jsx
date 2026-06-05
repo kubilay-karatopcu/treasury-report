@@ -68,6 +68,7 @@ const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-dra
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
 const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
 const FILTER_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/filter-preview`);
+const RESOLVE_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/resolve-sql`);
 const DISTINCT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/distinct`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
@@ -505,6 +506,21 @@ function buildEdges(scope) {
   // filter node'unun edge'ine tıklayınca filtre ekranı + kaynak query açılır
   // (App.onEdgeClick). aggregate/calculated için de lineage gösterilir.
   scope.basket.forEach((b) => {
+    // Faz R4/#1 — "Çözümle" ile üretilen sql node'unun kaynak tablolara lineage'ı.
+    if (!b.derivation && Array.isArray(b.derived_from) && b.derived_from.length) {
+      b.derived_from.forEach((src) => {
+        if (!aliases.has(src) || !aliases.has(b.alias)) return;
+        edges.push({
+          id: `deriv_${b.alias}_${src}`,
+          source: src, target: b.alias,
+          sourceHandle: "__other__", targetHandle: "__other__",
+          type: "hzPairEdge",
+          className: "hz-edge hz-edge--derivation hz-edge--deriv-sql",
+          data: { derivation: true, derivedAlias: b.alias, sourceAlias: src, derivKind: "sql", label: "sql →", kind: "derivation" },
+        });
+      });
+      return;
+    }
     if (!b.derivation) return;
     const d = b.derivation;
     const sources = d.kind === "calculated"
@@ -999,6 +1015,26 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
   );
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Faz R4/#1 — "Çözümle" planı: {source_tables, warnings}. Kaydet'te bu plandaki
+  // tablolar main node, sonuç sql node (derived_from ile bağlı) olarak eklenir.
+  const [plan, setPlan] = useState(null);
+
+  const runResolve = async () => {
+    setBusy(true); setErrors([]); setPlan(null);
+    try {
+      const r = await fetch(RESOLVE_SQL_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql }),
+      });
+      const data = await r.json();
+      if (!data.ok) { setErrors(data.errors || ["Çözümlenemedi"]); return; }
+      setPlan({ source_tables: data.source_tables || [], warnings: data.warnings || [] });
+    } catch (e) {
+      setErrors([String(e.message || e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const runPreview = async () => {
     setBusy(true); setErrors([]); setPreview(null);
@@ -1025,6 +1061,9 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
       columns: preview.columns,
       routing,
       refresh: routing === "cached" ? refresh : null,
+      // Faz R4/#1 — Çözümle planı (yeni eklemede): kaynak tabloları main node +
+      // bu sonucu derived_from ile onlara bağla. Edit modunda gönderme.
+      resolvePlan: (!isEdit && plan) ? plan : null,
     });
   };
 
@@ -1044,17 +1083,45 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
       <label className="hz-field">SQL (SELECT / WITH)
         <textarea className="hz-sql-textarea" rows={8} value={sql}
           placeholder="SELECT ... FROM ..."
-          onChange={(e) => { setSql(e.target.value); setPreview(null); }} />
+          onChange={(e) => { setSql(e.target.value); setPreview(null); setPlan(null); }} />
       </label>
-      <div className="hz-row" style={{ gap: 8, alignItems: "center" }}>
+      <div className="hz-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button type="button" className="ts-btn ts-btn--primary"
           disabled={busy || !sql.trim()} onClick={runPreview}>
           {busy
             ? <><Loader2 size={13} className="ts-spin" /> Çalıştırılıyor…</>
             : <><Eye size={13} /> Önizle / Doğrula</>}
         </button>
+        {!isEdit && (
+          <button type="button" className="ts-btn"
+            disabled={busy || !sql.trim()} onClick={runResolve}
+            title="Query'deki kaynak tabloları çıkar — dökümante olanları node ekle, sonucu onlara bağla">
+            ⚙ Çözümle
+          </button>
+        )}
         {preview && <span className="hz-muted">{preview.row_count} satır · {preview.columns.length} kolon</span>}
       </div>
+      {plan && (
+        <div className="hz-resolve-plan" style={{ marginTop: 8 }}>
+          <div className="hz-muted" style={{ fontSize: 11, marginBottom: 4 }}>
+            Çözümleme — eklenecek kaynak tablolar (node) + bu sonuç onlara bağlı dataset:
+          </div>
+          {plan.source_tables.map((t) => (
+            <div key={t.id} className={`hz-resolve-row${t.documented ? "" : " is-undoc"}`}>
+              <span>{t.documented ? "✓" : "⚠"}</span>
+              <strong>{t.id}</strong>
+              <span className="hz-muted">
+                {t.documented ? `${t.columns.length} kolon` : "dökümante değil"}
+              </span>
+            </div>
+          ))}
+          {plan.warnings.length > 0 && (
+            <div className="hz-muted" style={{ fontSize: 11, marginTop: 4 }}>
+              {plan.warnings.map((w, i) => <div key={i}>• {w}</div>)}
+            </div>
+          )}
+        </div>
+      )}
       {errors.length > 0 && (
         <div className="hz-error" style={{ marginTop: 8 }}>{errors.join(" · ")}</div>
       )}
@@ -2282,25 +2349,56 @@ function App() {
   // addTableFromCatalog'un sql karşılığı; recompute-routing YOK — saklama
   // kararını kullanıcı modalda verdi, decided_by:"user" ile korunur (sql
   // tablonun katalog satırı yok, recompute onu lazy'ye iterdi).
-  const addSqlDataset = ({ alias, sql, columns, routing, refresh }) => {
+  const addSqlDataset = ({ alias, sql, columns, routing, refresh, resolvePlan }) => {
+    // Faz R4/#1 — "Çözümle" planı varsa: kaynak tabloları (yoksa) LAZY main node
+    // ekle, bu sonucu derived_from ile onlara bağla.
+    const taken = new Set((scope.basket || []).map((b) => b.alias));
+    const derivedFrom = [];
+    const newMains = [];
+    if (resolvePlan && Array.isArray(resolvePlan.source_tables)) {
+      for (const t of resolvePlan.source_tables) {
+        const existing = (scope.basket || []).find(
+          (b) => b.table_ref && `${b.table_ref.schema}.${b.table_ref.name}` === t.id);
+        if (existing) { derivedFrom.push(existing.alias); continue; }
+        const a = makeAlias(t.name, [...taken]);
+        taken.add(a); derivedFrom.push(a);
+        const m = {
+          alias: a, table_ref: { schema: t.schema, name: t.name },
+          projection: { columns: (t.columns || []).map((c) => c.name), include_all: !(t.columns || []).length },
+          routing: { decision: "lazy", decided_by: "system", estimated_bytes: 0 },
+        };
+        COLS_BY_ALIAS[a] = (t.columns || []).map((c) => ({
+          name: c.name, type: c.type, concept: c.concept || null, join_key: false, lookup: null,
+        }));
+        newMains.push(m);
+      }
+    }
+
     const item = {
       sql, alias,
       projection: { columns: columns || [], include_all: false },
       routing: { decision: routing, decided_by: "user", estimated_bytes: 0 },
       provenance: "Hazırlık — manuel SQL",
+      ...(derivedFrom.length ? { derived_from: derivedFrom } : {}),
       ...(routing === "cached" && refresh ? { refresh } : {}),
     };
     COLS_BY_ALIAS[alias] = (columns || []).map((c) => ({
       name: c, type: null, concept: null, join_key: false, lookup: null,
     }));
-    setScope((s) => ({ ...s, basket: [...(s.basket || []), item] }));
-    setNodes((nds) => [...nds, {
-      id: alias, type: "tableNode",
-      position: { x: 80 + (nds.length % 3) * 340, y: 80 + Math.floor(nds.length / 3) * 240 },
-      data: enrichNodeData(item, scope),
-    }]);
+    const allNew = [...newMains, item];
+    setScope((s) => ({ ...s, basket: [...(s.basket || []), ...allNew] }));
+    setNodes((nds) => [
+      ...nds,
+      ...allNew.map((it, i) => ({
+        id: it.alias, type: "tableNode",
+        position: { x: 80 + ((nds.length + i) % 3) * 340, y: 80 + Math.floor((nds.length + i) / 3) * 240 },
+        data: enrichNodeData(it, scope),
+      })),
+    ]);
     setSqlModalOpen(false);
-    setToast(`'${alias}' SQL tablosu eklendi`);
+    setToast(newMains.length
+      ? `'${alias}' + ${newMains.length} kaynak tablo (node) eklendi`
+      : `'${alias}' SQL tablosu eklendi`);
   };
 
   const removeTable = (alias) => {
