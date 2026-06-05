@@ -1757,14 +1757,14 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           {preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}
         </span>
         <div className="hz-preview-actions">
-          {!isDerived && tab === "filter" && (
+          {tab === "filter" && (
             <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
                     onClick={() => filterSaveRef.current && filterSaveRef.current()}
                     title="Filtreleri scope'a yaz (boyut yeniden hesaplanır)">
               <Save size={13} /> Filtreyi kaydet
             </button>
           )}
-          {!isDerived && tab === "data" && (
+          {tab === "data" && (
             <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
                     onClick={onSaveAsTable}
                     title="Gruplama/aggregation'ı yeni bir tablo olarak kaydet">
@@ -1781,9 +1781,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           <div className="hz-preview-inner">
             <div className="hz-preview-tabs">
               <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
-              {!isDerived && (
-                <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
-              )}
+              <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
               {isFilter && (
                 <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak Query</button>
               )}
@@ -1815,11 +1813,12 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                     ya da kaynak (main) node'u seçip <strong>Filtreleme</strong>'den değiştir.
                   </p>
                 </div>
-              ) : (!isDerived && tab === "filter") ? (
+              ) : (tab === "filter") ? (
                 <FilterPanel
                   alias={preview.alias}
                   columns={COLS_BY_ALIAS[preview.alias] || []}
                   existing={existingFilters}
+                  derivedSource={isDerived}
                   saveRef={filterSaveRef}
                   onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
                   onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
@@ -2575,11 +2574,18 @@ function App() {
   // (her küçük değişiklikte yeni node patlaması olmaz).
   const saveFilterPanel = (alias, specs) => {
     const derivedAlias = `${alias}_f`;
+    // Faz A — kaynak başka bir türetilmiş node ise (table_ref yok), filtre
+    // DuckDB view'ı üstünde çalışır; o view'da concept binding yok. Bu yüzden
+    // zincirleme filtrelerde HER ZAMAN raw (kolon) üret — pinned (concept)
+    // backend'de derived kaynak için zaten atlanır, sessizce kaybolurdu.
+    const srcItem = (scope.basket || []).find((b) => b.alias === alias);
+    const srcIsDerived = !!(srcItem && (srcItem.derivation ||
+      (Array.isArray(srcItem.derived_from) && srcItem.derived_from.length)));
     const pinned = [], raw = [];
     for (const s of specs) {
       const concept = s.concept || null;
       const compilerSafe = s.type !== "num" && (s.op === "between" || s.op === "in" || s.op === "eq");
-      if (concept && compilerSafe) {
+      if (concept && compilerSafe && !srcIsDerived) {
         const f = { id: `pf_${concept}_${rid()}`, concept, op: s.op, applies_to: [derivedAlias] };
         if (s.op === "between") { f.from = s.from; f.to = s.to; }
         else if (s.op === "in") { f.values = s.values; }
@@ -2645,7 +2651,9 @@ function App() {
   const fetchDistinct = async (alias, column) => {
     const item = scope.basket.find((b) => b.alias === alias);
     const tr = item?.table_ref;
-    if (!tr) throw new Error("Kaynak tablo bulunamadı");
+    // Türetilmiş node'un distinct kaynağı (Oracle tablo) yok — DuckDB view'dan
+    // distinct çekmek için endpoint yok; kullanıcı değeri elle girsin.
+    if (!tr) return [];
     const u = new URL(DISTINCT_URL, window.location.origin);
     u.searchParams.set("schema", tr.schema || "");
     u.searchParams.set("table", tr.name);
@@ -2863,10 +2871,21 @@ function App() {
               onResizeStart={startResize} onClose={() => setPreview(null)}
               onSaveFilters={saveFilters} onSaveAsTable={saveAsTable}
               onSaveFilterPanel={saveFilterPanel} onFetchDistinct={fetchDistinct}
-              existingFilters={{
-                pinned: (scope.filters.pinned || []).filter((f) => Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === preview.alias),
-                raw: (scope.filters.raw || []).filter((f) => f.alias === preview.alias),
-              }}
+              existingFilters={(() => {
+                // Filtreler artık `<alias>_f` türetilmiş node'una gömülü (node
+                // modeli). Önce onu pre-fill et; yoksa legacy scope.filters'a düş.
+                const child = (scope.basket || []).find((b) => b.alias === `${preview.alias}_f`);
+                if (child && child.derivation && child.derivation.filters) {
+                  return {
+                    pinned: child.derivation.filters.pinned || [],
+                    raw: child.derivation.filters.raw || [],
+                  };
+                }
+                return {
+                  pinned: (scope.filters.pinned || []).filter((f) => Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === preview.alias),
+                  raw: (scope.filters.raw || []).filter((f) => f.alias === preview.alias),
+                };
+              })()}
               savedGridState={gridStateByAlias[preview.alias]}
               onGridReady={(p) => { gridApiRef.current = p.api; window.__hzGridApi = p.api; }}
               item={(scope.basket || []).find((b) => b.alias === preview.alias)}
