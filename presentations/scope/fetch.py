@@ -172,6 +172,18 @@ def _concept_pushdown_from(
     clauses: list[str] = []
     binds: dict[str, Any] = {}
 
+    # Relative-date resolver: a pinned date concept can carry "today - 7d" /
+    # "today" — resolve to a concrete date BEFORE the compiler binds it, else the
+    # raw string lands as a bind value and Oracle compares a DATE column to text
+    # → no rows (the empty-filter-node bug). Non-date strings (e.g. "TRY") fail
+    # to parse → kept verbatim.
+    def _resolve_rel(v):
+        if isinstance(v, str):
+            d = _as_date(v)
+            if d is not None:
+                return d
+        return v
+
     for pf in pinned:
         # The variable resolver still handles last_n_days, so skip it here
         # (would require runtime "today" expression — out of scope for fetch).
@@ -184,17 +196,17 @@ def _concept_pushdown_from(
             # to the partition column. Compile anyway — concept-blind cases
             # produce empty predicates, and non-partition between filters
             # (e.g. tenor range bucket) still get pushed.
-            values: list = [pf.from_, pf.to]
+            values: list = [_resolve_rel(pf.from_), _resolve_rel(pf.to)]
             op = "between"
         elif pf.op in ("in", "not_in"):
             # not_in isn't a Phase 7 operator; compile as 'in' and let the
             # caller's NOT IN handling stay at variable-resolver layer.
             if pf.op == "not_in":
                 continue
-            values = list(pf.values or [])
+            values = [_resolve_rel(x) for x in (pf.values or [])]
             op = "in"
         elif pf.op == "eq":
-            values = [pf.value]
+            values = [_resolve_rel(pf.value)]
             op = "eq"
         else:
             continue
