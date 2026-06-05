@@ -391,6 +391,11 @@ class BasketItem(BaseModel):
     refresh: DatasetRefresh | None = None
     # Faz C: where an LLM-authored sql dataset came from (kaynakça/provenance).
     provenance: str | None = Field(default=None, max_length=4000)
+    # Faz R4/#1: lineage for a `sql` node produced by "Çözümle" — the basket
+    # aliases of the source tables the query reads. Pure UI hint: the edge from
+    # each source main node → this node is drawn from it. (derivation nodes carry
+    # their own source_alias(es); this is for free-form sql nodes.)
+    derived_from: list[Alias] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "BasketItem":
