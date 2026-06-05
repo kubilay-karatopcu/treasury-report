@@ -281,18 +281,11 @@ function TableNode({ data }) {
         <div className="hz-node-routing">
           <span
             className="hz-proj-count"
-            title="Türetilmiş tablo — kaynak(lar)ından DuckDB'de hesaplanıp parquet'e materialise edilir"
+            title="Türetilmiş dataset — kaynağından üretilip parquet'e materialise edilir. Cron: node'a tıkla → Cron tab."
           >
             {colCount} kolon
           </span>
-          <button
-            type="button"
-            className="hz-route-override hz-refresh-btn"
-            title="Yenileme (cron) ayarla — türetilmiş tablo ne sıklıkla yeniden hesaplanıp materialise edilsin"
-            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
-          >
-            ⟳ {refreshLabel(item.refresh)}
-          </button>
+          <span className="hz-main-lock" title="Cron için node'a tıkla → Cron tab.">⟳ {refreshLabel(item.refresh)}</span>
         </div>
       )}
       <div className="hz-node-meta">{size ? `${size} · ` : ""}{colCount} kolon</div>
@@ -1077,7 +1070,7 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
         </select>
       </label>
       {routing === "cached"
-        ? <RefreshFields value={refresh} onChange={setRefresh} />
+        ? <p className="hz-muted">Cron (yenileme sıklığı) burada değil — tabloyu ekledikten sonra node'una tıkla → <strong>Cron</strong> tab'ından ayarla.</p>
         : <p className="hz-muted">Lazy tablolara cron bağlanamaz — küçültürsen (aggregate/filtre) cached olur ve cron'lanabilir.</p>}
     </Modal>
   );
@@ -1622,10 +1615,11 @@ function ConceptHeader(props) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh }) {
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
+  const [cronDraft, setCronDraft] = useState(null);   // RefreshFields'ten gelen DatasetRefresh
 
   const handleReady = (p) => {
     apiRef.current = p.api;
@@ -1680,8 +1674,11 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
 
   const isDerived = !!preview?.derived;
   const isFilter = !!preview?.isFilter;   // Faz R1/F3 — filter-node (query tab'lı)
-  // Node değişince tab'ı sıfırla (filter-node'da "filter" tab yok vs.).
-  useEffect(() => { setTab("data"); }, [preview?.alias]);
+  // Cron yalnız cached dataset'lerde: türetilmiş (filter/aggregate/calculated)
+  // veya manuel SQL node. Main lazy tablolarda cron yok.
+  const canCron = isDerived || !!(item && item.sql);
+  // Node değişince tab'ı sıfırla; edge-click "filter" tab'ını isteyebilir (openTab).
+  useEffect(() => { setTab(preview?.openTab || "data"); setCronDraft(null); }, [preview?.alias]);
   return (
     <div className="hz-preview" style={{ height }}>
       <div className="hz-preview-resize" onMouseDown={onResizeStart} title="Sürükle: yükseklik" />
@@ -1714,30 +1711,40 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
         {!loading && preview && preview.error && <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>}
         {!loading && preview && !preview.error && (
           <div className="hz-preview-inner">
-            {isDerived && !isFilter && (
-              <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
-                Türetilmiş tablo · kaynak tablonun örneği üzerinde hesaplandı. Sunum tam veri üzerinde yeniden hesaplayacak.
-              </p>
-            )}
-            {(!isDerived || isFilter) && (
-              <div className="hz-preview-tabs">
-                <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
-                {!isDerived && (
-                  <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
-                )}
-                {isFilter && (
-                  <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak Query</button>
-                )}
-              </div>
-            )}
+            <div className="hz-preview-tabs">
+              <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
+              {!isDerived && (
+                <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
+              )}
+              {isFilter && (
+                <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak Query</button>
+              )}
+              {canCron && (
+                <button type="button" className={tab === "cron" ? "on" : ""} onClick={() => setTab("cron")}>Cron</button>
+              )}
+            </div>
             <div className="hz-preview-pane">
-              {isFilter && tab === "query" ? (
+              {canCron && tab === "cron" ? (
+                <div className="hz-cron-tab ts-scroll" style={{ padding: 10 }}>
+                  <RefreshFields value={item?.refresh} onChange={setCronDraft} />
+                  <div style={{ marginTop: 12 }}>
+                    <button className="ts-btn ts-btn--primary ts-btn--sm"
+                            onClick={() => onSaveRefresh && onSaveRefresh(preview.alias, cronDraft || item?.refresh || { kind: "manual" })}>
+                      <Save size={13} /> Cron kaydet
+                    </button>
+                  </div>
+                  <p className="hz-muted" style={{ fontSize: 11, marginTop: 8 }}>
+                    Bu cached dataset ne sıklıkla tazelensin — Oracle'dan yeniden çekilip parquet'e yazılır.
+                    (Main lazy tablolarda cron yok; sadece türetilmiş/SQL dataset'lerde.)
+                  </p>
+                </div>
+              ) : isFilter && tab === "query" ? (
                 <div className="hz-filter-sql ts-scroll">
                   <pre className="hz-sql-pre">{preview.sql || "—"}</pre>
                   <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
-                    Bu Oracle sorgusu kaynak tablodan filtreyle üretilir (relative tarihler her
-                    materialize'da dinamik çözülür). Filtreyi düzenlemek için kaynak (main) node'u
-                    seçip <strong>Filtreleme</strong>'den değiştir — tekrar kaydedince bu node güncellenir.
+                    Bu, dataset'i materialise eden Oracle sorgusu (relative tarihler her
+                    materialize'da dinamik çözülür). Filtreyi düzenlemek için mor edge'e tıkla
+                    ya da kaynak (main) node'u seçip <strong>Filtreleme</strong>'den değiştir.
                   </p>
                 </div>
               ) : (!isDerived && tab === "filter") ? (
@@ -2201,9 +2208,12 @@ function App() {
     // türetilmiş node'un drawer'ını aç (Kaynak Query görünür) + kaynağı
     // Filtreleme'den düzenle ipucu. agg/calc ise türetilmiş önizlemeyi aç.
     if (edge.data?.derivation) {
-      showPreviewRef.current && showPreviewRef.current(edge.data.derivedAlias);
+      // Edge'in amacı filtreyi düzenlemek → kaynak (main) node'u açıp doğrudan
+      // Filtreleme ekranına götür. (agg/calc edge'inde türetilmiş önizleme.)
       if (edge.data.derivKind === "filter") {
-        setToast(`Filtreyi düzenlemek için kaynak node '${edge.data.sourceAlias}' → Filtreleme.`);
+        showPreviewRef.current && showPreviewRef.current(edge.data.sourceAlias, "filter");
+      } else {
+        showPreviewRef.current && showPreviewRef.current(edge.data.derivedAlias);
       }
       return;
     }
@@ -2320,10 +2330,10 @@ function App() {
     if (existing) removeTable(existing.alias); else addTableFromCatalog(t);
   };
 
-  const showPreview = useCallback(async (alias) => {
+  const showPreview = useCallback(async (alias, openTab) => {
     const item = scope.basket.find((b) => b.alias === alias);
     if (!item) return;
-    setPreviewLoading(true); setPreview({ alias });
+    setPreviewLoading(true); setPreview({ alias, openTab });
     try {
       let data;
       if (item.derivation && item.derivation.kind === "calculated") {
@@ -2377,8 +2387,8 @@ function App() {
         u.searchParams.set("limit", "100");
         data = await (await fetch(u.pathname + u.search)).json();
       }
-      setPreview({ alias, ...data });
-    } catch (e) { setPreview({ alias, error: String(e) }); }
+      setPreview({ alias, openTab, ...data });
+    } catch (e) { setPreview({ alias, openTab, error: String(e) }); }
     finally { setPreviewLoading(false); }
   }, [scope]);
   showPreviewRef.current = showPreview;   // onEdgeClick'in çağırması için güncel tut
@@ -2739,6 +2749,8 @@ function App() {
               }}
               savedGridState={gridStateByAlias[preview.alias]}
               onGridReady={(p) => { gridApiRef.current = p.api; window.__hzGridApi = p.api; }}
+              item={(scope.basket || []).find((b) => b.alias === preview.alias)}
+              onSaveRefresh={saveRefresh}
             />
           )}
         </main>
