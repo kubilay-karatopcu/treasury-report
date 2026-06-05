@@ -596,6 +596,11 @@ class ScopeContract(BaseModel):
     # so the dismissal survives reloads; cleared when one of the aliases is
     # removed from the basket so re-adding gives a clean slate.
     dismissed_suggestions: list[str] = Field(default_factory=list)
+    # Faz R/B — "Sunum basketi": basket'te DURAN ama Sunum'a GİTMEYECEK alias'lar.
+    # Hazırlık canvas'ında dimmed (kararmış) gösterilir; build yalnız AKTİF
+    # (bu listede olmayan) node'ları materialise eder + Sunum'a alır. Kullanıcı
+    # sol menüden tıklayarak aktif/pasif yapar.
+    inactive_aliases: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _parent_below_self(self) -> "ScopeContract":

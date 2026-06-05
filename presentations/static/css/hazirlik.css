@@ -496,6 +496,14 @@
 .hz-handle--other { background: #cbd5e1 !important; }
 /* Derived (aggregate) tables */
 .hz-node--derived .hz-node-head { background: #7c3aed; }
+/* Faz R/B — pasif node (Sunum'a alınmaz): kararır, gizlenmez. */
+.hz-node.is-inactive { opacity: 0.42; filter: grayscale(0.55); }
+.hz-node.is-inactive:hover { opacity: 0.7; }
+.hz-node-inactive-tag {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .08em;
+  background: rgba(148,163,184,.28); color: #cbd5e1;
+  padding: 1px 5px; border-radius: 3px; margin-left: 6px;
+}
 .hz-badge--derived { background: rgba(255,255,255,.22); color: #fff; }
 
 /* Active filters footer on the node card */
