@@ -1341,20 +1341,35 @@ def scope_filter_preview(pid: str):
         return _json({"ok": False, "errors": [f"'{alias}' bir filter-node değil"]}, status=400)
 
     try:
+        # The DISPLAYED "Kaynak Query" is the real cache query (no row cap) —
+        # FETCH FIRST is a preview-only concern. Pretty-print it for readability.
+        display_sql, _ = compile_filter_sql(
+            scope, item, _catalog(),
+            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
+            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+            max_rows=None,
+        )
+        # The RUN sql is capped (sample only).
         sql, binds = compile_filter_sql(
             scope, item, _catalog(),
             concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
             binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
-            max_rows=200,   # sample only
+            max_rows=200,
         )
     except Exception as exc:
         return _json({"ok": False, "phase": "compile", "errors": [str(exc)]}, status=400)
+
+    try:
+        import sqlparse
+        pretty_sql = sqlparse.format(display_sql, reindent=True, keyword_case="upper")
+    except Exception:
+        pretty_sql = display_sql
 
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         # No Oracle (DEV stub) — still return the SQL so the query tab works.
         return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
-                      "row_count": 0, "sql": sql})
+                      "row_count": 0, "sql": pretty_sql})
 
     import pandas as pd
     from presentations import duck
@@ -1365,7 +1380,7 @@ def scope_filter_preview(pid: str):
         msg = str(exc).strip().splitlines()[0][:240]
         # SQL still useful even if the sample run failed.
         return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
-                      "row_count": 0, "sql": sql, "warnings": [msg]})
+                      "row_count": 0, "sql": pretty_sql, "warnings": [msg]})
 
     if df is None:
         df = pd.DataFrame()
@@ -1373,7 +1388,7 @@ def scope_filter_preview(pid: str):
     rows = [[duck._jsonable(v) for v in r]
             for r in df.head(200).itertuples(index=False, name=None)]
     return _json({"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
-                  "row_count": int(len(df)), "sql": sql})
+                  "row_count": int(len(df)), "sql": pretty_sql})
 
 
 @presentations_bp.route("/<pid>/scope/routing-override", methods=["POST"])
