@@ -175,15 +175,35 @@ def _compute_dataset_df(
         )
         return (df if df is not None else pd.DataFrame()), sql
 
-    # Filter-node (Faz R1): re-query the SOURCE Oracle table with the embedded
-    # filters (compile_filter_sql). The source (main) is lazy → not materialised;
-    # the filter SELECT hits Oracle directly and only the small filtered result
-    # is persisted to parquet, so Sunum reads it like any other cached dataset.
+    # Filter-node (Faz R1/A): re-query the source with the embedded filters.
+    #  - Oracle source (lazy main) → compile_filter_sql (Oracle), dc.get_data.
+    #  - Derived source (Faz A zincirleme) → compute the source recursively, run
+    #    the DuckDB filter SQL over it. Only the small filtered result persists.
     if item.derivation is not None and item.derivation.kind == "filter":
+        d = item.derivation
         sql, binds = compile_filter_sql(
             scope, item, catalog,
             concept_registry=concept_registry, binding_catalog=binding_catalog,
         )
+        src = scope.basket_item(d.source_alias)
+        if src is not None and src.table_ref is None:
+            # Derived source — materialise it (parquet or in-memory), filter in DuckDB.
+            if item.alias in visited:
+                raise ValueError(f"materialize_dataset: derivation cycle through {item.alias!r}")
+            from presentations.duck import connect_duckdb
+            got = read_dataset(dc, scope.presentation_id, d.source_alias)
+            if got is not None:
+                src_df = got[0]
+            else:
+                src_df, _ = _compute_dataset_df(
+                    dc, scope, src, catalog=catalog,
+                    concept_registry=concept_registry, binding_catalog=binding_catalog,
+                    visited=visited | {item.alias},
+                )
+            conn = connect_duckdb(":memory:")
+            register_dataframe(conn, d.source_alias, src_df)
+            df = conn.execute(sql, binds).fetchdf() if binds else conn.execute(sql).fetchdf()
+            return df, sql
         df = dc.get_data(
             base_prefix=None,
             dataset=f"dataset::{scope.presentation_id}/{item.alias}",
