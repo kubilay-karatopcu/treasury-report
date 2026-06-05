@@ -1391,6 +1391,75 @@ def scope_filter_preview(pid: str):
                   "row_count": int(len(df)), "sql": pretty_sql})
 
 
+@presentations_bp.route("/<pid>/scope/resolve-sql", methods=["POST"])
+@login_required
+def scope_resolve_sql(pid: str):
+    """Faz R4/#1 — "Çözümle": parse a free-form query into a node plan.
+
+    Whitelist-validate → extract the source tables (FROM/JOIN via
+    ``derive_source_tables``) → report which are documented (table-doc store) and
+    surface their columns + concept bindings. The Hazırlık UI uses this to add the
+    source tables as MAIN nodes and the query result as a derived (sql) node bound
+    to them, and to warn about undocumented tables (limited concept inference).
+
+    Request:  ``{"sql": "<query>"}``
+    Response: ``{ok, sql, source_tables: [{schema, name, id, documented, columns:
+                 [{name, type, concept}]}], warnings}``.
+    """
+    body = request.get_json(silent=True) or {}
+    sql = (body.get("sql") or "").strip()
+    if not sql:
+        return _json({"ok": False, "errors": ["SQL boş olamaz."]}, status=400)
+
+    from presentations.sql.validator import validate_sql
+    chk = validate_sql(sql)
+    if not chk.ok:
+        return _json({"ok": False, "phase": "sql", "errors": chk.errors,
+                      "warnings": chk.warnings}, status=400)
+
+    from presentations.concepts.integration import derive_source_tables
+    tables = derive_source_tables({"query": sql})
+
+    store = current_app.config.get("TABLE_DOC_STORE")
+    bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    source_tables: list[dict[str, Any]] = []
+    warnings = list(chk.warnings or [])
+    for (schema, name) in tables:
+        doc = None
+        try:
+            doc = store.load(schema, name) if store is not None else None
+        except Exception:
+            doc = None
+        columns: list[dict[str, Any]] = []
+        if doc is not None:
+            bind_concept: dict[str, str] = {}
+            if bc is not None:
+                try:
+                    for b in bc.get_bindings(schema, name):
+                        if getattr(b, "column", None) and getattr(b, "concept", None):
+                            bind_concept[b.column] = b.concept
+                except Exception:
+                    pass
+            for col, cd in (getattr(doc, "columns", {}) or {}).items():
+                columns.append({
+                    "name": col,
+                    "type": getattr(cd, "type", None),
+                    "concept": bind_concept.get(col) or getattr(cd, "suggested_semantic_tag", None),
+                })
+        else:
+            warnings.append(
+                f"{schema}.{name} dökümante değil — concept çıkarımı sınırlı. "
+                "Önce Tablolar'dan dökümante et."
+            )
+        source_tables.append({
+            "schema": schema, "name": name, "id": f"{schema}.{name}",
+            "documented": doc is not None, "columns": columns,
+        })
+
+    return _json({"ok": True, "sql": sql, "source_tables": source_tables,
+                  "warnings": warnings})
+
+
 @presentations_bp.route("/<pid>/scope/routing-override", methods=["POST"])
 @login_required
 def scope_routing_override(pid: str):
