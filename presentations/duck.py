@@ -105,6 +105,11 @@ def populate_basket(dc, conn, basket):
         # (kind="block") which aren't Oracle tables — skip them in fetch.
         if item.get("kind") == "block" or not item.get("table"):
             continue
+        # Scope-derived sql / derived (filter/aggregate) entries carry the
+        # alias as their `table` — there's no Oracle table to pull; their data
+        # is materialised into DuckDB by the scope build (fetch_cached_tables).
+        if item.get("source") in ("sql", "derived"):
+            continue
         # Upload-backed basket entries don't fetch via Oracle.
         if item["table"].startswith("upload__"):
             continue

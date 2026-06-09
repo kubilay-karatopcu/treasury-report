@@ -1837,17 +1837,21 @@ function App() {
   const gridApiRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesStateCompat(() => initialNodes(DATA.scope));
-  // Phase 11.hazirlik-polish-2: alias visibility on the canvas. The
-  // sidebar's "Tablolar" rows toggle entries in this set; the nodes
-  // reconciliation effect applies it to each node's `hidden` flag.
-  // React Flow drops edges connected to hidden nodes automatically.
-  const [hiddenAliases, setHiddenAliases] = useState(() => new Set());
+  // Alias visibility on the canvas. Persisted on each basket item's `hidden`
+  // flag (not local state) so it survives a reload, rides the draft autosave,
+  // and reaches "Sunum'a geç" — where hidden nodes are dropped from the Sunum
+  // sidebar (and skipped at fetch). The nodes reconciliation effect applies it
+  // to each node's React Flow `hidden`; RF drops edges of hidden nodes.
+  const hiddenAliases = useMemo(
+    () => new Set((scope.basket || []).filter((b) => b.hidden).map((b) => b.alias)),
+    [scope.basket],
+  );
   const toggleAliasVisibility = useCallback((alias) => {
-    setHiddenAliases((s) => {
-      const n = new Set(s);
-      if (n.has(alias)) n.delete(alias); else n.add(alias);
-      return n;
-    });
+    setScope((cur) => ({
+      ...cur,
+      basket: cur.basket.map((b) =>
+        b.alias === alias ? { ...b, hidden: !b.hidden } : b),
+    }));
   }, []);
   const edges = useMemo(() => buildEdges(scope), [scope]);
 
