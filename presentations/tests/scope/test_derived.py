@@ -125,3 +125,24 @@ class TestDerivedValidator:
     def test_valid_passes(self):
         errors, _ = rule_derived_tables(_scope([_AGG_ITEM]))
         assert errors == []
+
+
+# ── Route helper: columns_by_alias with a table-less derivation ──────────────
+
+class TestColumnsByAlias:
+    def test_derivation_item_skipped(self):
+        """``_columns_by_alias`` must not deref ``table_ref`` on derivation
+        basket items (which carry ``table_ref=None``). Regression for the
+        AttributeError raised when building the Hazırlık payload for a scope
+        containing an aggregate table."""
+        from flask import Flask
+
+        from presentations.routes_scope import _columns_by_alias
+
+        scope = _scope([_AGG_ITEM])
+        app = Flask(__name__)  # no TABLE_DOC_STORE → _columns_for returns []
+        with app.app_context():
+            cols = _columns_by_alias(scope)
+
+        assert "deposits_by_branch" not in cols  # derivation skipped, not crashed
+        assert cols == {"deposits": []}

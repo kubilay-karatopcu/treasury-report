@@ -562,7 +562,13 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
 
 
 def _columns_by_alias(scope: ScopeContract) -> dict[str, list[dict[str, Any]]]:
-    return {b.alias: _columns_for(b.table_ref.schema_name, b.table_ref.name) for b in scope.basket}
+    # Derivation basket items carry no ``table_ref`` (their columns come from a
+    # transform, not a table doc); skip them like every other call site does.
+    return {
+        b.alias: _columns_for(b.table_ref.schema_name, b.table_ref.name)
+        for b in scope.basket
+        if b.table_ref is not None
+    }
 
 
 def _suggested_edges(scope: ScopeContract, cols_by_alias: dict[str, list[dict[str, Any]]]):
