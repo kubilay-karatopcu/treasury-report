@@ -82,6 +82,7 @@ export default function Basket() {
         name,
         catalog: meta?.table || null,
         domain: meta?.domain || null,
+        typeBadge: sourceBadge(b),
       };
     });
   }, [tableItems, tableById]);
@@ -224,6 +225,21 @@ export default function Basket() {
 }
 
 
+// A short type label for non-table basket entries derived from the scope
+// (manual SQL / filter / aggregate nodes) so the Sunum sidebar shows where
+// the data comes from. Plain Oracle tables get no badge.
+function sourceBadge(b) {
+  if (b.source === 'sql') return 'SQL';
+  if (b.source === 'derived') {
+    const k = b.derivation_kind;
+    if (k === 'aggregate') return 'agregat';
+    if (k === 'filter') return 'filtre';
+    if (k === 'calculated') return 'hesaplama';
+    return 'türetilmiş';
+  }
+  return null;
+}
+
 function BasketTableRow({ item, onOpenDocs, onDeleteUpload }) {
   const filter = item.row_filter;
   const isUpload = (item.tid || '').startsWith('upload__');
@@ -238,7 +254,12 @@ function BasketTableRow({ item, onOpenDocs, onDeleteUpload }) {
         disabled={!item.catalog}
       >
         <div className="sources-table-info">
-          <div className="sources-table-name">{item.name}</div>
+          <div className="sources-table-name">
+            {item.name}
+            {item.typeBadge && (
+              <span className="sources-table-badge">{item.typeBadge}</span>
+            )}
+          </div>
           <div className="sources-table-desc">
             {item.schema}
             {item.catalog?.desc ? ` · ${item.catalog.desc}` : ''}

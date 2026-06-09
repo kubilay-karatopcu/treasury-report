@@ -386,6 +386,12 @@ class BasketItem(BaseModel):
     projection: Projection = Field(default_factory=Projection)
     routing: Routing
     layout: NodePosition | None = None
+    # Hazırlık node visibility ("gizle" / EyeOff). When truthy the user has
+    # hidden this node: it is dropped from the ER canvas, excluded from the
+    # Sunum "Veri Kaynakları" sidebar, and (when nothing visible depends on it)
+    # skipped at fetch time. None == visible — kept None-default so existing
+    # scopes serialise byte-identically (scope_to_dict uses exclude_none).
+    hidden: bool | None = None
     # Faz A: cron refresh for cached datasets. None = no scheduled refresh
     # (materialised once at scope build). Only meaningful when cached.
     refresh: DatasetRefresh | None = None

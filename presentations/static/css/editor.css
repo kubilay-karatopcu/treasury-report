@@ -583,6 +583,23 @@
   color: var(--ts-muted);
   margin-top: 1px;
 }
+/* Type badge for scope-derived basket entries (manual SQL / filter /
+   aggregate nodes) in the Sunum sidebar. */
+.sources-table-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-family: var(--ts-font-sans, inherit);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--bs-primary, #066fd1);
+  background: color-mix(in srgb, var(--bs-primary, #066fd1) 12%, transparent);
+  vertical-align: middle;
+}
 .sources-table-filter {
   font-size: 10px;
   color: var(--ts-primary);

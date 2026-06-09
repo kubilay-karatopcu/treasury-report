@@ -561,6 +561,79 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
     return out
 
 
+def _manifest_basket_from_scope(scope: ScopeContract) -> list[dict[str, Any]]:
+    """Derive the Sunum ``manifest.basket`` (legacy ``{table, ...}`` shape read
+    by the editor sidebar) from the authoritative Hazırlık ``scope.basket``.
+
+    Without this, manual-SQL and derived (filter/aggregate) nodes built in
+    Hazırlık never reach Sunum's "Veri Kaynakları" list (they live only in
+    ``scope.basket``, never the manifest basket Keşif populated). Hidden
+    ("gizle") nodes are excluded entirely. SQL / derivation entries carry a
+    ``source`` (and ``derivation_kind``) so the sidebar can badge them; their
+    ``table`` is the alias (= the DuckDB view name) since there is no Oracle
+    table id to show.
+    """
+    out: list[dict[str, Any]] = []
+    for b in scope.basket:
+        if b.hidden:
+            continue
+        if b.table_ref is not None:
+            cols = [] if b.projection.include_all else list(b.projection.columns or [])
+            out.append({
+                "table": f"{b.table_ref.schema_name}.{b.table_ref.name}",
+                "alias": b.alias,
+                "columns": cols,
+                "source": "table",
+            })
+        elif b.sql is not None:
+            out.append({
+                "table": b.alias, "alias": b.alias, "columns": [],
+                "source": "sql",
+            })
+        elif b.derivation is not None:
+            out.append({
+                "table": b.alias, "alias": b.alias, "columns": [],
+                "source": "derived", "derivation_kind": b.derivation.kind,
+            })
+    return out
+
+
+def _scope_for_fetch(scope: ScopeContract) -> ScopeContract:
+    """A copy of ``scope`` with hidden nodes that nothing visible depends on
+    removed, so they are not pulled from Oracle ("gizle" → fetch'lenmez).
+
+    A hidden node is *kept* when a visible derivation uses it as a source or a
+    visible join touches it — dropping it then would break that dependent. This
+    guard means the prune can never invalidate an otherwise-valid scope.
+    """
+    hidden = {b.alias for b in scope.basket if b.hidden}
+    if not hidden:
+        return scope
+    needed: set[str] = set()
+    for b in scope.basket:
+        if b.hidden or b.derivation is None:
+            continue
+        d = b.derivation
+        if d.source_alias:
+            needed.add(d.source_alias)
+        needed.update(d.source_aliases or [])
+    for j in (scope.joins or []):
+        if j.left.alias not in hidden:
+            needed.add(j.right.alias)
+        if j.right.alias not in hidden:
+            needed.add(j.left.alias)
+    drop = hidden - needed
+    if not drop:
+        return scope
+    active = scope.model_copy(deep=True)
+    active.basket = [b for b in active.basket if b.alias not in drop]
+    active.joins = [
+        j for j in (active.joins or [])
+        if j.left.alias not in drop and j.right.alias not in drop
+    ]
+    return active
+
+
 def _columns_by_alias(scope: ScopeContract) -> dict[str, list[dict[str, Any]]]:
     # Derivation basket items carry no ``table_ref`` (their columns come from a
     # transform, not a table doc); skip them like every other call site does.
@@ -974,10 +1047,15 @@ def build_scope(pid: str):
         refetch_only = diff.affected_aliases
         drop_aliases = set(diff.removed_aliases)
 
+    # Hidden ("gizle") nodes that nothing visible depends on are pruned so
+    # Oracle isn't queried for them. The full scope is still validated and
+    # persisted below — only the fetch pass sees the trimmed copy.
+    fetch_scope = _scope_for_fetch(scope)
+
     try:
         with session.duck_conn() as conn:
             loaded = fetch_cached_tables(
-                dc, conn, scope,
+                dc, conn, fetch_scope,
                 catalog=catalog,
                 concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
                 binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
@@ -1016,6 +1094,23 @@ def build_scope(pid: str):
     }
     manifest["scope_ref"] = {"presentation_id": pid, "scope_version": version}
     manifest["version"] = int(manifest.get("version", 0)) + 1
+    # Rebuild the Sunum sidebar basket from the prepared scope so manual-SQL
+    # and derived nodes (and only *visible* nodes) actually surface there.
+    # Library blocks (kind="block") live in the manifest basket too — preserve
+    # them alongside the regenerated table entries.
+    blocks_in_basket = [
+        b for b in (manifest.get("basket") or [])
+        if (b or {}).get("kind") == "block"
+    ]
+    manifest["basket"] = _manifest_basket_from_scope(scope) + blocks_in_basket
+    # Data is already in DuckDB via fetch_cached_tables above; prime the
+    # signature so the legacy duckdb_preview refetch path (populate_basket)
+    # doesn't re-pull these (and never tries to Oracle-fetch a sql/derived
+    # alias, which has no real table).
+    try:
+        session._last_basket_signature = session.basket_signature(manifest["basket"])
+    except Exception:
+        log.warning("build_scope: priming basket signature failed", exc_info=True)
     # Built → this version is authoritative. Drop the in-progress draft so the
     # next Hazırlık load uses the build, not a now-stale draft. (Draft-first
     # priority in _load_latest_scope_or_draft relies on this clear.)
