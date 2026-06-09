@@ -244,6 +244,29 @@ def find_upload_refs(sql: str) -> list[str]:
     return list(set(_UPLOAD_REF_RE.findall(sql)))
 
 
+def find_view_refs(sql: str, view_names: list[str]) -> list[str]:
+    """Return which of ``view_names`` are referenced as bare identifiers in
+    ``sql``.
+
+    Scope datasets — cached Oracle tables, manual-SQL nodes, and aggregate /
+    filter / calculated derivations — are each materialised into the session
+    DuckDB as a view named by its alias. A block whose SQL touches one of these
+    (e.g. ``FROM deposits_by_branch``) must run in DuckDB: derivations have no
+    Oracle counterpart, so routing to Oracle would fail. The match is
+    case-insensitive and ignores qualified column refs (``t.deposits``) via the
+    leading ``.``/word-char guard — same word-boundary spirit as
+    ``find_upload_refs``.
+    """
+    hits: list[str] = []
+    for name in view_names:
+        if not name:
+            continue
+        pat = re.compile(rf"(?<![\w.])({re.escape(name)})(?![\w])", re.IGNORECASE)
+        if pat.search(sql):
+            hits.append(name)
+    return hits
+
+
 def ensure_upload_views(
     conn: "duckdb.DuckDBPyConnection",
     refs: list[str],
@@ -365,7 +388,21 @@ def execute_block_sql(
 
     from presentations.concepts.integration import strip_concept_sentinel
 
-    gate: GateResult = validate_and_wrap(sql)
+    # Decide the execution engine BEFORE wrapping. Scope datasets are
+    # registered in this session's DuckDB as views named by their alias, so a
+    # block touching one of them — a cached table, a manual-SQL node, or a
+    # derivation (which has no Oracle counterpart at all) — must run in DuckDB.
+    # This also drives the row-cap dialect: Oracle wraps with `WHERE ROWNUM<=N`,
+    # DuckDB with `LIMIT N`; wrapping with the wrong one fails at execution.
+    # `block_preview_*` are internal helpers, not real scope datasets.
+    upload_refs = find_upload_refs(sql)
+    scope_views = [v for v in list_views(conn) if not v.startswith("block_preview_")]
+    view_refs = find_view_refs(sql, scope_views)
+    is_duckdb_only = bool(upload_refs) or bool(view_refs)
+
+    gate: GateResult = validate_and_wrap(
+        sql, dialect="duckdb" if is_duckdb_only else None,
+    )
 
     # A block may carry the Phase-7 `{{concept_filters}}` sentinel in its SQL.
     # The concept-apply path substitutes it with real predicates; every OTHER
@@ -382,16 +419,14 @@ def execute_block_sql(
         block_id, gate.reason, gate.rewritten, gate.truncated, gate.cap,
     )
 
-    refs = find_upload_refs(exec_sql)
-    is_duckdb_only = bool(refs)
-
     if is_duckdb_only:
-        if upload_lookup is None or s3_get is None:
-            raise RuntimeError(
-                "Excel referansı içeren SQL için upload_lookup ve s3_get gerekli."
-            )
-        ensure_upload_views(conn, refs, upload_lookup, s3_get)
-        # Run the SQL directly against DuckDB.
+        if upload_refs:
+            if upload_lookup is None or s3_get is None:
+                raise RuntimeError(
+                    "Excel referansı içeren SQL için upload_lookup ve s3_get gerekli."
+                )
+            ensure_upload_views(conn, upload_refs, upload_lookup, s3_get)
+        # Run the SQL directly against DuckDB (scope views + any uploads).
         try:
             df = conn.execute(exec_sql).fetchdf()
         except Exception as exc:
