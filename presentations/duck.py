@@ -284,6 +284,7 @@ def run_block_sql_routed(
     *,
     upload_lookup: Optional[dict] = None,
     s3_get: Optional[Callable[[str], bytes]] = None,
+    extra_view_names: Optional[list[str]] = None,
 ):
     """Execute already-validated, concept-stripped block SQL on the right engine
     and return ``(df, engine_label)``.
@@ -293,10 +294,17 @@ def run_block_sql_routed(
     Oracle via DataClient. This is the routing behind both the chart/preview path
     (``execute_block_sql``) and the manual-run path, so a block can source from
     Hazırlık-produced nodes by alias.
+
+    ``extra_view_names`` lets the caller add scope basket aliases that *should*
+    route to DuckDB even when not currently registered (not yet materialised) —
+    so the user gets a clear "table does not exist" from DuckDB instead of a
+    misleading Oracle ORA-00942.
     """
     upload_refs = find_upload_refs(sql)
-    scope_views = [v for v in list_views(conn) if not v.startswith("block_preview_")]
-    view_refs = find_view_refs(sql, scope_views)
+    names = [v for v in list_views(conn) if not v.startswith("block_preview_")]
+    if extra_view_names:
+        names = list({*names, *extra_view_names})
+    view_refs = find_view_refs(sql, names)
     if upload_refs or view_refs:
         if upload_refs:
             if upload_lookup is None or s3_get is None:

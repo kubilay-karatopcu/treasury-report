@@ -43,6 +43,21 @@ class TestRunBlockSqlRouted:
         assert engine == "oracle"
         assert dc.calls and dc.calls[0]["params"] == {"p": 1}
 
+    def test_unmaterialised_scope_alias_routes_to_duckdb_not_oracle(self):
+        # The alias is a scope basket node but its view isn't registered yet
+        # (not materialised). Routing must still pick DuckDB (clear "does not
+        # exist") rather than send it to Oracle.
+        conn = duckdb.connect()
+        dc = OracleStub()
+        try:
+            duck.run_block_sql_routed(
+                dc, conn, "b3", "SELECT * FROM daily_myu_res", {},
+                extra_view_names=["daily_myu_res"])
+            assert False, "expected DuckDB catalog error"
+        except RuntimeError as exc:
+            assert "DuckDB" in str(exc)
+        assert dc.calls == []  # never routed to Oracle
+
 
 class TestExecuteWithBinds:
     def test_no_params_plain_execute(self):

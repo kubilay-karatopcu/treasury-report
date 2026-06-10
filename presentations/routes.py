@@ -1345,10 +1345,22 @@ def run_block_manual(pid: str, bid: str):
         # block sourced from such a node hits ORA-00942 (table or view).
         upload_lookup = duck.build_upload_lookup(manifest)
         s3_get = current_app.config.get("S3_GET")
+        # Collect the scope's basket aliases so routing sends alias refs to
+        # DuckDB even when a dataset isn't materialised yet (clear DuckDB
+        # "table does not exist" vs a misleading Oracle ORA-00942).
+        from .routes_scope import hydrate_block_datasets, load_scope_for_manifest
+        _scope = load_scope_for_manifest(manifest)
+        scope_aliases = [b.alias for b in _scope.basket] if _scope is not None else []
         with session.duck_conn() as conn:
+            # Ensure the scope datasets the block references are registered as
+            # DuckDB views (parquet fast-path + on-demand Oracle fetch fallback);
+            # build-time in-memory views vanish on pod restart / idle eviction.
+            if _scope is not None:
+                hydrate_block_datasets(dc, conn, _scope, exec_sql)
             df, _engine = duck.run_block_sql_routed(
                 dc, conn, bid, exec_sql, bound.params,
                 upload_lookup=upload_lookup, s3_get=s3_get,
+                extra_view_names=scope_aliases,
             )
     except GateError as exc:
         return Response(
