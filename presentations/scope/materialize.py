@@ -91,6 +91,35 @@ class DatasetMeta:
             return None
 
 
+def _dedupe_columns(df):
+    """Parquet (pyarrow) rejects duplicate column names, which a manual-SQL
+    dataset easily produces with ``SELECT *`` over a join (e.g. two tables both
+    carrying ``CCY_CODE``). Rename later duplicates to ``COL_2``, ``COL_3`` … so
+    materialisation never crashes; the scheduler stays alive and the dataset is
+    usable. Logged so the author can clean up the source query."""
+    cols = [str(c) for c in df.columns]
+    used: set[str] = set()
+    out: list[str] = []
+    changed = False
+    for c in cols:
+        if c not in used:
+            used.add(c)
+            out.append(c)
+            continue
+        i = 2
+        while f"{c}_{i}" in used:
+            i += 1
+        nc = f"{c}_{i}"
+        used.add(nc)
+        out.append(nc)
+        changed = True
+    if changed:
+        df = df.copy()
+        df.columns = out
+        log.warning("materialize: duplicate columns renamed → %s", out)
+    return df
+
+
 def _df_to_parquet_bytes(df) -> bytes:
     buf = io.BytesIO()
     df.to_parquet(buf, index=False)
@@ -107,6 +136,7 @@ def write_dataset(dc, pid: str, alias: str, df, *, sql: str) -> DatasetMeta:
     meta (and the new data). S3 put_object is atomic per object, so no half-write
     is ever visible.
     """
+    df = _dedupe_columns(df)
     dc._upload_bytes(
         dataset_data_key(pid, alias),
         _df_to_parquet_bytes(df),
