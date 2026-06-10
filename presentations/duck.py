@@ -267,6 +267,54 @@ def find_view_refs(sql: str, view_names: list[str]) -> list[str]:
     return hits
 
 
+def execute_with_binds(conn, sql: str, params: dict | None):
+    """Run ``sql`` against DuckDB, translating the binder's ``:name`` placeholders
+    (native to Oracle) to DuckDB's ``$name``. Empty params → plain execute."""
+    if not params:
+        return conn.execute(sql).fetchdf()
+    duck_sql = sql
+    # Longest key first so ``:currency`` doesn't clobber ``:currency_list``.
+    for k in sorted(params, key=len, reverse=True):
+        duck_sql = re.sub(rf"(?<![\w$]):{re.escape(k)}\b", f"${k}", duck_sql)
+    return conn.execute(duck_sql, params).fetchdf()
+
+
+def run_block_sql_routed(
+    dc, conn, block_id: str, sql: str, params: dict | None = None,
+    *,
+    upload_lookup: Optional[dict] = None,
+    s3_get: Optional[Callable[[str], bytes]] = None,
+):
+    """Execute already-validated, concept-stripped block SQL on the right engine
+    and return ``(df, engine_label)``.
+
+    DuckDB when the SQL references a scope dataset view (cached table, manual-SQL
+    node, or derivation — none of which exist in Oracle) or an upload; otherwise
+    Oracle via DataClient. This is the routing behind both the chart/preview path
+    (``execute_block_sql``) and the manual-run path, so a block can source from
+    Hazırlık-produced nodes by alias.
+    """
+    upload_refs = find_upload_refs(sql)
+    scope_views = [v for v in list_views(conn) if not v.startswith("block_preview_")]
+    view_refs = find_view_refs(sql, scope_views)
+    if upload_refs or view_refs:
+        if upload_refs:
+            if upload_lookup is None or s3_get is None:
+                raise RuntimeError(
+                    "Excel referansı içeren SQL için upload_lookup ve s3_get gerekli."
+                )
+            ensure_upload_views(conn, upload_refs, upload_lookup, s3_get)
+        try:
+            return execute_with_binds(conn, sql, params), "duckdb"
+        except Exception as exc:
+            raise RuntimeError(f"DuckDB SQL hatası: {exc}") from exc
+    df = dc.get_data(
+        base_prefix=None, dataset=f"block::{block_id}",
+        query=sql, query_params=params or {},
+    )
+    return df, "oracle"
+
+
 def ensure_upload_views(
     conn: "duckdb.DuckDBPyConnection",
     refs: list[str],

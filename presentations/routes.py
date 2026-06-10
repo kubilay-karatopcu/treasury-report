@@ -1339,12 +1339,17 @@ def run_block_manual(pid: str, bid: str):
     # no dashboard concept filters, so the sentinel becomes a no-op 1 = 1.
     exec_sql = strip_concept_sentinel(bound.sql)
     try:
-        df = dc.get_data(
-            base_prefix=None,
-            dataset=f"block::{bid}",
-            query=exec_sql,
-            query_params=bound.params,
-        )
+        # Route to DuckDB when the SQL references scope datasets (Hazırlık-
+        # produced manual-SQL / filter / aggregate nodes are session DuckDB
+        # views, not Oracle tables) or uploads; else Oracle. Without this a
+        # block sourced from such a node hits ORA-00942 (table or view).
+        upload_lookup = duck.build_upload_lookup(manifest)
+        s3_get = current_app.config.get("S3_GET")
+        with session.duck_conn() as conn:
+            df, _engine = duck.run_block_sql_routed(
+                dc, conn, bid, exec_sql, bound.params,
+                upload_lookup=upload_lookup, s3_get=s3_get,
+            )
     except GateError as exc:
         return Response(
             json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
