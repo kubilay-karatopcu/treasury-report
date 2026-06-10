@@ -1787,6 +1787,45 @@ def load_scope_for_manifest(manifest: dict | None):
         return None
 
 
+def hydrate_block_datasets(dc, conn, scope, sql: str) -> None:
+    """Make sure every scope dataset the block ``sql`` references is registered
+    as a DuckDB view in ``conn`` before the block runs.
+
+    Two tiers:
+    1. Fast path — ``load_into_duck`` registers materialised datasets from their
+       S3 parquet (scheduled/cron-warmed datasets), no Oracle round-trip.
+    2. Fallback — if a referenced basket alias is still missing (non-scheduled
+       dataset, freshly built scope whose cron hasn't run, or a recreated/
+       evicted connection where the build-time in-memory views are gone), fetch
+       the scope on-demand into ``conn`` via ``fetch_cached_tables`` (the same
+       Oracle → DuckDB path build uses). A full fetch is used so derivations get
+       their source aliases too.
+    """
+    from presentations import duck
+    from presentations.scope.materialize import load_into_duck
+
+    try:
+        load_into_duck(dc, conn, scope)
+    except Exception:
+        log.warning("hydrate_block_datasets: load_into_duck failed", exc_info=True)
+
+    referenced = duck.find_view_refs(sql, [b.alias for b in scope.basket])
+    if not referenced:
+        return
+    present = set(duck.list_views(conn))
+    if all(a in present for a in referenced):
+        return
+    try:
+        fetch_cached_tables(
+            dc, conn, scope,
+            catalog=_catalog(),
+            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
+            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+        )
+    except Exception:
+        log.warning("hydrate_block_datasets: on-demand fetch failed", exc_info=True)
+
+
 def scope_banner(scope) -> dict | None:
     """Compact read-only banner data for the Sunum scope chip (§6.3)."""
     if scope is None:
