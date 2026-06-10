@@ -67,6 +67,8 @@ const REFINE_SIZES_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/refine
 const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-draft`);
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
 const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
+const FILTER_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/filter-preview`);
+const RESOLVE_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/resolve-sql`);
 const DISTINCT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/distinct`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
@@ -231,87 +233,61 @@ function Modal({ title, onClose, children, footer, size = "sm" }) {
 // ── Table node (description, card-level handles) ─────────────────────────────
 
 function TableNode({ data }) {
-  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, onOverrideRouting, onEditRefresh } = data;
+  const { item, desc, size, colCount, keyCols, derived, activeFilters, color, inactive } = data;
   const cached = item.routing?.decision === "cached";
+  // Faz R1 node tipleri: main (table_ref/sql) SABİT — lazy/cache toggle + cron yok;
+  // filter-node BOYUTLU (EXPLAIN PLAN) → cached/lazy rozeti + cron; aggregate/
+  // calculated DuckDB'de → "türetilmiş" (boyut yok).
+  const isFilter = item.derivation?.kind === "filter";
+  const sized = !derived || isFilter;          // boyut rozeti gösterilenler
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   const headStyle = !derived && color ? { background: color } : undefined;
   const estimatedBytes = item.routing?.estimated_bytes;
   const decidedBy = item.routing?.decided_by || "system";
-  const hardCeilingExceeded = (estimatedBytes || 0) > ROUTING_CONFIG.hard_ceiling_bytes;
-  const sizeText = derived ? null : formatBytes(estimatedBytes);
-  const overrideLabel = cached ? "→ lazy" : "→ cached";
-  const overrideDisabled = !cached && hardCeilingExceeded;
-  const overrideTitle = overrideDisabled
-    ? `Force cached reddedildi: tahmin ${formatBytes(estimatedBytes)} > hard ceiling ${formatBytes(ROUTING_CONFIG.hard_ceiling_bytes)}.`
-    : (cached ? "Lazy'ye geç (Oracle'dan blok zamanında çek)" : "Cached'a geç (DuckDB'ye materialise)");
+  const sizeText = sized ? formatBytes(estimatedBytes) : null;
   // Madde 4 — flag whether the size came from the optimizer (filter-aware) or
   // the catalog-only partition estimate, so the tooltip is honest about it.
   const measured = item.routing?.estimate_source === "explain_plan";
   const sourceNote = measured
     ? " (EXPLAIN PLAN ile ölçüldü — filtreleri hesaba katar)"
     : " (katalog tahmini — sadece partition filtresini hesaba katar)";
-  const decisionTitle = derived
+  const decisionTitle = (derived && !isFilter)
     ? "Türetilmiş tablo — DuckDB'de hesaplanır."
-    : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: ${decidedBy === "user" ? "kullanıcı override'ı" : "sistem"}.`;
+    : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: sistem (boyuta göre).`;
   return (
-    <div className={`hz-node${derived ? " hz-node--derived" : ""}`}>
+    <div className={`hz-node${derived ? " hz-node--derived" : ""}${inactive ? " is-inactive" : ""}`}>
       <div className="hz-node-head" style={headStyle}>
+        {inactive && <span className="hz-node-inactive-tag" title="Pasif — Sunum'a alınmaz (sol menüden tıklayıp aktif et)">pasif</span>}
         <span className="hz-node-alias"><Database size={12} /> {item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : item.alias}{item.sql && <span className="hz-sql-tag">SQL</span>}</span>
         <span
-          className={`hz-badge hz-badge--${derived ? "derived" : (cached ? "cached" : "lazy")}`}
+          className={`hz-badge hz-badge--${sized ? (cached ? "cached" : "lazy") : "derived"}`}
           title={decisionTitle}
         >
-          {derived
-            ? "türetilmiş"
-            : (cached ? `cached · ${sizeText}` : `lazy · ${sizeText}`)}
-          {decidedBy === "user" && !derived && <span className="hz-badge-user-mark"> ✦</span>}
+          {sized
+            ? (cached ? `cached · ${sizeText}` : `lazy · ${sizeText}`)
+            : "türetilmiş"}
         </span>
       </div>
       {!derived && (
         <div className="hz-node-routing">
           <span
             className="hz-proj-count"
-            title="Projection: önizleme'de gizlediğin kolonlar buradan düşer ('Görünümü kaydet' ile)"
+            title="Projeksiyon. Main node sabittir — lazy/cache ve cron yalnız filtreli (türetilmiş) node'larda."
           >
             {item.projection?.include_all ? `tümü (${colCount})` : `${item.projection?.columns?.length || 0}/${colCount} kolon`}
           </span>
-          <button
-            type="button"
-            className="hz-route-override"
-            disabled={overrideDisabled}
-            title={overrideTitle}
-            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onOverrideRouting && NODE_HANDLERS.onOverrideRouting(item.alias, cached ? "lazy" : "cached"); }}
-          >
-            {overrideLabel}
-          </button>
-          {cached && (
-            <button
-              type="button"
-              className="hz-route-override hz-refresh-btn"
-              title="Yenileme (cron) ayarla — cached dataset ne sıklıkla tazelensin"
-              onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
-            >
-              ⟳ {refreshLabel(item.refresh)}
-            </button>
-          )}
+          <span className="hz-main-lock" title="Main node — boyut sisteme göre; manuel toggle yok. Filtrele → türetilmiş node oluşur.">🔒 main</span>
         </div>
       )}
       {derived && (
         <div className="hz-node-routing">
           <span
             className="hz-proj-count"
-            title="Türetilmiş tablo — kaynak(lar)ından DuckDB'de hesaplanıp parquet'e materialise edilir"
+            title="Türetilmiş dataset — kaynağından üretilip parquet'e materialise edilir. Cron: node'a tıkla → Cron tab."
           >
             {colCount} kolon
           </span>
-          <button
-            type="button"
-            className="hz-route-override hz-refresh-btn"
-            title="Yenileme (cron) ayarla — türetilmiş tablo ne sıklıkla yeniden hesaplanıp materialise edilsin"
-            onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditRefresh && NODE_HANDLERS.onEditRefresh(item.alias); }}
-          >
-            ⟳ {refreshLabel(item.refresh)}
-          </button>
+          <span className="hz-main-lock" title="Cron için node'a tıkla → Cron tab.">⟳ {refreshLabel(item.refresh)}</span>
         </div>
       )}
       <div className="hz-node-meta">{size ? `${size} · ` : ""}{colCount} kolon</div>
@@ -355,8 +331,13 @@ const NODE_TYPES = { tableNode: TableNode };
 function nodeData(item) {
   const cols = COLS_BY_ALIAS[item.alias] || [];
   if (item.derivation) {
+    const d = item.derivation;
+    const kindLabel = d.kind === "filter" ? "filtre"
+      : d.kind === "calculated" ? "hesaplama" : "aggregate";
     return {
-      item, derived: true, desc: `${item.derivation.source_alias} → aggregate`,
+      item, derived: true, desc: `${d.source_alias} → ${kindLabel}`,
+      // Faz R1: filter-node boyutu hesaplanır (EXPLAIN PLAN) → rozet gösterilir;
+      // aggregate/calculated DuckDB'de → boyut yok (size=null).
       size: null, colCount: cols.length, keyCols: cols.filter((c) => c.join_key),
       color: null,   // derived → purple via .hz-node--derived class
     };
@@ -519,6 +500,48 @@ function buildEdges(scope) {
         label: `${concept ? `${concept} · ${kindLabel}` : kindLabel} · ⇧×`,
         kind: "suggested",
       },
+    });
+  });
+
+  // Faz R1 — derivation lineage edges (kaynak main node → türetilmiş node).
+  // filter node'unun edge'ine tıklayınca filtre ekranı + kaynak query açılır
+  // (App.onEdgeClick). aggregate/calculated için de lineage gösterilir.
+  scope.basket.forEach((b) => {
+    // Faz R4/#1 — "Çözümle" ile üretilen sql node'unun kaynak tablolara lineage'ı.
+    if (!b.derivation && Array.isArray(b.derived_from) && b.derived_from.length) {
+      b.derived_from.forEach((src) => {
+        if (!aliases.has(src) || !aliases.has(b.alias)) return;
+        edges.push({
+          id: `deriv_${b.alias}_${src}`,
+          source: src, target: b.alias,
+          sourceHandle: "__other__", targetHandle: "__other__",
+          type: "hzPairEdge",
+          className: "hz-edge hz-edge--derivation hz-edge--deriv-sql",
+          data: { derivation: true, derivedAlias: b.alias, sourceAlias: src, derivKind: "sql", label: "sql →", kind: "derivation" },
+        });
+      });
+      return;
+    }
+    if (!b.derivation) return;
+    const d = b.derivation;
+    const sources = d.kind === "calculated"
+      ? (d.source_aliases || [])
+      : (d.source_alias ? [d.source_alias] : []);
+    sources.forEach((src) => {
+      if (!aliases.has(src) || !aliases.has(b.alias)) return;
+      edges.push({
+        id: `deriv_${b.alias}_${src}`,
+        source: src, target: b.alias,
+        sourceHandle: "__other__", targetHandle: "__other__",
+        type: "hzPairEdge",
+        className: `hz-edge hz-edge--derivation hz-edge--deriv-${d.kind}`,
+        data: {
+          derivation: true, derivedAlias: b.alias, sourceAlias: src,
+          derivKind: d.kind,
+          label: d.kind === "filter" ? "filtre →" : `${d.kind} →`,
+          kind: "derivation",
+        },
+      });
     });
   });
 
@@ -993,6 +1016,26 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
   );
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Faz R4/#1 — "Çözümle" planı: {source_tables, warnings}. Kaydet'te bu plandaki
+  // tablolar main node, sonuç sql node (derived_from ile bağlı) olarak eklenir.
+  const [plan, setPlan] = useState(null);
+
+  const runResolve = async () => {
+    setBusy(true); setErrors([]); setPlan(null);
+    try {
+      const r = await fetch(RESOLVE_SQL_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql }),
+      });
+      const data = await r.json();
+      if (!data.ok) { setErrors(data.errors || ["Çözümlenemedi"]); return; }
+      setPlan({ source_tables: data.source_tables || [], warnings: data.warnings || [] });
+    } catch (e) {
+      setErrors([String(e.message || e)]);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const runPreview = async () => {
     setBusy(true); setErrors([]); setPreview(null);
@@ -1019,6 +1062,9 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
       columns: preview.columns,
       routing,
       refresh: routing === "cached" ? refresh : null,
+      // Faz R4/#1 — Çözümle planı (yeni eklemede): kaynak tabloları main node +
+      // bu sonucu derived_from ile onlara bağla. Edit modunda gönderme.
+      resolvePlan: (!isEdit && plan) ? plan : null,
     });
   };
 
@@ -1038,17 +1084,45 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
       <label className="hz-field">SQL (SELECT / WITH)
         <textarea className="hz-sql-textarea" rows={8} value={sql}
           placeholder="SELECT ... FROM ..."
-          onChange={(e) => { setSql(e.target.value); setPreview(null); }} />
+          onChange={(e) => { setSql(e.target.value); setPreview(null); setPlan(null); }} />
       </label>
-      <div className="hz-row" style={{ gap: 8, alignItems: "center" }}>
+      <div className="hz-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button type="button" className="ts-btn ts-btn--primary"
           disabled={busy || !sql.trim()} onClick={runPreview}>
           {busy
             ? <><Loader2 size={13} className="ts-spin" /> Çalıştırılıyor…</>
             : <><Eye size={13} /> Önizle / Doğrula</>}
         </button>
+        {!isEdit && (
+          <button type="button" className="ts-btn"
+            disabled={busy || !sql.trim()} onClick={runResolve}
+            title="Query'deki kaynak tabloları çıkar — dökümante olanları node ekle, sonucu onlara bağla">
+            ⚙ Çözümle
+          </button>
+        )}
         {preview && <span className="hz-muted">{preview.row_count} satır · {preview.columns.length} kolon</span>}
       </div>
+      {plan && (
+        <div className="hz-resolve-plan" style={{ marginTop: 8 }}>
+          <div className="hz-muted" style={{ fontSize: 11, marginBottom: 4 }}>
+            Çözümleme — eklenecek kaynak tablolar (node) + bu sonuç onlara bağlı dataset:
+          </div>
+          {plan.source_tables.map((t) => (
+            <div key={t.id} className={`hz-resolve-row${t.documented ? "" : " is-undoc"}`}>
+              <span>{t.documented ? "✓" : "⚠"}</span>
+              <strong>{t.id}</strong>
+              <span className="hz-muted">
+                {t.documented ? `${t.columns.length} kolon` : "dökümante değil"}
+              </span>
+            </div>
+          ))}
+          {plan.warnings.length > 0 && (
+            <div className="hz-muted" style={{ fontSize: 11, marginTop: 4 }}>
+              {plan.warnings.map((w, i) => <div key={i}>• {w}</div>)}
+            </div>
+          )}
+        </div>
+      )}
       {errors.length > 0 && (
         <div className="hz-error" style={{ marginTop: 8 }}>{errors.join(" · ")}</div>
       )}
@@ -1064,7 +1138,7 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
         </select>
       </label>
       {routing === "cached"
-        ? <RefreshFields value={refresh} onChange={setRefresh} />
+        ? <p className="hz-muted">Cron (yenileme sıklığı) burada değil — tabloyu ekledikten sonra node'una tıkla → <strong>Cron</strong> tab'ından ayarla.</p>
         : <p className="hz-muted">Lazy tablolara cron bağlanamaz — küçültürsen (aggregate/filtre) cached olur ve cron'lanabilir.</p>}
     </Modal>
   );
@@ -1224,7 +1298,7 @@ function SourcesSidebar({
                         type="button"
                         className="hz-basket-row__main sources-table"
                         onClick={() => onToggleVisibility && onToggleVisibility(it.alias)}
-                        title={hidden ? "Görünür yap" : "Görünümden gizle"}
+                        title={hidden ? "Pasif — tıkla: aktif et (Sunum'a al)" : "Aktif — tıkla: pasif yap (Sunum'a alma, node kararır)"}
                       >
                         <span className="hz-basket-row__viz" aria-hidden>
                           {hidden ? <EyeOff size={12} strokeWidth={1.8} /> : <Eye size={12} strokeWidth={1.8} />}
@@ -1270,7 +1344,7 @@ function SourcesSidebar({
                         type="button"
                         className="hz-basket-row__main sources-table"
                         onClick={() => onToggleVisibility && onToggleVisibility(b.alias)}
-                        title={hidden ? "Görünür yap" : "Görünümden gizle"}
+                        title={hidden ? "Pasif — tıkla: aktif et (Sunum'a al)" : "Aktif — tıkla: pasif yap (Sunum'a alma, node kararır)"}
                       >
                         <span className="hz-basket-row__viz" aria-hidden>
                           {hidden ? <EyeOff size={12} strokeWidth={1.8} /> : <Eye size={12} strokeWidth={1.8} />}
@@ -1609,10 +1683,11 @@ function ConceptHeader(props) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh }) {
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
+  const [cronDraft, setCronDraft] = useState(null);   // RefreshFields'ten gelen DatasetRefresh
 
   const handleReady = (p) => {
     apiRef.current = p.api;
@@ -1666,6 +1741,12 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
   }, [preview]);
 
   const isDerived = !!preview?.derived;
+  const isFilter = !!preview?.isFilter;   // Faz R1/F3 — filter-node (query tab'lı)
+  // Cron yalnız cached dataset'lerde: türetilmiş (filter/aggregate/calculated)
+  // veya manuel SQL node. Main lazy tablolarda cron yok.
+  const canCron = isDerived || !!(item && item.sql);
+  // Node değişince tab'ı sıfırla; edge-click "filter" tab'ını isteyebilir (openTab).
+  useEffect(() => { setTab(preview?.openTab || "data"); setCronDraft(null); }, [preview?.alias]);
   return (
     <div className="hz-preview" style={{ height }}>
       <div className="hz-preview-resize" onMouseDown={onResizeStart} title="Sürükle: yükseklik" />
@@ -1676,14 +1757,14 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
           {preview && preview.row_count != null ? ` (${preview.row_count} satır)` : ""}
         </span>
         <div className="hz-preview-actions">
-          {!isDerived && tab === "filter" && (
+          {tab === "filter" && (
             <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
                     onClick={() => filterSaveRef.current && filterSaveRef.current()}
                     title="Filtreleri scope'a yaz (boyut yeniden hesaplanır)">
               <Save size={13} /> Filtreyi kaydet
             </button>
           )}
-          {!isDerived && tab === "data" && (
+          {tab === "data" && (
             <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
                     onClick={onSaveAsTable}
                     title="Gruplama/aggregation'ı yeni bir tablo olarak kaydet">
@@ -1698,19 +1779,51 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
         {!loading && preview && preview.error && <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>}
         {!loading && preview && !preview.error && (
           <div className="hz-preview-inner">
-            {isDerived && (
-              <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
-                Türetilmiş tablo · kaynak tablonun örneği üzerinde hesaplandı. Sunum tam veri üzerinde yeniden hesaplayacak.
-              </p>
-            )}
-            {!isDerived && (
-              <div className="hz-preview-tabs">
-                <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
-                <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
-              </div>
-            )}
+            <div className="hz-preview-tabs">
+              <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
+              <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
+              {isFilter && (
+                <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak Query</button>
+              )}
+              {canCron && (
+                <button type="button" className={tab === "cron" ? "on" : ""} onClick={() => setTab("cron")}>Cron</button>
+              )}
+            </div>
             <div className="hz-preview-pane">
-              {(isDerived || tab === "data") ? (
+              {canCron && tab === "cron" ? (
+                <div className="hz-cron-tab ts-scroll" style={{ padding: 10 }}>
+                  <RefreshFields value={item?.refresh} onChange={setCronDraft} />
+                  <div style={{ marginTop: 12 }}>
+                    <button className="ts-btn ts-btn--primary ts-btn--sm"
+                            onClick={() => onSaveRefresh && onSaveRefresh(preview.alias, cronDraft || item?.refresh || { kind: "manual" })}>
+                      <Save size={13} /> Cron kaydet
+                    </button>
+                  </div>
+                  <p className="hz-muted" style={{ fontSize: 11, marginTop: 8 }}>
+                    Bu cached dataset ne sıklıkla tazelensin — Oracle'dan yeniden çekilip parquet'e yazılır.
+                    (Main lazy tablolarda cron yok; sadece türetilmiş/SQL dataset'lerde.)
+                  </p>
+                </div>
+              ) : isFilter && tab === "query" ? (
+                <div className="hz-filter-sql ts-scroll">
+                  <pre className="hz-sql-pre">{preview.sql || "—"}</pre>
+                  <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
+                    Bu, dataset'i materialise eden Oracle sorgusu (relative tarihler her
+                    materialize'da dinamik çözülür). Filtreyi düzenlemek için mor edge'e tıkla
+                    ya da kaynak (main) node'u seçip <strong>Filtreleme</strong>'den değiştir.
+                  </p>
+                </div>
+              ) : (tab === "filter") ? (
+                <FilterPanel
+                  alias={preview.alias}
+                  columns={COLS_BY_ALIAS[preview.alias] || []}
+                  existing={existingFilters}
+                  derivedSource={isDerived}
+                  saveRef={filterSaveRef}
+                  onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
+                  onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
+                />
+              ) : (
                 <div className="ag-theme-alpine-dark" style={{ width: "100%", height: "100%" }}>
                   <AgGridReact
                     columnDefs={colDefs} rowData={rowData} animateRows
@@ -1722,15 +1835,6 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                     headerHeight={36}
                   />
                 </div>
-              ) : (
-                <FilterPanel
-                  alias={preview.alias}
-                  columns={COLS_BY_ALIAS[preview.alias] || []}
-                  existing={existingFilters}
-                  saveRef={filterSaveRef}
-                  onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
-                  onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
-                />
               )}
             </div>
           </div>
@@ -1837,21 +1941,20 @@ function App() {
   const gridApiRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesStateCompat(() => initialNodes(DATA.scope));
-  // Alias visibility on the canvas. Persisted on each basket item's `hidden`
-  // flag (not local state) so it survives a reload, rides the draft autosave,
-  // and reaches "Sunum'a geç" — where hidden nodes are dropped from the Sunum
-  // sidebar (and skipped at fetch). The nodes reconciliation effect applies it
-  // to each node's React Flow `hidden`; RF drops edges of hidden nodes.
-  const hiddenAliases = useMemo(
-    () => new Set((scope.basket || []).filter((b) => b.hidden).map((b) => b.alias)),
-    [scope.basket],
-  );
+  // Phase 11.hazirlik-polish-2: alias visibility on the canvas. The
+  // sidebar's "Tablolar" rows toggle entries in this set; the nodes
+  // reconciliation effect applies it to each node's `hidden` flag.
+  // React Flow drops edges connected to hidden nodes automatically.
+  // Faz R/B — pasif (Sunum'a gitmeyecek) alias'lar scope'ta kalıcı tutulur.
+  // Sol menüden tıklayınca aktif/pasif olur; pasif node canvas'ta kararır
+  // (gizlenmez); build yalnız aktifleri Sunum'a alır.
+  const inactiveAliases = useMemo(() => new Set(scope.inactive_aliases || []), [scope.inactive_aliases]);
   const toggleAliasVisibility = useCallback((alias) => {
-    setScope((cur) => ({
-      ...cur,
-      basket: cur.basket.map((b) =>
-        b.alias === alias ? { ...b, hidden: !b.hidden } : b),
-    }));
+    setScope((s) => {
+      const set = new Set(s.inactive_aliases || []);
+      if (set.has(alias)) set.delete(alias); else set.add(alias);
+      return { ...s, inactive_aliases: [...set] };
+    });
   }, []);
   const edges = useMemo(() => buildEdges(scope), [scope]);
 
@@ -1907,13 +2010,11 @@ function App() {
         .filter((n) => aliasesInScope.has(n.id))
         .map((n) => {
           const item = scope.basket.find((b) => b.alias === n.id);
-          // Apply current visibility on every reconcile — hiddenAliases
-          // mutates independently of `scope`, so this effect picks it up
-          // via the dependency list below.
-          const hidden = hiddenAliases.has(n.id);
+          // Faz R/B — pasif node GİZLENMEZ, kararır (data.inactive → TableNode dim).
+          const inactive = inactiveAliases.has(n.id);
           return item
-            ? { ...n, hidden, data: enrichNodeData(item, scope) }
-            : { ...n, hidden };
+            ? { ...n, hidden: false, data: { ...enrichNodeData(item, scope), inactive } }
+            : { ...n, hidden: false };
         });
       const known = new Set(kept.map((n) => n.id));
       const added = [];
@@ -1926,7 +2027,10 @@ function App() {
         //   calculated — columns (each with a free-form SQL expr)
         if (item.derivation && !COLS_BY_ALIAS[item.alias]) {
           const d = item.derivation;
-          if (d.kind === "calculated") {
+          if (d.kind === "filter") {
+            // Faz R1 — filter-node şemayı değiştirmez; kaynağın kolonlarını miras alır.
+            COLS_BY_ALIAS[item.alias] = COLS_BY_ALIAS[d.source_alias] || [];
+          } else if (d.kind === "calculated") {
             COLS_BY_ALIAS[item.alias] = (d.columns || []).map((c) => ({
               name: c.name, concept: null, join_key: false,
               expr: c.expr,
@@ -1943,14 +2047,14 @@ function App() {
         added.push({
           id: item.alias, type: "tableNode",
           position: { x: 100 + (seq % 3) * 340, y: 100 + Math.floor(seq / 3) * 240 },
-          hidden: hiddenAliases.has(item.alias),
-          data: enrichNodeData(item, scope),
+          hidden: false,
+          data: { ...enrichNodeData(item, scope), inactive: inactiveAliases.has(item.alias) },
         });
       });
       return [...kept, ...added];
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, hiddenAliases]);
+  }, [scope, inactiveAliases]);
 
   // ── Stage-2 LLM chat (8.f) ─────────────────────────────────────────────────
   const [chatHistory, setChatHistory] = useState([]);
@@ -2165,7 +2269,22 @@ function App() {
     }
   }, [addJoin]);
 
+  // showPreview aşağıda tanımlı (TDZ) → onEdgeClick içinde ref ile çağır.
+  const showPreviewRef = useRef(null);
   const onEdgeClick = useCallback((_e, edge) => {
+    // Faz R1/F3 — derivation lineage edge (main → türetilmiş): filter ise
+    // türetilmiş node'un drawer'ını aç (Kaynak Query görünür) + kaynağı
+    // Filtreleme'den düzenle ipucu. agg/calc ise türetilmiş önizlemeyi aç.
+    if (edge.data?.derivation) {
+      // Edge'in amacı filtreyi düzenlemek → kaynak (main) node'u açıp doğrudan
+      // Filtreleme ekranına götür. (agg/calc edge'inde türetilmiş önizleme.)
+      if (edge.data.derivKind === "filter") {
+        showPreviewRef.current && showPreviewRef.current(edge.data.sourceAlias, "filter");
+      } else {
+        showPreviewRef.current && showPreviewRef.current(edge.data.derivedAlias);
+      }
+      return;
+    }
     if (edge.data?.suggested) {
       // Shift-click on a suggested edge dismisses it (stored in
       // scope.dismissed_suggestions so it survives reloads).
@@ -2231,25 +2350,56 @@ function App() {
   // addTableFromCatalog'un sql karşılığı; recompute-routing YOK — saklama
   // kararını kullanıcı modalda verdi, decided_by:"user" ile korunur (sql
   // tablonun katalog satırı yok, recompute onu lazy'ye iterdi).
-  const addSqlDataset = ({ alias, sql, columns, routing, refresh }) => {
+  const addSqlDataset = ({ alias, sql, columns, routing, refresh, resolvePlan }) => {
+    // Faz R4/#1 — "Çözümle" planı varsa: kaynak tabloları (yoksa) LAZY main node
+    // ekle, bu sonucu derived_from ile onlara bağla.
+    const taken = new Set((scope.basket || []).map((b) => b.alias));
+    const derivedFrom = [];
+    const newMains = [];
+    if (resolvePlan && Array.isArray(resolvePlan.source_tables)) {
+      for (const t of resolvePlan.source_tables) {
+        const existing = (scope.basket || []).find(
+          (b) => b.table_ref && `${b.table_ref.schema}.${b.table_ref.name}` === t.id);
+        if (existing) { derivedFrom.push(existing.alias); continue; }
+        const a = makeAlias(t.name, [...taken]);
+        taken.add(a); derivedFrom.push(a);
+        const m = {
+          alias: a, table_ref: { schema: t.schema, name: t.name },
+          projection: { columns: (t.columns || []).map((c) => c.name), include_all: !(t.columns || []).length },
+          routing: { decision: "lazy", decided_by: "system", estimated_bytes: 0 },
+        };
+        COLS_BY_ALIAS[a] = (t.columns || []).map((c) => ({
+          name: c.name, type: c.type, concept: c.concept || null, join_key: false, lookup: null,
+        }));
+        newMains.push(m);
+      }
+    }
+
     const item = {
       sql, alias,
       projection: { columns: columns || [], include_all: false },
       routing: { decision: routing, decided_by: "user", estimated_bytes: 0 },
       provenance: "Hazırlık — manuel SQL",
+      ...(derivedFrom.length ? { derived_from: derivedFrom } : {}),
       ...(routing === "cached" && refresh ? { refresh } : {}),
     };
     COLS_BY_ALIAS[alias] = (columns || []).map((c) => ({
       name: c, type: null, concept: null, join_key: false, lookup: null,
     }));
-    setScope((s) => ({ ...s, basket: [...(s.basket || []), item] }));
-    setNodes((nds) => [...nds, {
-      id: alias, type: "tableNode",
-      position: { x: 80 + (nds.length % 3) * 340, y: 80 + Math.floor(nds.length / 3) * 240 },
-      data: enrichNodeData(item, scope),
-    }]);
+    const allNew = [...newMains, item];
+    setScope((s) => ({ ...s, basket: [...(s.basket || []), ...allNew] }));
+    setNodes((nds) => [
+      ...nds,
+      ...allNew.map((it, i) => ({
+        id: it.alias, type: "tableNode",
+        position: { x: 80 + ((nds.length + i) % 3) * 340, y: 80 + Math.floor((nds.length + i) / 3) * 240 },
+        data: enrichNodeData(it, scope),
+      })),
+    ]);
     setSqlModalOpen(false);
-    setToast(`'${alias}' SQL tablosu eklendi`);
+    setToast(newMains.length
+      ? `'${alias}' + ${newMains.length} kaynak tablo (node) eklendi`
+      : `'${alias}' SQL tablosu eklendi`);
   };
 
   const removeTable = (alias) => {
@@ -2279,10 +2429,10 @@ function App() {
     if (existing) removeTable(existing.alias); else addTableFromCatalog(t);
   };
 
-  const showPreview = useCallback(async (alias) => {
+  const showPreview = useCallback(async (alias, openTab) => {
     const item = scope.basket.find((b) => b.alias === alias);
     if (!item) return;
-    setPreviewLoading(true); setPreview({ alias });
+    setPreviewLoading(true); setPreview({ alias, openTab });
     try {
       let data;
       if (item.derivation && item.derivation.kind === "calculated") {
@@ -2296,6 +2446,16 @@ function App() {
         data = await r.json();
         if (!data.ok) throw new Error((data.errors || ["Türetilmiş önizleme başarısız"]).join("; "));
         data = { ...data, derived: true };
+      } else if (item.derivation && item.derivation.kind === "filter") {
+        // Faz R1/F3 — filter-node: sunucu compile_filter_sql ile kaynak query'yi
+        // üretir, capped örneği koşar ve SQL'i döner ("Kaynak Query" tab için).
+        const r = await fetch(FILTER_PREVIEW_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope, alias }),
+        });
+        data = await r.json();
+        if (!data.ok) throw new Error((data.errors || ["Filtre önizleme başarısız"]).join("; "));
+        data = { ...data, derived: true, isFilter: true };
       } else if (item.derivation) {
         // Aggregate: fetch source's raw rows, aggregate in-browser. Preview is a
         // sample so aggregates are illustrative — Sunum re-runs the derivation
@@ -2326,10 +2486,11 @@ function App() {
         u.searchParams.set("limit", "100");
         data = await (await fetch(u.pathname + u.search)).json();
       }
-      setPreview({ alias, ...data });
-    } catch (e) { setPreview({ alias, error: String(e) }); }
+      setPreview({ alias, openTab, ...data });
+    } catch (e) { setPreview({ alias, openTab, error: String(e) }); }
     finally { setPreviewLoading(false); }
   }, [scope]);
+  showPreviewRef.current = showPreview;   // onEdgeClick'in çağırması için güncel tut
 
   // Click a node → open its preview drawer. Click the SAME node again →
   // collapse the drawer (toggle behavior). Click anywhere on the empty
@@ -2405,37 +2566,73 @@ function App() {
   // (column) scope filters, replace this alias's panel-managed filters, then
   // recompute routing so the node badge reflects the new size (a date range on
   // a partition column can flip lazy→cached).
+  // Faz R1 — "Filtreyi kaydet" artık scope.filters metadata'sı yazmaz; kaynak
+  // (main) node'a bağlı bir CACHED türetilmiş filter-node üretir/günceller.
+  // Filtre node'a GÖMÜLÜ (derivation.kind='filter'); backend onu Oracle'dan
+  // çekip parquet'e materialise eder, boyutunu EXPLAIN PLAN ile hesaplar.
+  // Deterministik alias (`<kaynak>_f`) → tekrar kaydedince aynı node güncellenir
+  // (her küçük değişiklikte yeni node patlaması olmaz).
   const saveFilterPanel = (alias, specs) => {
+    const derivedAlias = `${alias}_f`;
+    // Faz A — kaynak başka bir türetilmiş node ise (table_ref yok), filtre
+    // DuckDB view'ı üstünde çalışır; o view'da concept binding yok. Bu yüzden
+    // zincirleme filtrelerde HER ZAMAN raw (kolon) üret — pinned (concept)
+    // backend'de derived kaynak için zaten atlanır, sessizce kaybolurdu.
+    const srcItem = (scope.basket || []).find((b) => b.alias === alias);
+    const srcIsDerived = !!(srcItem && (srcItem.derivation ||
+      (Array.isArray(srcItem.derived_from) && srcItem.derived_from.length)));
     const pinned = [], raw = [];
     for (const s of specs) {
       const concept = s.concept || null;
-      // The Phase 7 compiler emits only between/in/eq, for dimension/time
-      // concepts — numeric column predicates (incl. ranges) always go raw.
       const compilerSafe = s.type !== "num" && (s.op === "between" || s.op === "in" || s.op === "eq");
-      if (concept && compilerSafe) {
-        const f = { id: `pf_${concept}_${rid()}`, concept, op: s.op, applies_to: [alias] };
+      if (concept && compilerSafe && !srcIsDerived) {
+        const f = { id: `pf_${concept}_${rid()}`, concept, op: s.op, applies_to: [derivedAlias] };
         if (s.op === "between") { f.from = s.from; f.to = s.to; }
         else if (s.op === "in") { f.values = s.values; }
-        else { f.values = [s.value]; }   // eq → compiler reads values[0]
+        else { f.values = [s.value]; }
         pinned.push(f);
       } else {
-        const f = { id: `rf_${String(s.column).toLowerCase()}_${rid()}`, alias, column: s.column, op: s.op };
+        const f = { id: `rf_${String(s.column).toLowerCase()}_${rid()}`, alias: derivedAlias, column: s.column, op: s.op };
         if (s.op === "between") { f.from = s.from; f.to = s.to; }
         else if (s.op === "in") { f.values = s.values; }
-        else { f.value = s.value; }      // eq / gt / gte / lt / lte
+        else { f.value = s.value; }
         raw.push(f);
       }
     }
+    // Türetilmiş node kaynağın kolonlarını miras alır (render için).
+    COLS_BY_ALIAS[derivedAlias] = COLS_BY_ALIAS[alias] || [];
+    const existed = (scope.basket || []).some((b) => b.alias === derivedAlias);
+
     setScope((cur) => {
-      // Replace only THIS alias's panel-managed filters (single-alias pinned +
-      // raw on this alias); leave global ([]) and multi-alias filters intact.
+      let basket = [...cur.basket];
+      // Geçiş temizliği: kaynağın eski scope.filters metadata'sını sök (artık node).
       const keptPinned = (cur.filters.pinned || []).filter(
         (f) => !(Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === alias)
       );
       const keptRaw = (cur.filters.raw || []).filter((f) => f.alias !== alias);
+
+      if (pinned.length === 0 && raw.length === 0) {
+        // Filtre temizlendi → türetilmiş node'u kaldır.
+        return {
+          ...cur,
+          basket: basket.filter((b) => b.alias !== derivedAlias),
+          filters: { ...cur.filters, pinned: keptPinned, raw: keptRaw },
+        };
+      }
+
+      const filterNode = {
+        alias: derivedAlias,
+        derivation: { kind: "filter", source_alias: alias, filters: { pinned, raw } },
+        projection: { columns: [], include_all: true },   // kaynağı miras al
+        routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
+      };
+      const idx = basket.findIndex((b) => b.alias === derivedAlias);
+      if (idx >= 0) basket[idx] = { ...basket[idx], ...filterNode };
+      else basket = [...basket, filterNode];
+
       const next = {
-        ...cur,
-        filters: { ...cur.filters, pinned: [...keptPinned, ...pinned], raw: [...keptRaw, ...raw] },
+        ...cur, basket,
+        filters: { ...cur.filters, pinned: keptPinned, raw: keptRaw },
       };
       fetch(ROUTING_RECOMPUTE_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -2445,14 +2642,18 @@ function App() {
       }).catch(() => {});
       return next;
     });
-    setToast(`${pinned.length + raw.length} filtre kaydedildi.`);
+    setToast(existed
+      ? `'${derivedAlias}' filtreli node güncellendi.`
+      : `'${derivedAlias}' filtreli node oluşturuldu (cached).`);
   };
 
   // Distinct values for a get_distinct string column → Filtreleme checkbox list.
   const fetchDistinct = async (alias, column) => {
     const item = scope.basket.find((b) => b.alias === alias);
     const tr = item?.table_ref;
-    if (!tr) throw new Error("Kaynak tablo bulunamadı");
+    // Türetilmiş node'un distinct kaynağı (Oracle tablo) yok — DuckDB view'dan
+    // distinct çekmek için endpoint yok; kullanıcı değeri elle girsin.
+    if (!tr) return [];
     const u = new URL(DISTINCT_URL, window.location.origin);
     u.searchParams.set("schema", tr.schema || "");
     u.searchParams.set("table", tr.name);
@@ -2525,10 +2726,30 @@ function App() {
 
   const _finalisedScope = () => {
     const pos = Object.fromEntries(nodes.map((n) => [n.id, n.position]));
-    return {
-      ...scope,
-      basket: scope.basket.map((b) => pos[b.alias] ? { ...b, layout: { x: pos[b.alias].x, y: pos[b.alias].y } } : b),
-    };
+    // Faz R/B — Sunum'a yalnız AKTİF node'lar gider. Pasifleri çıkar; ama bir
+    // aktif türetilmiş node'un KAYNAĞI (derivation.source_alias — filter/aggregate/
+    // calculated için compile/materialize'a gerekli) pasif olsa bile geri eklenir
+    // (lazy kaynak materialise olmadığı için Sunum'u şişirmez). derived_from (sql)
+    // kaynakları gerçek Oracle tablolarıdır → basket'te durması gerekmez.
+    const inactive = new Set(scope.inactive_aliases || []);
+    const keep = new Set(scope.basket.filter((b) => !inactive.has(b.alias)).map((b) => b.alias));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const b of scope.basket) {
+        if (!keep.has(b.alias) || !b.derivation) continue;
+        const d = b.derivation;
+        const srcs = d.kind === "calculated" ? (d.source_aliases || [])
+          : (d.source_alias ? [d.source_alias] : []);
+        for (const s of srcs) { if (!keep.has(s)) { keep.add(s); changed = true; } }
+      }
+    }
+    const basket = scope.basket
+      .filter((b) => keep.has(b.alias))
+      .map((b) => pos[b.alias] ? { ...b, layout: { x: pos[b.alias].x, y: pos[b.alias].y } } : b);
+    const joins = (scope.joins || []).filter(
+      (j) => keep.has(j.left.alias) && keep.has(j.right.alias));
+    return { ...scope, basket, joins, inactive_aliases: [] };
   };
 
   const _commitBuild = async (finalScope) => {
@@ -2603,7 +2824,7 @@ function App() {
         <SourcesSidebar
           scope={scope}
           libraryBlocks={DATA.library_blocks || []}
-          hiddenAliases={hiddenAliases}
+          hiddenAliases={inactiveAliases}
           onToggleVisibility={toggleAliasVisibility}
           onOpenDocs={(t) => setDocsTable((cur) => (cur && cur.id === t.id ? null : t))}
           goingToSunum={busy}
@@ -2650,12 +2871,25 @@ function App() {
               onResizeStart={startResize} onClose={() => setPreview(null)}
               onSaveFilters={saveFilters} onSaveAsTable={saveAsTable}
               onSaveFilterPanel={saveFilterPanel} onFetchDistinct={fetchDistinct}
-              existingFilters={{
-                pinned: (scope.filters.pinned || []).filter((f) => Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === preview.alias),
-                raw: (scope.filters.raw || []).filter((f) => f.alias === preview.alias),
-              }}
+              existingFilters={(() => {
+                // Filtreler artık `<alias>_f` türetilmiş node'una gömülü (node
+                // modeli). Önce onu pre-fill et; yoksa legacy scope.filters'a düş.
+                const child = (scope.basket || []).find((b) => b.alias === `${preview.alias}_f`);
+                if (child && child.derivation && child.derivation.filters) {
+                  return {
+                    pinned: child.derivation.filters.pinned || [],
+                    raw: child.derivation.filters.raw || [],
+                  };
+                }
+                return {
+                  pinned: (scope.filters.pinned || []).filter((f) => Array.isArray(f.applies_to) && f.applies_to.length === 1 && f.applies_to[0] === preview.alias),
+                  raw: (scope.filters.raw || []).filter((f) => f.alias === preview.alias),
+                };
+              })()}
               savedGridState={gridStateByAlias[preview.alias]}
               onGridReady={(p) => { gridApiRef.current = p.api; window.__hzGridApi = p.api; }}
+              item={(scope.basket || []).find((b) => b.alias === preview.alias)}
+              onSaveRefresh={saveRefresh}
             />
           )}
         </main>

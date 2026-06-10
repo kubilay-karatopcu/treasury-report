@@ -386,17 +386,16 @@ class BasketItem(BaseModel):
     projection: Projection = Field(default_factory=Projection)
     routing: Routing
     layout: NodePosition | None = None
-    # Hazırlık node visibility ("gizle" / EyeOff). When truthy the user has
-    # hidden this node: it is dropped from the ER canvas, excluded from the
-    # Sunum "Veri Kaynakları" sidebar, and (when nothing visible depends on it)
-    # skipped at fetch time. None == visible — kept None-default so existing
-    # scopes serialise byte-identically (scope_to_dict uses exclude_none).
-    hidden: bool | None = None
     # Faz A: cron refresh for cached datasets. None = no scheduled refresh
     # (materialised once at scope build). Only meaningful when cached.
     refresh: DatasetRefresh | None = None
     # Faz C: where an LLM-authored sql dataset came from (kaynakça/provenance).
     provenance: str | None = Field(default=None, max_length=4000)
+    # Faz R4/#1: lineage for a `sql` node produced by "Çözümle" — the basket
+    # aliases of the source tables the query reads. Pure UI hint: the edge from
+    # each source main node → this node is drawn from it. (derivation nodes carry
+    # their own source_alias(es); this is for free-form sql nodes.)
+    derived_from: list[Alias] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "BasketItem":
@@ -597,6 +596,11 @@ class ScopeContract(BaseModel):
     # so the dismissal survives reloads; cleared when one of the aliases is
     # removed from the basket so re-adding gives a clean slate.
     dismissed_suggestions: list[str] = Field(default_factory=list)
+    # Faz R/B — "Sunum basketi": basket'te DURAN ama Sunum'a GİTMEYECEK alias'lar.
+    # Hazırlık canvas'ında dimmed (kararmış) gösterilir; build yalnız AKTİF
+    # (bu listede olmayan) node'ları materialise eder + Sunum'a alır. Kullanıcı
+    # sol menüden tıklayarak aktif/pasif yapar.
+    inactive_aliases: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _parent_below_self(self) -> "ScopeContract":

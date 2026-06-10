@@ -137,3 +137,42 @@ def test_fetch_materialises_filter_node_from_oracle():
     assert n == 2
     # The lazy main table was NOT fetched (no Oracle pull for it).
     assert "dep_main" not in loaded
+
+
+def test_chain_filter_on_filter_runs_second_in_duckdb():
+    # Faz A — main(lazy) → filter f1 (Oracle) → filter f2 (DuckDB over f1).
+    f1 = _filter_node("dep_a", "dep_main",
+                      raw=[RawFilter(id="rf_1", alias="dep_a", column="BRANCH", op="gte", value=2)])
+    f2 = _filter_node("dep_b", "dep_a",   # source is the DERIVED node f1
+                      raw=[RawFilter(id="rf_2", alias="dep_b", column="BRANCH", op="eq", value=2)])
+    scope = _scope([_main(), f1, f2])
+    dc = _StubDC(pd.DataFrame({"BRANCH": [1, 2, 3], "BALANCE": [10, 20, 30], "AS_OF": ["x", "y", "z"]}))
+    conn = duckdb.connect(":memory:")
+
+    loaded = fetch_cached_tables(dc, conn, scope)
+
+    assert "dep_a" in loaded and "dep_b" in loaded
+    # Only ONE Oracle pull (f1); f2 filtered f1 entirely in DuckDB.
+    assert len(dc.calls) == 1
+    # f2 = (stub 3 rows) → f1 is just the same stub rows (StubDC ignores WHERE) →
+    # f2 keeps BRANCH=2 → 1 row.
+    assert conn.execute('SELECT COUNT(*) FROM "dep_b"').fetchone()[0] == 1
+
+
+# ── materialize: filter-node → parquet (Sunum dataset path, F4) ──────────
+
+def test_materialize_computes_filter_node_from_oracle():
+    from presentations.scope.materialize import _compute_dataset_df
+    raw = [RawFilter(id="rf_1", alias="dep_7d", column="AS_OF", op="between",
+                     **{"from": "today - 7d", "to": "today"})]
+    scope = _scope([_main(), _filter_node("dep_7d", "dep_main", raw=raw)])
+    dc = _StubDC(pd.DataFrame({"BRANCH": [1], "BALANCE": [5], "AS_OF": ["z"]}))
+    df, sql = _compute_dataset_df(
+        dc, scope, scope.basket_item("dep_7d"),
+        catalog=None, concept_registry=None, binding_catalog=None,
+        visited=frozenset(),
+    )
+    # Filter-node materialises by re-querying the SOURCE Oracle table (filtered).
+    assert "FROM EDW.DEPOSITS WHERE" in sql and "AS_OF BETWEEN :" in sql
+    assert len(df) == 1
+    assert dc.calls and dc.calls[0]["query"] == sql
