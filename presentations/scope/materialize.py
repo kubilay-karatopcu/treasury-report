@@ -32,6 +32,7 @@ from presentations.duck import register_dataframe
 from presentations.scope.fetch import (
     compile_aggregate_sql,
     compile_calculated_sql,
+    compile_filter_sql,
     compose_cached_sql,
 )
 from presentations.scope.schema import BasketItem, ScopeContract
@@ -167,6 +168,42 @@ def _compute_dataset_df(
             scope, item, catalog,
             concept_registry=concept_registry, binding_catalog=binding_catalog,
         )
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"dataset::{scope.presentation_id}/{item.alias}",
+            query=sql, query_params=binds,
+        )
+        return (df if df is not None else pd.DataFrame()), sql
+
+    # Filter-node (Faz R1/A): re-query the source with the embedded filters.
+    #  - Oracle source (lazy main) → compile_filter_sql (Oracle), dc.get_data.
+    #  - Derived source (Faz A zincirleme) → compute the source recursively, run
+    #    the DuckDB filter SQL over it. Only the small filtered result persists.
+    if item.derivation is not None and item.derivation.kind == "filter":
+        d = item.derivation
+        sql, binds = compile_filter_sql(
+            scope, item, catalog,
+            concept_registry=concept_registry, binding_catalog=binding_catalog,
+        )
+        src = scope.basket_item(d.source_alias)
+        if src is not None and src.table_ref is None:
+            # Derived source — materialise it (parquet or in-memory), filter in DuckDB.
+            if item.alias in visited:
+                raise ValueError(f"materialize_dataset: derivation cycle through {item.alias!r}")
+            from presentations.duck import connect_duckdb
+            got = read_dataset(dc, scope.presentation_id, d.source_alias)
+            if got is not None:
+                src_df = got[0]
+            else:
+                src_df, _ = _compute_dataset_df(
+                    dc, scope, src, catalog=catalog,
+                    concept_registry=concept_registry, binding_catalog=binding_catalog,
+                    visited=visited | {item.alias},
+                )
+            conn = connect_duckdb(":memory:")
+            register_dataframe(conn, d.source_alias, src_df)
+            df = conn.execute(sql, binds).fetchdf() if binds else conn.execute(sql).fetchdf()
+            return df, sql
         df = dc.get_data(
             base_prefix=None,
             dataset=f"dataset::{scope.presentation_id}/{item.alias}",

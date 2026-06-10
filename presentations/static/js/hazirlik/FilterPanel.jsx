@@ -90,7 +90,7 @@ function editsFromExisting(cols, existing) {
   return out;
 }
 
-export default function FilterPanel({ alias, columns = [], existing, onSave, onFetchDistinct, saveRef }) {
+export default function FilterPanel({ alias, columns = [], existing, onSave, onFetchDistinct, saveRef, derivedSource = false }) {
   const cols = useMemo(
     () => (columns || []).filter((c) => c && c.name).map((c) => ({ ...c, _t: classify(c.type) })),
     [columns]
@@ -174,6 +174,13 @@ export default function FilterPanel({ alias, columns = [], existing, onSave, onF
 
   return (
     <div className="hz-fp">
+      {derivedSource && (
+        <p className="hz-muted" style={{ padding: '6px 10px', fontSize: 11, margin: 0 }}>
+          Türetilmiş node — filtre kaynağın üstünde zincirlenir (yeni cached
+          <code> {alias}_f </code> node'u). Concept yerine kolon (raw) filtresi
+          uygulanır; değerleri elle gir.
+        </p>
+      )}
       <div className="hz-fp-list">
         {cols.map((c) => {
           const ed = edits[c.name] || {};

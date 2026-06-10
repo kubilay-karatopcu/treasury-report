@@ -567,16 +567,15 @@ def _manifest_basket_from_scope(scope: ScopeContract) -> list[dict[str, Any]]:
 
     Without this, manual-SQL and derived (filter/aggregate) nodes built in
     Hazırlık never reach Sunum's "Veri Kaynakları" list (they live only in
-    ``scope.basket``, never the manifest basket Keşif populated). Hidden
-    ("gizle") nodes are excluded entirely. SQL / derivation entries carry a
-    ``source`` (and ``derivation_kind``) so the sidebar can badge them; their
-    ``table`` is the alias (= the DuckDB view name) since there is no Oracle
-    table id to show.
+    ``scope.basket``, never the manifest basket Keşif populated). The scope
+    reaching build is already active-only (the Hazırlık ``_finalisedScope``
+    strips ``inactive_aliases`` before posting), so every basket item here is a
+    node the user wants in Sunum. SQL / derivation entries carry a ``source``
+    (and ``derivation_kind``) so the sidebar can badge them; their ``table`` is
+    the alias (= the DuckDB view name) since there is no Oracle table id.
     """
     out: list[dict[str, Any]] = []
     for b in scope.basket:
-        if b.hidden:
-            continue
         if b.table_ref is not None:
             cols = [] if b.projection.include_all else list(b.projection.columns or [])
             out.append({
@@ -596,42 +595,6 @@ def _manifest_basket_from_scope(scope: ScopeContract) -> list[dict[str, Any]]:
                 "source": "derived", "derivation_kind": b.derivation.kind,
             })
     return out
-
-
-def _scope_for_fetch(scope: ScopeContract) -> ScopeContract:
-    """A copy of ``scope`` with hidden nodes that nothing visible depends on
-    removed, so they are not pulled from Oracle ("gizle" → fetch'lenmez).
-
-    A hidden node is *kept* when a visible derivation uses it as a source or a
-    visible join touches it — dropping it then would break that dependent. This
-    guard means the prune can never invalidate an otherwise-valid scope.
-    """
-    hidden = {b.alias for b in scope.basket if b.hidden}
-    if not hidden:
-        return scope
-    needed: set[str] = set()
-    for b in scope.basket:
-        if b.hidden or b.derivation is None:
-            continue
-        d = b.derivation
-        if d.source_alias:
-            needed.add(d.source_alias)
-        needed.update(d.source_aliases or [])
-    for j in (scope.joins or []):
-        if j.left.alias not in hidden:
-            needed.add(j.right.alias)
-        if j.right.alias not in hidden:
-            needed.add(j.left.alias)
-    drop = hidden - needed
-    if not drop:
-        return scope
-    active = scope.model_copy(deep=True)
-    active.basket = [b for b in active.basket if b.alias not in drop]
-    active.joins = [
-        j for j in (active.joins or [])
-        if j.left.alias not in drop and j.right.alias not in drop
-    ]
-    return active
 
 
 def _columns_by_alias(scope: ScopeContract) -> dict[str, list[dict[str, Any]]]:
@@ -1047,15 +1010,13 @@ def build_scope(pid: str):
         refetch_only = diff.affected_aliases
         drop_aliases = set(diff.removed_aliases)
 
-    # Hidden ("gizle") nodes that nothing visible depends on are pruned so
-    # Oracle isn't queried for them. The full scope is still validated and
-    # persisted below — only the fetch pass sees the trimmed copy.
-    fetch_scope = _scope_for_fetch(scope)
-
+    # Passive ("pasif") nodes are already stripped from the basket by the
+    # Hazırlık _finalisedScope before build, so the scope here is active-only —
+    # the fetch pass materialises exactly what Sunum will show.
     try:
         with session.duck_conn() as conn:
             loaded = fetch_cached_tables(
-                dc, conn, fetch_scope,
+                dc, conn, scope,
                 catalog=catalog,
                 concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
                 binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
@@ -1414,6 +1375,151 @@ def scope_preview_sql(pid: str):
     # SqlDatasetModal reads `columns`. Return both so one endpoint serves both.
     return _json({"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
                   "row_count": int(len(df)), "warnings": chk.warnings})
+
+
+@presentations_bp.route("/<pid>/scope/filter-preview", methods=["POST"])
+@login_required
+def scope_filter_preview(pid: str):
+    """Faz R1/F3 — preview a filter-derivation node + return its generated source
+    SQL. Compiles ``compile_filter_sql`` (Oracle SELECT against the source main
+    table with the node's embedded filters), runs a row-capped sample, and
+    returns rows + the SQL so the Hazırlık drawer can show a "Kaynak Query" tab.
+
+    Request:  ``{"scope": <draft>, "alias": "<filter node>"}``
+    Response: ``{ok, columns, data_columns, rows, row_count, sql}``.
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    if not isinstance(scope_in, dict) or not alias:
+        return _json({"ok": False, "errors": ["scope ve alias zorunlu"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    item = scope.basket_item(alias)
+    if item is None or item.derivation is None or item.derivation.kind != "filter":
+        return _json({"ok": False, "errors": [f"'{alias}' bir filter-node değil"]}, status=400)
+
+    try:
+        # The DISPLAYED "Kaynak Query" is the real cache query (no row cap) —
+        # FETCH FIRST is a preview-only concern. Pretty-print it for readability.
+        display_sql, _ = compile_filter_sql(
+            scope, item, _catalog(),
+            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
+            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+            max_rows=None,
+        )
+        # The RUN sql is capped (sample only).
+        sql, binds = compile_filter_sql(
+            scope, item, _catalog(),
+            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
+            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+            max_rows=200,
+        )
+    except Exception as exc:
+        return _json({"ok": False, "phase": "compile", "errors": [str(exc)]}, status=400)
+
+    try:
+        import sqlparse
+        pretty_sql = sqlparse.format(display_sql, reindent=True, keyword_case="upper")
+    except Exception:
+        pretty_sql = display_sql
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        # No Oracle (DEV stub) — still return the SQL so the query tab works.
+        return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
+                      "row_count": 0, "sql": pretty_sql})
+
+    import pandas as pd
+    from presentations import duck
+    try:
+        df = dc.get_data(base_prefix=None, dataset=f"filter-preview::{pid}/{alias}",
+                         query=sql, query_params=binds)
+    except Exception as exc:
+        msg = str(exc).strip().splitlines()[0][:240]
+        # SQL still useful even if the sample run failed.
+        return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
+                      "row_count": 0, "sql": pretty_sql, "warnings": [msg]})
+
+    if df is None:
+        df = pd.DataFrame()
+    cols = [str(c) for c in df.columns]
+    rows = [[duck._jsonable(v) for v in r]
+            for r in df.head(200).itertuples(index=False, name=None)]
+    return _json({"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
+                  "row_count": int(len(df)), "sql": pretty_sql})
+
+
+@presentations_bp.route("/<pid>/scope/resolve-sql", methods=["POST"])
+@login_required
+def scope_resolve_sql(pid: str):
+    """Faz R4/#1 — "Çözümle": parse a free-form query into a node plan.
+
+    Whitelist-validate → extract the source tables (FROM/JOIN via
+    ``derive_source_tables``) → report which are documented (table-doc store) and
+    surface their columns + concept bindings. The Hazırlık UI uses this to add the
+    source tables as MAIN nodes and the query result as a derived (sql) node bound
+    to them, and to warn about undocumented tables (limited concept inference).
+
+    Request:  ``{"sql": "<query>"}``
+    Response: ``{ok, sql, source_tables: [{schema, name, id, documented, columns:
+                 [{name, type, concept}]}], warnings}``.
+    """
+    body = request.get_json(silent=True) or {}
+    sql = (body.get("sql") or "").strip()
+    if not sql:
+        return _json({"ok": False, "errors": ["SQL boş olamaz."]}, status=400)
+
+    from presentations.sql.validator import validate_sql
+    chk = validate_sql(sql)
+    if not chk.ok:
+        return _json({"ok": False, "phase": "sql", "errors": chk.errors,
+                      "warnings": chk.warnings}, status=400)
+
+    from presentations.concepts.integration import derive_source_tables
+    tables = derive_source_tables({"query": sql})
+
+    store = current_app.config.get("TABLE_DOC_STORE")
+    bc = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    source_tables: list[dict[str, Any]] = []
+    warnings = list(chk.warnings or [])
+    for (schema, name) in tables:
+        doc = None
+        try:
+            doc = store.load(schema, name) if store is not None else None
+        except Exception:
+            doc = None
+        columns: list[dict[str, Any]] = []
+        if doc is not None:
+            bind_concept: dict[str, str] = {}
+            if bc is not None:
+                try:
+                    for b in bc.get_bindings(schema, name):
+                        if getattr(b, "column", None) and getattr(b, "concept", None):
+                            bind_concept[b.column] = b.concept
+                except Exception:
+                    pass
+            for col, cd in (getattr(doc, "columns", {}) or {}).items():
+                columns.append({
+                    "name": col,
+                    "type": getattr(cd, "type", None),
+                    "concept": bind_concept.get(col) or getattr(cd, "suggested_semantic_tag", None),
+                })
+        else:
+            warnings.append(
+                f"{schema}.{name} dökümante değil — concept çıkarımı sınırlı. "
+                "Önce Tablolar'dan dökümante et."
+            )
+        source_tables.append({
+            "schema": schema, "name": name, "id": f"{schema}.{name}",
+            "documented": doc is not None, "columns": columns,
+        })
+
+    return _json({"ok": True, "sql": sql, "source_tables": source_tables,
+                  "warnings": warnings})
 
 
 @presentations_bp.route("/<pid>/scope/routing-override", methods=["POST"])

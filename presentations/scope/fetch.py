@@ -172,6 +172,18 @@ def _concept_pushdown_from(
     clauses: list[str] = []
     binds: dict[str, Any] = {}
 
+    # Relative-date resolver: a pinned date concept can carry "today - 7d" /
+    # "today" — resolve to a concrete date BEFORE the compiler binds it, else the
+    # raw string lands as a bind value and Oracle compares a DATE column to text
+    # → no rows (the empty-filter-node bug). Non-date strings (e.g. "TRY") fail
+    # to parse → kept verbatim.
+    def _resolve_rel(v):
+        if isinstance(v, str):
+            d = _as_date(v)
+            if d is not None:
+                return d
+        return v
+
     for pf in pinned:
         # The variable resolver still handles last_n_days, so skip it here
         # (would require runtime "today" expression — out of scope for fetch).
@@ -184,17 +196,17 @@ def _concept_pushdown_from(
             # to the partition column. Compile anyway — concept-blind cases
             # produce empty predicates, and non-partition between filters
             # (e.g. tenor range bucket) still get pushed.
-            values: list = [pf.from_, pf.to]
+            values: list = [_resolve_rel(pf.from_), _resolve_rel(pf.to)]
             op = "between"
         elif pf.op in ("in", "not_in"):
             # not_in isn't a Phase 7 operator; compile as 'in' and let the
             # caller's NOT IN handling stay at variable-resolver layer.
             if pf.op == "not_in":
                 continue
-            values = list(pf.values or [])
+            values = [_resolve_rel(x) for x in (pf.values or [])]
             op = "in"
         elif pf.op == "eq":
-            values = [pf.value]
+            values = [_resolve_rel(pf.value)]
             op = "eq"
         else:
             continue
@@ -286,18 +298,32 @@ def compile_filter_sql(
     if d is None or d.kind != "filter":
         raise ValueError(f"compile_filter_sql: '{item.alias}' is not a filter node")
     source = scope.basket_item(d.source_alias)
-    if source is None or source.table_ref is None:
+    if source is None:
         raise ValueError(
-            f"filter node '{item.alias}': source '{d.source_alias}' has no Oracle table"
+            f"filter node '{item.alias}': source '{d.source_alias}' not in basket"
         )
-    table_ref = source.table_ref
-    table = f"{table_ref.schema_name}.{table_ref.name}"
-    # Projection: the node's own if set, else inherit the source's.
-    proj = item.projection if (item.projection and item.projection.columns) else source.projection
-    cols = "*" if (proj.include_all or not proj.columns) else ", ".join(proj.columns)
 
     pinned = list(d.filters.pinned) if d.filters else []
     raw = list(d.filters.raw) if d.filters else []
+
+    # ── Derived source (Faz A — zincirleme): the source is a DuckDB view
+    # (aggregate/calculated/another filter). Filter it IN DuckDB. No table_ref →
+    # no partition/concept pushdown (a view has no table-doc bindings); raw
+    # column predicates only. DuckDB uses $name params, so swap the ':' the
+    # Oracle composer emits → '$'. (The frontend produces raw filters when the
+    # user filters a derived node.)
+    if source.table_ref is None:
+        rclauses, binds = _raw_predicates_from(raw, item.alias)
+        duck_clauses = [c.replace(":", "$") for c in rclauses]
+        where_sql = (" WHERE " + " AND ".join(duck_clauses)) if duck_clauses else ""
+        cap_sql = f" LIMIT {int(max_rows)}" if max_rows else ""
+        return f'SELECT * FROM "{d.source_alias}"{where_sql}{cap_sql}', binds
+
+    # ── Oracle source (lazy main table): re-query Oracle with the filters.
+    table_ref = source.table_ref
+    table = f"{table_ref.schema_name}.{table_ref.name}"
+    proj = item.projection if (item.projection and item.projection.columns) else source.projection
+    cols = "*" if (proj.include_all or not proj.columns) else ", ".join(proj.columns)
 
     where_parts: list[str] = []
     binds: dict[str, Any] = {}
@@ -457,67 +483,85 @@ def fetch_cached_tables(
         log.info("scope.fetch_cached_tables: %s ← %s (%d rows)",
                  item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df))
 
-    # Pass 1.5 — filter-derivation nodes (Faz R1): re-query the SOURCE Oracle
-    # table with the node's embedded filters (compile_filter_sql) and materialise
-    # the result like a cached table. The source (main) is lazy and NOT
-    # materialised — the filter SELECT goes straight to Oracle. Runs before
-    # Pass 2 so an aggregate can sit on top of a filtered node.
-    for item in scope.basket:
-        d = item.derivation
-        if d is None or d.kind != "filter":
-            continue
-        if item.routing.decision != "cached":
-            continue   # lazy filter-node → on-demand fetch path (8.d), not here
-        if refetch_only is not None and item.alias not in refetch_only:
-            continue
-        sql, binds = compile_filter_sql(
-            scope, item, catalog,
-            concept_registry=concept_registry, binding_catalog=binding_catalog,
-        )
-        df = dc.get_data(
-            base_prefix=None,
-            dataset=f"scope::{scope.presentation_id}/{item.alias}",
-            query=sql, query_params=binds,
-        )
-        if df is None:
-            df = pd.DataFrame()
-        if len(df.columns) > 0:
-            register_dataframe(conn, item.alias, df)
-        loaded[item.alias] = {"derived_from": d.source_alias, "rows": int(len(df))}
-        log.info("scope.fetch_cached_tables: %s ⇐ filter of %s (%d rows)",
-                 item.alias, d.source_alias, len(df))
-
-    # Pass 2 — derived tables (aggregate + calculated), computed on DuckDB
-    # over already-materialised source views. In partial-refresh mode we only
-    # re-run when any source alias of the derivation was re-fetched.
-    for item in scope.derived_items():
-        d = item.derivation
-        if d.kind == "filter":
-            continue   # handled in Pass 1.5 (Oracle, not DuckDB)
-        # Set of source aliases this derivation depends on.
+    # Pass 2 — derived nodes (filter / aggregate / calculated) in DEPENDENCY
+    # ORDER (Faz A — zincirleme). A node is processed once all its DuckDB-source
+    # aliases are registered, so chains (filter → aggregate → filter …) build
+    # correctly regardless of basket order:
+    #   - filter on an ORACLE source → compile_filter_sql (Oracle), dc.get_data.
+    #   - filter on a DERIVED source → compile_filter_sql (DuckDB $-binds), run
+    #     on the materialised source view in DuckDB.
+    #   - aggregate / calculated → DuckDB over the materialised source view(s).
+    def _duck_sources(it):
+        """Source aliases that must be a registered DuckDB VIEW before `it` runs.
+        An Oracle-table source of a filter doesn't count (filter hits Oracle)."""
+        d = it.derivation
         if d.kind == "aggregate":
-            deps = {d.source_alias} if d.source_alias else set()
-            sql = compile_aggregate_sql(item)
-            kind_label = "aggregate"
-            derived_from_value = d.source_alias
-        else:                         # calculated
-            deps = set(d.source_aliases)
-            sql = compile_calculated_sql(item)
-            kind_label = "calculated"
-            derived_from_value = list(d.source_aliases)
-        # Partial-refresh gate: any source alias touched → re-run.
-        if refetch_only is not None and not (deps & refetch_only):
-            continue
-        try:
-            df = conn.execute(sql).fetchdf()
-        except Exception as exc:
-            raise RuntimeError(
-                f"derived table '{item.alias}' failed ({sql!r}): {exc}"
-            ) from exc
-        if len(df.columns) > 0:
-            register_dataframe(conn, item.alias, df)
-        loaded[item.alias] = {"derived_from": derived_from_value, "rows": int(len(df))}
-        log.info("scope.fetch_cached_tables: %s ⇐ %s of %s (%d rows)",
-                 item.alias, kind_label, derived_from_value, len(df))
+            srcs = [d.source_alias] if d.source_alias else []
+        elif d.kind == "calculated":
+            srcs = list(d.source_aliases)
+        else:  # filter — only a DERIVED source needs a view; Oracle source hits Oracle
+            src = scope.basket_item(d.source_alias)
+            srcs = [d.source_alias] if (src is not None and src.table_ref is None) else []
+        return set(srcs)
+
+    pending = [b for b in scope.basket
+               if b.derivation is not None and b.routing.decision == "cached"]
+    registered = set(loaded.keys())  # raw cached tables just loaded in Pass 1
+    progressed = True
+    while pending and progressed:
+        progressed = False
+        still = []
+        for item in pending:
+            d = item.derivation
+            if not (_duck_sources(item) <= registered):
+                still.append(item)
+                continue
+            all_srcs = ({d.source_alias} if d.kind in ("aggregate", "filter") and d.source_alias
+                        else set(d.source_aliases))
+            if refetch_only is not None and not (all_srcs & refetch_only) and item.alias not in refetch_only:
+                registered.add(item.alias)   # treated as up-to-date (inherited view)
+                progressed = True
+                continue
+            if d.kind == "filter":
+                src = scope.basket_item(d.source_alias)
+                sql, binds = compile_filter_sql(
+                    scope, item, catalog,
+                    concept_registry=concept_registry, binding_catalog=binding_catalog,
+                )
+                if src is not None and src.table_ref is not None:
+                    df = dc.get_data(
+                        base_prefix=None,
+                        dataset=f"scope::{scope.presentation_id}/{item.alias}",
+                        query=sql, query_params=binds,
+                    )
+                    df = df if df is not None else pd.DataFrame()
+                else:
+                    df = conn.execute(sql, binds).fetchdf() if binds else conn.execute(sql).fetchdf()
+                derived_from_value = d.source_alias
+                label = "filter"
+            else:
+                sql = (compile_aggregate_sql(item) if d.kind == "aggregate"
+                       else compile_calculated_sql(item))
+                try:
+                    df = conn.execute(sql).fetchdf()
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"derived table '{item.alias}' failed ({sql!r}): {exc}"
+                    ) from exc
+                derived_from_value = (d.source_alias if d.kind == "aggregate"
+                                      else list(d.source_aliases))
+                label = d.kind
+            if len(df.columns) > 0:
+                register_dataframe(conn, item.alias, df)
+            loaded[item.alias] = {"derived_from": derived_from_value, "rows": int(len(df))}
+            registered.add(item.alias)
+            progressed = True
+            log.info("scope.fetch_cached_tables: %s ⇐ %s of %s (%d rows)",
+                     item.alias, label, derived_from_value, len(df))
+        pending = still
+    if pending:
+        log.warning("scope.fetch_cached_tables: %d derived node(s) had unresolved "
+                    "sources (cycle / missing): %s",
+                    len(pending), [b.alias for b in pending])
 
     return loaded
