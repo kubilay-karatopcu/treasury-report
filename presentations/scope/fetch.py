@@ -400,15 +400,18 @@ def compile_aggregate_sql(item: BasketItem) -> str:
     emitted from it.
     """
     d = item.derivation
-    selects = list(d.group_by)
+    # Kimlikler quote'lanır: şema zaten identifier-dışını reddediyor ama quote
+    # (a) keyword kolon adlarını ("ORDER" gibi) çalışır kılar, (b) DuckDB'de
+    # exact-case eşleşme sağlar (view kolonları DataFrame'in birebir adlarıdır).
+    selects = [f'"{g}"' for g in d.group_by]
     for m in d.measures:
         if m.fn == "count_distinct":
-            selects.append(f"COUNT(DISTINCT {m.column}) AS {m.as_}")
+            selects.append(f'COUNT(DISTINCT "{m.column}") AS "{m.as_}"')
         else:
-            selects.append(f"{_AGG[m.fn]}({m.column}) AS {m.as_}")
+            selects.append(f'{_AGG[m.fn]}("{m.column}") AS "{m.as_}"')
     sel = ", ".join(selects) if selects else "*"
-    group = (" GROUP BY " + ", ".join(d.group_by)) if d.group_by else ""
-    return f"SELECT {sel} FROM {d.source_alias}{group}"
+    group = (" GROUP BY " + ", ".join(f'"{g}"' for g in d.group_by)) if d.group_by else ""
+    return f'SELECT {sel} FROM "{d.source_alias}"{group}'
 
 
 def compile_calculated_sql(item: BasketItem) -> str:
@@ -427,12 +430,12 @@ def compile_calculated_sql(item: BasketItem) -> str:
     """
     d = item.derivation
     if len(d.source_aliases) == 1:
-        from_clause = d.source_aliases[0]
+        from_clause = f'"{d.source_aliases[0]}"'
     else:
         # First alias is the FROM root; subsequent aliases come in via
         # INNER JOIN clauses. We trust the validator to have rejected
         # multi-source derivations missing join_keys.
-        from_clause = d.source_aliases[0]
+        from_clause = f'"{d.source_aliases[0]}"'
         joined: set[str] = {d.source_aliases[0]}
         for jk in d.join_keys:
             # Pick whichever side is not yet joined — gives a stable order

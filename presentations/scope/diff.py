@@ -150,10 +150,10 @@ class ScopeDiff:
 
 def _basket_eq(a: BasketItem, b: BasketItem) -> bool:
     """Two basket items count as 'unchanged' iff their table_ref / derivation
-    / projection / routing decision are identical. We ignore layout (UI
-    coordinates) because that's not a fetch-driving field."""
-    # model_dump excludes layout via __eq__? No — we compare structurally
-    # over the fields that actually drive fetch and validation.
+    / sql / projection / routing decision are identical. We ignore layout (UI
+    coordinates) and refresh (cron policy — the scheduler reads it from the
+    latest scope; it doesn't invalidate fetched data) because they're not
+    fetch-driving fields."""
     if a.alias != b.alias:
         return False
     a_ref = a.table_ref.model_dump(by_alias=True) if a.table_ref else None
@@ -163,6 +163,11 @@ def _basket_eq(a: BasketItem, b: BasketItem) -> bool:
     a_der = a.derivation.model_dump(by_alias=True) if a.derivation else None
     b_der = b.derivation.model_dump(by_alias=True) if b.derivation else None
     if a_der != b_der:
+        return False
+    # Manuel SQL dataset'in sorgusu fetch-driving'dir: SQL'i düzenlenen item
+    # re-build'de "değişmedi" sayılırsa refetch edilmez → Sunum bayat veri
+    # göstermeye devam eder. (Madde 8 saveSqlEdit bug'ı.)
+    if (a.sql or None) != (b.sql or None):
         return False
     if a.projection.model_dump() != b.projection.model_dump():
         return False

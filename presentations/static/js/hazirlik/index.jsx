@@ -69,6 +69,7 @@ const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projecti
 const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
 const FILTER_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/filter-preview`);
 const RESOLVE_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/resolve-sql`);
+const EXPLAIN_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/explain-sql`);
 const DISTINCT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/distinct`);
 // Başlık (meta.title) kaydı: manifest patch endpoint'i (Keşif'teki workshop
 // header'ın Hazırlık karşılığı). updated_at'i de bump'lar → listede öne çıkar.
@@ -1244,26 +1245,57 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
   // Faz R4/#1 — "Çözümle" planı: {source_tables, warnings}. Kaydet'te bu plandaki
   // tablolar main node, sonuç sql node (derived_from ile bağlı) olarak eklenir.
   const [plan, setPlan] = useState(null);
+  // Önizleme UX: geçen süre sayacı + iptal + optimizer satır tahmini (EXPLAIN,
+  // paralel — önizlemeyi bloklamaz). İptal yalnız beklemeyi keser; Oracle'da
+  // başlamış sorgu sunucuda tamamlanabilir.
+  const [elapsed, setElapsed] = useState(0);
+  const [explain, setExplain] = useState(null);
+  const abortRef = useRef(null);
+  const timerRef = useRef(null);
+  useEffect(() => () => {       // unmount temizliği
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (abortRef.current) abortRef.current.abort();
+  }, []);
+
+  const cancelPreview = () => {
+    if (abortRef.current) abortRef.current.abort();
+  };
 
   // Tek buton: Önizle/Doğrula HEM örnek satır+kolonları getirir HEM (yeni
   // eklemede) kaynak tabloları çözümler (eski ayrı "Çözümle" butonu birleşti).
-  // Önizleme birincil; çözümleme best-effort (başarısızsa önizlemeyi engellemez,
-  // sadece kaynak-tablo planı oluşmaz).
+  // Önizleme birincil; çözümleme + EXPLAIN best-effort (başarısızlıkları
+  // önizlemeyi engellemez).
   const runPreview = async () => {
-    setBusy(true); setErrors([]); setPreview(null); setPlan(null);
+    setBusy(true); setErrors([]); setPreview(null); setPlan(null); setExplain(null);
+    setElapsed(0);
+    const t0 = Date.now();
+    timerRef.current = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
+    const ac = new AbortController();
+    abortRef.current = ac;
+    // EXPLAIN paraleli — sorgu koşarken "~N satır" bilgisini düşürür.
+    fetch(EXPLAIN_SQL_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql }), signal: ac.signal,
+    }).then((r) => r.json()).then((d) => {
+      if (d && d.ok && d.rows != null) setExplain({ rows: d.rows });
+    }).catch(() => {});
     try {
       const reqs = [fetch(PREVIEW_SQL_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sql }),
+        body: JSON.stringify({ sql }), signal: ac.signal,
       })];
       if (!isEdit) reqs.push(fetch(RESOLVE_SQL_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sql }),
+        body: JSON.stringify({ sql }), signal: ac.signal,
       }));
       const [pRes, rRes] = await Promise.all(reqs);
       const pData = await pRes.json();
       if (!pData.ok) { setErrors(pData.errors || ["Bilinmeyen hata"]); return; }
-      setPreview({ columns: pData.columns || [], rows: pData.rows || [], row_count: pData.row_count || 0 });
+      setPreview({
+        columns: pData.columns || [], rows: pData.rows || [],
+        row_count: pData.row_count || 0,
+        truncated: !!pData.truncated, cap: pData.cap || null,
+      });
       if (rRes) {
         const rData = await rRes.json().catch(() => null);
         if (rData && rData.ok) {
@@ -1271,9 +1303,15 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
         }
       }
     } catch (e) {
-      setErrors([String(e.message || e)]);
+      if (e && e.name === "AbortError") {
+        setErrors(["Önizleme iptal edildi (sunucuda başlamış sorgu arka planda bitebilir)."]);
+      } else {
+        setErrors([String(e.message || e)]);
+      }
     } finally {
       setBusy(false);
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      abortRef.current = null;
     }
   };
 
@@ -1314,10 +1352,27 @@ function SqlDatasetModal({ existingAliases, existing, onSave, onClose }) {
           disabled={busy || !sql.trim()} onClick={runPreview}
           title="Sorguyu doğrula + örnek satırları getir; kaynak tabloları çıkar (dökümante olanlar node olarak eklenir, sonuç onlara bağlanır)">
           {busy
-            ? <><Loader2 size={13} className="ts-spin" /> Çalıştırılıyor…</>
+            ? <><Loader2 size={13} className="ts-spin" /> Çalıştırılıyor… {elapsed > 0 ? `${elapsed}sn` : ""}</>
             : <><Eye size={13} /> Önizle / Doğrula</>}
         </button>
-        {preview && <span className="hz-muted">{preview.row_count} satır · {preview.columns.length} kolon</span>}
+        {busy && (
+          <button type="button" className="ts-btn" onClick={cancelPreview}
+            title="Beklemeyi kes — Oracle'da başlamış sorgu sunucuda bitebilir">
+            İptal
+          </button>
+        )}
+        {busy && explain && (
+          <span className="hz-muted">
+            optimizer tahmini ~{Number(explain.rows).toLocaleString("tr-TR")} satır
+            {explain.rows > 1_000_000 ? " — uzun sürebilir" : ""}
+          </span>
+        )}
+        {preview && (
+          <span className="hz-muted">
+            {preview.row_count} satır · {preview.columns.length} kolon
+            {preview.truncated ? ` (örnek ilk ${preview.cap} satırla sınırlı)` : ""}
+          </span>
+        )}
       </div>
       {plan && (
         <div className="hz-resolve-plan" style={{ marginTop: 8 }}>
@@ -3479,6 +3534,35 @@ function App() {
   // POST to /scope/build once the user confirms.
   const [buildPreview, setBuildPreview] = useState(null);
   const [pendingScope, setPendingScope] = useState(null);
+  // Bug 1 UX — tam ekran build overlay'i. phase: 'check' (preview-build) →
+  // 'fetch' (Oracle çekimi, asıl bekleme) → 'leave' (fade-out + redirect).
+  const [buildState, setBuildState] = useState(null);
+
+  // Overlay'de listelenecek dataset'ler: build'in fiilen hazırlayacağı cached
+  // item'lar (pasif + lineage-only main'ler hariç — backend onları çekmez).
+  const buildFetchList = useMemo(() => {
+    const s = buildState?.scope;
+    if (!s) return [];
+    const inactive = new Set(s.inactive_aliases || []);
+    const needed = new Set();
+    for (const b of (s.basket || [])) {
+      if (b.derivation && b.routing?.decision === "cached") {
+        for (const src of derivSourceAliases(b.derivation)) needed.add(src);
+      }
+    }
+    return (s.basket || [])
+      .filter((b) => {
+        if (b.routing?.decision !== "cached") return false;
+        if (!b.derivation && inactive.has(b.alias) && !needed.has(b.alias)) return false;
+        return true;
+      })
+      .map((b) => ({
+        alias: b.alias,
+        kind: b.sql ? "manuel SQL"
+          : b.derivation ? (b.derivation.kind === "filter" ? "filtre" : b.derivation.kind)
+          : "tablo",
+      }));
+  }, [buildState]);
 
   const _finalisedScope = () => {
     const pos = Object.fromEntries(nodes.map((n) => [n.id, n.position]));
@@ -3521,19 +3605,28 @@ function App() {
 
   const _commitBuild = async (finalScope) => {
     setBusy(true); setErr(null);
+    setBuildState({ phase: "fetch", scope: finalScope });
     try {
       const data = await (await fetch(BUILD_URL, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: finalScope }),
       })).json();
-      if (!data.ok) { setErr((data.errors || ["Bilinmeyen hata"]).join(" · ")); setBusy(false); return; }
-      window.location.href = data.redirect;
-    } catch (e) { setErr(String(e)); setBusy(false); }
+      if (!data.ok) {
+        setErr((data.errors || ["Bilinmeyen hata"]).join(" · "));
+        setBusy(false); setBuildState(null);
+        return;
+      }
+      // Fade-out animasyonu bitmeden navigate etme — sert sıçrama yerine
+      // "Sunum'a geçiliyor…" geçişi (hazirlik.css .hz-build-overlay.is-leaving).
+      setBuildState({ phase: "leave", scope: finalScope });
+      setTimeout(() => { window.location.href = data.redirect; }, 450);
+    } catch (e) { setErr(String(e)); setBusy(false); setBuildState(null); }
   };
 
   const goToSunum = async () => {
     setErr(null);
     setBusy(true);
     const finalScope = _finalisedScope();
+    setBuildState({ phase: "check", scope: finalScope });
     try {
       const r = await fetch(PREVIEW_BUILD_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -3543,6 +3636,7 @@ function App() {
       if (!r.ok || !data.ok) {
         setErr((data.errors || ["Bilinmeyen hata"]).join(" · "));
         setBusy(false);
+        setBuildState(null);
         return;
       }
       const diffEmpty = !data.diff || (
@@ -3558,11 +3652,13 @@ function App() {
         return;
       }
       setBusy(false);
+      setBuildState(null);   // onay modali açılıyor — overlay kalkar
       setPendingScope(finalScope);
       setBuildPreview(data);
     } catch (e) {
       setErr(String(e));
       setBusy(false);
+      setBuildState(null);
     }
   };
 
@@ -3728,6 +3824,39 @@ function App() {
           />
         ) : null;
       })()}
+      {buildState && (
+        <div className={`hz-build-overlay${buildState.phase === "leave" ? " is-leaving" : ""}`}>
+          <div className="hz-build-overlay__card">
+            <div className="hz-build-overlay__head">
+              <Loader2 size={20} className="ts-spin" />
+              <span>
+                {buildState.phase === "check" && "Değişiklikler kontrol ediliyor…"}
+                {buildState.phase === "fetch" && "Veriler hazırlanıyor…"}
+                {buildState.phase === "leave" && "Sunum'a geçiliyor…"}
+              </span>
+            </div>
+            {buildState.phase === "fetch" && (
+              <>
+                <p className="hz-build-overlay__sub">
+                  Cached dataset'ler Oracle'dan çekilip oturuma yazılıyor —
+                  süre tablo boyutlarına bağlı.
+                </p>
+                {buildFetchList.length > 0 && (
+                  <ul className="hz-build-overlay__list ts-scroll">
+                    {buildFetchList.map((d) => (
+                      <li key={d.alias}>
+                        <Loader2 size={11} className="ts-spin" />
+                        <span className="hz-build-overlay__alias">{d.alias}</span>
+                        <span className="hz-build-overlay__kind">{d.kind}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
       <UploadModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}

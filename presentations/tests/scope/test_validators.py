@@ -147,3 +147,67 @@ def test_sample_scope_validates_clean(sample_scope, catalog):
     assert res.ok is True
     assert res.errors == []
     assert res.warnings == []
+
+
+# ── Rule 10: derivation DAG (cycle) ─────────────────────────────────────────
+
+def test_rule10_derivation_cycle_blocked():
+    from presentations.scope.schema import load_scope_from_dict
+
+    scope = load_scope_from_dict({
+        "presentation_id": "p_c", "version": 1, "created_by": "A",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [
+            {"alias": "node_a",
+             "derivation": {"kind": "filter", "source_alias": "node_b",
+                            "filters": {"pinned": [], "raw": [
+                                {"id": "rf_c_1", "alias": "node_a", "column": "C",
+                                 "op": "eq", "value": 1}]}},
+             "projection": {"columns": [], "include_all": True},
+             "routing": {"decision": "cached", "estimated_bytes": 0}},
+            {"alias": "node_b",
+             "derivation": {"kind": "filter", "source_alias": "node_a",
+                            "filters": {"pinned": [], "raw": [
+                                {"id": "rf_c_2", "alias": "node_b", "column": "C",
+                                 "op": "eq", "value": 2}]}},
+             "projection": {"columns": [], "include_all": True},
+             "routing": {"decision": "cached", "estimated_bytes": 0}},
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []},
+        "joins": [],
+    })
+    errors, warnings = V.rule_derivation_dag(scope, None)
+    assert warnings == []
+    assert len(errors) == 1 and "node_a" in errors[0] and "node_b" in errors[0]
+
+
+def test_rule10_chain_without_cycle_passes():
+    from presentations.scope.schema import load_scope_from_dict
+
+    scope = load_scope_from_dict({
+        "presentation_id": "p_c", "version": 1, "created_by": "A",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [
+            {"alias": "raw_src",
+             "table_ref": {"schema": "S", "name": "T"},
+             "projection": {"columns": [], "include_all": True},
+             "routing": {"decision": "cached", "estimated_bytes": 0}},
+            {"alias": "flt",
+             "derivation": {"kind": "filter", "source_alias": "raw_src",
+                            "filters": {"pinned": [], "raw": [
+                                {"id": "rf_c_3", "alias": "flt", "column": "C",
+                                 "op": "eq", "value": 1}]}},
+             "projection": {"columns": [], "include_all": True},
+             "routing": {"decision": "cached", "estimated_bytes": 0}},
+            {"alias": "agg",
+             "derivation": {"kind": "aggregate", "source_alias": "flt",
+                            "group_by": ["C"],
+                            "measures": [{"column": "X", "fn": "sum", "as": "SX"}]},
+             "projection": {"columns": ["C", "SX"], "include_all": False},
+             "routing": {"decision": "cached", "estimated_bytes": 0}},
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []},
+        "joins": [],
+    })
+    errors, _ = V.rule_derivation_dag(scope, None)
+    assert errors == []
