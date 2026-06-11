@@ -117,3 +117,48 @@ def test_unknown_table_routes_lazy():
 
 def test_default_hard_ceiling_is_10gb():
     assert DEFAULT_HARD_CEILING_BYTES == 10_000_000_000
+
+
+def test_documented_but_unsized_table_routes_lazy():
+    # Doc exists but carries NO row stats (neither daily nor total). The size
+    # formula would yield 0 bytes → cached → uncapped full pull at build (the
+    # "Sunum'a geç çok yavaş" bug: resolve-plan mains flipped to cached this
+    # way). Unknown size must route lazy, same as a missing table.
+    cat = DictCatalog.from_excerpt({
+        "tables": {"NOSTATS": {
+            "schema": "S", "partition_column": None,
+            "columns": {"A": {"avg_bytes": 10}},
+        }},
+        "concepts": {},
+    })
+    tref = TableRef.model_validate({"schema": "S", "name": "NOSTATS"})
+    d = decide_routing(tref, Projection(columns=["A"]), [], catalog=cat)
+    assert d.decision == "lazy"
+    assert d.estimated_bytes > d.threshold_bytes
+
+
+def test_app_catalog_reads_estimated_total_rows_from_doc():
+    # AppCatalog used to hardcode estimated_total_rows=None — a doc'd table
+    # without daily rows was unsizable. The new TableDoc.estimated_total_rows
+    # must flow through so dimension tables size (and route cached) correctly.
+    from types import SimpleNamespace
+    from presentations.scope.catalog import AppCatalog
+
+    doc = SimpleNamespace(
+        schema_name="S", table="DIM", partition_column=None,
+        estimated_daily_rows=None, estimated_total_rows=5000,
+        columns={"A": SimpleNamespace(type="NUMBER", suggested_semantic_tag=None)},
+    )
+
+    class _Store:
+        def load(self, schema, name):
+            return doc
+
+    cat = AppCatalog(_Store(), concept_registry=None, binding_catalog=None)
+    tm = cat.table_meta("S", "DIM")
+    assert tm.estimated_total_rows == 5000
+    d = decide_routing(
+        TableRef.model_validate({"schema": "S", "name": "DIM"}),
+        Projection(columns=["A"]), [], catalog=cat,
+    )
+    assert d.decision == "cached"

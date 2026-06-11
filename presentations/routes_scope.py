@@ -1286,13 +1286,24 @@ def scope_refine_sizes(pid: str):
     pending: list[str] = []
     for item in scope.basket:
         # Raw Oracle table → compose_cached_sql; filter-node (Faz R1) →
-        # compile_filter_sql (re-queries the source Oracle table). Both are
+        # compile_filter_sql (re-queries the source Oracle table); manuel SQL
+        # dataset → the authored query as an inline view. All three are
         # EXPLAIN-PLAN-able. aggregate/calculated run on DuckDB → skip here.
         is_filter = item.derivation is not None and item.derivation.kind == "filter"
-        if not is_filter and (item.derivation is not None or item.table_ref is None):
+        is_sql = item.sql is not None
+        if not (is_filter or is_sql) and (item.derivation is not None or item.table_ref is None):
             continue
+        src = None
         try:
-            if is_filter:
+            if is_sql:
+                # Whitelist again before handing to EXPLAIN (defence in depth —
+                # save/build validate too). EXPLAIN never scans data.
+                from presentations.sql.validator import validate_sql
+                if not validate_sql(item.sql).ok:
+                    continue
+                sql, binds = f"SELECT * FROM (\n{item.sql}\n)", {}
+                src_ref = None
+            elif is_filter:
                 sql, binds = compile_filter_sql(
                     scope, item, catalog,
                     concept_registry=registry, binding_catalog=bindings,
@@ -1324,7 +1335,13 @@ def scope_refine_sizes(pid: str):
         tm = catalog.table_meta(src_ref.schema_name, src_ref.name) if src_ref else None
         proj = item.projection if (item.projection and item.projection.columns) else (
             src.projection if is_filter and src is not None else item.projection)
-        bpr = _bytes_per_row(tm, proj) if tm is not None else 50
+        if tm is not None:
+            bpr = _bytes_per_row(tm, proj)
+        elif is_sql and item.projection and item.projection.columns:
+            # SQL dataset has no table meta — width from its output column count.
+            bpr = max(50, 16 * len(item.projection.columns))
+        else:
+            bpr = 50
 
         def _job(_sql=sql, _binds=binds, _bpr=bpr):
             return estimate_bytes_via_explain(dc, _sql, _binds, _bpr)

@@ -227,7 +227,10 @@ class TestSqlNodeMaterialisation:
         loaded = fetch_cached_tables(dc, conn, scope, catalog=None)
         assert "my_sql" in loaded
         assert conn.execute('SELECT COUNT(*) FROM "my_sql"').fetchone()[0] == 2
-        assert dc.calls and dc.calls[0].startswith("SELECT BRANCH_CODE")
+        # Yazarın SQL'i, emniyet tavanı (FETCH FIRST guard) sarmalayıcısı içinde
+        # aynen koşar — sarmalayıcı sessiz kırpmaz, aşımda fetch hata verir.
+        assert dc.calls and "SELECT BRANCH_CODE, BAL FROM EDW.X" in dc.calls[0]
+        assert "FETCH FIRST" in dc.calls[0]
 
     def test_join_sourced_from_sql_nodes_resolves(self):
         conn = duckdb.connect(":memory:")

@@ -180,6 +180,10 @@ class TableDoc(BaseModel):
     # Hints for the query planner / LLM.
     partition_column: ColumnName | None = None
     estimated_daily_rows: int | None = Field(default=None, ge=0)
+    # Total row count for non-partitioned / slowly-growing tables. Routing uses
+    # it to size the post-scope pull; without ANY row stat the table is routed
+    # lazy (unknown size — never eagerly materialised).
+    estimated_total_rows: int | None = Field(default=None, ge=0)
 
     # Columns keyed by name (preserves order via Python 3.7+ dict).
     columns: dict[ColumnName, ColumnDoc] = Field(default_factory=dict)

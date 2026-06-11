@@ -175,3 +175,82 @@ def test_fetch_empty_result_does_not_crash():
     }])
     loaded = fetch_cached_tables(dc, conn, scope, catalog=_catalog())
     assert loaded["positions"]["rows"] == 0
+
+
+# ── Pasif + lineage-only alias'lar fetch edilmez (Bug 1 / Sunum'a geç) ───────
+
+def _scope_with_inactive(extra_items, inactive):
+    raw = {
+        "presentation_id": "p_x", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": extra_items, "filters": {"pinned": [], "interactive": []},
+        "inactive_aliases": inactive,
+    }
+    return load_scope_from_dict(raw)
+
+
+def test_fetch_skips_inactive_lineage_only_main():
+    # Manuel-SQL node'unun "Çözümle" kaynak main'i: pasif + yalnız derived_from
+    # lineage'ı → Oracle'dan ÇEKİLMEZ. SQL dataset'in kendisi çekilir.
+    df = pd.DataFrame({"A": [1]})
+    dc = StubDC(df)
+    conn = duckdb.connect(":memory:")
+    scope = _scope_with_inactive([
+        {"table_ref": {"schema": "ODS_TREASURY", "name": "TRD_BRANCH_POSITION"},
+         "alias": "positions",
+         "projection": {"columns": ["A"], "include_all": False},
+         "routing": {"decision": "cached", "estimated_bytes": 0}},
+        {"sql": "SELECT 1 AS A FROM DUAL", "alias": "my_sql",
+         "projection": {"columns": ["A"], "include_all": False},
+         "routing": {"decision": "cached", "decided_by": "user", "estimated_bytes": 0},
+         "derived_from": ["positions"]},
+    ], inactive=["positions"])
+    loaded = fetch_cached_tables(dc, conn, scope, catalog=_catalog())
+    assert set(loaded.keys()) == {"my_sql"}
+    datasets = [c["dataset"] for c in dc.calls]
+    assert all("positions" not in d for d in datasets)
+
+
+def test_fetch_keeps_inactive_main_needed_by_derived():
+    # Pasif main, aktif bir CACHED aggregate'in DuckDB kaynağı ise yine çekilir
+    # (node materialize olmalı) — pasiflik yalnız Sunum görünürlüğünü etkiler.
+    df = pd.DataFrame({"CCY": ["TRY"], "BAL": [10]})
+    dc = StubDC(df)
+    conn = duckdb.connect(":memory:")
+    scope = _scope_with_inactive([
+        {"table_ref": {"schema": "ODS_TREASURY", "name": "TRD_BRANCH_POSITION"},
+         "alias": "positions",
+         "projection": {"columns": ["CCY", "BAL"], "include_all": False},
+         "routing": {"decision": "cached", "estimated_bytes": 0}},
+        {"derivation": {"kind": "aggregate", "source_alias": "positions",
+                        "group_by": ["CCY"],
+                        "measures": [{"column": "BAL", "fn": "sum", "as": "SUM_BAL"}]},
+         "alias": "pos_agg",
+         "projection": {"columns": ["CCY", "SUM_BAL"], "include_all": False},
+         "routing": {"decision": "cached", "estimated_bytes": 0}},
+    ], inactive=["positions"])
+    loaded = fetch_cached_tables(dc, conn, scope, catalog=_catalog())
+    assert "positions" in loaded and "pos_agg" in loaded
+
+
+def test_fetch_cached_guard_raises_on_gross_underestimate():
+    # Tahminin çok üstünde dönen cached pull SESSİZCE KIRPILMAZ — hata verir
+    # (kırpmak blok verisini bozar). Guard: max(SCOPE_FETCH_ROW_CAP, est×3).
+    from presentations.scope import fetch as fetch_mod
+
+    big = pd.DataFrame({"A": range(12)})
+    dc = StubDC(big)
+    conn = duckdb.connect(":memory:")
+    scope = _scope([{
+        "table_ref": {"schema": "ODS_TREASURY", "name": "TRD_BRANCH_POSITION"},
+        "alias": "positions",
+        "projection": {"columns": ["A"], "include_all": False},
+        "routing": {"decision": "cached", "estimated_bytes": 0},
+    }])
+    orig = fetch_mod.SCOPE_FETCH_ROW_CAP
+    fetch_mod.SCOPE_FETCH_ROW_CAP = 10   # test için tabanı küçült
+    try:
+        with pytest.raises(RuntimeError, match="beklenenden çok daha büyük"):
+            fetch_cached_tables(dc, conn, scope, catalog=_catalog())
+    finally:
+        fetch_mod.SCOPE_FETCH_ROW_CAP = orig

@@ -42,6 +42,51 @@ log = logging.getLogger(__name__)
 SCOPE_FETCH_ROW_CAP = 5_000_000
 
 
+def _cached_row_guard(item: BasketItem, catalog: Catalog | None) -> int:
+    """Emniyet tavanı (satır) — cached bir pull'un boyut tahmininin ÇOK üstüne
+    kaçtığını yakalar (bayat istatistik / yanlış doc). Tahmine 3× tolerans
+    tanınır; taban ``SCOPE_FETCH_ROW_CAP``. Aşım sessizce KIRPILMAZ — kırpmak
+    blok verisini bozar — fetch hata verir ve build kullanıcıya "filtrele ya da
+    lazy yap" der."""
+    bpr = 50
+    if catalog is not None and item.table_ref is not None:
+        tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
+        if tm is not None:
+            from presentations.scope.routing import _bytes_per_row
+            bpr = _bytes_per_row(tm, item.projection)
+    elif item.sql is not None and item.projection and item.projection.columns:
+        bpr = max(50, 16 * len(item.projection.columns))
+    est_rows = int((item.routing.estimated_bytes or 0) / max(1, bpr))
+    return max(SCOPE_FETCH_ROW_CAP, est_rows * 3)
+
+
+def _guard_overflow(alias: str, df, guard: int) -> None:
+    if df is not None and len(df) > guard:
+        raise RuntimeError(
+            f"'{alias}' beklenenden çok daha büyük çıktı (≥{guard:,} satır) — "
+            "boyut tahmini yanılmış olabilir. Tabloyu filtreleyip küçült ya da "
+            "lazy olarak işaretle."
+        )
+
+
+def duck_source_aliases(scope: ScopeContract, item: BasketItem) -> set[str]:
+    """Source aliases that must exist as a DuckDB VIEW before ``item``'s
+    derivation can run. A filter on an ORACLE main needs no view (the filter
+    re-queries Oracle directly); everything else consumes its sources as views.
+    Shared by the fetch pass ordering and the inactive-alias skip below."""
+    d = item.derivation
+    if d is None:
+        return set()
+    if d.kind == "aggregate":
+        srcs = [d.source_alias] if d.source_alias else []
+    elif d.kind in ("calculated", "join", "union"):
+        srcs = list(d.source_aliases)
+    else:  # filter — only a DERIVED source needs a view; Oracle source hits Oracle
+        src = scope.basket_item(d.source_alias)
+        srcs = [d.source_alias] if (src is not None and src.table_ref is None) else []
+    return set(srcs)
+
+
 def _as_date(v: Any) -> date | None:
     """Resolve a filter date value to a concrete date. Accepts date objects,
     ISO strings, and the relative grammar (``today``, ``today - 30d``,
@@ -487,19 +532,39 @@ def fetch_cached_tables(
             log.warning("scope.fetch_cached_tables: drop of '%s' failed",
                         alias, exc_info=True)
 
+    # Pasif alias'lar basket'te yalnız LINEAGE için durur (örn. manuel-SQL
+    # node'unun "Çözümle" kaynak main'leri — SQL Oracle'a kendisi gider, main'in
+    # view'ına ihtiyacı yoktur). Bir cached derivation'ın DuckDB kaynağı
+    # OLMAYAN pasifler Oracle'dan hiç çekilmez — "Sunum'a geç" bu yüzden
+    # gereksiz full-table pull yapıyordu.
+    inactive = set(scope.inactive_aliases or [])
+    needed_views: set[str] = set()
+    for b in scope.basket:
+        if b.derivation is not None and b.routing.decision == "cached":
+            needed_views |= duck_source_aliases(scope, b)
+
+    def _lineage_only(item: BasketItem) -> bool:
+        return item.alias in inactive and item.alias not in needed_views
+
     # Pass 1 — raw cached tables.
     for item in scope.basket:
         if item.derivation is not None or item.table_ref is None:
             continue
         if item.routing.decision != "cached":
             continue
+        if _lineage_only(item):
+            log.info("scope.fetch_cached_tables: '%s' pasif + lineage-only — fetch atlandı",
+                     item.alias)
+            continue
         if refetch_only is not None and item.alias not in refetch_only:
             # Re-entry partial refresh — view from scope_v<N-1> is reused.
             continue
+        guard = _cached_row_guard(item, catalog)
         sql, binds = compose_cached_sql(
             scope, item, catalog,
             concept_registry=concept_registry,
             binding_catalog=binding_catalog,
+            max_rows=guard + 1,
         )
         df = dc.get_data(
             base_prefix=None,
@@ -508,6 +573,7 @@ def fetch_cached_tables(
         )
         if df is None:
             df = pd.DataFrame()
+        _guard_overflow(item.alias, df, guard)
         if len(df.columns) > 0:
             register_dataframe(conn, item.alias, df)
         loaded[item.alias] = {
@@ -526,6 +592,10 @@ def fetch_cached_tables(
     for item in scope.basket:
         if item.sql is None or item.routing.decision != "cached":
             continue
+        if _lineage_only(item):
+            log.info("scope.fetch_cached_tables: '%s' pasif + lineage-only — fetch atlandı",
+                     item.alias)
+            continue
         if refetch_only is not None and item.alias not in refetch_only:
             continue  # re-entry partial refresh — view from scope_v<N-1> is reused
         chk = validate_sql(item.sql)
@@ -534,13 +604,16 @@ def fetch_cached_tables(
                 f"manuel SQL dataset '{item.alias}' whitelist'i geçemedi: "
                 f"{'; '.join(chk.errors)}"
             )
+        guard = _cached_row_guard(item, catalog)
         df = dc.get_data(
             base_prefix=None,
             dataset=f"scope::{scope.presentation_id}/{item.alias}",
-            query=item.sql, query_params={},
+            query=f"SELECT * FROM (\n{item.sql}\n) FETCH FIRST {guard + 1} ROWS ONLY",
+            query_params={},
         )
         if df is None:
             df = pd.DataFrame()
+        _guard_overflow(item.alias, df, guard)
         if len(df.columns) > 0:
             register_dataframe(conn, item.alias, df)
         loaded[item.alias] = {"sql": True, "rows": int(len(df))}
@@ -554,29 +627,26 @@ def fetch_cached_tables(
     #   - filter on a DERIVED source → compile_filter_sql (DuckDB $-binds), run
     #     on the materialised source view in DuckDB.
     #   - aggregate / calculated → DuckDB over the materialised source view(s).
-    def _duck_sources(it):
-        """Source aliases that must be a registered DuckDB VIEW before `it` runs.
-        An Oracle-table source of a filter doesn't count (filter hits Oracle)."""
-        d = it.derivation
-        if d.kind == "aggregate":
-            srcs = [d.source_alias] if d.source_alias else []
-        elif d.kind in ("calculated", "join", "union"):
-            srcs = list(d.source_aliases)
-        else:  # filter — only a DERIVED source needs a view; Oracle source hits Oracle
-            src = scope.basket_item(d.source_alias)
-            srcs = [d.source_alias] if (src is not None and src.table_ref is None) else []
-        return set(srcs)
-
     pending = [b for b in scope.basket
                if b.derivation is not None and b.routing.decision == "cached"]
     registered = set(loaded.keys())  # raw cached tables just loaded in Pass 1
+    # Re-entry: an unchanged cached source isn't refetched (refetch_only) but its
+    # view from the previous build is still live in this conn — count those as
+    # registered, else a CHANGED aggregate over an UNCHANGED source never runs
+    # (dependency check would wait on an alias this round never loads).
+    if refetch_only is not None:
+        try:
+            from presentations.duck import list_views
+            registered |= set(list_views(conn))
+        except Exception:
+            log.warning("fetch_cached_tables: list_views seed failed", exc_info=True)
     progressed = True
     while pending and progressed:
         progressed = False
         still = []
         for item in pending:
             d = item.derivation
-            if not (_duck_sources(item) <= registered):
+            if not (duck_source_aliases(scope, item) <= registered):
                 still.append(item)
                 continue
             all_srcs = ({d.source_alias} if d.kind in ("aggregate", "filter") and d.source_alias
