@@ -172,10 +172,20 @@ def decide_routing(
     row cap in ``scope.fetch``). Estimating it at 0 used to route it ``cached``,
     eagerly materialising a possibly-huge un-onboarded table into DuckDB (OOM);
     the user can still force ``cached`` via an explicit override (8.b badge).
+
+    The same rule applies to a table that IS documented but carries **no row
+    statistics** (neither ``estimated_total_rows`` nor ``estimated_daily_rows``):
+    the size formula would yield 0 bytes and route it ``cached``, pulling the
+    whole table uncapped at build (the "Sunum'a geç çok yavaş" bug — resolve-plan
+    source mains flipped to cached this way). Unknown size → ``lazy``.
     """
     pinned_list = list(pinned_filters)
     table_meta = catalog.table_meta(table_ref.schema_name, table_ref.name)
     if table_meta is None:
+        estimated = threshold_bytes + 1
+    elif (table_meta.estimated_total_rows is None
+          and table_meta.estimated_daily_rows is None):
+        # Documented but unsized — cannot estimate, so estimate high (lazy).
         estimated = threshold_bytes + 1
     else:
         estimated = estimate_post_scope_size(

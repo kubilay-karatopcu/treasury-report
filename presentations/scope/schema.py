@@ -103,6 +103,24 @@ class DerivedColumn(BaseModel):
     expr: str = Field(min_length=1)
 
 
+# Kolon adları SQL'e identifier olarak interpolate edilir (compose_cached_sql
+# projection'ı, _raw_predicates_from WHERE'i, compile_aggregate/join SELECT'i).
+# Değerler her zaman bind'lenir ama identifier bind'lenemez — bu yüzden kolon
+# ADI şeması injection'a kapalı olmalı: harf/altçizgi ile başlar, harf/rakam/
+# _/$/# devam eder (Oracle + DuckDB kimlik kuralı; büyük-küçük serbest).
+_COLUMN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$#]*$")
+
+
+def _check_column_ident(value: str, *, what: str) -> str:
+    v = (value or "").strip()
+    if not _COLUMN_IDENT_RE.match(v):
+        raise ValueError(
+            f"{what} geçerli bir kolon adı değil: {value!r} "
+            "(harf/altçizgi ile başlamalı; harf, rakam, _, $, # içerebilir)"
+        )
+    return v
+
+
 class Projection(BaseModel):
     """Which columns of the table are pulled into scope."""
 
@@ -120,7 +138,7 @@ class Projection(BaseModel):
         for c in v:
             if not isinstance(c, str) or not c.strip():
                 raise ValueError(f"projection column must be a non-empty string: {c!r}")
-            out.append(c.strip())
+            out.append(_check_column_ident(c, what="projection column"))
         return out
 
 
@@ -166,6 +184,11 @@ class Measure(BaseModel):
     fn: AggFn
     as_: str = Field(alias="as", min_length=1, max_length=128)
 
+    @field_validator("column", "as_")
+    @classmethod
+    def _ident(cls, v: str) -> str:
+        return _check_column_ident(v, what="measure column")
+
 
 class CalculatedColumn(BaseModel):
     """One computed output column for a ``kind: calculated`` derivation.
@@ -184,6 +207,24 @@ class CalculatedColumn(BaseModel):
     expr: str = Field(min_length=1, max_length=2000)
     type_hint: str | None = Field(default=None, max_length=64)
 
+    @field_validator("name")
+    @classmethod
+    def _ident(cls, v: str) -> str:
+        return _check_column_ident(v, what="calculated column name")
+
+    @field_validator("expr")
+    @classmethod
+    def _expr_guard(cls, v: str) -> str:
+        # expr DuckDB SELECT listesine verbatim girer (external access kapalı
+        # bağlantıda). İfade bağlamında zaten statement koşamaz; yine de en
+        # bariz kaçış vektörlerini şemada kes (derinlemesine savunma).
+        if ";" in v:
+            raise ValueError("calculated expr ';' içeremez")
+        if re.search(r"\b(ATTACH|INSTALL|LOAD|COPY|PRAGMA|EXPORT|IMPORT|CALL)\b",
+                     v, re.IGNORECASE):
+            raise ValueError("calculated expr yasaklı bir DuckDB komutu içeriyor")
+        return v
+
 
 class CalculatedJoinKey(BaseModel):
     """Inner-join across the source aliases of a calculated derivation.
@@ -197,6 +238,11 @@ class CalculatedJoinKey(BaseModel):
     left_column: str = Field(min_length=1, max_length=128)
     right_alias: Alias
     right_column: str = Field(min_length=1, max_length=128)
+
+    @field_validator("left_column", "right_column")
+    @classmethod
+    def _ident(cls, v: str) -> str:
+        return _check_column_ident(v, what="join key column")
 
 
 class Derivation(BaseModel):
@@ -229,6 +275,11 @@ class Derivation(BaseModel):
     source_alias: Alias | None = None
     group_by: list[str] = Field(default_factory=list)
     measures: list[Measure] = Field(default_factory=list)
+
+    @field_validator("group_by")
+    @classmethod
+    def _group_by_idents(cls, v: list[str]) -> list[str]:
+        return [_check_column_ident(c, what="group_by column") for c in v]
     # calculated-only ---------------------------------------------------
     source_aliases: list[Alias] = Field(default_factory=list)
     join_keys: list[CalculatedJoinKey] = Field(default_factory=list)
@@ -562,6 +613,13 @@ class RawFilter(BaseModel):
     to: Any | None = None
     values: list[Any] | None = None
     value: Any | None = None
+
+    @field_validator("column")
+    @classmethod
+    def _ident(cls, v: str) -> str:
+        # column adı Oracle/DuckDB WHERE'ine interpolate edilir (değerler bind,
+        # ad değil) — identifier dışı her şey şemada reddedilir (injection).
+        return _check_column_ident(v, what="raw filter column")
 
     @model_validator(mode="after")
     def _normalise_dates(self) -> "RawFilter":

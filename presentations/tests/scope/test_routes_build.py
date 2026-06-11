@@ -141,17 +141,18 @@ def test_build_validates_fetches_saves_and_redirects(client, app):
     data = resp.get_json()
     assert data["ok"] is True
     assert data["scope_version"] == 1
-    # `_catalog()` (CatalogLoader) can't size TRD_BRANCH_POSITION here, so routing
-    # correctly defers it to lazy (#27 — unsizeable tables are no longer eagerly
-    # cached). The cached materialisation path is covered by test_fetch.py.
-    assert data["cached_tables"] == []
-    assert data["lazy_tables"] == ["positions"]
+    # TableDoc okuyucusu artık Phase 7 ek alanlarını tolere ediyor → doc yüklenir,
+    # tablo 12000 satır/gün × 365 × ~19B ≈ 83 MB olarak boyutlanır → cached.
+    # (Eski assert, doc parse'ının sessizce patlayıp tabloyu 'boyutlanamaz' kabul
+    # ettiği döneme aitti.)
+    assert data["cached_tables"] == ["positions"]
+    assert data["lazy_tables"] == []
     assert data["redirect"].endswith("/presentations/p_build")
 
     # Scope persisted, status ready (the build still validates/saves/redirects).
     saved = app.config["SCOPE_STORE"].load_latest("p_build")
     assert saved.status.state == "ready"
-    assert saved.status.cached_tables == []
+    assert saved.status.cached_tables == ["positions"]
 
     # Manifest now carries scope_ref.
     sess = app.config["SESSION_REGISTRY"].get_or_create("A16438", "p_build")
@@ -217,3 +218,48 @@ def test_draft_priority_and_build_clears_draft(client, app):
         login_user(_FakeUser())
         sc = _load_latest_scope_or_draft("p_build")
     assert any(f.id == "rf_b_x" for f in sc.filters.raw)
+
+
+# ── D3: async build + build-time parquet materialize ────────────────────────
+
+def test_build_async_completes_and_materializes(client, app):
+    import time as _t
+    r = client.post("/presentations/p_async/scope/build-async", json=_scope_body())
+    assert r.status_code == 200, r.get_data(as_text=True)
+    job_id = r.get_json()["job_id"]
+
+    status = None
+    deadline = _t.time() + 10
+    while _t.time() < deadline:
+        s = client.get(f"/presentations/p_async/scope/build-status/{job_id}")
+        assert s.status_code == 200
+        status = s.get_json()
+        if status["phase"] in ("done", "failed"):
+            break
+        _t.sleep(0.05)
+    assert status is not None and status["phase"] == "done", status
+    assert "positions" in (status.get("done") or [])
+    assert "/presentations/p_async" in status["redirect"]
+
+    # Build-time one-shot materialize: cached dataset parquet'i S3'e yazıldı.
+    dc = app.config["DATA_CLIENT"]
+    assert "prisma-treasury/datasets/p_async/positions/data.parquet" in dc.objects
+    assert "prisma-treasury/datasets/p_async/positions/meta.json" in dc.objects
+
+    # Manifest scope_ref işlendi (worker thread'i tamamladı).
+    import json as _json
+    mkey = "prisma-treasury/presentations/A16438/p_async/manifest.json"
+    manifest = _json.loads(dc.objects[mkey])
+    assert manifest["scope_ref"]["scope_version"] == 1
+
+
+def test_build_status_unknown_job_is_404(client):
+    r = client.get("/presentations/p_x/scope/build-status/bj_yok")
+    assert r.status_code == 404
+
+
+def test_sync_build_also_materializes_parquet(client, app):
+    r = client.post("/presentations/p_syncmat/scope/build", json=_scope_body())
+    assert r.status_code == 200, r.get_data(as_text=True)
+    dc = app.config["DATA_CLIENT"]
+    assert "prisma-treasury/datasets/p_syncmat/positions/data.parquet" in dc.objects

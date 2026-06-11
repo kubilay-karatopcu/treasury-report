@@ -119,6 +119,31 @@ class TestBasketDiff:
         d = diff_scopes(_scope(v1_scope_dict), _scope(v2))
         assert "deposits_daily" in d.changed_aliases
 
+    def test_sql_edit_is_changed_and_refetched(self):
+        # Manuel SQL dataset'in sorgusu düzenlendiğinde diff bunu DEĞİŞİKLİK
+        # saymalı — yoksa re-build refetch_only dışında bırakır ve Sunum eski
+        # SQL'in verisini göstermeye devam eder.
+        def sql_scope(sql):
+            return _scope({"scope": {
+                "presentation_id": "p_t", "version": 1,
+                "created_by": "A", "created_at": "2026-05-24T00:00:00Z",
+                "basket": [{
+                    "alias": "my_sql", "sql": sql,
+                    "projection": {"columns": ["A"], "include_all": False},
+                    "routing": {"decision": "cached", "decided_by": "user",
+                                "estimated_bytes": 0},
+                }],
+                "filters": {"pinned": [], "interactive": [], "raw": []},
+                "joins": [],
+            }})
+        old = sql_scope("SELECT A FROM EDW.X")
+        new = sql_scope("SELECT A FROM EDW.X WHERE A > 0")
+        d = diff_scopes(old, new)
+        assert "my_sql" in d.changed_aliases
+        assert "my_sql" in d.affected_aliases
+        # Aynı SQL → değişiklik yok (layout/refresh gibi alanlar diff'i kirletmez).
+        assert diff_scopes(old, sql_scope("SELECT A FROM EDW.X")).is_empty
+
 
 # ── Diff: pinned filters + pin-state flips ─────────────────────────────────
 

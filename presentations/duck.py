@@ -98,6 +98,41 @@ def register_dataframe(conn, view_name, df):
     log.debug("duck.register_dataframe: %s (%d rows)", view_name, len(df))
 
 
+def materialize_table(conn, name: str, df):
+    """Persist ``df`` as a REAL DuckDB table named ``name`` (scope datasets).
+
+    ``conn.register`` bir pandas DataFrame'i Python RAM'inde tutan sanal bir
+    view üretir ve CONNECTION ile ölür — idle cleanup (30 dk) ya da pod restart
+    sonrası her scope dataset'i Oracle'dan yeniden çekiliyordu, RAM'de de ikinci
+    bir kopya yaşıyordu. Gerçek tablo ``session.duckdb`` dosyasına yazılır:
+    yeniden bağlanınca durur, pandas kopyası GC'ye bırakılır."""
+    tmp = f"__mat_{name}"
+    try:
+        conn.unregister(tmp)
+    except Exception:
+        pass
+    conn.register(tmp, df)
+    try:
+        # Aynı isimde önceki register'dan kalan VIEW, CREATE TABLE ile çakışır.
+        conn.execute(f'DROP VIEW IF EXISTS "{name}"')
+        conn.execute(f'CREATE OR REPLACE TABLE "{name}" AS SELECT * FROM "{tmp}"')
+    finally:
+        try:
+            conn.unregister(tmp)
+        except Exception:
+            pass
+    log.debug("duck.materialize_table: %s (%d rows)", name, len(df))
+
+
+def drop_relation(conn, name: str) -> None:
+    """Drop ``name`` whether it is a view (legacy register) or a table."""
+    for stmt in (f'DROP VIEW IF EXISTS "{name}"', f'DROP TABLE IF EXISTS "{name}"'):
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
+
+
 def populate_basket(dc, conn, basket):
     loaded = {}
     for item in basket:
@@ -125,7 +160,9 @@ def list_views(conn):
         "SELECT table_name FROM information_schema.tables "
         "WHERE table_schema NOT IN ('information_schema', 'pg_catalog')"
     ).fetchall()
-    return [r[0] for r in rows]
+    # `__`-önekli ilişkiler dahili defter tutmadır (__dataset_meta, __mat_* geçici
+    # register'ları) — LLM data_summary'ye ve blok SQL routing'ine sızmasınlar.
+    return [r[0] for r in rows if not str(r[0]).startswith("__")]
 
 
 def preview_view(conn, view_name, limit=10):
@@ -423,6 +460,24 @@ def _block_view_name(block_id: str) -> str:
 _MAX_ROWS_IN_MANIFEST = MAX_RAW_ROWS
 
 
+def infer_column_kinds(df) -> dict:
+    """Kolon adı → görsel tip ('number' | 'date' | 'text') — pandas dtype'tan.
+    DataTable bloğu sayıları sağa yaslayıp tr-TR formatlar, tarihleri kısaltır;
+    tip bilgisi olmadan her hücre düz metin görünüyordu."""
+    import pandas as pd
+
+    kinds: dict = {}
+    for col in df.columns:
+        dtype = df[col].dtype
+        if pd.api.types.is_datetime64_any_dtype(dtype):
+            kinds[str(col)] = "date"
+        elif pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype):
+            kinds[str(col)] = "number"
+        else:
+            kinds[str(col)] = "text"
+    return kinds
+
+
 def execute_block_sql(
     dc,
     conn,
@@ -536,6 +591,7 @@ def execute_block_sql(
         "executed_at":  _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         "row_count":    total_rows,
         "columns":      columns,
+        "column_types": infer_column_kinds(df),
         "preview_rows": sample,
         "rows":         all_rows,
         "view_name":    view_name,

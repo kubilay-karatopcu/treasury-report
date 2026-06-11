@@ -80,9 +80,11 @@ class TestSchema:
 # ── SQL compile ──────────────────────────────────────────────────────────────
 
 def test_compile_aggregate_sql():
+    # Kimlikler quote'lu: keyword kolon adları çalışır + DuckDB exact-case eşleşir.
     scope = _scope([_AGG_ITEM])
     sql = compile_aggregate_sql(scope.basket_item("deposits_by_branch"))
-    assert sql == "SELECT BRANCH_CODE, SUM(BALANCE_TRY) AS TOTAL FROM deposits GROUP BY BRANCH_CODE"
+    assert sql == ('SELECT "BRANCH_CODE", SUM("BALANCE_TRY") AS "TOTAL" '
+                   'FROM "deposits" GROUP BY "BRANCH_CODE"')
 
 
 def test_compile_count_distinct():
@@ -93,7 +95,8 @@ def test_compile_count_distinct():
         "routing": {"decision": "cached", "estimated_bytes": 0},
     })
     assert compile_aggregate_sql(item) == \
-        "SELECT SEGMENT, COUNT(DISTINCT BRANCH_CODE) AS N_BRANCH FROM deposits GROUP BY SEGMENT"
+        ('SELECT "SEGMENT", COUNT(DISTINCT "BRANCH_CODE") AS "N_BRANCH" '
+         'FROM "deposits" GROUP BY "SEGMENT"')
 
 
 # ── Fetch (raw source → DuckDB, then derived aggregate on DuckDB) ────────────

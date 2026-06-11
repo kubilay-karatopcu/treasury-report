@@ -226,7 +226,7 @@ class AppCatalog:
             name=getattr(doc, "table", name) or name,
             partition_column=getattr(doc, "partition_column", None),
             estimated_daily_rows=getattr(doc, "estimated_daily_rows", None),
-            estimated_total_rows=None,
+            estimated_total_rows=getattr(doc, "estimated_total_rows", None),
             columns=cols,
         )
 

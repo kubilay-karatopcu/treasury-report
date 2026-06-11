@@ -14,6 +14,7 @@ export default function DataTable({ block }) {
   const config = block.config || {};
   const cols = config.columns || [];
   const rows = config.rows || [];
+  const meta = config.meta || {};
 
   const columnDefs = useMemo(() => cols.map((c) => ({
     field: c.field,
@@ -33,11 +34,21 @@ export default function DataTable({ block }) {
     return <div className="chart-empty">Tablo için kolon tanımı yok.</div>;
   }
 
+  // Satır sayısı + truncation şeridi: sorgu 5000 satır kapısına takıldıysa
+  // kullanıcı bunu GÖRMELİ — yoksa tabloyu "tüm veri" sanıyor.
+  const rowCount = meta.row_count != null ? meta.row_count : rows.length;
+  const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('tr-TR') : n);
+
   // domLayout="autoHeight" lets the block grow with the data; the canvas
   // (which has overflow-y: auto) handles overall page scroll. Combined with
   // the viewport-lock CSS this stays well-behaved.
   return (
     <div className="ag-theme-alpine-dark data-table-wrapper">
+      {meta.truncated && (
+        <div className="data-table-meta data-table-meta--warn">
+          ⚠ Sonuç {fmt(meta.cap)} satırda kesildi — tamamı için sorguya filtre/aggregation ekle.
+        </div>
+      )}
       <AgGridReact
         columnDefs={columnDefs}
         rowData={rows}
@@ -45,6 +56,7 @@ export default function DataTable({ block }) {
         suppressMenuHide={false}
         domLayout="autoHeight"
       />
+      <div className="data-table-meta">{fmt(rowCount)} satır</div>
     </div>
   );
 }
