@@ -136,7 +136,7 @@ class TestCompileCalculatedSql:
             columns=[CalculatedColumn(name="X", expr="BALANCE_TRY / 100")],
         ))
         sql = compile_calculated_sql(item)
-        assert sql == 'SELECT BALANCE_TRY / 100 AS "X" FROM positions'
+        assert sql == 'SELECT BALANCE_TRY / 100 AS "X" FROM "positions"'
 
     def test_multi_source_join(self):
         item = _basket_item("gap", Derivation(

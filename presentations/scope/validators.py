@@ -271,6 +271,47 @@ def rule_derived_tables(scope: ScopeContract, catalog: Catalog | None = None):
     return errors, []
 
 
+# ── Rule 10: derivation DAG — cycle detection ───────────────────────────────
+
+def rule_derivation_dag(scope: ScopeContract, catalog: Catalog | None = None):
+    """Türetme zinciri DAG olmalı. Döngü (filter A → filter B → A) önceden
+    validasyondan sızıp fetch pass'inde yalnız warning loglanıyordu — node'lar
+    sessizce boş kalıyordu. Kahn topolojik sıralaması: eriyemeyen düğüm kümesi
+    döngüdür → build'i açık hatayla durdur."""
+    graph: dict[str, list[str]] = {}
+    for item in scope.derived_items():
+        d = item.derivation
+        if d.kind in ("aggregate", "filter"):
+            srcs = [d.source_alias] if d.source_alias else []
+        else:  # calculated / join / union
+            srcs = list(d.source_aliases)
+        graph[item.alias] = srcs
+
+    indeg = {a: 0 for a in graph}
+    dependents: dict[str, list[str]] = {a: [] for a in graph}
+    for a, srcs in graph.items():
+        for s in srcs:
+            if s in graph:           # raw/sql kaynaklar yaprak — döngüye giremez
+                indeg[a] += 1
+                dependents[s].append(a)
+    queue = [a for a, n in indeg.items() if n == 0]
+    resolved = 0
+    while queue:
+        n = queue.pop()
+        resolved += 1
+        for m in dependents[n]:
+            indeg[m] -= 1
+            if indeg[m] == 0:
+                queue.append(m)
+    if resolved < len(graph):
+        cyclic = sorted(a for a, n in indeg.items() if n > 0)
+        return [
+            "Derivation cycle: " + ", ".join(cyclic)
+            + " — türetilmiş tablolar birbirine döngüsel bağlanamaz"
+        ], []
+    return [], []
+
+
 # ── Aggregate ───────────────────────────────────────────────────────────────
 
 # Ordered so the result reads predictably; §2.2 numbering (+ §6R raw/derived).
@@ -284,6 +325,7 @@ RULES = [
     rule_routing_threshold,
     rule_raw_filters,
     rule_derived_tables,
+    rule_derivation_dag,
 ]
 
 

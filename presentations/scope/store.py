@@ -133,17 +133,30 @@ class S3ScopeStore:
         return sorted(pids)
 
     def save(self, scope: ScopeContract) -> int:
-        next_v = _stamp_lineage(scope, self.list_versions(scope.presentation_id))
-        key = _scope_key(scope.created_by, scope.presentation_id, next_v)
+        # Tek prefix taraması (eskiden list_versions + _index = 2 tarama).
         # Immutability guard — the bump should make collisions impossible, but
         # never silently overwrite a version that already exists.
-        if key in self._index(scope.presentation_id).values():
+        idx = self._index(scope.presentation_id)
+        next_v = _stamp_lineage(scope, sorted(idx.keys()))
+        key = _scope_key(scope.created_by, scope.presentation_id, next_v)
+        if next_v in idx:
             raise ScopeVersionExistsError(scope.presentation_id, next_v)
+        text = dump_scope_yaml(scope)
         self.dc._upload_bytes(
             key,
-            dump_scope_yaml(scope).encode("utf-8"),
+            text.encode("utf-8"),
             content_type="application/x-yaml",
         )
+        # TOCTOU tespiti: iki eşzamanlı save aynı next_v'yi hesaplayabilir ve
+        # S3'te son yazan kazanır (koşullu PUT yok). Yazdığımızı geri okuyup
+        # doğrularız — kaybeden taraf sessiz veri kaybı yerine hata alır ve
+        # yeniden dener (build çağrısı kullanıcıya hatayı gösterir).
+        try:
+            echoed = self.dc.read_text(key)
+        except Exception:
+            echoed = None
+        if echoed is not None and echoed != text:
+            raise ScopeVersionExistsError(scope.presentation_id, next_v)
         log.info("scope saved: %s/%s scope_v%d (owner=%s)",
                  scope.created_by, scope.presentation_id, next_v, scope.created_by)
         return next_v
