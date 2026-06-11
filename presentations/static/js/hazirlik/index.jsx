@@ -56,6 +56,9 @@ const DATA = JSON.parse(document.getElementById("hazirlik-data").textContent);
 const PID = DATA.presentation_id;
 const _path = window.location.pathname;
 const BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
+const BUILD_ASYNC_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build-async`);
+const buildStatusUrl = (jobId) =>
+  _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build-status/${jobId}`);
 const PREVIEW_BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-build`);
 const PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview`);
 const PREVIEW_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-sql`);
@@ -3603,22 +3606,71 @@ function App() {
     return { ...scope, basket, joins, inactive_aliases: hiddenSources };
   };
 
+  // D3 — build async: POST build-async hemen {job_id} döner, fetch arka planda
+  // koşar; overlay build-status'ü poll'layıp hazır olan dataset'lere ✓ işler.
+  // Bitince fade-out ("leave") animasyonu + redirect. Endpoint yoksa (eski
+  // backend) senkron /scope/build'e düşülür.
+  const _pollBuild = (jobId, finalScope) => {
+    const tick = async () => {
+      try {
+        const r = await fetch(buildStatusUrl(jobId));
+        const s = await r.json();
+        if (!r.ok || !s.ok) throw new Error(s.error || `HTTP ${r.status}`);
+        if (s.phase === "failed") {
+          setErr(s.error || "Build başarısız");
+          setBusy(false); setBuildState(null);
+          return;
+        }
+        setBuildState((b) => (b && b.phase === "fetch" ? { ...b, done: s.done || [] } : b));
+        if (s.phase === "done") {
+          setBuildState({ phase: "leave", scope: finalScope });
+          setTimeout(() => { window.location.href = s.redirect; }, 450);
+          return;
+        }
+        setTimeout(tick, 1000);
+      } catch (e) {
+        setErr(String(e.message || e));
+        setBusy(false); setBuildState(null);
+      }
+    };
+    setTimeout(tick, 700);
+  };
+
+  const _commitBuildSync = async (finalScope) => {
+    const data = await (await fetch(BUILD_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: finalScope }),
+    })).json();
+    if (!data.ok) {
+      setErr((data.errors || ["Bilinmeyen hata"]).join(" · "));
+      setBusy(false); setBuildState(null);
+      return;
+    }
+    // Fade-out animasyonu bitmeden navigate etme — sert sıçrama yerine
+    // "Sunum'a geçiliyor…" geçişi (hazirlik.css .hz-build-overlay.is-leaving).
+    setBuildState({ phase: "leave", scope: finalScope });
+    setTimeout(() => { window.location.href = data.redirect; }, 450);
+  };
+
   const _commitBuild = async (finalScope) => {
     setBusy(true); setErr(null);
-    setBuildState({ phase: "fetch", scope: finalScope });
+    setBuildState({ phase: "fetch", scope: finalScope, done: [] });
     try {
-      const data = await (await fetch(BUILD_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: finalScope }),
-      })).json();
-      if (!data.ok) {
+      const r = await fetch(BUILD_ASYNC_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: finalScope }),
+      });
+      if (r.status === 404 || r.status === 405) {
+        await _commitBuildSync(finalScope);
+        return;
+      }
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
         setErr((data.errors || ["Bilinmeyen hata"]).join(" · "));
         setBusy(false); setBuildState(null);
         return;
       }
-      // Fade-out animasyonu bitmeden navigate etme — sert sıçrama yerine
-      // "Sunum'a geçiliyor…" geçişi (hazirlik.css .hz-build-overlay.is-leaving).
-      setBuildState({ phase: "leave", scope: finalScope });
-      setTimeout(() => { window.location.href = data.redirect; }, 450);
+      _pollBuild(data.job_id, finalScope);
     } catch (e) { setErr(String(e)); setBusy(false); setBuildState(null); }
   };
 
@@ -3843,13 +3895,18 @@ function App() {
                 </p>
                 {buildFetchList.length > 0 && (
                   <ul className="hz-build-overlay__list ts-scroll">
-                    {buildFetchList.map((d) => (
-                      <li key={d.alias}>
-                        <Loader2 size={11} className="ts-spin" />
-                        <span className="hz-build-overlay__alias">{d.alias}</span>
-                        <span className="hz-build-overlay__kind">{d.kind}</span>
-                      </li>
-                    ))}
+                    {buildFetchList.map((d) => {
+                      const ok = (buildState.done || []).includes(d.alias);
+                      return (
+                        <li key={d.alias} className={ok ? "is-done" : ""}>
+                          {ok
+                            ? <span className="hz-build-overlay__ok">✓</span>
+                            : <Loader2 size={11} className="ts-spin" />}
+                          <span className="hz-build-overlay__alias">{d.alias}</span>
+                          <span className="hz-build-overlay__kind">{d.kind}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </>

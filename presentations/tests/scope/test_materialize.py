@@ -365,3 +365,33 @@ def test_materialize_derived_calculated_single_source():
     assert dc.get_data_calls == []
     rdf, _ = read_dataset(dc, "p_mat", "calc")
     assert sorted(round(v, 2) for v in rdf["RATIO"]) == [5.0, 5.0]
+
+
+# ── D3: load_into_duck tazelik kontrolü (parquet blob'u tekrar inmez) ────────
+
+def test_load_into_duck_skips_blob_when_fresh():
+    dc = _FakeDC(pd.DataFrame({"A": [1, 2]}))
+    scope = _scope()
+    write_dataset(dc, "p_mat", "positions",
+                  pd.DataFrame({"AS_OF_DATE": ["2025-10-01"], "CCY": ["TRY"],
+                                "NET_POSITION": [5]}),
+                  sql="SELECT ...")
+    conn = connect_duckdb(":memory:")
+
+    reads: list[str] = []
+    orig_read = dc.read_bytes
+    def counting_read(key):
+        reads.append(key)
+        return orig_read(key)
+    dc.read_bytes = counting_read
+
+    first = load_into_duck(dc, conn, scope)
+    assert "positions" in first
+    blob_key = dataset_data_key("p_mat", "positions")
+    assert reads.count(blob_key) == 1
+
+    second = load_into_duck(dc, conn, scope)
+    assert "positions" in second
+    # Aynı refreshed_at + tablo oturumda mevcut → parquet blob'u tekrar İNMEZ.
+    assert reads.count(blob_key) == 1
+    assert conn.execute('SELECT COUNT(*) FROM "positions"').fetchone()[0] == 1

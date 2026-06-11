@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -957,25 +959,18 @@ def preview_scope_build(pid: str):
     })
 
 
-@presentations_bp.route("/<pid>/scope/build", methods=["POST"])
-@login_required
-def build_scope(pid: str):
-    """'Sunum'a geç': validate → fetch cached tables into DuckDB → persist scope
-    (version bump) → write the manifest's scope_ref → return a redirect URL.
-    Lazy tables are recorded in status but not fetched (8.d).
-
-    Re-entry (§3.6, §8.e): when a previous scope (``parent``) exists, the
-    new scope's ``parent_version`` is set to it. The fetch pass is partial —
-    only aliases that the diff says actually changed get re-pulled from
-    Oracle; unchanged cached aliases keep their existing DuckDB views.
-    """
+def _prepare_build(pid: str):
+    """Build öncesi ortak hazırlık: body parse + entitlement + routing refresh +
+    validasyon + parent/diff. Başarıda ``((scope, parent, diff), None)``,
+    hatada ``(None, <Flask Response>)`` döner. Sync /scope/build ve async
+    /scope/build-async aynı hazırlığı paylaşır."""
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
-        return _json({"ok": False, "errors": ["body must be a JSON object"]}, status=400)
+        return None, _json({"ok": False, "errors": ["body must be a JSON object"]}, status=400)
     try:
         scope = load_scope_from_dict(body)
     except (ValidationError, ValueError) as exc:
-        return _json({"ok": False, "phase": "schema", "errors": _flatten(exc)}, status=400)
+        return None, _json({"ok": False, "phase": "schema", "errors": _flatten(exc)}, status=400)
 
     scope.presentation_id = pid
     scope.created_by = getattr(current_user, "sicil", None) or scope.created_by
@@ -984,7 +979,7 @@ def build_scope(pid: str):
     # to (the fetch below runs under the app's Oracle service account).
     denied = _unentitled_tables(scope)
     if denied:
-        return _json({
+        return None, _json({
             "ok": False, "phase": "entitlement",
             "errors": [f"Bu tablolara erişim yetkin yok: {', '.join(denied)}"],
         }, status=403)
@@ -995,17 +990,28 @@ def build_scope(pid: str):
     _refresh_routing(scope, catalog)
     result = validate_scope(scope, catalog)
     if not result.ok:
-        return _json({"ok": False, "phase": "validation",
-                      "errors": result.errors, "warnings": result.warnings}, status=400)
+        return None, _json({"ok": False, "phase": "validation",
+                            "errors": result.errors, "warnings": result.warnings}, status=400)
 
-    # ── Re-entry diff against the persisted parent ─────────────────────────
+    # Re-entry diff against the persisted parent.
     parent = _parent_scope(pid)
     if parent is not None:
         scope.parent_version = parent.version
     diff = diff_scopes(parent, scope)
+    return (scope, parent, diff), None
 
+
+def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
+                    parent, diff, *, on_progress=None) -> dict[str, Any]:
+    """Fetch → status → SCOPE_STORE.save → manifest güncellemesi.
+
+    Sync build endpoint'i ile async build worker'ının ORTAK çekirdeği. Flask
+    app context içinde çağrılmalı; request context GEREKMEZ (url_for yok —
+    redirect'i çağıran taraf üretir, worker thread'de request yoktur).
+    ``on_progress(alias)`` her dataset hazır olduğunda çağrılır (overlay listesi).
+    """
     dc = current_app.config.get("DATA_CLIENT")
-    session = _registry().get_or_create(current_user.sicil, pid)
+    session = _registry().get_or_create(user_sicil, pid)
     lazy = [b.alias for b in scope.basket
             if b.table_ref is not None and b.routing.decision == "lazy"]
 
@@ -1019,6 +1025,25 @@ def build_scope(pid: str):
         refetch_only = diff.affected_aliases
         drop_aliases = set(diff.removed_aliases)
 
+    # Build-time one-shot parquet materialize: fetch sırasında elimizdeki
+    # DataFrame aynı anda S3 parquet'e yazılır → Sunum / pod-restart parquet'ten
+    # okur (load_into_duck), kind=manual dataset'ler de ilk andan görünür
+    # (önceden yalnız cron, yalnız scheduled yazıyordu). Best-effort: S3
+    # hıçkırığı build'i düşürmez — oturum DuckDB'sinde veri zaten var.
+    from presentations.scope.materialize import write_dataset
+
+    def _on_dataset(alias: str, df, sql: str) -> None:
+        try:
+            if df is not None and len(df.columns) > 0:
+                write_dataset(dc, pid, alias, df, sql=sql)
+        except Exception:
+            log.warning("build: parquet materialize failed for %s", alias, exc_info=True)
+        if on_progress is not None:
+            try:
+                on_progress(alias)
+            except Exception:
+                pass
+
     # Passive ("pasif") nodes are stripped from the basket by the Hazırlık
     # _finalisedScope before build. The only exception is a passive source that
     # an ACTIVE derived node needs to materialise — it stays in the basket but is
@@ -1028,11 +1053,12 @@ def build_scope(pid: str):
         with session.duck_conn() as conn:
             loaded = fetch_cached_tables(
                 dc, conn, scope,
-                catalog=catalog,
+                catalog=_catalog(),
                 concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
                 binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
                 refetch_only=refetch_only,
                 drop_aliases=drop_aliases,
+                on_dataset=_on_dataset,
             )
     except Exception as exc:
         scope.status.state = "failed"
@@ -1040,8 +1066,8 @@ def build_scope(pid: str):
         try:
             current_app.config["SCOPE_STORE"].save(scope)
         except Exception:
-            log.warning("build_scope: persist of failed scope failed", exc_info=True)
-        return _json({"ok": False, "phase": "fetch", "errors": [str(exc)]}, status=502)
+            log.warning("build: persist of failed scope failed", exc_info=True)
+        return {"ok": False, "phase": "fetch", "errors": [str(exc)]}
 
     scope.status.state = "ready"
     # cached_tables includes every cached alias in the new scope — the ones
@@ -1060,8 +1086,8 @@ def build_scope(pid: str):
     version = current_app.config["SCOPE_STORE"].save(scope)
 
     manifest = session.get_manifest() or {
-        "id": pid, "version": 0, "owner_id": current_user.sicil,
-        "meta": {"title": pid, "eyebrow": "", "date": "", "author_label": current_user.sicil},
+        "id": pid, "version": 0, "owner_id": user_sicil,
+        "meta": {"title": pid, "eyebrow": "", "date": "", "author_label": user_sicil},
         "blocks": [],
     }
     manifest["scope_ref"] = {"presentation_id": pid, "scope_version": version}
@@ -1082,14 +1108,14 @@ def build_scope(pid: str):
     try:
         session._last_basket_signature = session.basket_signature(manifest["basket"])
     except Exception:
-        log.warning("build_scope: priming basket signature failed", exc_info=True)
+        log.warning("build: priming basket signature failed", exc_info=True)
     # Built → this version is authoritative. Drop the in-progress draft so the
     # next Hazırlık load uses the build, not a now-stale draft. (Draft-first
     # priority in _load_latest_scope_or_draft relies on this clear.)
     manifest.pop("draft_scope", None)
     session.set_manifest(manifest)
 
-    return _json({
+    return {
         "ok": True,
         "scope_version": version,
         "parent_version": parent.version if parent is not None else None,
@@ -1097,8 +1123,111 @@ def build_scope(pid: str):
         "lazy_tables": scope.status.lazy_tables,
         "refetched": sorted(loaded.keys()),
         "inherited": inherited_cached,
+    }
+
+
+@presentations_bp.route("/<pid>/scope/build", methods=["POST"])
+@login_required
+def build_scope(pid: str):
+    """'Sunum'a geç': validate → fetch cached tables into DuckDB → persist scope
+    (version bump) → write the manifest's scope_ref → return a redirect URL.
+    Lazy tables are recorded in status but not fetched (8.d).
+
+    Re-entry (§3.6, §8.e): when a previous scope (``parent``) exists, the
+    new scope's ``parent_version`` is set to it. The fetch pass is partial —
+    only aliases that the diff says actually changed get re-pulled from
+    Oracle; unchanged cached aliases keep their existing DuckDB views.
+    """
+    prep, err = _prepare_build(pid)
+    if err is not None:
+        return err
+    scope, parent, diff = prep
+    payload = _run_build_core(pid, scope, current_user.sicil, parent, diff)
+    if not payload.get("ok"):
+        return _json(payload, status=502)
+    payload["redirect"] = url_for("presentations.editor", pid=pid)
+    return _json(payload)
+
+
+# Async build job registry — pod-lokal, kısa ömürlü ({job_id: durum}). Worker
+# thread'i yazar (done listesi / phase / result), status endpoint'i okur.
+_BUILD_JOBS: dict[str, dict[str, Any]] = {}
+_BUILD_JOBS_LOCK = threading.Lock()
+_BUILD_JOB_TTL_SECONDS = 900
+
+
+def _build_jobs_gc() -> None:
+    cutoff = time.time() - _BUILD_JOB_TTL_SECONDS
+    with _BUILD_JOBS_LOCK:
+        for k in [k for k, v in _BUILD_JOBS.items() if v.get("ts", 0.0) < cutoff]:
+            _BUILD_JOBS.pop(k, None)
+
+
+@presentations_bp.route("/<pid>/scope/build-async", methods=["POST"])
+@login_required
+def build_scope_async(pid: str):
+    """'Sunum'a geç' (async): validasyon senkron yapılır (hata aynı yanıtla
+    döner), fetch + persist arka plan thread'inde koşar. Yanıt ``{job_id}``;
+    Hazırlık overlay'i ``/scope/build-status/<job_id>``'yi poll'layıp dataset
+    bazında ilerlemeyi gösterir, bitince redirect'e gider. (SSE değil polling —
+    OpenShift proxy buffering'inden etkilenmez.)"""
+    prep, err = _prepare_build(pid)
+    if err is not None:
+        return err
+    scope, parent, diff = prep
+
+    import uuid as _uuid
+    job_id = "bj_" + _uuid.uuid4().hex[:12]
+    job: dict[str, Any] = {
+        "phase": "fetch", "done": [], "error": None, "result": None,
         "redirect": url_for("presentations.editor", pid=pid),
-    })
+        "ts": time.time(),
+    }
+    with _BUILD_JOBS_LOCK:
+        _BUILD_JOBS[job_id] = job
+    _build_jobs_gc()
+
+    app = current_app._get_current_object()
+    sicil = current_user.sicil
+
+    def _worker():
+        with app.app_context():
+            try:
+                payload = _run_build_core(
+                    pid, scope, sicil, parent, diff,
+                    on_progress=lambda alias: job["done"].append(alias),
+                )
+            except Exception as exc:   # beklenmedik — core kendi hatasını dict döner
+                log.exception("build-async worker crashed for %s", pid)
+                payload = {"ok": False, "errors": [str(exc)]}
+            job["result"] = payload
+            if payload.get("ok"):
+                job["phase"] = "done"
+            else:
+                job["phase"] = "failed"
+                job["error"] = " · ".join(payload.get("errors") or ["Bilinmeyen hata"])
+
+    threading.Thread(target=_worker, daemon=True,
+                     name=f"scope-build-{pid}").start()
+    return _json({"ok": True, "job_id": job_id})
+
+
+@presentations_bp.route("/<pid>/scope/build-status/<job_id>", methods=["GET"])
+@login_required
+def build_status(pid: str, job_id: str):
+    job = _BUILD_JOBS.get(job_id)
+    if job is None:
+        return _json({"ok": False, "error": "İş bulunamadı (süresi dolmuş olabilir)."},
+                     status=404)
+    out: dict[str, Any] = {
+        "ok": True, "phase": job["phase"],
+        "done": list(job["done"]), "error": job["error"],
+    }
+    if job["phase"] == "done":
+        out["redirect"] = job["redirect"]
+        res = job.get("result") or {}
+        out["scope_version"] = res.get("scope_version")
+    return _json(out)
 
 
 @presentations_bp.route("/<pid>/scope/projection-update", methods=["POST"])
