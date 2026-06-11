@@ -110,3 +110,102 @@ def test_unknown_alias_is_400(client):
                     json={"scope": _scope(), "alias": "nope"})
     assert r.status_code == 400
     assert r.get_json()["ok"] is False
+
+
+# ── join / union preview (Hazırlık ER) ───────────────────────────────────────
+# Regression: join/union nodes used to fall into the in-browser *aggregate*
+# branch (expects singular source_alias) → "Kaynak tablo basketta yok". They now
+# route to this endpoint, which samples sources (recursively for derived ones)
+# and runs the compiled SQL. The response also carries `sql` for the "Kaynak
+# Query" drawer tab.
+
+def _two_main_scope(deriv):
+    return {
+        "presentation_id": "p_test", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-01T00:00:00Z",
+        "basket": [
+            {"alias": "res", "table_ref": {"schema": "ODS_TREASURY", "name": "RES"},
+             "projection": {"columns": ["RES_ID", "CUST_ID", "REV_NO", "AMT"], "include_all": False},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1000}},
+            {"alias": "res2", "table_ref": {"schema": "ODS_TREASURY", "name": "RES2"},
+             "projection": {"columns": ["RES_ID", "CUST_ID", "REV_NO", "AMT"], "include_all": False},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1000}},
+            deriv,
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []}, "joins": [],
+    }
+
+
+def test_join_preview_runs_and_returns_sql(client):
+    scope = _two_main_scope({
+        "alias": "res_join", "derivation": {
+            "kind": "join", "source_aliases": ["res", "res2"],
+            "join_keys": [{"left_alias": "res", "left_column": "RES_ID",
+                           "right_alias": "res2", "right_column": "RES_ID"}],
+            "join_type": "inner"},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}})
+    data = client.post("/presentations/p_test/scope/preview-derivation",
+                       json={"scope": scope, "alias": "res_join"}).get_json()
+    assert data["ok"] is True, data
+    assert data.get("sql")  # Kaynak Query tab
+    # Right-side collisions prefixed with the alias (compile_join_sql rule).
+    assert "res2_RES_ID" in data["data_columns"]
+
+
+def test_union_preview_runs(client):
+    scope = _two_main_scope({
+        "alias": "res_union", "derivation": {
+            "kind": "union", "source_aliases": ["res", "res2"], "union_all": True},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}})
+    data = client.post("/presentations/p_test/scope/preview-derivation",
+                       json={"scope": scope, "alias": "res_union"}).get_json()
+    assert data["ok"] is True, data
+    assert data["row_count"] == 10  # 5 + 5, UNION ALL
+
+
+def test_join_on_derived_source_resolves(client):
+    # One source (res_max) is itself a calculated node → preview must RECURSIVELY
+    # sample it. The old shallow loop rejected derived sources outright.
+    scope = _scope()  # res (main) + res_max (calculated)
+    scope["basket"].append({
+        "alias": "res3", "table_ref": {"schema": "ODS_TREASURY", "name": "RES3"},
+        "projection": {"columns": ["RES_ID", "CUST_ID", "REV_NO", "AMT"], "include_all": False},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1000}})
+    scope["basket"].append({
+        "alias": "nested_join", "derivation": {
+            "kind": "join", "source_aliases": ["res_max", "res3"],
+            "join_keys": [{"left_alias": "res_max", "left_column": "RES_ID",
+                           "right_alias": "res3", "right_column": "RES_ID"}],
+            "join_type": "inner"},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}})
+    data = client.post("/presentations/p_test/scope/preview-derivation",
+                       json={"scope": scope, "alias": "nested_join"}).get_json()
+    assert data["ok"] is True, data
+    assert data.get("sql")
+
+
+def test_filter_on_union_source_returns_rows(client):
+    # Regression: filtering a union/join node returned 0 rows — filter-preview sent
+    # the DuckDB filter SQL to Oracle (no such view) → empty. It now samples the
+    # union into DuckDB and filters there.
+    scope = _two_main_scope({
+        "alias": "res_union", "derivation": {
+            "kind": "union", "source_aliases": ["res", "res2"], "union_all": True},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}})
+    scope["basket"].append({
+        "alias": "res_union_f", "derivation": {
+            "kind": "filter", "source_alias": "res_union",
+            "filters": {"pinned": [], "raw": [
+                {"id": "rf_amt", "alias": "res_union", "column": "AMT", "op": "gt", "value": 250}]}},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}})
+    data = client.post("/presentations/p_test/scope/filter-preview",
+                       json={"scope": scope, "alias": "res_union_f"}).get_json()
+    assert data["ok"] is True, data
+    # 5 rows/source (AMT 100..500) → UNION ALL = 10; AMT > 250 keeps 300/400/500
+    # from each source = 6. Non-empty proves the filter ran in DuckDB, not Oracle.
+    assert data["row_count"] == 6, data

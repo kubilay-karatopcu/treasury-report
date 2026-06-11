@@ -73,13 +73,36 @@ def apply_data_to_config(block: dict, data_source: dict) -> None:
         config["values"] = [_safe_number(r[1]) for r in rows]
         return
 
-    if btype in ("bar_chart", "heatmap"):
+    if btype == "bar_chart":
         if not rows:
             config["categories"] = []
             _zero_out_series(config)
             return
         config["categories"] = [_safe_label(r[0]) for r in rows]
         config["series"] = _build_series(columns, rows, config.get("series"))
+        return
+
+    if btype == "heatmap":
+        # Heatmap schema uses ``x_axis`` (NOT ``categories``) — the renderer reads
+        # `config.x_axis ?? config.categories`, and a seed `x_axis: []` (not
+        # nullish) shadows any `categories` we'd set, so writing `categories`
+        # here made the chart show "veri yok".
+        if not rows:
+            config["x_axis"] = []
+            _zero_out_series(config)
+            return
+        # Long format — `(rowDim, colDim, value)`: the natural way to write a
+        # heatmap query (`SELECT a, b, SUM(x) GROUP BY a, b`). Pivot it into the
+        # x_axis + per-row series matrix. Detected by: exactly 3 columns where
+        # the 2nd column is non-numeric (a dimension, not a value).
+        if len(columns) == 3 and not _col_is_numeric(rows, 1):
+            x_axis, series = _heatmap_pivot(rows)
+            config["x_axis"] = x_axis
+            config["series"] = series
+        else:
+            # Wide format — col0 = row label, cols 1..N = numeric matrix columns.
+            config["x_axis"] = [_safe_label(r[0]) for r in rows]
+            config["series"] = _build_series(columns, rows, config.get("series"))
         return
 
     if btype in ("line_chart", "area_chart"):
@@ -123,10 +146,10 @@ def _clear_config_for_type(btype: str, config: dict) -> None:
     elif btype == "pie_chart":
         config["labels"] = []
         config["values"] = []
-    elif btype in ("bar_chart", "heatmap", "combo_chart"):
+    elif btype in ("bar_chart", "combo_chart"):
         config["categories"] = []
         _zero_out_series(config)
-    elif btype in ("line_chart", "area_chart"):
+    elif btype in ("line_chart", "area_chart", "heatmap"):
         config["x_axis"] = []
         _zero_out_series(config)
     elif btype == "data_table":
@@ -179,6 +202,43 @@ def _zero_out_series(config):
         for s in series:
             if isinstance(s, dict):
                 s["values"] = []
+
+
+def _col_is_numeric(rows, idx):
+    """True if every non-null value in column ``idx`` is a real number (not bool).
+    All-null counts as numeric (no dimension signal)."""
+    for r in rows:
+        v = r[idx] if idx < len(r) else None
+        if v is None:
+            continue
+        if not (isinstance(v, (int, float)) and not isinstance(v, bool)):
+            return False
+    return True
+
+
+def _heatmap_pivot(rows):
+    """Long format ``[(rowDim, colDim, value), …]`` → ``(x_axis, series)`` for a
+    heatmap. col0 → series (the y-rows), col1 → x_axis (the shared x columns),
+    col2 → cell value. First-seen order is preserved for both axes; missing
+    cells default to 0."""
+    x_axis, x_seen = [], set()
+    row_keys, row_seen = [], set()
+    cell = {}
+    for r in rows:
+        rk = _safe_label(r[0])
+        ck = _safe_label(r[1])
+        if rk not in row_seen:
+            row_seen.add(rk)
+            row_keys.append(rk)
+        if ck not in x_seen:
+            x_seen.add(ck)
+            x_axis.append(ck)
+        cell[(rk, ck)] = _safe_number(r[2])
+    series = [
+        {"name": rk, "values": [cell.get((rk, ck), 0) for ck in x_axis]}
+        for rk in row_keys
+    ]
+    return x_axis, series
 
 
 def _pick_numeric_col_idx(columns, rows):

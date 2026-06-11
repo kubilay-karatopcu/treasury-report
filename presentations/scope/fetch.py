@@ -408,6 +408,40 @@ def compile_calculated_sql(item: BasketItem) -> str:
     return f"SELECT {select_list} FROM {from_clause}"
 
 
+def compile_join_sql(item: BasketItem, left_cols, right_cols) -> str:
+    """JOIN of exactly two source aliases on one key (Hazırlık ER node).
+
+    Output = all LEFT columns, then all RIGHT columns; a right-side name that
+    collides with a left name is prefixed with the right alias
+    (``competitor_BRANCH_CODE``) so the materialised view has unique columns.
+    Runs on the already-materialised DuckDB views (like calculated), so the
+    fetch pass must register both sources first.
+    """
+    d = item.derivation
+    left, right = d.source_aliases[0], d.source_aliases[1]
+    jk = d.join_keys[0]
+    jtype = "LEFT JOIN" if d.join_type == "left" else "INNER JOIN"
+    left_set = set(left_cols or [])
+    sel = [f'"{left}"."{c}" AS "{c}"' for c in (left_cols or [])]
+    for c in (right_cols or []):
+        out = c if c not in left_set else f"{right}_{c}"
+        sel.append(f'"{right}"."{c}" AS "{out}"')
+    select_list = ", ".join(sel) if sel else "*"
+    cond = f'"{jk.left_alias}"."{jk.left_column}" = "{jk.right_alias}"."{jk.right_column}"'
+    return f'SELECT {select_list} FROM "{left}" {jtype} "{right}" ON {cond}'
+
+
+def compile_union_sql(item: BasketItem) -> str:
+    """UNION [ALL] of the source aliases, positional (``SELECT * FROM a UNION …``).
+
+    Column count + types must line up — validated at design time (frontend
+    pre-check) and enforced by DuckDB on execute. ``union_all=False`` → DISTINCT.
+    """
+    d = item.derivation
+    op = "UNION ALL" if d.union_all else "UNION"
+    return f" {op} ".join(f'SELECT * FROM "{a}"' for a in d.source_aliases)
+
+
 def fetch_cached_tables(
     dc, conn, scope: ScopeContract, *,
     catalog: Catalog | None = None,
@@ -483,6 +517,35 @@ def fetch_cached_tables(
         log.info("scope.fetch_cached_tables: %s ← %s (%d rows)",
                  item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df))
 
+    # Pass 1b — manual-SQL datasets (Faz C). A free-form SELECT/WITH run directly
+    # on Oracle (whitelist-gated), registered as a DuckDB view so (a) derived
+    # nodes sourced from it resolve in Pass 2 and (b) Sunum has its data. Without
+    # this the sql node reached SCOPE_STORE but was never materialised — it showed
+    # up empty after a Sunum round-trip. Mirrors materialize.py's sql branch.
+    from presentations.sql.validator import validate_sql
+    for item in scope.basket:
+        if item.sql is None or item.routing.decision != "cached":
+            continue
+        if refetch_only is not None and item.alias not in refetch_only:
+            continue  # re-entry partial refresh — view from scope_v<N-1> is reused
+        chk = validate_sql(item.sql)
+        if not chk.ok:
+            raise RuntimeError(
+                f"manuel SQL dataset '{item.alias}' whitelist'i geçemedi: "
+                f"{'; '.join(chk.errors)}"
+            )
+        df = dc.get_data(
+            base_prefix=None,
+            dataset=f"scope::{scope.presentation_id}/{item.alias}",
+            query=item.sql, query_params={},
+        )
+        if df is None:
+            df = pd.DataFrame()
+        if len(df.columns) > 0:
+            register_dataframe(conn, item.alias, df)
+        loaded[item.alias] = {"sql": True, "rows": int(len(df))}
+        log.info("scope.fetch_cached_tables: %s ← manuel SQL (%d rows)", item.alias, len(df))
+
     # Pass 2 — derived nodes (filter / aggregate / calculated) in DEPENDENCY
     # ORDER (Faz A — zincirleme). A node is processed once all its DuckDB-source
     # aliases are registered, so chains (filter → aggregate → filter …) build
@@ -497,7 +560,7 @@ def fetch_cached_tables(
         d = it.derivation
         if d.kind == "aggregate":
             srcs = [d.source_alias] if d.source_alias else []
-        elif d.kind == "calculated":
+        elif d.kind in ("calculated", "join", "union"):
             srcs = list(d.source_aliases)
         else:  # filter — only a DERIVED source needs a view; Oracle source hits Oracle
             src = scope.basket_item(d.source_alias)
@@ -540,8 +603,18 @@ def fetch_cached_tables(
                 derived_from_value = d.source_alias
                 label = "filter"
             else:
-                sql = (compile_aggregate_sql(item) if d.kind == "aggregate"
-                       else compile_calculated_sql(item))
+                if d.kind == "aggregate":
+                    sql = compile_aggregate_sql(item)
+                elif d.kind == "join":
+                    lc = list(conn.execute(
+                        f'SELECT * FROM "{d.source_aliases[0]}" LIMIT 0').fetchdf().columns)
+                    rc = list(conn.execute(
+                        f'SELECT * FROM "{d.source_aliases[1]}" LIMIT 0').fetchdf().columns)
+                    sql = compile_join_sql(item, lc, rc)
+                elif d.kind == "union":
+                    sql = compile_union_sql(item)
+                else:  # calculated
+                    sql = compile_calculated_sql(item)
                 try:
                     df = conn.execute(sql).fetchdf()
                 except Exception as exc:

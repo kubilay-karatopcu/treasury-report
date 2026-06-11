@@ -685,14 +685,29 @@ def export_html(pid: str):
 def duckdb_preview(pid: str, view_name: str):
     """Return columns + first 10 rows of a DuckDB view (for the basket UI)."""
     session = _get_session(pid)
+    dc = current_app.config.get("DATA_CLIENT")
     try:
         with session.duck_conn() as conn:
             # Lazy refetch if the basket isn't loaded yet.
             manifest = session.get_manifest()
             if manifest and session.needs_refetch(manifest.get("basket", [])):
-                dc = current_app.config.get("DATA_CLIENT")
                 if dc is not None:
                     session.fetch_basket(dc, manifest.get("basket", []))
+            # Scope-derived views (manuel SQL / join / filter / aggregate) aren't
+            # persisted in the session DuckDB file — build registers them in-memory,
+            # so a fresh conn doesn't have them. Hydrate the requested view (+ its
+            # sources) on demand, exactly like the block-run path, otherwise
+            # preview_view 500s with "Table … does not exist".
+            try:
+                from presentations.routes_scope import (
+                    hydrate_block_datasets, load_scope_for_manifest,
+                )
+                _scope = load_scope_for_manifest(manifest)
+                if _scope is not None and dc is not None:
+                    hydrate_block_datasets(dc, conn, _scope, f'SELECT * FROM "{view_name}"')
+            except Exception:
+                current_app.logger.warning(
+                    "duckdb_preview: scope hydrate failed for %s", view_name, exc_info=True)
             preview = duck.preview_view(conn, view_name)
     except ValueError as exc:
         return Response(json.dumps({"error": str(exc)}, ensure_ascii=False),
