@@ -1475,19 +1475,30 @@ function SourcesSidebar({
         };
       });
   }, [scope.basket, tableById]);
+  // Bug 4 — pasifler listenin EN ALTINA iner (stable sort: kendi aralarındaki
+  // sıra korunur). Aktif/pasif toggle'ı listeyi canlı yeniden sıralar.
+  const sinkInactive = useCallback((arr, keyOf) => {
+    return [...arr].sort((a, b) => {
+      const ha = hiddenAliases?.has(keyOf(a)) ? 1 : 0;
+      const hb = hiddenAliases?.has(keyOf(b)) ? 1 : 0;
+      return ha - hb;
+    });
+  }, [hiddenAliases]);
+
   const derivedItems = useMemo(
-    () => (scope.basket || []).filter((b) => b.derivation != null),
-    [scope.basket],
+    () => sinkInactive((scope.basket || []).filter((b) => b.derivation != null), (b) => b.alias),
+    [scope.basket, sinkInactive],
   );
 
   const tablesFiltered = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
-    if (!q) return tableItems;
-    return tableItems.filter((it) =>
-      it.tid.toLowerCase().includes(q)
-      || (it.alias || "").toLowerCase().includes(q)
-    );
-  }, [tableItems, tableSearch]);
+    const base = q
+      ? tableItems.filter((it) =>
+          it.tid.toLowerCase().includes(q)
+          || (it.alias || "").toLowerCase().includes(q))
+      : tableItems;
+    return sinkInactive(base, (it) => it.alias);
+  }, [tableItems, tableSearch, sinkInactive]);
   const blocksFiltered = useMemo(() => {
     const q = blockSearch.trim().toLowerCase();
     const all = libraryBlocks || [];
@@ -2372,6 +2383,23 @@ function App() {
   }, []);
   const edges = useMemo(() => buildEdges(scope), [scope]);
 
+  // Bug 2 (F5 düzen kaybı) — sürükleme bitince pozisyonu scope.basket[].layout'a
+  // yaz; debounced save-draft persist eder, reload initialNodes'ta geri okur.
+  // Önceden layout YALNIZ build'de (_finalisedScope) yazılıyordu → build'den
+  // önce atılan her F5 node'ları grid dizilimine düşürüyordu. Çoklu seçim
+  // sürüklemesinde üçüncü argüman tüm taşınan node'ları getirir.
+  const onNodeDragStop = useCallback((_e, node, draggedNodes) => {
+    const moved = (draggedNodes && draggedNodes.length ? draggedNodes : [node]).filter(Boolean);
+    if (!moved.length) return;
+    const pos = Object.fromEntries(moved.map((n) => [n.id, n.position]));
+    setScope((s) => ({
+      ...s,
+      basket: (s.basket || []).map((b) => (pos[b.alias]
+        ? { ...b, layout: { x: pos[b.alias].x, y: pos[b.alias].y } }
+        : b)),
+    }));
+  }, []);
+
   // Madde 4 — ask the server to refine post-scope sizes with EXPLAIN PLAN
   // cardinality, then fold the results into the node badges. The estimate runs
   // in the background (dedicated Oracle connection), so the endpoint returns
@@ -2956,15 +2984,24 @@ function App() {
     }
   }, [addJoin]);
 
+  // Yeni node'un başlangıç pozisyonu — hem React Flow node'una hem basket
+  // item'ının layout'una yazılır ki F5 (draft reload) aynı yerde açsın (Bug 2).
+  const nextNodePos = (offset = 0) => ({
+    x: 80 + ((nodes.length + offset) % 3) * 340,
+    y: 80 + Math.floor((nodes.length + offset) / 3) * 240,
+  });
+
   const addTableFromCatalog = (t) => {
     const [schema, ...rest] = t.id.split(".");
     const name = rest.length ? rest.join(".") : schema;
     const realSchema = rest.length ? schema : "";
     const alias = makeAlias(name, scope.basket.map((b) => b.alias));
+    const pos = nextNodePos();
     const item = {
       table_ref: { schema: realSchema || schema, name }, alias,
       projection: { columns: (t.columns || []).map((c) => c.name), include_all: (t.columns || []).length === 0 },
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
+      layout: { x: pos.x, y: pos.y },
     };
     COLS_BY_ALIAS[alias] = (t.columns || []).map((c) => ({
       name: c.name || c, type: c.type,
@@ -2988,7 +3025,7 @@ function App() {
     });
     setNodes((nds) => [...nds, {
       id: alias, type: "tableNode",
-      position: { x: 80 + (nds.length % 3) * 340, y: 80 + Math.floor(nds.length / 3) * 240 },
+      position: pos,
       data: enrichNodeData(item, scope),
     }]);
   };
@@ -2999,7 +3036,9 @@ function App() {
   // tablonun katalog satırı yok, recompute onu lazy'ye iterdi).
   const addSqlDataset = ({ alias, sql, columns, routing, refresh, resolvePlan }) => {
     // Faz R4/#1 — "Çözümle" planı varsa: kaynak tabloları (yoksa) LAZY main node
-    // ekle, bu sonucu derived_from ile onlara bağla.
+    // ekle, bu sonucu derived_from ile onlara bağla. Bug 4 — bu main'ler PASİF
+    // doğar: SQL Oracle'a kendisi gittiğinden main'in verisine ihtiyaç yok;
+    // pasif + lineage-only main'i build de çekmez (fetch_cached_tables skip).
     const taken = new Set((scope.basket || []).map((b) => b.alias));
     const derivedFrom = [];
     const newMains = [];
@@ -3034,18 +3073,30 @@ function App() {
       name: c, type: null, concept: null, join_key: false, lookup: null,
     }));
     const allNew = [...newMains, item];
-    setScope((s) => ({ ...s, basket: [...(s.basket || []), ...allNew] }));
+    // Başlangıç pozisyonlarını layout olarak da yaz (Bug 2 — F5 aynı düzen).
+    const positioned = allNew.map((it, i) => {
+      const p = nextNodePos(i);
+      return { ...it, layout: { x: p.x, y: p.y } };
+    });
+    const newMainAliases = new Set(newMains.map((m) => m.alias));
+    setScope((s) => ({
+      ...s,
+      basket: [...(s.basket || []), ...positioned],
+      inactive_aliases: newMains.length
+        ? [...new Set([...(s.inactive_aliases || []), ...newMainAliases])]
+        : (s.inactive_aliases || []),
+    }));
     setNodes((nds) => [
       ...nds,
-      ...allNew.map((it, i) => ({
+      ...positioned.map((it) => ({
         id: it.alias, type: "tableNode",
-        position: { x: 80 + ((nds.length + i) % 3) * 340, y: 80 + Math.floor((nds.length + i) / 3) * 240 },
-        data: enrichNodeData(it, scope),
+        position: { x: it.layout.x, y: it.layout.y },
+        data: { ...enrichNodeData(it, scope), inactive: newMainAliases.has(it.alias) },
       })),
     ]);
     setSqlModalOpen(false);
     setToast(newMains.length
-      ? `'${alias}' + ${newMains.length} kaynak tablo (node) eklendi`
+      ? `'${alias}' + ${newMains.length} kaynak tablo eklendi (kaynaklar pasif — Sunum'a gitmez)`
       : `'${alias}' SQL tablosu eklendi`);
   };
 
@@ -3058,6 +3109,7 @@ function App() {
     // (`_f`) eklenince 40 sınırını taşmasın.
     const alias = makeAlias(`${left}_${right}`.slice(0, 32) + "_join", scope.basket.map((b) => b.alias));
     const cols = joinColsFor(left, right);
+    const pos = nextNodePos();
     const item = {
       alias,
       derivation: {
@@ -3069,12 +3121,13 @@ function App() {
       projection: { columns: cols.map((c) => c.name), include_all: false },
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
       provenance: "Hazırlık — join",
+      layout: { x: pos.x, y: pos.y },
     };
     COLS_BY_ALIAS[alias] = cols;
     setScope((s) => ({ ...s, basket: [...(s.basket || []), item] }));
     setNodes((nds) => [...nds, {
       id: alias, type: "tableNode",
-      position: { x: 100 + (nds.length % 3) * 340, y: 100 + Math.floor(nds.length / 3) * 240 },
+      position: pos,
       data: enrichNodeData(item, scope),
     }]);
     setJoinModal(null);
@@ -3086,12 +3139,14 @@ function App() {
   const addUnionNode = ({ left, right, unionAll }) => {
     const alias = makeAlias(`${left}_${right}`.slice(0, 32) + "_union", scope.basket.map((b) => b.alias));
     const cols = (COLS_BY_ALIAS[left] || []).map((c) => ({ ...c }));
+    const upos = nextNodePos();
     const item = {
       alias,
       derivation: { kind: "union", source_aliases: [left, right], union_all: unionAll !== false },
       projection: { columns: cols.map((c) => c.name), include_all: false },
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
       provenance: "Hazırlık — union",
+      layout: { x: upos.x, y: upos.y },
     };
     COLS_BY_ALIAS[alias] = cols;
     setScope((s) => ({ ...s, basket: [...(s.basket || []), item] }));
@@ -3318,8 +3373,16 @@ function App() {
         routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
       };
       const idx = basket.findIndex((b) => b.alias === derivedAlias);
+      // Yeni filtre node'u kaynağın sağına doğar; güncellemede kullanıcının
+      // sürüklediği layout korunur (filterNode layout taşımaz → spread ezmez).
       if (idx >= 0) basket[idx] = { ...basket[idx], ...filterNode };
-      else basket = [...basket, filterNode];
+      else {
+        const srcNode = nodes.find((n) => n.id === alias);
+        const fpos = srcNode
+          ? { x: srcNode.position.x + 360, y: srcNode.position.y + 40 }
+          : nextNodePos();
+        basket = [...basket, { ...filterNode, layout: { x: fpos.x, y: fpos.y } }];
+      }
 
       const next = {
         ...cur, basket,
@@ -3374,11 +3437,13 @@ function App() {
     });
     const source = preview.alias;
     const alias = makeAlias(`${source}_agg`, scope.basket.map((b) => b.alias));
+    const apos = nextNodePos();
     const item = {
       derivation: { kind: "aggregate", source_alias: source, group_by: groupBy, measures },
       alias,
       projection: { columns: [...groupBy, ...measures.map((m) => m.as)], include_all: false },
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
+      layout: { x: apos.x, y: apos.y },
     };
     const srcCols = Object.fromEntries((COLS_BY_ALIAS[source] || []).map((c) => [c.name, c]));
     COLS_BY_ALIAS[alias] = [
@@ -3560,6 +3625,7 @@ function App() {
             <ReactFlow
               nodes={nodes} edges={edges}
               onNodesChange={onNodesChange}
+              onNodeDragStop={onNodeDragStop}
               onConnect={onConnect} onEdgeClick={onEdgeClick}
               onNodeClick={onNodeClick} onPaneClick={onPaneClick}
               nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
