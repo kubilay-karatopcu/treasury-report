@@ -496,6 +496,7 @@ def fetch_cached_tables(
     concept_registry=None, binding_catalog=None,
     refetch_only: set[str] | None = None,
     drop_aliases: set[str] | None = None,
+    on_dataset=None,
 ) -> dict[str, dict[str, Any]]:
     """Materialise the scope into DuckDB views named by alias.
 
@@ -518,22 +519,34 @@ def fetch_cached_tables(
     When both are ``None`` the function behaves like the original first-build
     flow: every cached basket item is fetched and every derived item runs.
 
+    ``on_dataset(alias, df, sql)`` — optional hook, her dataset DuckDB'ye
+    yazıldıktan sonra ana thread'de çağrılır. Build bunu (a) S3 parquet'e
+    one-shot materialize ve (b) async-progress raporu için kullanır.
+
     Returns ``{alias: {...}}`` for the aliases actually touched in this call
     (does not include aliases that were left intact across re-entry).
     """
     import pandas as pd
+    from concurrent.futures import ThreadPoolExecutor
+
+    from presentations.duck import drop_relation, materialize_table
 
     loaded: dict[str, dict[str, Any]] = {}
 
-    # Step 0 — drop views for aliases that are gone in the new scope. Failure
-    # is non-fatal: a view may already be gone from a pod restart.
-    for alias in (drop_aliases or ()):
+    def _notify(alias: str, df, sql: str) -> None:
+        if on_dataset is None:
+            return
         try:
-            conn.execute(f'DROP VIEW IF EXISTS "{alias}"')
-            log.info("scope.fetch_cached_tables: dropped stale view '%s'", alias)
+            on_dataset(alias, df, sql)
         except Exception:
-            log.warning("scope.fetch_cached_tables: drop of '%s' failed",
+            log.warning("fetch_cached_tables: on_dataset hook failed for %s",
                         alias, exc_info=True)
+
+    # Step 0 — drop relations for aliases that are gone in the new scope.
+    # Failure is non-fatal: a view may already be gone from a pod restart.
+    for alias in (drop_aliases or ()):
+        drop_relation(conn, alias)
+        log.info("scope.fetch_cached_tables: dropped stale relation '%s'", alias)
 
     # Pasif alias'lar basket'te yalnız LINEAGE için durur (örn. manuel-SQL
     # node'unun "Çözümle" kaynak main'leri — SQL Oracle'a kendisi gider, main'in
@@ -549,9 +562,18 @@ def fetch_cached_tables(
     def _lineage_only(item: BasketItem) -> bool:
         return item.alias in inactive and item.alias not in needed_views
 
-    # Pass 1 — raw cached tables.
+    # Pass 1 + 1b — raw cached tablolar ve manuel-SQL dataset'leri. Oracle
+    # pull'ları birbirinden bağımsızdır → thread havuzunda PARALEL çekilir
+    # (DataClient her get_data çağrısında kendi bağlantısını açar; refine-sizes
+    # ve scheduler zaten arka planda eşzamanlı çağırıyor). DuckDB yazımları
+    # paylaşılan bağlantıda THREAD-SAFE DEĞİL → yalnız bu (ana) thread'de.
+    from presentations.sql.validator import validate_sql
+
+    jobs: list[dict[str, Any]] = []
     for item in scope.basket:
-        if item.derivation is not None or item.table_ref is None:
+        is_raw = item.derivation is None and item.table_ref is not None
+        is_sql = item.sql is not None
+        if not (is_raw or is_sql):
             continue
         if item.routing.decision != "cached":
             continue
@@ -560,67 +582,57 @@ def fetch_cached_tables(
                      item.alias)
             continue
         if refetch_only is not None and item.alias not in refetch_only:
-            # Re-entry partial refresh — view from scope_v<N-1> is reused.
-            continue
+            continue   # re-entry partial refresh — relation from scope_v<N-1> reused
         guard = _cached_row_guard(item, catalog)
-        sql, binds = compose_cached_sql(
-            scope, item, catalog,
-            concept_registry=concept_registry,
-            binding_catalog=binding_catalog,
-            max_rows=guard + 1,
-        )
-        df = dc.get_data(
-            base_prefix=None,
-            dataset=f"scope::{scope.presentation_id}/{item.alias}",
-            query=sql, query_params=binds,
-        )
-        if df is None:
-            df = pd.DataFrame()
-        _guard_overflow(item.alias, df, guard)
-        if len(df.columns) > 0:
-            register_dataframe(conn, item.alias, df)
-        loaded[item.alias] = {
-            "table": f"{item.table_ref.schema_name}.{item.table_ref.name}",
-            "rows": int(len(df)),
-        }
-        log.info("scope.fetch_cached_tables: %s ← %s (%d rows)",
-                 item.alias, f"{item.table_ref.schema_name}.{item.table_ref.name}", len(df))
-
-    # Pass 1b — manual-SQL datasets (Faz C). A free-form SELECT/WITH run directly
-    # on Oracle (whitelist-gated), registered as a DuckDB view so (a) derived
-    # nodes sourced from it resolve in Pass 2 and (b) Sunum has its data. Without
-    # this the sql node reached SCOPE_STORE but was never materialised — it showed
-    # up empty after a Sunum round-trip. Mirrors materialize.py's sql branch.
-    from presentations.sql.validator import validate_sql
-    for item in scope.basket:
-        if item.sql is None or item.routing.decision != "cached":
-            continue
-        if _lineage_only(item):
-            log.info("scope.fetch_cached_tables: '%s' pasif + lineage-only — fetch atlandı",
-                     item.alias)
-            continue
-        if refetch_only is not None and item.alias not in refetch_only:
-            continue  # re-entry partial refresh — view from scope_v<N-1> is reused
-        chk = validate_sql(item.sql)
-        if not chk.ok:
-            raise RuntimeError(
-                f"manuel SQL dataset '{item.alias}' whitelist'i geçemedi: "
-                f"{'; '.join(chk.errors)}"
+        if is_raw:
+            sql, binds = compose_cached_sql(
+                scope, item, catalog,
+                concept_registry=concept_registry,
+                binding_catalog=binding_catalog,
+                max_rows=guard + 1,
             )
-        guard = _cached_row_guard(item, catalog)
-        df = dc.get_data(
+            persist_sql = sql
+            meta = {"table": f"{item.table_ref.schema_name}.{item.table_ref.name}"}
+        else:
+            chk = validate_sql(item.sql)
+            if not chk.ok:
+                raise RuntimeError(
+                    f"manuel SQL dataset '{item.alias}' whitelist'i geçemedi: "
+                    f"{'; '.join(chk.errors)}"
+                )
+            sql = f"SELECT * FROM (\n{item.sql}\n) FETCH FIRST {guard + 1} ROWS ONLY"
+            binds = {}
+            persist_sql = item.sql
+            meta = {"sql": True}
+        jobs.append({"item": item, "sql": sql, "binds": binds, "guard": guard,
+                     "persist_sql": persist_sql, "meta": meta})
+
+    def _pull(job):
+        return dc.get_data(
             base_prefix=None,
-            dataset=f"scope::{scope.presentation_id}/{item.alias}",
-            query=f"SELECT * FROM (\n{item.sql}\n) FETCH FIRST {guard + 1} ROWS ONLY",
-            query_params={},
+            dataset=f"scope::{scope.presentation_id}/{job['item'].alias}",
+            query=job["sql"], query_params=job["binds"],
         )
+
+    if len(jobs) <= 1:
+        results = [(job, _pull(job)) for job in jobs]
+    else:
+        with ThreadPoolExecutor(max_workers=min(4, len(jobs)),
+                                thread_name_prefix="scope-fetch") as ex:
+            futures = [(job, ex.submit(_pull, job)) for job in jobs]
+            results = [(job, fut.result()) for job, fut in futures]
+
+    for job, df in results:
+        item = job["item"]
         if df is None:
             df = pd.DataFrame()
-        _guard_overflow(item.alias, df, guard)
+        _guard_overflow(item.alias, df, job["guard"])
         if len(df.columns) > 0:
-            register_dataframe(conn, item.alias, df)
-        loaded[item.alias] = {"sql": True, "rows": int(len(df))}
-        log.info("scope.fetch_cached_tables: %s ← manuel SQL (%d rows)", item.alias, len(df))
+            materialize_table(conn, item.alias, df)
+        loaded[item.alias] = {**job["meta"], "rows": int(len(df))}
+        _notify(item.alias, df, job["persist_sql"])
+        log.info("scope.fetch_cached_tables: %s ← %s (%d rows)",
+                 item.alias, job["meta"].get("table", "manuel SQL"), len(df))
 
     # Pass 2 — derived nodes (filter / aggregate / calculated) in DEPENDENCY
     # ORDER (Faz A — zincirleme). A node is processed once all its DuckDB-source
@@ -698,10 +710,11 @@ def fetch_cached_tables(
                                       else list(d.source_aliases))
                 label = d.kind
             if len(df.columns) > 0:
-                register_dataframe(conn, item.alias, df)
+                materialize_table(conn, item.alias, df)
             loaded[item.alias] = {"derived_from": derived_from_value, "rows": int(len(df))}
             registered.add(item.alias)
             progressed = True
+            _notify(item.alias, df, sql)
             log.info("scope.fetch_cached_tables: %s ⇐ %s of %s (%d rows)",
                      item.alias, label, derived_from_value, len(df))
         pending = still

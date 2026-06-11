@@ -454,28 +454,58 @@ def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = 
         return None
 
 
+def _ensure_state_table(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS __dataset_meta "
+        "(alias VARCHAR PRIMARY KEY, refreshed_at VARCHAR)"
+    )
+
+
 def load_into_duck(dc, conn, scope: ScopeContract) -> dict[str, dict[str, Any]]:
-    """Register every materialised cached dataset of ``scope`` as a DuckDB view
-    named by its alias, so Sunum charts can project columns locally with NO
-    Oracle round-trip. Returns ``{alias: {rows, refreshed_at}}`` for what loaded.
+    """Materialise every cached dataset of ``scope`` into the session DuckDB
+    (real tables) so Sunum charts can project columns locally with NO Oracle
+    round-trip. Returns ``{alias: {rows, refreshed_at}}`` for what's available.
+
+    Tazelik kontrolü: her alias için önce küçük ``meta.json`` okunur; oturumda
+    aynı ``refreshed_at`` ile yazılmış tablo zaten varsa parquet BLOB'u hiç
+    indirilmez (eskiden her hidrasyon TÜM parquet'leri S3'ten çekiyordu).
+    Durum ``__dataset_meta`` tablosunda tutulur — session.duckdb ile birlikte
+    yaşar, pod restart'ta parquet'ten doğal şekilde yeniden dolar.
 
     Datasets not yet materialised (cron hasn't run) are simply skipped — the
-    viewer never triggers a fetch; the chart renders empty until the cron warms
-    the parquet.
+    viewer never triggers a fetch; the chart renders empty until the parquet
+    is warmed (build-time one-shot ya da cron).
     """
+    import io as _io
+
+    import pandas as pd
+
+    from presentations.duck import materialize_table
+
     loaded: dict[str, dict[str, Any]] = {}
+    _ensure_state_table(conn)
+    state = dict(conn.execute("SELECT alias, refreshed_at FROM __dataset_meta").fetchall())
     for item in scope.basket:
         if item.routing.decision != "cached":
             continue
-        # table_ref / sql / derived datasets all materialise to their own
-        # parquet now (a derived table's aggregate result is persisted by
-        # materialize_dataset), so each is read back by alias. Items with no
-        # parquet yet (cron hasn't run) are skipped — the viewer never fetches.
-        got = read_dataset(dc, scope.presentation_id, item.alias)
-        if got is None:
+        meta = read_dataset_meta(dc, scope.presentation_id, item.alias)
+        if meta is None:
             continue
-        df, meta = got
+        if state.get(item.alias) == meta.refreshed_at and _view_exists(conn, item.alias):
+            loaded[item.alias] = {"rows": meta.row_count, "refreshed_at": meta.refreshed_at}
+            continue
+        try:
+            blob = dc.read_bytes(dataset_data_key(scope.presentation_id, item.alias))
+        except Exception:
+            continue
+        if not blob:
+            continue
+        df = pd.read_parquet(_io.BytesIO(blob))
         if len(df.columns) > 0:
-            register_dataframe(conn, item.alias, df)
+            materialize_table(conn, item.alias, df)
+            conn.execute(
+                "INSERT OR REPLACE INTO __dataset_meta VALUES (?, ?)",
+                [item.alias, meta.refreshed_at],
+            )
         loaded[item.alias] = {"rows": meta.row_count, "refreshed_at": meta.refreshed_at}
     return loaded

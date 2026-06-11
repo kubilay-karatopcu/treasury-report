@@ -220,5 +220,17 @@ class TableDoc(BaseModel):
 def load_table_doc_from_dict(raw: dict[str, Any]) -> TableDoc:
     """Parse a raw YAML/JSON dict into a TableDoc. Use this instead of
     ``TableDoc.model_validate(raw)`` so the alias remap (``schema`` →
-    ``schema_name``) happens uniformly."""
+    ``schema_name``) happens uniformly.
+
+    OKUMA toleransı (Postel): Phase 7 YAML'ları tabloya ``primary_time_concept``
+    / ``concept_bindings`` gibi EK üst-düzey alanlar yazar ve dosyadaki kontrat
+    "Phase 6.5 reader ignores the new fields" der. ``extra="forbid"`` ile parse
+    burada PATLIYOR, ``AppCatalog.table_meta`` sessizce ``None``'a düşüyor ve
+    routing tabloyu boyutlandıramadığı için HER ŞEYİ lazy yapıyordu. Bilinmeyen
+    üst-düzey anahtarlar yazım sıkılığını bozmadan okumada atılır."""
+    if isinstance(raw, dict):
+        known = set(TableDoc.model_fields.keys()) | {"schema"}
+        unknown = [k for k in raw.keys() if k not in known]
+        if unknown:
+            raw = {k: v for k, v in raw.items() if k in known}
     return TableDoc.model_validate(raw)

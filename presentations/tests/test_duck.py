@@ -121,3 +121,42 @@ class TestPreviewView:
     def test_rejects_unsafe_view_name(self, conn):
         with pytest.raises(ValueError):
             duck.preview_view(conn, "demo; DROP TABLE foo")
+
+
+# ── D3: materialize_table — gerçek tablo, bağlantı kapansa da yaşar ──────────
+
+class TestMaterializeTable:
+    def test_survives_reconnect(self, tmp_path):
+        import pandas as pd
+        from presentations import duck
+
+        path = str(tmp_path / "s.duckdb")
+        conn = duck.connect_duckdb(path)
+        duck.materialize_table(conn, "ds1", pd.DataFrame({"A": [1, 2]}))
+        assert conn.execute('SELECT COUNT(*) FROM "ds1"').fetchone()[0] == 2
+        conn.close()
+
+        conn2 = duck.connect_duckdb(path)
+        assert conn2.execute('SELECT COUNT(*) FROM "ds1"').fetchone()[0] == 2
+        assert "ds1" in duck.list_views(conn2)
+        conn2.close()
+
+    def test_replaces_legacy_view(self):
+        import pandas as pd
+        from presentations import duck
+
+        conn = duck.connect_duckdb(":memory:")
+        duck.register_dataframe(conn, "ds2", pd.DataFrame({"A": [1]}))
+        duck.materialize_table(conn, "ds2", pd.DataFrame({"A": [1, 2, 3]}))
+        assert conn.execute('SELECT COUNT(*) FROM "ds2"').fetchone()[0] == 3
+
+    def test_internal_names_hidden_from_list_views(self):
+        import pandas as pd
+        from presentations import duck
+
+        conn = duck.connect_duckdb(":memory:")
+        conn.execute("CREATE TABLE __dataset_meta(alias VARCHAR, refreshed_at VARCHAR)")
+        duck.materialize_table(conn, "real_ds", pd.DataFrame({"A": [1]}))
+        names = duck.list_views(conn)
+        assert "real_ds" in names
+        assert all(not n.startswith("__") for n in names)
