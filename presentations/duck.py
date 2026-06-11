@@ -423,6 +423,24 @@ def _block_view_name(block_id: str) -> str:
 _MAX_ROWS_IN_MANIFEST = MAX_RAW_ROWS
 
 
+def infer_column_kinds(df) -> dict:
+    """Kolon adı → görsel tip ('number' | 'date' | 'text') — pandas dtype'tan.
+    DataTable bloğu sayıları sağa yaslayıp tr-TR formatlar, tarihleri kısaltır;
+    tip bilgisi olmadan her hücre düz metin görünüyordu."""
+    import pandas as pd
+
+    kinds: dict = {}
+    for col in df.columns:
+        dtype = df[col].dtype
+        if pd.api.types.is_datetime64_any_dtype(dtype):
+            kinds[str(col)] = "date"
+        elif pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype):
+            kinds[str(col)] = "number"
+        else:
+            kinds[str(col)] = "text"
+    return kinds
+
+
 def execute_block_sql(
     dc,
     conn,
@@ -536,6 +554,7 @@ def execute_block_sql(
         "executed_at":  _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         "row_count":    total_rows,
         "columns":      columns,
+        "column_types": infer_column_kinds(df),
         "preview_rows": sample,
         "rows":         all_rows,
         "view_name":    view_name,

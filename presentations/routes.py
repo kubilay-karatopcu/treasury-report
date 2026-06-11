@@ -1353,6 +1353,7 @@ def run_block_manual(pid: str, bid: str):
     # Neutralize an un-injected {{concept_filters}} sentinel — a manual run has
     # no dashboard concept filters, so the sentinel becomes a no-op 1 = 1.
     exec_sql = strip_concept_sentinel(bound.sql)
+    gate = None
     try:
         # Route to DuckDB when the SQL references scope datasets (Hazırlık-
         # produced manual-SQL / filter / aggregate nodes are session DuckDB
@@ -1372,8 +1373,17 @@ def run_block_manual(pid: str, bid: str):
             # build-time in-memory views vanish on pod restart / idle eviction.
             if _scope is not None:
                 hydrate_block_datasets(dc, conn, _scope, exec_sql)
+            # Manuel run da chart yolundaki aggregation gate'ten geçer: sınırsız
+            # `SELECT *` 5000 satırda kesilir (dialect, hedef motora göre seçilir
+            # — yanlış dialect'le sarmak execute'ta patlar). Önceden gate YOKTU →
+            # kullanıcı tüm tabloyu çekip manifest'i şişirebiliyordu.
+            from .aggregation_gate import validate_and_wrap
+            _names = [v for v in duck.list_views(conn) if not v.startswith("block_preview_")]
+            _will_duck = bool(duck.find_upload_refs(exec_sql)) or bool(
+                duck.find_view_refs(exec_sql, list({*_names, *scope_aliases})))
+            gate = validate_and_wrap(exec_sql, dialect="duckdb" if _will_duck else None)
             df, _engine = duck.run_block_sql_routed(
-                dc, conn, bid, exec_sql, bound.params,
+                dc, conn, bid, gate.sql, bound.params,
                 upload_lookup=upload_lookup, s3_get=s3_get,
                 extra_view_names=scope_aliases,
             )
@@ -1404,15 +1414,16 @@ def run_block_manual(pid: str, bid: str):
             all_rows.append([duck._jsonable(v) for v in row])
 
     new_ds = {
-        "sql":           exec_sql,
+        "sql":           gate.sql if gate is not None else exec_sql,
         "original_sql":  query,
-        "rewritten":     False,
-        "truncated":     False,
-        "cap":           total_rows,
-        "reason":        "manual_sql",
+        "rewritten":     bool(gate.rewritten) if gate is not None else False,
+        "truncated":     bool(gate.truncated) if gate is not None else False,
+        "cap":           gate.cap if gate is not None else total_rows,
+        "reason":        gate.reason if gate is not None else "manual_sql",
         "executed_at":   datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         "row_count":     total_rows,
         "columns":       columns,
+        "column_types":  duck.infer_column_kinds(df),
         "preview_rows":  all_rows[:5],
         "rows":          all_rows,
         "view_name":     f"v_{bid}",

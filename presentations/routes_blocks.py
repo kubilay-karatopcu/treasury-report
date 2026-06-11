@@ -699,11 +699,14 @@ def api_preview():
             status=400,
         )
 
-    body_json = df.to_json(orient="records", date_format="iso") or "[]"
+    # Tek serileştirme: rows_list zaten _jsonable'dan geçiyor; records görünümü
+    # ondan türetilir (eski df.to_json → json.loads turu CPU'yu iki kez yakıyordu).
+    _cols = [str(c) for c in df.columns]
     rows_list = [
         [duck._jsonable(v) for v in row]
         for row in df.itertuples(index=False, name=None)
     ]
+    records = [dict(zip(_cols, r)) for r in rows_list]
 
     # Build a Phase-6-shaped block dict for the mini-canvas renderer.
     # The synthetic block ID keeps the Phase 6.5 slug — the canvas uses it
@@ -729,6 +732,7 @@ def api_preview():
                 "executed_at":   _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
                 "row_count":     meta["row_count"],
                 "columns":       list(df.columns),
+                "column_types":  duck.infer_column_kinds(df),
                 "preview_rows":  rows_list[:5],
                 "rows":          rows_list,
                 "view_name":     f"v_preview_{block.id}",
@@ -741,7 +745,7 @@ def api_preview():
     body = json.dumps(
         {
             "ok": True,
-            "rows": json.loads(body_json),
+            "rows": records,
             "columns": list(df.columns),
             "meta": {**meta, "warnings": [*meta.get("warnings", []), *result["warnings"]]},
             "block": canvas_block,

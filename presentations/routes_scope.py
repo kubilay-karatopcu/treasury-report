@@ -1401,8 +1401,40 @@ def scope_preview_sql(pid: str):
             for r in df.head(50).itertuples(index=False, name=None)]
     # `data_columns` is what the Hazırlık preview drawer's grid binds to; the
     # SqlDatasetModal reads `columns`. Return both so one endpoint serves both.
+    # Gate bilgisi (truncated/cap/reason) modalda gösterilir — kullanıcı örneğin
+    # 5000 satırlık kapıya takıldığını GÖRMELİ ("önizleme = tüm veri" sanmasın).
     return _json({"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
-                  "row_count": int(len(df)), "warnings": chk.warnings})
+                  "row_count": int(len(df)),
+                  "truncated": bool(gate.truncated), "cap": gate.cap,
+                  "gate_reason": gate.reason,
+                  "warnings": chk.warnings})
+
+
+@presentations_bp.route("/<pid>/scope/explain-sql", methods=["POST"])
+@login_required
+def scope_explain_sql(pid: str):
+    """Manuel SQL modalında 'Önizle' ile PARALEL çağrılan ucuz maliyet tahmini.
+
+    EXPLAIN PLAN veriyi taramaz (saniye altı): optimizer'ın satır tahminini
+    döner; modal "~N satır — uzun sürebilir" uyarısını canlı gösterir. DEV stub
+    (get_connection'sız DataClient) ya da herhangi bir hata → ``rows: null``
+    (best effort, önizlemeyi asla bloklamaz).
+    """
+    body = request.get_json(silent=True) or {}
+    sql = (body.get("sql") or "").strip()
+    if not sql:
+        return _json({"ok": False, "errors": ["SQL boş olamaz."]}, status=400)
+    from presentations.sql.validator import validate_sql
+    chk = validate_sql(sql)
+    if not chk.ok:
+        return _json({"ok": False, "phase": "sql", "errors": chk.errors}, status=400)
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": True, "rows": None, "estimated_bytes": None})
+    from presentations.scope.size_estimate import explain_plan_rows
+    rows = explain_plan_rows(dc, f"SELECT * FROM (\n{sql}\n)", {})
+    est = None if rows is None else int(rows) * 50   # kaba genişlik — bilgi amaçlı
+    return _json({"ok": True, "rows": rows, "estimated_bytes": est})
 
 
 @presentations_bp.route("/<pid>/scope/filter-preview", methods=["POST"])

@@ -126,11 +126,24 @@ def apply_data_to_config(block: dict, data_source: dict) -> None:
         return
 
     if btype == "data_table":
-        config["columns"] = [{"field": c, "header": c} for c in columns]
+        # Kolon tipi (number/date/text) → DataTable formatlama + sağa yaslama;
+        # meta (satır sayısı + truncation) → grid altı bilgi şeridi. column_types
+        # eski data_source'larda yok → tip alanı düşer, eski davranış korunur.
+        col_types = data_source.get("column_types") or {}
+        config["columns"] = [
+            {"field": c, "header": c,
+             **({"type": col_types[c]} if col_types.get(c) in ("number", "date", "text") else {})}
+            for c in columns
+        ]
         config["rows"] = [
             {columns[i]: cell for i, cell in enumerate(row)}
             for row in rows
         ]
+        config["meta"] = {
+            "row_count": data_source.get("row_count"),
+            "truncated": bool(data_source.get("truncated")),
+            "cap": data_source.get("cap"),
+        }
         return
 
 

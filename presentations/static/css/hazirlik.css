@@ -855,3 +855,80 @@
 }
 .hz-sugg-rationale { font-size: 11px; color: #475569; line-height: 1.4; }
 .hz-sugg-actions { display: flex; gap: 6px; }
+
+/* ── Build overlay (Sunum'a geç) — tam ekran bekleme + çıkış animasyonu ──── */
+.hz-build-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.62);
+  backdrop-filter: blur(3px);
+  animation: hzOverlayIn 180ms ease-out;
+}
+.hz-build-overlay.is-leaving {
+  animation: hzOverlayOut 420ms ease-in forwards;
+}
+.hz-build-overlay__card {
+  min-width: 320px;
+  max-width: 460px;
+  background: var(--ts-card-bg, #101724);
+  color: var(--ts-fg, #e2e8f0);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.hz-build-overlay.is-leaving .hz-build-overlay__card {
+  transform: translateY(-6px) scale(0.98);
+  transition: transform 400ms ease-in;
+}
+.hz-build-overlay__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.hz-build-overlay__sub {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  color: var(--ts-muted, #8a94a6);
+}
+.hz-build-overlay__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.hz-build-overlay__list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 12px;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.15);
+}
+.hz-build-overlay__list li:last-child { border-bottom: 0; }
+.hz-build-overlay__alias { font-weight: 600; }
+.hz-build-overlay__kind {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ts-muted, #8a94a6);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+/* D3 async build: canlı durum işaretleri (done/wait) bu sınıfları kullanır. */
+.hz-build-overlay__list li.is-done { opacity: 0.55; }
+.hz-build-overlay__list li.is-done .hz-build-overlay__alias { text-decoration: none; }
+@keyframes hzOverlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes hzOverlayOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}

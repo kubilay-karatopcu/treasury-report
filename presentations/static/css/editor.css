@@ -6766,3 +6766,20 @@ body.theme-dark .props-sql-helper__table td code {
 
 
 
+
+/* ── data_table meta şeridi (satır sayısı + truncation uyarısı) ─────────── */
+.data-table-meta {
+  font-size: 11px;
+  color: var(--ts-muted, #8a94a6);
+  padding: 4px 6px 2px;
+  text-align: right;
+}
+.data-table-meta--warn {
+  text-align: left;
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.12);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+}
