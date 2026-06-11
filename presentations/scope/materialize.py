@@ -32,6 +32,8 @@ from presentations.duck import register_dataframe
 from presentations.scope.fetch import (
     compile_aggregate_sql,
     compile_calculated_sql,
+    compile_join_sql,
+    compile_union_sql,
     compile_filter_sql,
     compose_cached_sql,
 )
@@ -253,6 +255,7 @@ def _compute_dataset_df(
     by_alias = {b.alias: b for b in scope.basket}
 
     conn = connect_duckdb(":memory:")
+    cols_by_src: dict[str, list[str]] = {}
     for src in src_aliases:
         got = read_dataset(dc, scope.presentation_id, src)
         if got is not None:
@@ -267,10 +270,18 @@ def _compute_dataset_df(
                     concept_registry=concept_registry, binding_catalog=binding_catalog,
                     visited=visited,
                 )
+        cols_by_src[src] = list(src_df.columns)
         register_dataframe(conn, src, src_df)
 
-    sql = (compile_aggregate_sql(item) if d.kind == "aggregate"
-           else compile_calculated_sql(item))
+    if d.kind == "aggregate":
+        sql = compile_aggregate_sql(item)
+    elif d.kind == "join":
+        sql = compile_join_sql(item, cols_by_src.get(d.source_aliases[0], []),
+                               cols_by_src.get(d.source_aliases[1], []))
+    elif d.kind == "union":
+        sql = compile_union_sql(item)
+    else:  # calculated
+        sql = compile_calculated_sql(item)
     df = conn.execute(sql).fetchdf()
     return df, sql
 

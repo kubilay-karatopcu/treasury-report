@@ -83,6 +83,10 @@ export default function Basket() {
         catalog: meta?.table || null,
         domain: meta?.domain || null,
         typeBadge: sourceBadge(b),
+        // Hazırlık'ta üretilen tablolar (manuel SQL / join / filter / aggregate)
+        // katalogda yok ama materialise edilmiş DuckDB view'ları var → docs
+        // panelinde kolonlarını + önizlemelerini gösterebiliriz.
+        isProduced: b.source === 'sql' || b.source === 'derived',
       };
     });
   }, [tableItems, tableById]);
@@ -112,6 +116,20 @@ export default function Basket() {
       useStore.getState().closeDocsTable();
     } else {
       setDocsTable({ table, domain });
+    }
+  }
+
+  // Katalog tablosu → katalog dökümanı; üretilmiş tablo (manuel SQL/türetilmiş)
+  // → DuckDB view'ından kolon + önizleme gösteren sentetik doc.
+  function openDocsFor(it) {
+    if (it.catalog) {
+      openDocs(it.catalog, it.domain);
+    } else if (it.isProduced) {
+      openDocs({
+        id: it.tid, name: it.name, produced: true,
+        source: it.source, derivation_kind: it.derivation_kind,
+        badge: it.typeBadge,
+      }, null);
     }
   }
 
@@ -168,7 +186,7 @@ export default function Basket() {
               <BasketTableRow
                 key={it.tid}
                 item={it}
-                onOpenDocs={() => it.catalog && openDocs(it.catalog, it.domain)}
+                onOpenDocs={() => openDocsFor(it)}
                 onDeleteUpload={handleDeleteUpload}
               />
             ))}
@@ -250,8 +268,9 @@ function BasketTableRow({ item, onOpenDocs, onDeleteUpload }) {
         type="button"
         className="sources-table sources-table--readonly"
         onClick={onOpenDocs}
-        title={item.catalog ? `${item.tid} — önizle` : item.tid}
-        disabled={!item.catalog}
+        title={item.catalog ? `${item.tid} — önizle`
+          : item.isProduced ? `${item.tid} — kolonlar + önizleme` : item.tid}
+        disabled={!item.catalog && !item.isProduced}
       >
         <div className="sources-table-info">
           <div className="sources-table-name">
@@ -272,8 +291,8 @@ function BasketTableRow({ item, onOpenDocs, onDeleteUpload }) {
             </div>
           )}
         </div>
-        {item.catalog && (
-          <span className="sources-table-eye-hint" title="Önizle">
+        {(item.catalog || item.isProduced) && (
+          <span className="sources-table-eye-hint" title={item.isProduced ? 'Kolonlar + önizleme' : 'Önizle'}>
             <Eye size={12} strokeWidth={1.8} />
           </span>
         )}

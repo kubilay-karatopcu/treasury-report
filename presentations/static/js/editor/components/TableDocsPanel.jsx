@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Database, Tag, Hash, Type as TypeIcon, Eye, Loader2, AlertTriangle, X, Sparkles } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
 import useStore from '../lib/store.js';
-import { fetchTablePreview, fetchTableConcepts } from '../lib/api.js';
+import { fetchTablePreview, fetchTableConcepts, previewView } from '../lib/api.js';
 
 /**
  * Side-dock variant of the catalog docs (was a modal previously).
@@ -52,6 +52,17 @@ export default function TableDocsPanel({ width, onResizeStart }) {
   }, [closeDocsTable]);
 
   if (!table) return null;
+
+  // Hazırlık'ta üretilen tablolar (manuel SQL / join / filter / aggregate):
+  // katalog kaydı yok ama materialise edilmiş DuckDB view'ı var → kolonları +
+  // önizlemeyi view'dan çek (duckdb/preview). Hazırlık'taki docs panelinin
+  // Sunum karşılığı.
+  if (table.produced) {
+    return (
+      <ProducedDocsPanel table={table} width={width}
+        onResizeStart={onResizeStart} onClose={closeDocsTable} />
+    );
+  }
 
   const cols    = table.columns || [];
   const filters = table.common_filters || [];
@@ -272,5 +283,112 @@ function DataPreviewGrid({ data }) {
         />
       </div>
     </div>
+  );
+}
+
+
+/**
+ * Docs panel for a PRODUCED table (Hazırlık'ta üretilen manuel-SQL / join /
+ * filter / aggregate node). No catalog row exists, but the table is a
+ * materialised DuckDB view in this presentation's session — so we read its
+ * columns + a sample straight from `duckdb/preview/<alias>`. Mirrors the
+ * Hazırlık docs experience on the Sunum side.
+ */
+function ProducedDocsPanel({ table, width, onResizeStart, onClose }) {
+  const [data, setData]       = useState(null);
+  const [err, setErr]         = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setErr(null); setData(null);
+    previewView(table.id)
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch((e) => { if (!cancelled) setErr(e.message || String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [table.id]);
+
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const cols = data?.columns || [];
+  const kindLabel = table.source === 'sql' ? 'manuel SQL'
+    : table.derivation_kind === 'join'       ? 'join'
+    : table.derivation_kind === 'union'      ? 'union'
+    : table.derivation_kind === 'filter'     ? 'filtre'
+    : table.derivation_kind === 'aggregate'  ? 'agregat'
+    : table.derivation_kind === 'calculated' ? 'hesaplama'
+    : 'türetilmiş';
+
+  return (
+    <aside className="docs-side-panel" style={width ? { width } : undefined}>
+      {onResizeStart && (
+        <div className="resize-handle resize-handle--right" onMouseDown={onResizeStart} />
+      )}
+      <header className="docs-side-panel__header">
+        <div>
+          <div className="docs-side-panel__title" title={table.id}>{table.id}</div>
+          <div className="docs-side-panel__sub">
+            <Database size={11} strokeWidth={1.8} /> Üretilmiş tablo · {kindLabel}
+            {data?.row_count != null && <> · ~{data.row_count.toLocaleString('tr-TR')} satır</>}
+          </div>
+        </div>
+        <button type="button" className="props-close-btn" onClick={onClose} title="Kapat (ESC)">
+          <X size={16} strokeWidth={2} />
+        </button>
+      </header>
+
+      <div className="docs-side-panel__body ts-scroll">
+        <p className="docs-desc">
+          Hazırlık'ta üretilen bu tablo, bu sunumun oturumunda materialise edilmiş
+          bir DuckDB view'ı. Manuel SQL bloğunda <code>{table.id}</code> olarak
+          sorgulayabilirsin.
+        </p>
+
+        <div className="docs-section">
+          <div className="docs-section-title">
+            <TypeIcon size={12} strokeWidth={2} />
+            <span>Kolonlar ({cols.length})</span>
+          </div>
+          {loading ? (
+            <div className="docs-preview-loading">
+              <Loader2 size={14} className="ts-spin" /><span>Kolonlar yükleniyor…</span>
+            </div>
+          ) : err ? (
+            <div className="docs-preview-error">
+              <AlertTriangle size={12} strokeWidth={2} /><span>{err}</span>
+            </div>
+          ) : cols.length === 0 ? (
+            <div className="docs-empty">
+              Kolon bulunamadı — tablo henüz materialise edilmemiş olabilir
+              (Hazırlık'tan "Sunum'a geç" ile yeniden build edin).
+            </div>
+          ) : (
+            <table className="docs-cols-table">
+              <thead><tr><th>Kolon</th></tr></thead>
+              <tbody>
+                {cols.map((c) => (
+                  <tr key={c}><td className="docs-col-name">{c}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {!loading && !err && data && cols.length > 0 && (
+          <div className="docs-section">
+            <div className="docs-section-title">
+              <Eye size={12} strokeWidth={2} />
+              <span>Veri Önizleme</span>
+            </div>
+            <DataPreviewGrid data={data} />
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }

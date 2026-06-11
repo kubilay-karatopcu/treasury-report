@@ -100,6 +100,8 @@
 .ts-btn--primary { background: #206bc4; border-color: #206bc4; color: #fff; }
 .ts-btn--primary:hover { background: #1a5aa8; }
 .ts-btn--sm { padding: 4px 9px; font-size: 12px; }
+.ts-btn--danger { border-color: #fecaca; background: #fef2f2; color: #dc2626; }
+.ts-btn--danger:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
 .ts-btn:disabled { opacity: .6; cursor: default; }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -120,6 +122,35 @@
 .hz-topbar .hz-title { font-size: 16px; font-weight: 650; color: #1e293b; }
 .hz-topbar .hz-eyebrow { font-size: 11px; letter-spacing: .05em; color: #94a3b8; }
 .hz-error--bar { margin: 0; border-radius: 0; }
+
+/* Başlık şeridi (Keşif WorkshopHeader karşılığı) — PRISMA shell topbar'ın
+   hemen altında, hz-body'nin üstünde. */
+.hz-workshop-header {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 8px 18px; background: #fff;
+  border-bottom: 1px solid #e2e8f0; min-height: 44px; box-sizing: border-box;
+}
+.hz-workshop-header__left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.hz-workshop-header__title {
+  flex: 0 1 480px; min-width: 200px; background: transparent;
+  border: 1px solid transparent; color: #1e293b; font-size: 15px;
+  padding: 4px 10px; border-radius: 4px; outline: none;
+  transition: background .15s, border-color .15s;
+}
+.hz-workshop-header__title::placeholder { color: #94a3b8; font-style: italic; }
+.hz-workshop-header__title:hover { background: #f1f5f9; }
+.hz-workshop-header__title:focus { background: #fff; border-color: #206bc4; }
+.hz-workshop-header__pid {
+  font-family: var(--bs-font-monospace, monospace); font-size: 10.5px;
+  color: #94a3b8; white-space: nowrap;
+}
+.hz-workshop-header__right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.hz-workshop-header__toast {
+  font-size: 11px; letter-spacing: .08em; color: #206bc4;
+  padding: 2px 8px; border-radius: 4px; background: #eff6ff;
+}
+.hz-workshop-header__toast.is-error { color: #dc2626; background: #fef2f2; }
+.hz-workshop-header__save { padding: 5px 14px !important; }
 
 .hz-body { flex: 1 1 auto; display: flex; min-height: 0; }
 
@@ -152,6 +183,19 @@
 .hz-preview { flex: 0 0 240px; border-top: 1px solid #e6e7e9; background: #fff; display: flex; flex-direction: column; min-height: 0; }
 .hz-preview-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #eef0f3; font-size: 13px; font-weight: 600; color: #334155; }
 .hz-preview-head span { display: flex; align-items: center; gap: 6px; }
+/* Tablo adı düzenleme (kalem + inline input). */
+.hz-preview-rename-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: none; background: transparent;
+  color: #94a3b8; cursor: pointer; border-radius: 4px;
+}
+.hz-preview-rename-btn:hover { background: #eff6ff; color: #206bc4; }
+.hz-preview-rename {
+  font-size: 13px; font-weight: 600; color: #1e293b;
+  padding: 2px 7px; border: 1px solid #206bc4; border-radius: 5px;
+  outline: none; min-width: 200px; max-width: 360px;
+  font-family: var(--bs-font-monospace, monospace);
+}
 .hz-preview-body { flex: 1 1 auto; overflow: auto; padding: 8px 12px; }
 .hz-table-grid { border-collapse: collapse; font-size: 12px; }
 .hz-table-grid th, .hz-table-grid td { border: 1px solid #eef0f3; padding: 3px 8px; text-align: left; white-space: nowrap; }
@@ -385,6 +429,43 @@
 .hz-basket-row.is-hidden .hz-basket-row__viz { color: #d1d5db; }
 .hz-basket-row.is-derived .hz-basket-row__main { font-style: italic; }
 
+/* Sol aksiyon slotu — artık tıklanabilir buton: aktifte göz (pasifleştir),
+   pasifte kırmızı çöp (sil). İki kademeli: sadece pasif node silinebilir. */
+.hz-basket-row__viz-btn {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; padding: 0;
+  background: transparent; border: none; cursor: pointer;
+  color: #94a3b8; border-right: 1px solid transparent;
+}
+.hz-basket-row__viz-btn:hover { background: #f1f5f9; color: #475569; border-right-color: #e2e8f0; }
+.hz-basket-row.is-hidden .hz-basket-row__viz-btn { color: #cbd5e1; }
+.hz-basket-row__viz-btn.is-delete { color: #dc2626; }
+.hz-basket-row.is-hidden .hz-basket-row__viz-btn.is-delete { color: #dc2626; }
+.hz-basket-row__viz-btn.is-delete:hover { background: #fef2f2; color: #b91c1c; border-right-color: #fecaca; }
+
+/* Docs paneli — "Kaynak Tablolar" köprüleri (üretilmiş/SQL node'ları). */
+.hz-docs-sources { display: flex; flex-direction: column; gap: 4px; }
+.hz-docs-source-link {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 5px;
+  background: #fff; cursor: pointer; font-size: 12px; color: #1f2937;
+  text-align: left; width: 100%;
+}
+.hz-docs-source-link:hover { border-color: #206bc4; background: #f8fafc; }
+.hz-docs-source-link svg { color: #64748b; flex-shrink: 0; }
+.hz-docs-source-id { font-family: var(--bs-font-monospace, monospace); }
+.hz-docs-source-meta { margin-left: auto; color: #94a3b8; font-size: 11px; }
+
+/* Hesaplama kolonu ifadesi — docs marks hücresinde küçük kod rozeti. */
+.hz-docs-expr {
+  display: inline-block; max-width: 100%;
+  padding: 1px 5px; border-radius: 4px;
+  background: #f1f5f9; color: #475569;
+  font-family: var(--bs-font-monospace, monospace); font-size: 10.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 .hz-basket-empty {
   font-size: 11.5px;
   color: #94a3b8;
@@ -494,6 +575,10 @@
 .hz-node-col--other { background: #fafbfc; }
 .hz-node-col--other .hz-col-name { font-style: italic; }
 .hz-handle--other { background: #cbd5e1 !important; }
+/* Union "tırnak" — başlık seviyesindeki handle. Kolon handle'larından farklı
+   (amber) → başlıktan başlığa sürükle = union sinyali. */
+.hz-handle--table { background: #f59e0b !important; width: 11px !important; height: 11px !important; }
+.hz-handle--table:hover { background: #d97706 !important; }
 /* Derived (aggregate) tables */
 .hz-node--derived .hz-node-head { background: #7c3aed; }
 /* Faz R/B — pasif node (Sunum'a alınmaz): kararır, gizlenmez. */
@@ -619,6 +704,26 @@
 }
 .hz-docs-pill--req { background: #fef3c7; color: #92400e; }
 .hz-docs-pill--key { background: #ddd6fe; color: #5b21b6; }
+.hz-docs-pill--computed { background: #e2e8f0; color: #475569; font-style: italic; }
+
+/* Sol panel bütçe göstergesi (cached tahmini boyut / session limiti). */
+.hz-budget { margin: 4px 0 6px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; }
+.hz-budget-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; }
+.hz-budget-label { color: #64748b; }
+.hz-budget-val { font-variant-numeric: tabular-nums; color: #334155; font-weight: 600; }
+.hz-budget-bar { margin-top: 5px; height: 5px; border-radius: 3px; background: #eef0f3; overflow: hidden; }
+.hz-budget-fill { height: 100%; background: #16a34a; transition: width .25s ease; }
+.hz-budget--warn .hz-budget-fill { background: #f59e0b; }
+.hz-budget--over .hz-budget-fill { background: #dc2626; }
+.hz-budget--over { border-color: #fecaca; background: #fef2f2; }
+.hz-budget-note { margin-top: 4px; font-size: 10.5px; color: #b91c1c; }
+
+/* Union modalı kolon eşleşme tablosu. */
+.hz-union-table { width: 100%; margin: 8px 0; }
+.hz-union-row--bad { background: #fef2f2; }
+.hz-union-row--bad td { color: #b91c1c; }
+.hz-union-allrow { display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; }
+.hz-union-allrow input { width: auto; }
 .hz-docs-cols .hz-col-concept {
   /* concept chips in the docs table get their own line if the cell is
      narrow; no truncation. */

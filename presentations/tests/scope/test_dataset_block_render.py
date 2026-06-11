@@ -183,3 +183,59 @@ def test_unmaterialised_dataset_block_renders_empty_not_oracle(tmp_path):
     blocks = {b["id"]: b for b in resp.get_json()["blocks"]}
     assert blocks["b_bar"]["status"] == "empty"
     assert dc.get_data_calls == []
+
+
+def test_duckdb_preview_hydrates_produced_view(tmp_path):
+    """Regression: the Sunum produced-table docs panel calls /duckdb/preview/<alias>.
+    Produced views (manuel SQL / join / filter) aren't persisted in the session
+    DuckDB file, so the endpoint must hydrate them on demand (from materialised
+    parquet or via the scope fetch) — else it 500s with "Table … does not exist"."""
+    dc = _FakeDC()
+    scope_store = LocalScopeStore(tmp_path / "scopes")
+    scope_store.save(load_scope_from_dict({
+        "presentation_id": "p3", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [{
+            "alias": "my_sql", "sql": "SELECT CCY, TOTAL FROM ODS_TREASURY.TRD_BRANCH_POSITION",
+            "projection": {"columns": ["CCY", "TOTAL"], "include_all": False},
+            "routing": {"decision": "cached", "decided_by": "user", "estimated_bytes": 0},
+        }],
+        "filters": {"pinned": [], "interactive": []},
+    }))
+    # Cron-materialised the produced dataset to parquet (no Oracle on preview).
+    write_dataset(dc, "p3", "my_sql",
+                  pd.DataFrame({"CCY": ["TRY", "USD"], "TOTAL": [100.0, 50.0]}),
+                  sql="SELECT CCY, TOTAL FROM ODS_TREASURY.TRD_BRANCH_POSITION")
+
+    app = Flask(__name__)
+    app.config.update(
+        SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True,
+        DATA_CLIENT=dc, SCOPE_STORE=scope_store,
+        SESSION_REGISTRY=SessionRegistry(dc=dc, duck_base_dir=tmp_path / "duck"),
+    )
+    lm = LoginManager(app)
+
+    @lm.user_loader
+    def _load(_id):
+        return _FakeUser()
+
+    @app.before_request
+    def _force_login():
+        from flask_login import current_user
+        if not getattr(current_user, "is_authenticated", False):
+            login_user(_FakeUser())
+
+    app.register_blueprint(presentations_bp, url_prefix="/presentations")
+    with app.app_context():
+        app.config["SESSION_REGISTRY"].get_or_create("A16438", "p3").set_manifest({
+            "id": "p3", "version": 1,
+            "scope_ref": {"presentation_id": "p3", "scope_version": 1},
+            "basket": [{"table": "my_sql", "alias": "my_sql", "columns": [], "source": "sql"}],
+            "blocks": [],
+        })
+
+    resp = app.test_client().get("/presentations/p3/duckdb/preview/my_sql")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    data = resp.get_json()
+    assert data.get("columns") == ["CCY", "TOTAL"], data
+    assert data.get("row_count") == 2, data

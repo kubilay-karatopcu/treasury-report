@@ -224,7 +224,7 @@ class Derivation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["aggregate", "calculated", "filter"] = "aggregate"
+    kind: Literal["aggregate", "calculated", "filter", "join", "union"] = "aggregate"
     # aggregate-only ----------------------------------------------------
     source_alias: Alias | None = None
     group_by: list[str] = Field(default_factory=list)
@@ -233,6 +233,13 @@ class Derivation(BaseModel):
     source_aliases: list[Alias] = Field(default_factory=list)
     join_keys: list[CalculatedJoinKey] = Field(default_factory=list)
     columns: list[CalculatedColumn] = Field(default_factory=list)
+    # join-only (Hazırlık ER): tam 2 source_aliases + 1 join_key. Çıktı = iki
+    # tablonun tüm kolonları (çakışanlar sağ alias prefix'iyle). DuckDB'de
+    # hesaplanır → compile_join_sql.
+    join_type: Literal["inner", "left"] = "inner"
+    # union-only: 2+ source_aliases, kolon sayısı + tipleri uyumlu olmalı
+    # (frontend ön-kontrol + DuckDB execute doğrular). union_all=False → DISTINCT.
+    union_all: bool = True
     # filter-only (Faz R1) — bir main node'dan filtreyle türetilen, cache'lenip
     # cron'lanabilen alt-node. `source_alias` lineage (edge bundan çizilir);
     # `filters` GÖMÜLÜ (scope-level filters değil). Compiler kaynağın table_ref'i
@@ -300,6 +307,31 @@ class Derivation(BaseModel):
                 if c.name in seen:
                     raise ValueError(f"calculated columns: '{c.name}' iki kez tanımlı")
                 seen.add(c.name)
+        elif self.kind == "join":
+            # Hazırlık ER: iki tabloyu bir join_key üstünden birleştir.
+            if len(self.source_aliases) != 2:
+                raise ValueError("join derivation: tam olarak 2 source_aliases gerekli")
+            if not self.join_keys:
+                raise ValueError("join derivation: bir join_key gerekli")
+            if self.source_alias is not None or self.group_by or self.measures \
+                    or self.columns or self.filters:
+                raise ValueError(
+                    "join derivation: yalnız source_aliases + join_keys + join_type kullanılır"
+                )
+            srcset = set(self.source_aliases)
+            for jk in self.join_keys:
+                if jk.left_alias not in srcset or jk.right_alias not in srcset:
+                    raise ValueError(
+                        "join join_key: alias source_aliases içinde değil"
+                    )
+        elif self.kind == "union":
+            if len(self.source_aliases) < 2:
+                raise ValueError("union derivation: en az 2 source_aliases gerekli")
+            if self.source_alias is not None or self.group_by or self.measures \
+                    or self.columns or self.join_keys or self.filters:
+                raise ValueError(
+                    "union derivation: yalnız source_aliases (+ union_all) kullanılır"
+                )
         return self
 
 

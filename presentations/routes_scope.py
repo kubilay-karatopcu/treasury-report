@@ -573,9 +573,18 @@ def _manifest_basket_from_scope(scope: ScopeContract) -> list[dict[str, Any]]:
     node the user wants in Sunum. SQL / derivation entries carry a ``source``
     (and ``derivation_kind``) so the sidebar can badge them; their ``table`` is
     the alias (= the DuckDB view name) since there is no Oracle table id.
+
+    ``scope.inactive_aliases`` here lists sources the user PASSİVE'd in Hazırlık
+    that were only re-added to the basket because an active derived node needs
+    them to materialise. They stay in the scope (so the derived node builds) but
+    are HIDDEN from the Sunum sidebar — otherwise a table the user disabled would
+    still show up in Sunum as a data source.
     """
+    hidden = set(scope.inactive_aliases or [])
     out: list[dict[str, Any]] = []
     for b in scope.basket:
+        if b.alias in hidden:
+            continue
         if b.table_ref is not None:
             cols = [] if b.projection.include_all else list(b.projection.columns or [])
             out.append({
@@ -1010,9 +1019,11 @@ def build_scope(pid: str):
         refetch_only = diff.affected_aliases
         drop_aliases = set(diff.removed_aliases)
 
-    # Passive ("pasif") nodes are already stripped from the basket by the
-    # Hazırlık _finalisedScope before build, so the scope here is active-only —
-    # the fetch pass materialises exactly what Sunum will show.
+    # Passive ("pasif") nodes are stripped from the basket by the Hazırlık
+    # _finalisedScope before build. The only exception is a passive source that
+    # an ACTIVE derived node needs to materialise — it stays in the basket but is
+    # listed in scope.inactive_aliases so _manifest_basket_from_scope hides it
+    # from the Sunum sidebar (the fetch pass still materialises it for the node).
     try:
         with session.duck_conn() as conn:
             loaded = fetch_cached_tables(
@@ -1405,18 +1416,12 @@ def scope_filter_preview(pid: str):
     try:
         # The DISPLAYED "Kaynak Query" is the real cache query (no row cap) —
         # FETCH FIRST is a preview-only concern. Pretty-print it for readability.
+        # (The capped RUN is handled by _preview_sample_into_duck below.)
         display_sql, _ = compile_filter_sql(
             scope, item, _catalog(),
             concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
             binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
             max_rows=None,
-        )
-        # The RUN sql is capped (sample only).
-        sql, binds = compile_filter_sql(
-            scope, item, _catalog(),
-            concept_registry=current_app.config.get("CONCEPT_REGISTRY"),
-            binding_catalog=current_app.config.get("CONCEPT_BINDING_CATALOG"),
-            max_rows=200,
         )
     except Exception as exc:
         return _json({"ok": False, "phase": "compile", "errors": [str(exc)]}, status=400)
@@ -1433,19 +1438,33 @@ def scope_filter_preview(pid: str):
         return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
                       "row_count": 0, "sql": pretty_sql})
 
-    import pandas as pd
     from presentations import duck
+    conn = duck.connect_duckdb(":memory:")
     try:
-        df = dc.get_data(base_prefix=None, dataset=f"filter-preview::{pid}/{alias}",
-                         query=sql, query_params=binds)
+        # _preview_sample_into_duck materialises the filter node whether its source
+        # is an Oracle main (capped Oracle filter query) OR a DERIVED node
+        # (union/join/aggregate/…): it recursively samples the source into DuckDB
+        # and runs the filter there. The old path always sent the compiled SQL to
+        # Oracle, so a filter on a union/join silently returned 0 rows (the DuckDB
+        # SQL references a view that doesn't exist in Oracle).
+        _preview_sample_into_duck(
+            conn, scope, alias, dc, pid,
+            catalog=_catalog(),
+            registry=current_app.config.get("CONCEPT_REGISTRY"),
+            bindings=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+            registered=set())
+        df = conn.execute(f'SELECT * FROM "{alias}" LIMIT 200').fetchdf()
     except Exception as exc:
         msg = str(exc).strip().splitlines()[0][:240]
         # SQL still useful even if the sample run failed.
         return _json({"ok": True, "columns": [], "data_columns": [], "rows": [],
                       "row_count": 0, "sql": pretty_sql, "warnings": [msg]})
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
-    if df is None:
-        df = pd.DataFrame()
     cols = [str(c) for c in df.columns]
     rows = [[duck._jsonable(v) for v in r]
             for r in df.head(200).itertuples(index=False, name=None)]
@@ -1627,6 +1646,82 @@ def scope_preview(pid: str):
     })
 
 
+def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
+                              catalog, registry, bindings, registered, depth=0):
+    """Recursively materialise a row-capped SAMPLE of ``alias`` into a DuckDB
+    view for the design-time derivation preview. Handles main tables, sql
+    datasets AND nested derivations (filter / aggregate / calculated / join /
+    union) — so a join or union of filter nodes previews correctly (the old
+    shallow loop rejected derived sources with "iç içe türetme … desteklenmiyor"
+    / "Kaynak … basket'te yok"). Oracle pulls are capped; DuckDB steps run over
+    the already-registered (capped) source views. Mirrors materialize.py's
+    recursion but sampled, not full.
+    """
+    import pandas as pd
+    from presentations import duck
+    from presentations.scope.fetch import (
+        compile_aggregate_sql, compile_calculated_sql, compile_join_sql, compile_union_sql,
+    )
+    if alias in registered:
+        return
+    if depth > 10:
+        raise ValueError(f"önizleme: '{alias}' türetme zinciri çok derin")
+    src = next((b for b in scope.basket if b.alias == alias), None)
+    if src is None:
+        raise ValueError(f"Kaynak '{alias}' basket'te yok")
+    SAMPLE = 5000
+
+    if src.derivation is None and src.table_ref is not None:
+        full = f"{src.table_ref.schema_name}.{src.table_ref.name}"
+        df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
+                         query=f"SELECT * FROM {full} FETCH FIRST {SAMPLE} ROWS ONLY", query_params={})
+    elif src.derivation is None and getattr(src, "sql", None):
+        df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
+                         query=f"SELECT * FROM ({src.sql}) _src FETCH FIRST {SAMPLE} ROWS ONLY", query_params={})
+    elif src.derivation is not None:
+        d = src.derivation
+        if d.kind == "filter":
+            base = scope.basket_item(d.source_alias)
+            if base is not None and base.table_ref is not None:
+                # filter on an Oracle main → run the (capped) Oracle filter query.
+                compiled, binds = compile_filter_sql(
+                    scope, src, catalog, concept_registry=registry,
+                    binding_catalog=bindings, max_rows=SAMPLE)
+                df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
+                                 query=compiled, query_params=binds)
+            else:
+                # filter on a derived source → register the source, filter in DuckDB.
+                _preview_sample_into_duck(conn, scope, d.source_alias, dc, pid,
+                    catalog=catalog, registry=registry, bindings=bindings,
+                    registered=registered, depth=depth + 1)
+                compiled, binds = compile_filter_sql(
+                    scope, src, catalog, concept_registry=registry, binding_catalog=bindings)
+                df = conn.execute(compiled, binds).fetchdf() if binds else conn.execute(compiled).fetchdf()
+        else:
+            srcs = (list(d.source_aliases) if d.kind in ("calculated", "join", "union")
+                    else ([d.source_alias] if d.source_alias else []))
+            for s in srcs:
+                _preview_sample_into_duck(conn, scope, s, dc, pid,
+                    catalog=catalog, registry=registry, bindings=bindings,
+                    registered=registered, depth=depth + 1)
+            if d.kind == "aggregate":
+                compiled = compile_aggregate_sql(src)
+            elif d.kind == "join":
+                lc = list(conn.execute(f'SELECT * FROM "{d.source_aliases[0]}" LIMIT 0').fetchdf().columns)
+                rc = list(conn.execute(f'SELECT * FROM "{d.source_aliases[1]}" LIMIT 0').fetchdf().columns)
+                compiled = compile_join_sql(src, lc, rc)
+            elif d.kind == "union":
+                compiled = compile_union_sql(src)
+            else:
+                compiled = compile_calculated_sql(src)
+            df = conn.execute(compiled).fetchdf()
+    else:
+        raise ValueError(f"Kaynak '{alias}' önizlenemiyor")
+
+    duck.register_dataframe(conn, alias, df if df is not None else pd.DataFrame())
+    registered.add(alias)
+
+
 @presentations_bp.route("/<pid>/scope/preview-derivation", methods=["POST"])
 @login_required
 def scope_preview_derivation(pid: str):
@@ -1665,35 +1760,40 @@ def scope_preview_derivation(pid: str):
         return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
 
     from presentations import duck
-    from presentations.scope.fetch import compile_aggregate_sql, compile_calculated_sql
+    from presentations.scope.fetch import (
+        compile_aggregate_sql, compile_calculated_sql, compile_join_sql, compile_union_sql,
+    )
     import pandas as pd
 
-    SAMPLE = 5000  # bounded source pull — preview is illustrative, not the full run
+    catalog = _catalog()
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
     conn = duck.connect_duckdb(":memory:")
+    registered: set[str] = set()
+    cols_by_src: dict[str, list[str]] = {}
     try:
+        # Sample each source (recursively for nested derivations: a join/union of
+        # filter nodes materialises its filter sources first) into DuckDB views.
         for sa in src_aliases:
-            src = next((b for b in scope.basket if b.alias == sa), None)
-            if src is None:
-                return _json({"ok": False, "errors": [f"Kaynak '{sa}' basket'te yok"]}, status=400)
-            if src.derivation is not None:
-                return _json({"ok": False, "errors": [
-                    f"'{sa}' başka bir türetilmiş tablo — iç içe türetme önizlemesi desteklenmiyor"]}, status=400)
-            if src.table_ref is not None:
-                full = f"{src.table_ref.schema_name}.{src.table_ref.name}"
-                sql = f"SELECT * FROM {full} FETCH FIRST {SAMPLE} ROWS ONLY"
-            elif getattr(src, "sql", None):
-                sql = f"SELECT * FROM ({src.sql}) _src FETCH FIRST {SAMPLE} ROWS ONLY"
-            else:
-                return _json({"ok": False, "errors": [f"Kaynak '{sa}' önizlenemiyor"]}, status=400)
             try:
-                df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{sa}",
-                                 query=sql, query_params={})
+                _preview_sample_into_duck(conn, scope, sa, dc, pid,
+                    catalog=catalog, registry=registry, bindings=bindings, registered=registered)
+            except ValueError as exc:
+                return _json({"ok": False, "errors": [str(exc)]}, status=400)
             except Exception as exc:
                 msg = str(exc).strip().splitlines()[0][:240]
                 return _json({"ok": False, "phase": "oracle", "errors": [f"{sa}: {msg}"]}, status=502)
-            duck.register_dataframe(conn, sa, df if df is not None else pd.DataFrame())
+            cols_by_src[sa] = list(conn.execute(f'SELECT * FROM "{sa}" LIMIT 0').fetchdf().columns)
 
-        compiled = compile_aggregate_sql(item) if d.kind == "aggregate" else compile_calculated_sql(item)
+        if d.kind == "aggregate":
+            compiled = compile_aggregate_sql(item)
+        elif d.kind == "join":
+            compiled = compile_join_sql(item, cols_by_src.get(d.source_aliases[0], []),
+                                        cols_by_src.get(d.source_aliases[1], []))
+        elif d.kind == "union":
+            compiled = compile_union_sql(item)
+        else:  # calculated
+            compiled = compile_calculated_sql(item)
         try:
             out_df = conn.execute(f"SELECT * FROM ({compiled}) AS _d LIMIT 200").fetchdf()
         except Exception as exc:
@@ -1707,9 +1807,16 @@ def scope_preview_derivation(pid: str):
 
     cols = [str(c) for c in out_df.columns]
     rows = [[duck._jsonable(v) for v in r] for r in out_df.itertuples(index=False, name=None)]
+    # `sql` → the Hazırlık drawer's "Kaynak Query" tab (join/union/calculated too,
+    # not just filter). Pretty-print for readability.
+    try:
+        import sqlparse
+        pretty = sqlparse.format(compiled, reindent=True, keyword_case="upper")
+    except Exception:
+        pretty = compiled
     return _json({"ok": True, "columns": [{"name": c} for c in cols],
                   "data_columns": cols, "rows": rows,
-                  "row_count": int(len(out_df)), "derived": True})
+                  "row_count": int(len(out_df)), "derived": True, "sql": pretty})
 
 
 @presentations_bp.route("/<pid>/scope/distinct", methods=["GET"])
