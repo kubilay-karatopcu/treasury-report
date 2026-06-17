@@ -2,7 +2,10 @@
   "private": true,
   "description": "Treasury Studio — presentations editor frontend",
   "dependencies": {
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-sql": "^6.10.0",
     "@cosmograph/react": "^2.3.2",
+    "@uiw/react-codemirror": "^4.25.10",
     "@xyflow/react": "^12.10.2",
     "ag-grid-community": "^31.3.2",
     "ag-grid-enterprise": "^31.3.4",

@@ -28,6 +28,9 @@ import "ag-grid-community/styles/ag-theme-alpine.css";
 // and api.js's API_BASE is hazirlik-aware (strips /hazirlik/ from the path).
 import UploadModal from "../editor/components/UploadModal.jsx";
 import FilterPanel from "./FilterPanel.jsx";
+import CodeMirror from "@uiw/react-codemirror";
+import { python as cmPython } from "@codemirror/lang-python";
+import { sql as cmSql } from "@codemirror/lang-sql";
 import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2, Pencil,
@@ -2072,6 +2075,34 @@ function ConceptHeader(props) {
   );
 }
 
+// Faz P — CodeMirror tabanlı kod alanı (satır no + syntax highlight). Python
+// (script editör, düzenlenebilir) ve SQL (Kaynak Query, salt-okunur) için ortak.
+const _CM_LANG = { python: cmPython, sql: cmSql };
+function CodeArea({ value, onChange, language = "python", readOnly = false }) {
+  const extensions = useMemo(() => {
+    const make = _CM_LANG[language];
+    return make ? [make()] : [];
+  }, [language]);
+  return (
+    <CodeMirror
+      className="hz-cm"
+      value={value || ""}
+      onChange={onChange}
+      editable={!readOnly}
+      readOnly={readOnly}
+      theme="dark"
+      extensions={extensions}
+      basicSetup={{
+        lineNumbers: true,
+        foldGutter: false,
+        highlightActiveLine: !readOnly,
+        highlightActiveLineGutter: !readOnly,
+        autocompletion: false,
+      }}
+    />
+  );
+}
+
 // Faz P — bir python node'unun "Kaynak Script" sekmesi. Giriş bağlama satırı
 // salt-okunur (input_node_df = bağlı tablo); kod alanı düzenlenir; sağ altta
 // Çalıştır (output_node_df kontrolü + örnek satır) ve Kaydet.
@@ -2085,13 +2116,9 @@ function PythonScriptTab({ item, sourceAlias, onRun, onSave, run }) {
       <div className="hz-py-bind" title="Bu node'un girişi — bağlandığı tablonun verisi. Düzenlenemez.">
         <Lock size={12} /> <code>input_node_df&nbsp;←&nbsp;{sourceAlias || "?"}</code>
       </div>
-      <textarea
-        className="hz-py-code"
-        value={code}
-        spellCheck={false}
-        onChange={(e) => setCode(e.target.value)}
-        placeholder={"# input_node_df: girişin DataFrame'i (pandas) — pd, np hazır\n# sonunda output_node_df adlı bir DataFrame üret:\noutput_node_df = input_node_df.head(100)"}
-      />
+      <div className="hz-py-code">
+        <CodeArea language="python" value={code} onChange={setCode} />
+      </div>
       {run?.error && <pre className="hz-error hz-py-error">{run.error}</pre>}
       {run?.summary && !run?.error && <p className="hz-py-ok">{run.summary} — örnek <strong>Veri</strong> sekmesinde.</p>}
       <div className="hz-py-actions">
@@ -2291,7 +2318,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                 </div>
               ) : hasQuery && tab === "query" ? (
                 <div className="hz-filter-sql ts-scroll">
-                  <pre className="hz-sql-pre">{preview.sql || "—"}</pre>
+                  <div className="hz-sql-cm"><CodeArea language="sql" value={preview.sql || "—"} readOnly /></div>
                   <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
                     {isFilter
                       ? <>Bu, dataset'i materialise eden Oracle sorgusu (relative tarihler her
