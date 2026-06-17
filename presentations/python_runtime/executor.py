@@ -37,29 +37,16 @@ _MAX_STDOUT_CHARS = 20_000
 
 
 def write_table_json(df, path) -> None:
-    """DataFrame'i alt-process'e güvenli + bağımsız biçimde aktar: JSON Table
-    Schema (``orient='table'``). Parquet/pickle yerine bunu kullanıyoruz çünkü:
-
-    - pyarrow/fastparquet GEREKTİRMEZ (ofiste alt-process'te eksikti → "no
-      parquet engine" hatası). JSON saf stdlib.
-    - Kod ÇALIŞTIRMAZ (pickle'ın aksine) — sandbox'tan ebeveyne güvenli okuma.
-    - dtype'ları korur (int/float/datetime/bool), pandas 3.0 Arrow-backed string
-      depolamasına bağlı değildir (değerleri serialize eder, depolamayı değil).
-
-    Anlamlı (RangeIndex olmayan) index kolona çevrilir — groupby sonucu kaybolmasın
-    + table orient'in tekrarlı-index hatası önlensin.
-    """
-    import pandas as pd
-    d = df if df is not None else pd.DataFrame()
-    if not isinstance(d.index, pd.RangeIndex):
-        d = d.reset_index()
-    d.to_json(str(path), orient="table", index=False)
+    """DataFrame'i alt-process'e aktar — :mod:`_transfer` (pyarrow'suz, ns-taşma
+    güvenli, kod çalıştırmayan JSON aktarımı)."""
+    from presentations.python_runtime._transfer import write_table
+    write_table(df, path)
 
 
 def read_table_json(path):
-    """``write_table_json`` ile yazılmış JSON Table Schema'yı DataFrame'e oku."""
-    import pandas as pd
-    return pd.read_json(str(path), orient="table")
+    """Alt-process çıktısını oku — :mod:`_transfer`."""
+    from presentations.python_runtime._transfer import read_table
+    return read_table(path)
 
 
 @dataclass

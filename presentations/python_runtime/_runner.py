@@ -93,8 +93,9 @@ def main() -> None:
         pass
 
     try:
-        # JSON Table Schema (orient='table') — parquet engine GEREKTİRMEZ.
-        input_node_df = pd.read_json(in_path, orient="table")
+        # _transfer: pyarrow'suz, ns-taşma güvenli (2400/9999 tarihleri), güvenli okuma.
+        from presentations.python_runtime._transfer import read_table
+        input_node_df = read_table(in_path)
     except Exception as exc:
         _fail(err_path, f"Giriş verisi okunamadı: {exc}")
 
@@ -127,10 +128,8 @@ def main() -> None:
         )
 
     try:
-        # Anlamlı index'i kolona çevir (groupby keys kaybolmasın) → JSON Table Schema.
-        if not isinstance(out.index, pd.RangeIndex):
-            out = out.reset_index()
-        out.to_json(out_path, orient="table", index=False)
+        from presentations.python_runtime._transfer import write_table
+        write_table(out, out_path)
     except Exception as exc:
         _fail(err_path, f"Çıktı yazılamadı: {exc}")
 

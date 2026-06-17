@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -112,6 +113,20 @@ def test_dtype_preservation_no_parquet_engine(df):
     assert "datetime64" in dts["d"]
     assert dts["b"] == "bool"
     assert r.df["f"].tolist() == [1.5, 2.0, 3.25]
+
+
+def test_out_of_bounds_datetime(df):
+    # Finansta "max/sonsuz" tarih sentinel'leri (2400, 9999-12-31) ns sınırını
+    # (~2262) aşar; ns-bağlı dönüşüm "Out of bounds nanosecond timestamp" verirdi.
+    rich = pd.DataFrame({
+        "ID": [1, 2, 3],
+        "START_DT": pd.to_datetime(["2026-01-01", "2026-02-01", "2026-03-01"]),
+        "END_DT": np.array(["2030-01-01", "2400-01-01", "9999-12-31"], dtype="datetime64[us]"),
+    })
+    r = run_python_transform("output_node_df = input_node_df[input_node_df['ID'] >= 2]", rich)
+    assert r.ok, r.error
+    assert "datetime64" in str(r.df["END_DT"].dtype)
+    assert str(r.df["END_DT"].iloc[1].date()) == "9999-12-31"
 
 
 def test_groupby_with_index_preserved(df):
