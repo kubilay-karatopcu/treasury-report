@@ -643,6 +643,7 @@ def fetch_cached_tables(
     #   - filter on a DERIVED source → compile_filter_sql (DuckDB $-binds), run
     #     on the materialised source view in DuckDB.
     #   - aggregate / calculated → DuckDB over the materialised source view(s).
+    #   - python (Faz P) → source view'i DataFrame'e çek, sandbox'ta çalıştır.
     pending = [b for b in scope.basket
                if b.derivation is not None and b.routing.decision == "cached"]
     registered = set(loaded.keys())  # raw cached tables just loaded in Pass 1
@@ -665,7 +666,7 @@ def fetch_cached_tables(
             if not (duck_source_aliases(scope, item) <= registered):
                 still.append(item)
                 continue
-            all_srcs = ({d.source_alias} if d.kind in ("aggregate", "filter") and d.source_alias
+            all_srcs = ({d.source_alias} if d.kind in ("aggregate", "filter", "python") and d.source_alias
                         else set(d.source_aliases))
             if refetch_only is not None and not (all_srcs & refetch_only) and item.alias not in refetch_only:
                 registered.add(item.alias)   # treated as up-to-date (inherited view)
@@ -688,6 +689,19 @@ def fetch_cached_tables(
                     df = conn.execute(sql, binds).fetchdf() if binds else conn.execute(sql).fetchdf()
                 derived_from_value = d.source_alias
                 label = "filter"
+            elif d.kind == "python":
+                # Faz P — source view'ini DataFrame olarak çek, sandbox'ta çalıştır.
+                from presentations.python_runtime import run_python_transform
+                src_df = conn.execute(f'SELECT * FROM "{d.source_alias}"').fetchdf()
+                result = run_python_transform(d.python_code, src_df)
+                if not result.ok:
+                    raise RuntimeError(
+                        f"python node '{item.alias}' çalıştırması başarısız: {result.error}"
+                    )
+                df = result.df
+                sql = d.python_code
+                derived_from_value = d.source_alias
+                label = "python"
             else:
                 if d.kind == "aggregate":
                     sql = compile_aggregate_sql(item)
