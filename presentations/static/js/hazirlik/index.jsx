@@ -76,6 +76,7 @@ const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projecti
 const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
 const FILTER_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/filter-preview`);
 const PYTHON_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-python`);
+const SOURCE_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/source-sql`);
 const RESOLVE_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/resolve-sql`);
 const EXPLAIN_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/explain-sql`);
 const DISTINCT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/distinct`);
@@ -2298,7 +2299,17 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
       </div>
       <div className="hz-preview-body">
         {loading && <p className="hz-muted" style={{ padding: 10 }}>Yükleniyor…</p>}
-        {!loading && preview && preview.error && <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>}
+        {!loading && preview && preview.error && (
+          <div className="hz-preview-errbox">
+            <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>
+            {preview.sql && (
+              <div className="hz-err-sql">
+                <div className="hz-err-sql-label">Üreten sorgu (kaynak):</div>
+                <div className="hz-sql-cm"><CodeArea language="sql" value={preview.sql} readOnly /></div>
+              </div>
+            )}
+          </div>
+        )}
         {!loading && preview && !preview.error && (
           <div className="hz-preview-inner">
             <div className="hz-preview-tabs">
@@ -2308,7 +2319,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                 <button type="button" className={tab === "script" ? "on" : ""} onClick={() => setTab("script")}>Kaynak Script</button>
               )}
               {hasQuery && (
-                <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak Query</button>
+                <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak</button>
               )}
               {canCron && (
                 <button type="button" className={tab === "cron" ? "on" : ""} onClick={() => setTab("cron")}>Cron</button>
@@ -2337,6 +2348,12 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                       ? <>Bu, dataset'i materialise eden Oracle sorgusu (relative tarihler her
                           materialize'da dinamik çözülür). Filtreyi düzenlemek için mor edge'e
                           tıkla ya da kaynak (main) node'u seçip <strong>Filtreleme</strong>'den değiştir.</>
+                      : (item && item.table_ref)
+                        ? <>Bu node'un kaynağı: Oracle'dan bu sorguyla çekilir (projeksiyon + pinned
+                            filtreler + partition pushdown). Build/cron her tazelemede bunu koşar.</>
+                      : (item && item.sql)
+                        ? <>Bu, kullanıcı tarafından yazılan kaynak Oracle sorgusu. Düzenlemek için
+                            sol menüden <strong>kalem</strong> ikonuna tıkla.</>
                       : <>Bu, türetilmiş tabloyu üreten sorgu — kaynak view'ler üzerinde DuckDB'de
                           çalışır. Build/cron sırasında tam veri üzerinde yeniden koşar.</>}
                   </p>
@@ -3394,8 +3411,13 @@ function App() {
           body: JSON.stringify({ scope, alias }),
         });
         data = await r.json();
-        if (!data.ok) throw new Error((data.errors || ["Filtre önizleme başarısız"]).join("; "));
-        data = { ...data, derived: true, isFilter: true };
+        if (!data.ok) {
+          data = { derived: true, isFilter: true,
+                   error: (data.errors || ["Filtre önizleme başarısız"]).join("; "),
+                   sql: data.sql || null };
+        } else {
+          data = { ...data, derived: true, isFilter: true };
+        }
       } else if (item.derivation) {
         // aggregate / calculated / join / union — hepsi sunucuda derlenir. Sunucu
         // kaynakları (GEREKİRSE ÖZYİNELEMELİ — türetilmiş/filter kaynaklar dahil)
@@ -3407,8 +3429,15 @@ function App() {
           body: JSON.stringify({ scope, alias }),
         });
         data = await r.json();
-        if (!data.ok) throw new Error((data.errors || ["Türetilmiş önizleme başarısız"]).join("; "));
-        data = { ...data, derived: true };
+        if (!data.ok) {
+          // Hatada SQL'i de taşı — drawer "Kaynak Query" yerine hatayı + üreten
+          // sorguyu gösterir ki kullanıcı bozuk derlenmiş SQL'i görebilsin.
+          data = { derived: true,
+                   error: (data.errors || ["Türetilmiş önizleme başarısız"]).join("; "),
+                   sql: data.sql || null };
+        } else {
+          data = { ...data, derived: true };
+        }
       } else if (item.sql) {
         // Manuel SQL dataset: re-run the authored query (design-time trigger).
         // preview-sql returns {columns, data_columns, rows} — same shape the
@@ -3425,6 +3454,18 @@ function App() {
         u.searchParams.set("table", item.table_ref.name);
         u.searchParams.set("limit", "100");
         data = await (await fetch(u.pathname + u.search)).json();
+      }
+      // Faz 4 (madde 6) — uniform "Kaynak": main (table_ref) + sql node'lar için
+      // kanonik kaynak SQL'ini ekle → "Kaynak" tab'ı HER node'da görünür.
+      if (!data.error && (item.table_ref || item.sql) && !data.sql) {
+        try {
+          const sr = await fetch(SOURCE_SQL_URL, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scope, alias }),
+          });
+          const sd = await sr.json();
+          if (sd.ok && sd.sql) data = { ...data, sql: sd.sql, sourceEditable: !!sd.editable };
+        } catch { /* best effort — Kaynak tab gizli kalır */ }
       }
       setPreview({ alias, openTab, ...data });
     } catch (e) { setPreview({ alias, openTab, error: String(e) }); }
