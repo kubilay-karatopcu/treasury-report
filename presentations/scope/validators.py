@@ -262,7 +262,13 @@ def rule_derived_tables(scope: ScopeContract, catalog: Catalog | None = None):
                 errors.append(
                     f"Derived table '{item.alias}': aggregate needs at least one group_by or measure"
                 )
-        else:  # calculated
+        elif d.kind == "python":
+            # Tek-girişli Python dönüşümü — source_alias basket'te olmalı.
+            if d.source_alias not in aliases:
+                errors.append(
+                    f"Derived table '{item.alias}': source alias '{d.source_alias}' not in basket"
+                )
+        else:  # calculated / filter / join / union
             for src in d.source_aliases:
                 if src not in aliases:
                     errors.append(
@@ -281,7 +287,7 @@ def rule_derivation_dag(scope: ScopeContract, catalog: Catalog | None = None):
     graph: dict[str, list[str]] = {}
     for item in scope.derived_items():
         d = item.derivation
-        if d.kind in ("aggregate", "filter"):
+        if d.kind in ("aggregate", "filter", "python"):
             srcs = [d.source_alias] if d.source_alias else []
         else:  # calculated / join / union
             srcs = list(d.source_aliases)

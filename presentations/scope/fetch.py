@@ -77,7 +77,8 @@ def duck_source_aliases(scope: ScopeContract, item: BasketItem) -> set[str]:
     d = item.derivation
     if d is None:
         return set()
-    if d.kind == "aggregate":
+    if d.kind in ("aggregate", "python"):
+        # python: tek source_alias `input_node_df` olarak verilir → view gerekir.
         srcs = [d.source_alias] if d.source_alias else []
     elif d.kind in ("calculated", "join", "union"):
         srcs = list(d.source_aliases)
