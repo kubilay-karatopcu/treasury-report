@@ -2337,7 +2337,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
       </div>
       <div className="hz-preview-body">
         {loading && <p className="hz-muted" style={{ padding: 10 }}>Yükleniyor…</p>}
-        {!loading && preview && preview.error && (
+        {!loading && preview && preview.error && !isPython && (
           <div className="hz-preview-errbox">
             <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>
             {preview.sql && (
@@ -2348,7 +2348,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
             )}
           </div>
         )}
-        {!loading && preview && !preview.error && (
+        {!loading && preview && (!preview.error || isPython) && (
           <div className="hz-preview-inner">
             <div className="hz-preview-tabs">
               <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
@@ -2414,6 +2414,15 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                   onSave={(specs) => onSaveFilterPanel && onSaveFilterPanel(preview.alias, specs)}
                   onFetchDistinct={(column) => onFetchDistinct(preview.alias, column)}
                 />
+              ) : preview.error ? (
+                <div className="hz-preview-errbox">
+                  <p className="hz-error" style={{ margin: 10 }}>{preview.error}</p>
+                  {isPython && (
+                    <p className="hz-muted" style={{ margin: "0 10px", fontSize: 11 }}>
+                      <strong>Kaynak Script</strong> sekmesinden düzeltip Çalıştır'a bas.
+                    </p>
+                  )}
+                </div>
               ) : (
                 <div className="ag-theme-alpine-dark" style={{ width: "100%", height: "100%" }}>
                   <AgGridReact
@@ -3460,12 +3469,24 @@ function App() {
     // düşer. (Eskiden python her açılışta "script"e zorlanıyordu → panel kendi
     // kendine Kaynak Script'e atlıyordu, #3.) Yeni python node'u + edge-click
     // "script" geçer; düz tıklama Veri açar.
-    const tab0 = openTab || undefined;
+    // Python: doldurulmuşsa (output_columns var) "Veri", değilse "Kaynak Script".
+    const isPy = item.derivation?.kind === "python";
+    const pyHasOut = isPy && ((item.derivation.output_columns || []).length > 0);
+    const tab0 = openTab || (isPy ? (pyHasOut ? "data" : "script") : undefined);
     setPreviewLoading(true); setPreview({ alias, openTab: tab0 });
     try {
       let data;
-      if (item.derivation && item.derivation.kind === "python") {
-        // Faz P — kaydedilmiş script'i kaynak örneği üzerinde çalıştır → Veri.
+      if (isPy) {
+        // Script sekmesinde açılıyorsa (doldurulmamış ya da düzenlenecek) Oracle+
+        // sandbox koşturmadan SADECE drawer'ı aç (hızlı + hatasız → #2: node havada
+        // kalıp hata vermesin, script doldurulabilsin).
+        if (tab0 === "script") {
+          setPreviewLoading(false);
+          setPreview({ alias, openTab: "script", derived: true, isPython: true,
+            data_columns: item.derivation.output_columns || [], rows: [] });
+          return;
+        }
+        // Veri sekmesi → kaydedilmiş script'i kaynak örneği üzerinde çalıştır.
         const r = await fetch(PYTHON_PREVIEW_URL, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -3474,12 +3495,13 @@ function App() {
           }),
         });
         const res = await r.json();
-        // Kod boş/kırık olabilir — drawer'ı yine de aç (script sekmesinde düzeltsin).
+        // Kod kırıksa drawer yine açık kalır; isPython sayesinde Kaynak Script
+        // sekmesi hata durumunda DA erişilebilir (aşağıda drawer).
         data = res.ok
           ? { ...res, derived: true, isPython: true }
           : { derived: true, isPython: true,
               error: (res.errors || ["Python önizleme başarısız"]).join("; ") };
-        setPreview({ alias, openTab: tab0, ...data });
+        setPreview({ alias, openTab: "data", ...data });
         return;
       }
       if (item.derivation && item.derivation.kind === "filter") {
@@ -3820,10 +3842,24 @@ function App() {
       }
       // Veri sekmesi son çalıştırmayı göstersin (aynı alias açıksa).
       setPreview((p) => (p && p.alias === alias ? { ...p, ...data, derived: true, isPython: true } : p));
+      const outCols = data.output_columns || data.data_columns || [];
+      // #1 — Çalıştırma BAŞARILI olduğunda kodu + çıktı kolonlarını node'a YAZ
+      // (ayrı "Kaydet" beklemeden). Böylece python node'unun kolonları belli olur
+      // ve join/union yapılabilir (eskiden "0 kolon" kalıyordu).
+      setScope((s) => ({
+        ...s,
+        basket: (s.basket || []).map((b) => (b.alias === alias && b.derivation ? {
+          ...b,
+          derivation: { ...b.derivation, python_code: code, output_columns: outCols },
+        } : b)),
+      }));
+      if (outCols.length) {
+        COLS_BY_ALIAS[alias] = outCols.map((n) => ({ name: n, type: null, concept: null, join_key: false }));
+      }
       setPythonRun({
         alias, running: false, error: null,
-        summary: `✓ ${data.row_count} satır · ${(data.output_columns || []).length} kolon`,
-        columns: data.output_columns || data.data_columns || [],
+        summary: `✓ ${data.row_count} satır · ${outCols.length} kolon`,
+        columns: outCols,
       });
     } catch (e) {
       setPythonRun({ alias, running: false, error: String(e.message || e), summary: null });
