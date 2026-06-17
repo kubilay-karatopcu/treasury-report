@@ -637,6 +637,11 @@
 .hz-sugg-code { margin: 4px 0; border: 1px solid #334155; border-radius: 5px; overflow: hidden; max-height: 180px; }
 .hz-sugg-code .hz-cm, .hz-sugg-code .cm-editor { max-height: 180px; height: auto; font-size: 11.5px; }
 
+/* Preview hata kutusu — hatayı + üreten kaynağı (SQL) birlikte göster */
+.hz-preview-errbox { padding: 4px 0 10px; }
+.hz-err-sql { margin: 0 8px; }
+.hz-err-sql-label { font-size: 11px; color: #64748b; padding: 2px 2px 4px; }
+
 /* Active filters footer on the node card */
 .hz-node-filters {
   padding: 5px 10px; border-top: 1px solid #eef0f3;

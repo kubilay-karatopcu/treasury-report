@@ -1854,8 +1854,18 @@ def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
         df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
                          query=f"SELECT * FROM {full} FETCH FIRST {SAMPLE} ROWS ONLY", query_params={})
     elif src.derivation is None and getattr(src, "sql", None):
+        # SQL node kaynağı: serbest SQL'i AYNI aggregation_gate'ten geçir
+        # (scope_preview_sql ile tutarlı). Manuel `SELECT * FROM (<sql>) _src`
+        # sarması, trailing ';' / boş gövde / agregasyon içeren SQL'lerde
+        # bozuluyordu ("syntax error at or near ')'/';'"). Gate trailing
+        # noktalama temizler, aggregation'ı sarmaz, raw sorguyu satır-cap'ler.
+        from presentations.aggregation_gate import validate_and_wrap, GateError
+        try:
+            gate = validate_and_wrap(src.sql)
+        except GateError as exc:
+            raise ValueError(f"'{alias}' SQL kaynağı geçersiz: {exc}")
         df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
-                         query=f"SELECT * FROM ({src.sql}) _src FETCH FIRST {SAMPLE} ROWS ONLY", query_params={})
+                         query=gate.sql, query_params={})
     elif src.derivation is not None:
         d = src.derivation
         if d.kind == "filter":
@@ -2075,6 +2085,92 @@ def scope_preview_python(pid: str):
                   "data_columns": cols, "rows": rows,
                   "row_count": int(result.row_count or 0), "derived": True,
                   "output_columns": result.columns or cols, "stdout": result.stdout})
+
+
+@presentations_bp.route("/<pid>/scope/source-sql", methods=["POST"])
+@login_required
+def scope_source_sql(pid: str):
+    """Faz 4 — bir node'un KANONİK kaynağını döndür (madde 6: uniform source).
+
+    Veri çalıştırmaz; yalnız kaynağı derler/getirir. Böylece HER node tipi
+    (keşiften gelsin, manuel SQL'le gelsin, türetilmiş olsun) tek-tip bir
+    "Kaynak" görünümüne sahip olur:
+
+    - ``table_ref`` → ``compose_cached_sql`` (projection + pinned + partition'lı
+      Oracle SELECT). ``editable=False`` (scope'tan türer).
+    - ``sql``       → kullanıcının yazdığı Oracle SQL. ``editable=True``.
+    - ``derivation`` (aggregate/calculated/join/union/filter) → derlenmiş
+      DuckDB/Oracle SQL. ``editable=False``.
+    - ``python``    → script (``kind: "python"``, ``code``). ``editable=True``.
+
+    Request:  ``{"scope": <draft>, "alias": "..."}``
+    Response: ``{"ok": true, "kind": "...", "sql"|"code": "...", "editable": bool}``
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    if not isinstance(scope_in, dict) or not alias:
+        return _json({"ok": False, "errors": ["scope ve alias zorunlu"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    item = next((b for b in scope.basket if b.alias == alias), None)
+    if item is None:
+        return _json({"ok": False, "errors": [f"'{alias}' basket'te yok"]}, status=400)
+
+    from presentations.scope.fetch import (
+        compose_cached_sql, compile_aggregate_sql, compile_calculated_sql,
+        compile_join_sql, compile_union_sql, compile_filter_sql,
+    )
+    catalog = _catalog()
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
+
+    def _pretty(sql: str) -> str:
+        try:
+            import sqlparse
+            return sqlparse.format(sql, reindent=True, keyword_case="upper")
+        except Exception:
+            return sql
+
+    try:
+        d = item.derivation
+        if item.derivation is not None and d.kind == "python":
+            return _json({"ok": True, "kind": "python", "lang": "python",
+                          "code": d.python_code or "", "editable": True,
+                          "source_alias": d.source_alias})
+        if item.sql is not None:
+            return _json({"ok": True, "kind": "sql", "lang": "sql",
+                          "sql": _pretty(item.sql), "editable": True})
+        if item.table_ref is not None:
+            sql, _binds = compose_cached_sql(
+                scope, item, catalog, concept_registry=registry, binding_catalog=bindings)
+            return _json({"ok": True, "kind": "oracle", "lang": "sql",
+                          "sql": _pretty(sql), "editable": False})
+        # Derivation (aggregate/calculated/join/union/filter)
+        if d.kind == "aggregate":
+            sql = compile_aggregate_sql(item)
+        elif d.kind == "calculated":
+            sql = compile_calculated_sql(item)
+        elif d.kind == "join":
+            # Display-only: kolon listesi olmadan SELECT * (gerçek çalıştırma
+            # kolonları materialize anında prefix'ler).
+            sql = compile_join_sql(item, [], [])
+        elif d.kind == "union":
+            sql = compile_union_sql(item)
+        elif d.kind == "filter":
+            sql, _b = compile_filter_sql(
+                scope, item, catalog, concept_registry=registry, binding_catalog=bindings)
+        else:
+            return _json({"ok": False, "errors": [f"bilinmeyen kind: {d.kind}"]}, status=400)
+        return _json({"ok": True, "kind": d.kind, "lang": "sql",
+                      "sql": _pretty(sql), "editable": False})
+    except Exception as exc:
+        msg = str(exc).strip().splitlines()[0][:240]
+        log.warning("scope_source_sql failed for %s", alias, exc_info=True)
+        return _json({"ok": False, "errors": [msg]}, status=400)
 
 
 @presentations_bp.route("/<pid>/scope/distinct", methods=["GET"])
