@@ -270,7 +270,7 @@ class Derivation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["aggregate", "calculated", "filter", "join", "union"] = "aggregate"
+    kind: Literal["aggregate", "calculated", "filter", "join", "union", "python"] = "aggregate"
     # aggregate-only ----------------------------------------------------
     source_alias: Alias | None = None
     group_by: list[str] = Field(default_factory=list)
@@ -298,16 +298,29 @@ class Derivation(BaseModel):
     # materialize'da yeniden çözülür → dinamik dataset. (Forward-ref: Filters
     # aşağıda tanımlı → modül sonunda model_rebuild.)
     filters: "Filters | None" = None
+    # python-only (Faz P) — TEK girişli prosedürel dönüşüm. `source_alias` çalışma
+    # anında `input_node_df` (pandas DataFrame) olarak bağlanır; script sonunda
+    # `output_node_df` (DataFrame) beklenir. SQL ile ifade edilemeyen çok-adımlı /
+    # pandas dönüşümler için. İzolasyon YAPISALDIR: yalnız tek source df enjekte
+    # edilir, başka hiçbir node'a erişilemez (cross-bulaşı imkânsız). Yürütme
+    # AST-whitelist + subprocess sandbox'ta yapılır (presentations.python_runtime).
+    python_code: str | None = Field(default=None, max_length=20_000)
+    # Run/preview sırasında tespit edilen çıktı kolon adları. UI hint (COLS_BY_ALIAS);
+    # downstream node'lar bu kolonlara göre kurulur. Build/cron çalıştığında script
+    # gerçeği üretir — bu liste yalnızca editör/canvas için bir gölgedir.
+    output_columns: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _kind_shape(self) -> "Derivation":
         if self.kind == "aggregate":
             if self.source_alias is None:
                 raise ValueError("aggregate derivation: source_alias zorunlu")
-            if self.source_aliases or self.join_keys or self.columns or self.filters:
+            if self.source_aliases or self.join_keys or self.columns or self.filters \
+                    or self.python_code:
                 raise ValueError(
                     "aggregate derivation: source_aliases / join_keys / columns / "
-                    "filters alanları yalnız calculated/filter kind için kullanılır"
+                    "filters / python_code alanları yalnız calculated/filter/python "
+                    "kind'leri için kullanılır"
                 )
             if not self.group_by and not self.measures:
                 raise ValueError(
@@ -318,7 +331,7 @@ class Derivation(BaseModel):
             if self.source_alias is None:
                 raise ValueError("filter derivation: source_alias zorunlu")
             if self.source_aliases or self.join_keys or self.columns \
-                    or self.group_by or self.measures:
+                    or self.group_by or self.measures or self.python_code:
                 raise ValueError(
                     "filter derivation: yalnız source_alias + filters kullanılır"
                 )
@@ -331,10 +344,12 @@ class Derivation(BaseModel):
                 raise ValueError("calculated derivation: en az bir source_aliases gerekli")
             if not self.columns:
                 raise ValueError("calculated derivation: en az bir output column gerekli")
-            if self.source_alias is not None or self.group_by or self.measures or self.filters:
+            if self.source_alias is not None or self.group_by or self.measures \
+                    or self.filters or self.python_code:
                 raise ValueError(
                     "calculated derivation: source_alias / group_by / measures / "
-                    "filters alanları yalnız aggregate/filter kind için kullanılır"
+                    "filters / python_code alanları yalnız aggregate/filter/python "
+                    "kind'leri için kullanılır"
                 )
             # Multi-source requires explicit join_keys; single-source needs none.
             if len(self.source_aliases) > 1 and not self.join_keys:
@@ -365,7 +380,7 @@ class Derivation(BaseModel):
             if not self.join_keys:
                 raise ValueError("join derivation: bir join_key gerekli")
             if self.source_alias is not None or self.group_by or self.measures \
-                    or self.columns or self.filters:
+                    or self.columns or self.filters or self.python_code:
                 raise ValueError(
                     "join derivation: yalnız source_aliases + join_keys + join_type kullanılır"
                 )
@@ -379,9 +394,21 @@ class Derivation(BaseModel):
             if len(self.source_aliases) < 2:
                 raise ValueError("union derivation: en az 2 source_aliases gerekli")
             if self.source_alias is not None or self.group_by or self.measures \
-                    or self.columns or self.join_keys or self.filters:
+                    or self.columns or self.join_keys or self.filters or self.python_code:
                 raise ValueError(
                     "union derivation: yalnız source_aliases (+ union_all) kullanılır"
+                )
+        elif self.kind == "python":
+            # Faz P — main ya da herhangi bir türetilmiş node'dan TEK girişli
+            # prosedürel dönüşüm. Yapısal izolasyon: tek source_alias.
+            if self.source_alias is None:
+                raise ValueError("python derivation: source_alias zorunlu (tek giriş)")
+            if not (self.python_code and self.python_code.strip()):
+                raise ValueError("python derivation: python_code zorunlu")
+            if self.source_aliases or self.join_keys or self.columns \
+                    or self.group_by or self.measures or self.filters:
+                raise ValueError(
+                    "python derivation: yalnız source_alias + python_code kullanılır"
                 )
         return self
 
