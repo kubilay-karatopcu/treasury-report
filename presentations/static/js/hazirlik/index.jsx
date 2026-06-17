@@ -32,6 +32,7 @@ import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2, Pencil,
   Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag, Code2,
+  Play, Lock,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -71,6 +72,7 @@ const SAVE_DRAFT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/save-dra
 const PROJECTION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/projection-update`);
 const PREVIEW_DERIVATION_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-derivation`);
 const FILTER_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/filter-preview`);
+const PYTHON_PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-python`);
 const RESOLVE_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/resolve-sql`);
 const EXPLAIN_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/explain-sql`);
 const DISTINCT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/distinct`);
@@ -260,6 +262,7 @@ function TableNode({ data }) {
   // filter-node BOYUTLU (EXPLAIN PLAN) → cached/lazy rozeti + cron; aggregate/
   // calculated DuckDB'de → "türetilmiş" (boyut yok).
   const isFilter = item.derivation?.kind === "filter";
+  const isPython = item.derivation?.kind === "python";   // Faz P — yuvarlak script node
   const sized = !derived || isFilter;          // boyut rozeti gösterilenler
   const filterCount = (activeFilters?.pinned?.length || 0) + (activeFilters?.raw?.length || 0);
   const headStyle = !derived && color ? { background: color } : undefined;
@@ -276,20 +279,20 @@ function TableNode({ data }) {
     ? "Türetilmiş tablo — DuckDB'de hesaplanır."
     : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: sistem (boyuta göre).`;
   return (
-    <div className={`hz-node${derived ? " hz-node--derived" : ""}${inactive ? " is-inactive" : ""}`}>
+    <div className={`hz-node${derived ? " hz-node--derived" : ""}${isPython ? " hz-node--python" : ""}${inactive ? " is-inactive" : ""}`}>
       <div className="hz-node-head" style={headStyle}>
         {/* Başlık-seviyesi handle = union ("tırnak"). Başlıktan başlığa
             sürükle → iki tabloyu unionla (kolon sayısı + tip kontrolü modalda). */}
         <Handle type="target" position={Position.Left} id="__table__" className="hz-handle hz-handle--table" />
         {inactive && <span className="hz-node-inactive-tag" title="Pasif — Sunum'a alınmaz (sol menüden tıklayıp aktif et)">pasif</span>}
-        <span className="hz-node-alias"><Database size={12} /> {item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : item.alias}{item.sql && <span className="hz-sql-tag">SQL</span>}</span>
+        <span className="hz-node-alias">{isPython ? <Code2 size={12} /> : <Database size={12} />} {item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : item.alias}{item.sql && <span className="hz-sql-tag">SQL</span>}{isPython && <span className="hz-sql-tag hz-py-tag">PY</span>}</span>
         <span
-          className={`hz-badge hz-badge--${sized ? (cached ? "cached" : "lazy") : "derived"}`}
-          title={decisionTitle}
+          className={`hz-badge hz-badge--${sized ? (cached ? "cached" : "lazy") : (isPython ? "python" : "derived")}`}
+          title={isPython ? "Python dönüşüm node'u — script DuckDB/parquet üzerinde sandbox'ta koşar." : decisionTitle}
         >
           {sized
             ? (cached ? `cached · ${sizeText}` : `lazy · ${sizeText}`)
-            : "türetilmiş"}
+            : (isPython ? "python" : "türetilmiş")}
         </span>
         <Handle type="source" position={Position.Right} id="__table__" className="hz-handle hz-handle--table" />
       </div>
@@ -396,6 +399,10 @@ function computeDerivedCols(d) {
   }
   if (d.kind === "calculated") {
     return (d.columns || []).map((c) => ({ name: c.name, concept: null, join_key: false, expr: c.expr }));
+  }
+  if (d.kind === "python") {
+    // Çıktı kolonları script çalıştırılınca (output_columns) belli olur; öncesinde boş.
+    return (d.output_columns || []).map((n) => ({ name: n, concept: null, join_key: false }));
   }
   // aggregate — group_by + measures adları derivation'da explicit.
   const srcCols = Object.fromEntries((COLS_BY_ALIAS[d.source_alias] || []).map((c) => [c.name, c]));
@@ -2065,7 +2072,44 @@ function ConceptHeader(props) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename }) {
+// Faz P — bir python node'unun "Kaynak Script" sekmesi. Giriş bağlama satırı
+// salt-okunur (input_node_df = bağlı tablo); kod alanı düzenlenir; sağ altta
+// Çalıştır (output_node_df kontrolü + örnek satır) ve Kaydet.
+function PythonScriptTab({ item, sourceAlias, onRun, onSave, run }) {
+  const [code, setCode] = useState(item?.derivation?.python_code || "");
+  // Node değişince taslağı senkronla.
+  useEffect(() => { setCode(item?.derivation?.python_code || ""); }, [item?.alias]);
+  const running = !!run?.running;
+  return (
+    <div className="hz-py-tab ts-scroll">
+      <div className="hz-py-bind" title="Bu node'un girişi — bağlandığı tablonun verisi. Düzenlenemez.">
+        <Lock size={12} /> <code>input_node_df&nbsp;←&nbsp;{sourceAlias || "?"}</code>
+      </div>
+      <textarea
+        className="hz-py-code"
+        value={code}
+        spellCheck={false}
+        onChange={(e) => setCode(e.target.value)}
+        placeholder={"# input_node_df: girişin DataFrame'i (pandas) — pd, np hazır\n# sonunda output_node_df adlı bir DataFrame üret:\noutput_node_df = input_node_df.head(100)"}
+      />
+      {run?.error && <pre className="hz-error hz-py-error">{run.error}</pre>}
+      {run?.summary && !run?.error && <p className="hz-py-ok">{run.summary} — örnek <strong>Veri</strong> sekmesinde.</p>}
+      <div className="hz-py-actions">
+        <button className="ts-btn ts-btn--sm" onClick={() => onSave(code)}
+                title="Script'i bu node'a kaydet">
+          <Save size={13} /> Kaydet
+        </button>
+        <button className="ts-btn ts-btn--primary ts-btn--sm" disabled={running}
+                onClick={() => onRun(code)}
+                title="Script'i çalıştır — output_node_df kontrol edilir, örnek satırlar Veri sekmesine gelir">
+          {running ? <Loader2 size={13} className="ts-spin" /> : <Play size={13} />} Çalıştır
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename, onCreatePython, onRunPython, onSavePython, pythonRun }) {
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
@@ -2127,6 +2171,8 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
 
   const isDerived = !!preview?.derived;
   const isFilter = !!preview?.isFilter;   // Faz R1/F3 — filter-node (query tab'lı)
+  const isPython = item?.derivation?.kind === "python";   // Faz P — script node
+  const pySource = item?.derivation?.source_alias || null;
   // "Kaynak Query" tab — artık tüm SQL döndüren türetilmişlerde (filter +
   // join/union/calculated/aggregate), yalnız filter'da değil.
   const hasQuery = !!(preview && preview.sql);
@@ -2187,6 +2233,13 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
             </button>
           )}
           {tab === "data" && (
+            <button className="ts-btn ts-btn--sm hz-py-create" disabled={!preview || preview.error}
+                    onClick={() => onCreatePython && onCreatePython(preview.alias)}
+                    title="Bu tablodan Python ile yeni bir node üret (input_node_df → output_node_df)">
+              <Code2 size={13} /> <ArrowRight size={12} /> <Table2 size={13} /> Python
+            </button>
+          )}
+          {tab === "data" && (
             <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
                     onClick={onSaveAsTable}
                     title="Gruplama/aggregation'ı yeni bir tablo olarak kaydet">
@@ -2211,6 +2264,9 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
             <div className="hz-preview-tabs">
               <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
               <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
+              {isPython && (
+                <button type="button" className={tab === "script" ? "on" : ""} onClick={() => setTab("script")}>Kaynak Script</button>
+              )}
               {hasQuery && (
                 <button type="button" className={tab === "query" ? "on" : ""} onClick={() => setTab("query")}>Kaynak Query</button>
               )}
@@ -2245,6 +2301,14 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                           çalışır. Build/cron sırasında tam veri üzerinde yeniden koşar.</>}
                   </p>
                 </div>
+              ) : isPython && tab === "script" ? (
+                <PythonScriptTab
+                  item={item}
+                  sourceAlias={pySource}
+                  run={pythonRun && pythonRun.alias === preview.alias ? pythonRun : null}
+                  onRun={(code) => onRunPython && onRunPython(preview.alias, code)}
+                  onSave={(code) => onSavePython && onSavePython(preview.alias, code)}
+                />
               ) : (tab === "filter") ? (
                 <FilterPanel
                   alias={preview.alias}
@@ -2365,6 +2429,8 @@ function App() {
   const [sqlModalOpen, setSqlModalOpen] = useState(false); // Faz C — Manuel SQL Tablo
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  // Faz P — python node "Çalıştır" durumu: { alias, running, error, summary, columns }.
+  const [pythonRun, setPythonRun] = useState(null);
   const [drawerH, setDrawerH] = useState(260);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -3247,9 +3313,29 @@ function App() {
   const showPreview = useCallback(async (alias, openTab) => {
     const item = scope.basket.find((b) => b.alias === alias);
     if (!item) return;
-    setPreviewLoading(true); setPreview({ alias, openTab });
+    // Python node'lar varsayılan olarak "Kaynak Script" sekmesinde açılır.
+    const tab0 = openTab || (item.derivation?.kind === "python" ? "script" : undefined);
+    setPreviewLoading(true); setPreview({ alias, openTab: tab0 });
     try {
       let data;
+      if (item.derivation && item.derivation.kind === "python") {
+        // Faz P — kaydedilmiş script'i kaynak örneği üzerinde çalıştır → Veri.
+        const r = await fetch(PYTHON_PREVIEW_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scope, source_alias: item.derivation.source_alias,
+            python_code: item.derivation.python_code || "",
+          }),
+        });
+        const res = await r.json();
+        // Kod boş/kırık olabilir — drawer'ı yine de aç (script sekmesinde düzeltsin).
+        data = res.ok
+          ? { ...res, derived: true, isPython: true }
+          : { derived: true, isPython: true,
+              error: (res.errors || ["Python önizleme başarısız"]).join("; ") };
+        setPreview({ alias, openTab: tab0, ...data });
+        return;
+      }
       if (item.derivation && item.derivation.kind === "filter") {
         // Faz R1/F3 — filter-node: sunucu compile_filter_sql ile kaynak query'yi
         // üretir, capped örneği koşar ve SQL'i döner ("Kaynak Query" tab için).
@@ -3518,6 +3604,84 @@ function App() {
     const snap = captureGridState();
     if (snap) setGridStateByAlias((s) => ({ ...s, [preview.alias]: snap }));
   };
+
+  // Faz P — bir node'dan (sourceAlias) yeni bir python dönüşüm node'u üret.
+  // Yeni node tek-girişlidir: input_node_df = sourceAlias verisi. Drawer "Kaynak
+  // Script" sekmesinde açılır; kullanıcı script'i yazıp Çalıştır + Kaydet eder.
+  const createPythonNode = useCallback((sourceAlias) => {
+    const alias = makeAlias(`${sourceAlias}_py`, scope.basket.map((b) => b.alias));
+    const apos = nextNodePos();
+    const starter =
+      `# input_node_df: '${sourceAlias}' verisinin DataFrame'i (pandas — pd, np hazır)\n`
+      + `# Dönüşümünü yaz; sonunda output_node_df adlı bir DataFrame üret:\n`
+      + `output_node_df = input_node_df\n`;
+    const item = {
+      derivation: { kind: "python", source_alias: sourceAlias, python_code: starter, output_columns: [] },
+      alias,
+      projection: { columns: [], include_all: true },
+      routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
+      layout: { x: apos.x, y: apos.y },
+    };
+    setScope((s) => ({ ...s, basket: [...s.basket, item] }));
+    setNodes((nds) => [...nds, {
+      id: alias, type: "tableNode",
+      position: { x: apos.x, y: apos.y },
+      data: enrichNodeData(item, scope),
+    }]);
+    setPythonRun({ alias, running: false, error: null, summary: null });
+    setPreviewLoading(false);
+    setPreview({ alias, openTab: "script", derived: true, isPython: true, data_columns: [], rows: [] });
+    setToast(`'${alias}' python node'u eklendi — script'i yazıp Çalıştır.`);
+  }, [scope]);
+
+  // Faz P — taslak script'i sandbox'ta çalıştır (preview-python). Başarılıysa
+  // örnek satırlar Veri sekmesine yansır; özet/çıktı kolonları Kaydet'te kullanılır.
+  const runPythonNode = useCallback(async (alias, code) => {
+    const item = scope.basket.find((b) => b.alias === alias);
+    const src = item?.derivation?.source_alias;
+    if (!src) { setPythonRun({ alias, running: false, error: "Kaynak node yok.", summary: null }); return; }
+    setPythonRun({ alias, running: true, error: null, summary: null });
+    try {
+      const r = await fetch(PYTHON_PREVIEW_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, source_alias: src, python_code: code }),
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        const err = (data.errors || ["Çalıştırma başarısız"]).join("; ")
+          + (data.detail ? `\n\n${data.detail}` : "");
+        setPythonRun({ alias, running: false, error: err, summary: null });
+        return;
+      }
+      // Veri sekmesi son çalıştırmayı göstersin (aynı alias açıksa).
+      setPreview((p) => (p && p.alias === alias ? { ...p, ...data, derived: true, isPython: true } : p));
+      setPythonRun({
+        alias, running: false, error: null,
+        summary: `✓ ${data.row_count} satır · ${(data.output_columns || []).length} kolon`,
+        columns: data.output_columns || data.data_columns || [],
+      });
+    } catch (e) {
+      setPythonRun({ alias, running: false, error: String(e.message || e), summary: null });
+    }
+  }, [scope]);
+
+  // Faz P — script'i node'a kaydet. Son çalıştırmanın çıktı kolonları varsa
+  // node'un output_columns'ı + COLS_BY_ALIAS güncellenir (downstream node'lar
+  // bu kolonları görür).
+  const savePythonNode = useCallback((alias, code) => {
+    const cols = (pythonRun && pythonRun.alias === alias && pythonRun.columns) || null;
+    setScope((s) => ({
+      ...s,
+      basket: (s.basket || []).map((b) => (b.alias === alias && b.derivation ? {
+        ...b,
+        derivation: { ...b.derivation, python_code: code, ...(cols ? { output_columns: cols } : {}) },
+      } : b)),
+    }));
+    if (cols && cols.length) {
+      COLS_BY_ALIAS[alias] = cols.map((n) => ({ name: n, type: null, concept: null, join_key: false }));
+    }
+    setToast(cols ? `'${alias}' script + ${cols.length} kolon kaydedildi` : `'${alias}' script kaydedildi`);
+  }, [pythonRun]);
 
   // Drawer resize (drag the top edge up/down).
   const startResize = (e) => {
@@ -3819,6 +3983,10 @@ function App() {
               onSaveRefresh={saveRefresh}
               onDelete={removeAlias}
               onRename={renameAlias}
+              onCreatePython={createPythonNode}
+              onRunPython={runPythonNode}
+              onSavePython={savePythonNode}
+              pythonRun={pythonRun}
             />
           )}
         </main>
