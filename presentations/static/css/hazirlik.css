@@ -591,6 +591,36 @@
 }
 .hz-badge--derived { background: rgba(255,255,255,.22); color: #fff; }
 
+/* ── Faz P — Python transform node (yuvarlak, ayırt edici) ─────────────── */
+/* Yuvarlak köşeli, teal/yeşil başlıklı: SQL/derived'dan ayrışsın. Tam daire
+   değil — kolon handle'ları görünür kalsın diye yüksek border-radius. */
+.hz-node--python { border-radius: 22px; border-color: #0d9488; box-shadow: 0 1px 6px rgba(13,148,136,.22); }
+.hz-node--python .hz-node-head { background: #0d9488; border-top-left-radius: 21px; border-top-right-radius: 21px; }
+.hz-badge--python { background: rgba(255,255,255,.22); color: #fff; }
+.hz-py-tag { background: #0d9488 !important; color: #fff !important; }
+
+/* "Python → Tablo" üret butonu (drawer aksiyonları) */
+.hz-py-create { display: inline-flex; align-items: center; gap: 3px; }
+
+/* Kaynak Script sekmesi */
+.hz-py-tab { padding: 10px; height: 100%; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
+.hz-py-bind {
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  font-size: 11px; color: #0f766e; background: #f0fdfa;
+  border: 1px solid #99f6e4; border-radius: 6px; padding: 5px 8px;
+}
+.hz-py-bind code { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.hz-py-code {
+  flex: 1 1 auto; min-height: 120px; resize: none;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
+  padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px;
+  background: #0f172a; color: #e2e8f0; tab-size: 4;
+}
+.hz-py-code:focus { outline: none; border-color: #0d9488; box-shadow: 0 0 0 2px rgba(13,148,136,.25); }
+.hz-py-error { flex: 0 0 auto; margin: 0; white-space: pre-wrap; font-size: 11px; max-height: 120px; overflow: auto; }
+.hz-py-ok { flex: 0 0 auto; margin: 0; font-size: 11px; color: #0f766e; }
+.hz-py-actions { flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 8px; }
+
 /* Active filters footer on the node card */
 .hz-node-filters {
   padding: 5px 10px; border-top: 1px solid #eef0f3;

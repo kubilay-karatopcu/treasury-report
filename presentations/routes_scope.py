@@ -1997,6 +1997,86 @@ def scope_preview_derivation(pid: str):
                   "row_count": int(len(out_df)), "derived": True, "sql": pretty})
 
 
+@presentations_bp.route("/<pid>/scope/preview-python", methods=["POST"])
+@login_required
+def scope_preview_python(pid: str):
+    """Faz P — bir python node'unu tasarım anında çalıştır + örnek satır döndür.
+
+    Source node'un (tek giriş) sınırlı bir örneği DuckDB'ye yüklenir, DataFrame
+    olarak çekilip ``input_node_df`` adıyla AST-whitelist + subprocess sandbox'a
+    verilir. Script ``output_node_df`` üretirse örnek satırlar döner. Sonuç
+    illüstratiftir — build/cron tam veriyle yeniden koşar.
+
+    Request:  ``{"scope": <draft>, "source_alias": "...", "python_code": "..."}``
+    Response (ok):   ``{"ok": true, "data_columns": [...], "columns": [...],
+                        "rows": [...], "row_count": int, "derived": true}``
+    Response (hata): ``{"ok": false, "phase": "validate|oracle|python",
+                        "errors": [...], "detail": "..."}``
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    source_alias = (body.get("source_alias") or "").strip()
+    python_code = body.get("python_code") or ""
+    if not isinstance(scope_in, dict) or not source_alias:
+        return _json({"ok": False, "errors": ["scope ve source_alias zorunlu"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+
+    if not any(b.alias == source_alias for b in scope.basket):
+        return _json({"ok": False, "errors": [f"'{source_alias}' basket'te yok"]}, status=400)
+
+    from presentations.python_runtime import validate_python, run_python_transform
+
+    # Hızlı geri-bildirim: önce statik denetim (Oracle örneklemeden önce).
+    check = validate_python(python_code)
+    if not check.ok:
+        return _json({"ok": False, "phase": "validate", "errors": check.errors}, status=400)
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
+
+    from presentations import duck
+
+    catalog = _catalog()
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    conn = duck.connect_duckdb(":memory:")
+    registered: set[str] = set()
+    try:
+        try:
+            _preview_sample_into_duck(conn, scope, source_alias, dc, pid,
+                catalog=catalog, registry=registry, bindings=bindings, registered=registered)
+        except ValueError as exc:
+            return _json({"ok": False, "phase": "oracle", "errors": [str(exc)]}, status=400)
+        except Exception as exc:
+            msg = str(exc).strip().splitlines()[0][:240]
+            return _json({"ok": False, "phase": "oracle",
+                          "errors": [f"{source_alias}: {msg}"]}, status=502)
+        input_df = conn.execute(f'SELECT * FROM "{source_alias}"').fetchdf()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    result = run_python_transform(python_code, input_df)
+    if not result.ok:
+        return _json({"ok": False, "phase": "python",
+                      "errors": [result.error or "Bilinmeyen hata"],
+                      "detail": result.detail, "stdout": result.stdout}, status=400)
+
+    out_df = result.df.head(200)
+    cols = [str(c) for c in out_df.columns]
+    rows = [[duck._jsonable(v) for v in r] for r in out_df.itertuples(index=False, name=None)]
+    return _json({"ok": True, "columns": [{"name": c} for c in cols],
+                  "data_columns": cols, "rows": rows,
+                  "row_count": int(result.row_count or 0), "derived": True,
+                  "output_columns": result.columns or cols, "stdout": result.stdout})
+
+
 @presentations_bp.route("/<pid>/scope/distinct", methods=["GET"])
 @login_required
 def scope_distinct(pid: str):
