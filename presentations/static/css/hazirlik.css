@@ -637,6 +637,29 @@
 .hz-sugg-code { margin: 4px 0; border: 1px solid #334155; border-radius: 5px; overflow: hidden; max-height: 180px; }
 .hz-sugg-code .hz-cm, .hz-sugg-code .cm-editor { max-height: 180px; height: auto; font-size: 11.5px; }
 
+/* Kolon seçme menüsü (Enterprise sidebar yerine) — "Tablo olarak kaydet" için */
+.hz-colmenu-wrap { position: relative; display: inline-block; }
+.hz-colmenu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 60;
+  width: 220px; max-height: 320px; display: flex; flex-direction: column;
+  background: #0f172a; border: 1px solid #334155; border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.4);
+}
+.hz-colmenu-head { display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #334155; }
+.hz-colmenu-head button {
+  flex: 1; font-size: 11px; padding: 3px 6px; cursor: pointer;
+  background: #1e293b; color: #cbd5e1; border: 1px solid #334155; border-radius: 4px;
+}
+.hz-colmenu-head button:hover { background: #334155; }
+.hz-colmenu-list { overflow: auto; padding: 4px; }
+.hz-colmenu-item {
+  display: flex; align-items: center; gap: 6px; padding: 3px 6px; font-size: 12px;
+  color: #e2e8f0; cursor: pointer; border-radius: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-colmenu-item:hover { background: #1e293b; }
+.hz-colmenu-item input { cursor: pointer; }
+
 /* Preview hata kutusu — hatayı + üreten kaynağı (SQL) birlikte göster */
 .hz-preview-errbox { padding: 4px 0 10px; }
 .hz-err-sql { margin: 0 8px; }

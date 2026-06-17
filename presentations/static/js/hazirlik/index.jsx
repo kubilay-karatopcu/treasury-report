@@ -18,7 +18,8 @@ import {
   BaseEdge, EdgeLabelRenderer, getBezierPath,
 } from "@xyflow/react";
 import { AgGridReact } from "ag-grid-react";
-import "ag-grid-enterprise";   // demo (unlicensed → watermark) — pivot/row-grouping/aggregation
+// AG Grid Community (Enterprise kaldırıldı: pivot/row-grouping/sidebar artık yok;
+// pivot Python/LLM ile yapılır). Kolon filtreleme kendi "Kolonlar" panelimizle.
 import "@xyflow/react/dist/style.css";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-alpine.css";
@@ -35,7 +36,7 @@ import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2, Pencil,
   Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag, Code2,
-  Play, Lock,
+  Play, Lock, Columns3,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -2154,6 +2155,9 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
+  // Kolon filtreleme (Enterprise sidebar yerine kendi panelimiz): gizlenen kolonlar.
+  const [hiddenCols, setHiddenCols] = useState(() => new Set());
+  const [colMenuOpen, setColMenuOpen] = useState(false);
   const [cronDraft, setCronDraft] = useState(null);   // RefreshFields'ten gelen DatasetRefresh
   // Tablo adı (alias) inline düzenleme — yalnız üretilmiş node'larda.
   const [editingName, setEditingName] = useState(false);
@@ -2199,10 +2203,10 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
     field: c, headerName: c,
     sortable: true, resizable: true, filter: true,
     minWidth: 80, maxWidth: 320,
-    enableRowGroup: true, enablePivot: true, enableValue: true,
+    hide: hiddenCols.has(c),
     headerComponent: ConceptHeader,
     headerComponentParams: { concept: conceptByCol[c] || null },
-  })), [preview?.data_columns, conceptByCol]);
+  })), [preview?.data_columns, conceptByCol, hiddenCols]);
 
   const rowData = useMemo(() => {
     if (!preview?.rows) return [];
@@ -2224,7 +2228,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
   // Katalog main tabloları Keşif'ten yönetilir; adları gerçek tablo adıdır.
   const produced = !!(item && (item.sql || item.derivation));
   // Node değişince tab'ı + ad düzenlemeyi sıfırla; edge-click "filter" tab'ı isteyebilir.
-  useEffect(() => { setTab(preview?.openTab || "data"); setCronDraft(null); setEditingName(false); }, [preview?.alias]);
+  useEffect(() => { setTab(preview?.openTab || "data"); setCronDraft(null); setEditingName(false); setHiddenCols(new Set()); setColMenuOpen(false); }, [preview?.alias]);
 
   const startRename = () => { setNameDraft(preview?.alias || ""); setEditingName(true); };
   const commitRename = () => {
@@ -2281,9 +2285,40 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
             </button>
           )}
           {tab === "data" && (
+            <div className="hz-colmenu-wrap">
+              <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
+                      onClick={() => setColMenuOpen((v) => !v)}
+                      title="Kolonları seç — kaldırdıkların yeni tabloda olmaz">
+                <Columns3 size={13} /> Kolonlar
+                {hiddenCols.size > 0 ? ` (${(preview?.data_columns || []).length - hiddenCols.size}/${(preview?.data_columns || []).length})` : ""}
+              </button>
+              {colMenuOpen && (
+                <div className="hz-colmenu">
+                  <div className="hz-colmenu-head">
+                    <button onClick={() => setHiddenCols(new Set())}>Tümü</button>
+                    <button onClick={() => setHiddenCols(new Set(preview?.data_columns || []))}>Hiçbiri</button>
+                  </div>
+                  <div className="hz-colmenu-list">
+                    {(preview?.data_columns || []).map((c) => (
+                      <label key={c} className="hz-colmenu-item">
+                        <input type="checkbox" checked={!hiddenCols.has(c)}
+                               onChange={() => setHiddenCols((s) => {
+                                 const n = new Set(s);
+                                 if (n.has(c)) n.delete(c); else n.add(c);
+                                 return n;
+                               })} />
+                        <span>{c}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {tab === "data" && (
             <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
-                    onClick={onSaveAsTable}
-                    title="Gruplama/aggregation'ı yeni bir tablo olarak kaydet">
+                    onClick={() => onSaveAsTable(preview.data_columns.filter((c) => !hiddenCols.has(c)))}
+                    title="Seçili kolonlardan yeni bir (kolon-filtreli) tablo oluştur">
               <Database size={13} /> Tablo olarak kaydet
             </button>
           )}
@@ -2382,9 +2417,6 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                     columnDefs={colDefs} rowData={rowData} animateRows
                     onGridReady={handleReady}
                     onFirstDataRendered={handleFirstDataRendered}
-                    sideBar={{ toolPanels: ["columns", "filters"] }}
-                    rowGroupPanelShow="always"
-                    pivotPanelShow="always"
                     headerHeight={36}
                     pagination
                     paginationPageSize={50}
@@ -3185,6 +3217,16 @@ function App() {
     y: 80 + Math.floor((nodes.length + offset) / 3) * 240,
   });
 
+  // Üretilen node'u KAYNAĞININ hemen sağına konumla (uzağa düşmesin). Aynı
+  // kaynaktan türeyen mevcut node sayısına göre dikey kaydır → üst üste binmez.
+  const posNearSource = (srcAlias) => {
+    const src = nodes.find((n) => n.id === srcAlias);
+    if (!src || !src.position) return nextNodePos();
+    const kids = (scope.basket || []).filter(
+      (b) => b.derivation && derivSourceAliases(b.derivation).includes(srcAlias)).length;
+    return { x: src.position.x + 360, y: src.position.y + kids * 160 };
+  };
+
   const addTableFromCatalog = (t) => {
     const [schema, ...rest] = t.id.split(".");
     const name = rest.length ? rest.join(".") : schema;
@@ -3303,7 +3345,7 @@ function App() {
     // (`_f`) eklenince 40 sınırını taşmasın.
     const alias = makeAlias(`${left}_${right}`.slice(0, 32) + "_join", scope.basket.map((b) => b.alias));
     const cols = joinColsFor(left, right);
-    const pos = nextNodePos();
+    const pos = posNearSource(left);
     const item = {
       alias,
       derivation: {
@@ -3333,7 +3375,7 @@ function App() {
   const addUnionNode = ({ left, right, unionAll }) => {
     const alias = makeAlias(`${left}_${right}`.slice(0, 32) + "_union", scope.basket.map((b) => b.alias));
     const cols = (COLS_BY_ALIAS[left] || []).map((c) => ({ ...c }));
-    const upos = nextNodePos();
+    const upos = posNearSource(left);
     const item = {
       alias,
       derivation: { kind: "union", source_aliases: [left, right], union_all: unionAll !== false },
@@ -3656,47 +3698,42 @@ function App() {
     return data.values || [];
   };
 
-  // Read the grid's row-grouping + value (aggregation) state → derived table.
-  const saveAsTable = () => {
-    const api = gridApiRef.current;
-    if (!api || !preview) return;
-    const groupBy = (api.getRowGroupColumns?.() || []).map((c) => c.getColId());
-    const valueCols = (api.getValueColumns?.() || []).map((c) => ({
-      col: c.getColId(),
-      fn: (c.getAggFunc && c.getAggFunc()) || c.getColDef?.().aggFunc || "sum",
-    }));
-    if (groupBy.length === 0 && valueCols.length === 0) {
-      setToast("Önce kolonları 'Row Groups' / 'Values' alanlarına sürükle."); return;
+  // Kolon-filtreli tablo kaydet: kullanıcı "Kolonlar" panelinden bazılarını
+  // kaldırdıysa, KALAN kolonları taşıyan yeni bir node üret. Aggregation/pivot
+  // artık burada değil — onu Python node ya da LLM yapıyor (Enterprise kaldırıldı).
+  // Çıktı, kaynağın kolon alt-kümesini SELECT'leyen bir "calculated" identity node.
+  const saveAsTable = (visibleCols) => {
+    if (!preview) return;
+    const all = preview.data_columns || [];
+    const cols = (visibleCols && visibleCols.length ? visibleCols : all);
+    if (cols.length === 0) { setToast("En az bir kolon seçili olmalı."); return; }
+    if (cols.length === all.length) {
+      setToast("Önce 'Kolonlar' panelinden kaldırmak istediğin kolonları seç."); return;
     }
-    const FN = { sum: "sum", avg: "avg", count: "count", min: "min", max: "max" };
-    const measures = valueCols.map((v) => {
-      const fn = FN[v.fn] || "sum";
-      return { column: v.col, fn, as: `${fn.toUpperCase()}_${v.col}` };
-    });
     const source = preview.alias;
-    const alias = makeAlias(`${source}_agg`, scope.basket.map((b) => b.alias));
-    const apos = nextNodePos();
+    const alias = makeAlias(`${source}_secili`, scope.basket.map((b) => b.alias));
+    const apos = posNearSource(source);
     const item = {
-      derivation: { kind: "aggregate", source_alias: source, group_by: groupBy, measures },
+      derivation: {
+        kind: "calculated", source_aliases: [source], join_keys: [],
+        // identity projeksiyon: "KOL" AS "KOL" (kolon adı şemada identifier-güvenli)
+        columns: cols.map((c) => ({ name: c, expr: `"${c}"` })),
+      },
       alias,
-      projection: { columns: [...groupBy, ...measures.map((m) => m.as)], include_all: false },
+      projection: { columns: cols, include_all: false },
       routing: { decision: "cached", decided_by: "system", estimated_bytes: 0 },
       layout: { x: apos.x, y: apos.y },
     };
     const srcCols = Object.fromEntries((COLS_BY_ALIAS[source] || []).map((c) => [c.name, c]));
-    COLS_BY_ALIAS[alias] = [
-      ...groupBy.map((g) => ({ name: g, concept: srcCols[g]?.concept || null, join_key: true })),
-      ...measures.map((m) => ({ name: m.as, concept: null, join_key: false })),
-    ];
+    COLS_BY_ALIAS[alias] = cols.map((c) => ({
+      name: c, concept: srcCols[c]?.concept || null, join_key: !!srcCols[c]?.join_key,
+    }));
     setScope((s) => ({ ...s, basket: [...s.basket, item] }));
     setNodes((nds) => [...nds, {
-      id: alias, type: "tableNode",
-      position: { x: 100 + (nds.length % 3) * 340, y: 100 + Math.floor(nds.length / 3) * 240 },
+      id: alias, type: "tableNode", position: apos,
       data: enrichNodeData(item, scope),
     }]);
-    setToast(`'${alias}' türetilmiş tablo eklendi (${groupBy.length} grup, ${measures.length} measure).`);
-    const snap = captureGridState();
-    if (snap) setGridStateByAlias((s) => ({ ...s, [preview.alias]: snap }));
+    setToast(`'${alias}' kolon-filtreli tablo eklendi (${cols.length} kolon).`);
   };
 
   // Faz P — bir node'dan (sourceAlias) yeni bir python dönüşüm node'u üret.
@@ -3704,7 +3741,7 @@ function App() {
   // Script" sekmesinde açılır; kullanıcı script'i yazıp Çalıştır + Kaydet eder.
   const createPythonNode = useCallback((sourceAlias) => {
     const alias = makeAlias(`${sourceAlias}_py`, scope.basket.map((b) => b.alias));
-    const apos = nextNodePos();
+    const apos = posNearSource(sourceAlias);
     const starter =
       `# input_node_df: '${sourceAlias}' verisinin DataFrame'i (pandas — pd, np hazır)\n`
       + `# Dönüşümünü yaz; sonunda output_node_df adlı bir DataFrame üret:\n`
