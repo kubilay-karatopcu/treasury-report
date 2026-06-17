@@ -1829,7 +1829,7 @@ function SourcesSidebar({
 
 // ── Stage-2 LLM scope-refinement chat ────────────────────────────────────────
 
-function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply, onDismiss, applyingId, selectedAlias }) {
+function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply, onDismiss, applyingId, selectedAlias, selectedSource }) {
   const taRef = useRef(null);
   const listRef = useRef(null);
 
@@ -1853,8 +1853,8 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
         <MessageSquare size={11} strokeWidth={2} />
         <span>Scope Asistanı</span>
         {selectedAlias && (
-          <span className="chat-scope-chip" title="Bu node odakta — Python ile veri işlemi isteyebilirsin">
-            <Code2 size={10} /> {selectedAlias}
+          <span className="chat-scope-chip" title="Bu node odakta — konuşma bu node'un kaynağını etkiler">
+            <Code2 size={10} /> {selectedSource ? `${selectedSource} → ${selectedAlias}` : selectedAlias}
           </span>
         )}
       </div>
@@ -1927,6 +1927,7 @@ const KIND_LABEL = {
   create_aggregate: "Agregat tablo",
   create_calculation: "Hesaplanmış tablo",
   create_python_node: "Python node",
+  edit_python_node: "Python script düzenle",
 };
 
 // Human-friendly Turkish description for a suggestion card. Replaces the
@@ -1973,6 +1974,8 @@ function summariseSuggestion(s) {
 
     case "create_python_node":
       return `'${s.source_alias}' node'undan Python ile yeni node ('${s.new_alias || s.source_alias + "_py"}'): input_node_df → output_node_df.`;
+    case "edit_python_node":
+      return `'${s.alias}' python node'unun script'i güncellenecek.`;
     case "create_calculation": {
       const srcs = s.source_aliases || [];
       const join_keys = s.join_keys || [];
@@ -2012,7 +2015,7 @@ function SuggestionCard({ suggestion, onApply, onDismiss, busy }) {
         <span className="hz-sugg-kind">{KIND_LABEL[suggestion.kind] || suggestion.kind}</span>
       </div>
       <div className="hz-sugg-body">{summariseSuggestion(suggestion)}</div>
-      {suggestion.kind === "create_python_node" && suggestion.python_code && (
+      {(suggestion.kind === "create_python_node" || suggestion.kind === "edit_python_node") && suggestion.python_code && (
         <div className="hz-sugg-code"><CodeArea language="python" value={suggestion.python_code} readOnly /></div>
       )}
       {suggestion.rationale && <div className="hz-sugg-rationale">{suggestion.rationale}</div>}
@@ -2123,8 +2126,8 @@ function CodeArea({ value, onChange, language = "python", readOnly = false }) {
 // Çalıştır (output_node_df kontrolü + örnek satır) ve Kaydet.
 function PythonScriptTab({ item, sourceAlias, onRun, onSave, run }) {
   const [code, setCode] = useState(item?.derivation?.python_code || "");
-  // Node değişince taslağı senkronla.
-  useEffect(() => { setCode(item?.derivation?.python_code || ""); }, [item?.alias]);
+  // Node değişince VE kod dışarıdan değişince (LLM edit_python_node) senkronla.
+  useEffect(() => { setCode(item?.derivation?.python_code || ""); }, [item?.alias, item?.derivation?.python_code]);
   const running = !!run?.running;
   return (
     <div className="hz-py-tab ts-scroll">
@@ -2680,13 +2683,29 @@ function App() {
         });
       const known = new Set(kept.map((n) => n.id));
       const added = [];
-      scope.basket.forEach((item, i) => {
+      scope.basket.forEach((item) => {
         if (known.has(item.alias)) return;
-        const seq = kept.length + added.length;
+        // Konum önceliği: (1) item.layout (saveAsTable/python/join/union yazıyor),
+        // (2) üretilmiş node ise KAYNAĞININ yanına (chat-apply'de layout yok),
+        // (3) son çare grid. Eskiden hep grid'di → üretilen node uzağa düşüyordu (#4).
+        let pos = null;
+        if (item.layout && Number.isFinite(item.layout.x)) {
+          pos = { x: item.layout.x, y: item.layout.y };
+        } else if (item.derivation) {
+          const srcs = derivSourceAliases(item.derivation);
+          const srcNode = srcs
+            .map((a) => [...kept, ...added].find((n) => n.id === a))
+            .find(Boolean);
+          if (srcNode && srcNode.position) {
+            pos = { x: srcNode.position.x + 360, y: srcNode.position.y + 120 };
+          }
+        }
+        if (!pos) {
+          const seq = kept.length + added.length;
+          pos = { x: 100 + (seq % 3) * 340, y: 100 + Math.floor(seq / 3) * 240 };
+        }
         added.push({
-          id: item.alias, type: "tableNode",
-          position: { x: 100 + (seq % 3) * 340, y: 100 + Math.floor(seq / 3) * 240 },
-          hidden: false,
+          id: item.alias, type: "tableNode", position: pos, hidden: false,
           data: { ...enrichNodeData(item, scope), inactive: inactiveAliases.has(item.alias) },
         });
       });
@@ -3120,6 +3139,12 @@ function App() {
           setPreview({ alias: added, openTab: "script", derived: true, isPython: true, data_columns: [], rows: [] });
         }
       }
+      // edit_python_node: kod güncellendi → script editörü re-sync olur; eski
+      // çalıştırma özetini temizle ve script sekmesinde kal.
+      if (suggestion.kind === "edit_python_node") {
+        setPythonRun({ alias: suggestion.alias, running: false, error: null, summary: null });
+        setPreview((p) => (p && p.alias === suggestion.alias ? { ...p, openTab: "script" } : p));
+      }
       if ((data.warnings || []).length) {
         setChatHistory((h) => [...h, {
           role: "assistant", _turnId: `t_${rid()}`,
@@ -3177,12 +3202,18 @@ function App() {
     // türetilmiş node'un drawer'ını aç (Kaynak Query görünür) + kaynağı
     // Filtreleme'den düzenle ipucu. agg/calc ise türetilmiş önizlemeyi aç.
     if (edge.data?.derivation) {
-      // Edge'in amacı filtreyi düzenlemek → kaynak (main) node'u açıp doğrudan
-      // Filtreleme ekranına götür. (agg/calc edge'inde türetilmiş önizleme.)
-      if (edge.data.derivKind === "filter") {
+      // Edge'e tıkla → ÇIKTI (türetilmiş) node'u aç; böylece sohbet o node'a
+      // (source → output) kapsanır ve yalnız o node'un kaynağını etkiler (#2).
+      // python → "Kaynak Script" (düzenle), filter → kaynağı "Filtreleme",
+      // agg/calc/join/union → çıktı node'unun önizlemesi.
+      const out = edge.data.derivedAlias;
+      const outItem = scope.basket.find((b) => b.alias === out);
+      if (outItem?.derivation?.kind === "python") {
+        showPreviewRef.current && showPreviewRef.current(out, "script");
+      } else if (edge.data.derivKind === "filter") {
         showPreviewRef.current && showPreviewRef.current(edge.data.sourceAlias, "filter");
       } else {
-        showPreviewRef.current && showPreviewRef.current(edge.data.derivedAlias);
+        showPreviewRef.current && showPreviewRef.current(out);
       }
       return;
     }
@@ -3208,7 +3239,7 @@ function App() {
       const jid = edge.data.join.id;
       setScope((s) => ({ ...s, joins: s.joins.filter((j) => j.id !== jid) }));
     }
-  }, [addJoin]);
+  }, [addJoin, scope]);
 
   // Yeni node'un başlangıç pozisyonu — hem React Flow node'una hem basket
   // item'ının layout'una yazılır ki F5 (draft reload) aynı yerde açsın (Bug 2).
@@ -3425,8 +3456,11 @@ function App() {
   const showPreview = useCallback(async (alias, openTab) => {
     const item = scope.basket.find((b) => b.alias === alias);
     if (!item) return;
-    // Python node'lar varsayılan olarak "Kaynak Script" sekmesinde açılır.
-    const tab0 = openTab || (item.derivation?.kind === "python" ? "script" : undefined);
+    // Sekme yalnız ÇAĞIRAN açıkça verirse seçilir; aksi halde drawer "Veri"ye
+    // düşer. (Eskiden python her açılışta "script"e zorlanıyordu → panel kendi
+    // kendine Kaynak Script'e atlıyordu, #3.) Yeni python node'u + edge-click
+    // "script" geçer; düz tıklama Veri açar.
+    const tab0 = openTab || undefined;
     setPreviewLoading(true); setPreview({ alias, openTab: tab0 });
     try {
       let data;
@@ -4054,6 +4088,10 @@ function App() {
             draft: chatDraft, onDraftChange: setChatDraft,
             onSend: sendChat, onApply: applySuggestion, onDismiss: dismissSuggestion,
             applyingId, selectedAlias: preview?.alias || null,
+            selectedSource: (() => {
+              const it = preview ? scope.basket.find((b) => b.alias === preview.alias) : null;
+              return it?.derivation ? (derivSourceAliases(it.derivation)[0] || null) : null;
+            })(),
           }}
         />
         {docsTable && (

@@ -122,3 +122,15 @@ def test_preview_python_isolation_no_other_node(client):
     data = r.get_json()
     assert data["phase"] == "python"
     assert any("NameError" in e for e in data["errors"])
+
+
+def test_preview_python_caches_result(client):
+    from presentations.routes_scope import _PREVIEW_CACHE
+    _PREVIEW_CACHE.clear()
+    body = dict(scope=_scope(), source_alias="deposits",
+                python_code="output_node_df = input_node_df.head(2)")
+    r1 = _post(client, **body).get_json()
+    assert r1["ok"] is True and not r1.get("cached")
+    r2 = _post(client, **body).get_json()
+    assert r2["ok"] is True and r2.get("cached") is True
+    assert r2["data_columns"] == r1["data_columns"]

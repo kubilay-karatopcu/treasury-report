@@ -126,6 +126,18 @@ KURALLAR (KRİTİK):
 - Kolon adlarını seçili node'un kolon listesinden (ODAK bağlamı) al; uydurma.
 - SQL ile kolayca yapılabilen basit bir agregasyonsa `create_aggregate`/`create_calculation` tercih et; Python'u prosedürel/çok-adımlı işler için kullan.
 
+## 8. `edit_python_node` — VAR OLAN python node'unun script'ini değiştir (YALNIZ node-scope)
+SADECE `## Seçili node (ODAK)` zaten bir **python node** ise kullan (bağlamda "Bu node ZATEN bir Python node" yazar). Kullanıcı o node'un dönüşümünü değiştirmek istediğinde yeni node ÜRETME — mevcut script'i güncelle:
+```
+{
+  "kind": "edit_python_node",
+  "alias": "<seçili python node alias'ı>",
+  "python_code": "GÜNCEL TAM script (output_node_df ile biten)",
+  "rationale": "ne değişti"
+}
+```
+KURALLAR: `python_code` TAM ve eksiksiz olmalı (parça değil) — mevcut script'i (bağlamda verildi) temel al, istenen değişikliği uygula. Aynı import/`output_node_df` kuralları (kind #7) geçerli. `alias` ODAK node'dur.
+
 # Karar kuralları
 
 1. **Önce explanation kur, sonra suggestions doldur.** Çok öneriyle saldırma — TEK öneriyle niyeti karşılayabiliyorsan TEK öner.
