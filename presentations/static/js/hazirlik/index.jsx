@@ -1455,8 +1455,12 @@ function _enrichCols(cols, srcColMap) {
 // boyut toplamı / session limiti. Lazy tablolar sayılmaz (materialise olmaz);
 // türetilmiş node'lar boyutsuz (DuckDB) → 0 ekler. ≥%70 amber, >%100 kırmızı.
 function BudgetPanel({ scope }) {
+  // Pasif (Sunum'a gitmeyecek) alias'lar materialise edilmez → bütçeye sayma.
+  // (#1: pasif büyük tablolar toplamı şişiriyordu.)
+  const inactive = new Set(scope.inactive_aliases || []);
   const used = (scope.basket || []).reduce(
-    (s, b) => s + (b.routing?.decision === "cached" ? (b.routing?.estimated_bytes || 0) : 0),
+    (s, b) => s + (b.routing?.decision === "cached" && !inactive.has(b.alias)
+      ? (b.routing?.estimated_bytes || 0) : 0),
     0,
   );
   const pct = SESSION_BUDGET_BYTES > 0 ? (used / SESSION_BUDGET_BYTES) * 100 : 0;
@@ -1614,23 +1618,23 @@ function SourcesSidebar({
             </button>
           </div>
 
-          {/* Faz C — add datasets directly in Hazırlık. */}
+          {/* Faz C — add datasets directly in Hazırlık. Kompakt + yan yana (#5). */}
           <div className="hz-add-row">
             <button
               type="button"
-              className="ts-btn hz-add-btn"
+              className="ts-btn ts-btn--sm hz-add-btn"
               onClick={() => onAddSql && onAddSql()}
               title="Serbest SQL yazıp bir tablo (dataset) oluştur"
             >
-              <Database size={13} /> Manuel SQL Tablo
+              <Database size={12} /> SQL Tablo
             </button>
             <button
               type="button"
-              className="ts-btn hz-add-btn"
+              className="ts-btn ts-btn--sm hz-add-btn"
               onClick={() => onUpload && onUpload()}
               title="Excel/CSV yükle — yüklenen sayfa bir dataset olur"
             >
-              <Upload size={13} /> Veri Yükle (Excel)
+              <Upload size={12} /> Excel
             </button>
           </div>
 
@@ -1684,8 +1688,10 @@ function SourcesSidebar({
                       >
                         <div className="sources-table-info">
                           <div className="sources-table-name">{it.name}</div>
-                          <div className="sources-table-desc">
-                            {it.schema}{it.catalog?.desc ? ` · ${it.catalog.desc}` : ""}
+                          <div className="sources-table-desc" title={it.catalog?.desc || ""}>
+                            {it.schema}{it.catalog?.desc
+                              ? ` · ${it.catalog.desc.length > 200 ? it.catalog.desc.slice(0, 200) + "…" : it.catalog.desc}`
+                              : ""}
                           </div>
                         </div>
                       </button>
@@ -1851,7 +1857,7 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
     <div className="chat-box">
       <div className="chat-box-header">
         <MessageSquare size={11} strokeWidth={2} />
-        <span>Scope Asistanı</span>
+        <span>Asistan</span>
         {selectedAlias && (
           <span className="chat-scope-chip" title="Bu node odakta — konuşma bu node'un kaynağını etkiler">
             <Code2 size={10} /> {selectedSource ? `${selectedSource} → ${selectedAlias}` : selectedAlias}
@@ -2161,6 +2167,17 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
   // Kolon filtreleme (Enterprise sidebar yerine kendi panelimiz): gizlenen kolonlar.
   const [hiddenCols, setHiddenCols] = useState(() => new Set());
   const [colMenuOpen, setColMenuOpen] = useState(false);
+  const colMenuRef = useRef(null);
+  // Dışarı tıkla → menüyü kapat (seçimler zaten canlı uygulanıyor → "kaydedip
+  // kapanır" + tablo değerlerini bloklamaz, #2).
+  useEffect(() => {
+    if (!colMenuOpen) return;
+    const onDown = (e) => {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target)) setColMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [colMenuOpen]);
   const [cronDraft, setCronDraft] = useState(null);   // RefreshFields'ten gelen DatasetRefresh
   // Tablo adı (alias) inline düzenleme — yalnız üretilmiş node'larda.
   const [editingName, setEditingName] = useState(false);
@@ -2288,7 +2305,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
             </button>
           )}
           {tab === "data" && (
-            <div className="hz-colmenu-wrap">
+            <div className="hz-colmenu-wrap" ref={colMenuRef}>
               <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
                       onClick={() => setColMenuOpen((v) => !v)}
                       title="Kolonları seç — kaldırdıkların yeni tabloda olmaz">
@@ -2710,8 +2727,11 @@ function App() {
           }
         }
         if (!pos) {
-          const seq = kept.length + added.length;
-          pos = { x: 100 + (seq % 3) * 340, y: 100 + Math.floor(seq / 3) * 240 };
+          // #7 — grid son çaresinde PASİF node'ları sayma → yeni node'lar aktif
+          // bölgeye (disabled node'ların üstüne) gelir, en alta yığılmaz.
+          const activeCount = kept.filter((n) => !inactiveAliases.has(n.id)).length
+            + added.filter((n) => !inactiveAliases.has(n.id)).length;
+          pos = { x: 100 + (activeCount % 3) * 340, y: 100 + Math.floor(activeCount / 3) * 240 };
         }
         added.push({
           id: item.alias, type: "tableNode", position: pos, hidden: false,
@@ -3761,10 +3781,23 @@ function App() {
   const saveAsTable = (visibleCols) => {
     if (!preview) return;
     const all = preview.data_columns || [];
-    const cols = (visibleCols && visibleCols.length ? visibleCols : all);
+    let cols = (visibleCols && visibleCols.length ? visibleCols : all);
+    // AG Grid'in GÜNCEL kolon sırası + görünürlüğü — kullanıcı kolonları
+    // sürükleyip sıraladıysa o sıra korunur (#3), gizlediği kolon düşer (#2).
+    const api = gridApiRef.current;
+    if (api && api.getColumnState) {
+      try {
+        const ordered = api.getColumnState()
+          .filter((c) => !c.hide && all.includes(c.colId))
+          .map((c) => c.colId);
+        if (ordered.length) cols = ordered;
+      } catch { /* fallback: visibleCols / all */ }
+    }
     if (cols.length === 0) { setToast("En az bir kolon seçili olmalı."); return; }
-    if (cols.length === all.length) {
-      setToast("Önce 'Kolonlar' panelinden kaldırmak istediğin kolonları seç."); return;
+    // Hiç değişiklik yoksa (aynı kolonlar, aynı sıra) → yeni tablo üretme.
+    const unchanged = cols.length === all.length && cols.every((c, i) => c === all[i]);
+    if (unchanged) {
+      setToast("Önce kolon kaldır ya da sürükleyip sırala — sonra kaydet."); return;
     }
     const source = preview.alias;
     const alias = makeAlias(`${source}_secili`, scope.basket.map((b) => b.alias));
