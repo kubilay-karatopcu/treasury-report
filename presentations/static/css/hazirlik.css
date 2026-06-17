@@ -627,6 +627,16 @@
 .hz-py-ok { flex: 0 0 auto; margin: 0; font-size: 11px; color: #0f766e; }
 .hz-py-actions { flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 8px; }
 
+/* Faz P-3 — node-scope chat: odak rozeti + öneri kartında python kod önizleme */
+.chat-scope-chip {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: auto;
+  font-size: 10px; background: #0d9488; color: #fff;
+  padding: 1px 6px; border-radius: 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.hz-sugg-code { margin: 4px 0; border: 1px solid #334155; border-radius: 5px; overflow: hidden; max-height: 180px; }
+.hz-sugg-code .hz-cm, .hz-sugg-code .cm-editor { max-height: 180px; height: auto; font-size: 11.5px; }
+
 /* Active filters footer on the node card */
 .hz-node-filters {
   padding: 5px 10px; border-top: 1px solid #eef0f3;
