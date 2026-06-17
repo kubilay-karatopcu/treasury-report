@@ -243,6 +243,36 @@ def _compute_dataset_df(
         )
         return (df if df is not None else pd.DataFrame()), sql
 
+    # Python node (Faz P): tek-girişli prosedürel dönüşüm. Source df'i (parquet
+    # ya da in-memory recursive) `input_node_df` olarak ver, AST-whitelist +
+    # subprocess sandbox'ta çalıştır, `output_node_df` sonucunu persist et. Yalnız
+    # TEK source enjekte edilir → izolasyon yapısaldır. Cron bu yolu kullandığı
+    # için upstream zincir (query → python → query …) burada sırayla yeniden koşar.
+    if item.derivation is not None and item.derivation.kind == "python":
+        from presentations.python_runtime import run_python_transform
+
+        d = item.derivation
+        if item.alias in visited:
+            raise ValueError(f"materialize_dataset: derivation cycle through {item.alias!r}")
+        src_item = scope.basket_item(d.source_alias)
+        got = read_dataset(dc, scope.presentation_id, d.source_alias)
+        if got is not None:
+            src_df = got[0]
+        elif src_item is not None:
+            src_df, _ = _compute_dataset_df(
+                dc, scope, src_item, catalog=catalog,
+                concept_registry=concept_registry, binding_catalog=binding_catalog,
+                visited=visited | {item.alias},
+            )
+        else:
+            src_df = pd.DataFrame()
+        result = run_python_transform(d.python_code, src_df)
+        if not result.ok:
+            raise ValueError(
+                f"python node {item.alias!r} çalıştırması başarısız: {result.error}"
+            )
+        return result.df, d.python_code
+
     # Derived (aggregate/calculated): compute on DuckDB over the source aliases.
     if item.alias in visited:
         raise ValueError(f"materialize_dataset: derivation cycle through {item.alias!r}")
