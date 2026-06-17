@@ -506,6 +506,12 @@ class BasketItem(BaseModel):
     # each source main node → this node is drawn from it. (derivation nodes carry
     # their own source_alias(es); this is for free-form sql nodes.)
     derived_from: list[Alias] = Field(default_factory=list)
+    # Faz P / #4 — kullanıcının Hazırlık'ta bu node'un kolonlarına BAĞLADIĞI
+    # concept'ler: {KOLON_ADI: concept_id}. Üretilmiş (documented olmayan)
+    # kolonlar bir concept'e tekabül ediyorsa kullanıcı burada işaretler;
+    # downstream (Sunum / Phase 7 derleyici) bu binding'i kullanır. Katalog
+    # tablolarının doc-tabanlı binding'lerini EZMEZ — yalnız eklenti.
+    column_concepts: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "BasketItem":

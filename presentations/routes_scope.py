@@ -2252,6 +2252,125 @@ def scope_source_sql(pid: str):
         return _json({"ok": False, "errors": [msg]}, status=400)
 
 
+@presentations_bp.route("/<pid>/scope/validate-concept", methods=["POST"])
+@login_required
+def scope_validate_concept(pid: str):
+    """#4 — Kullanıcının bir kolona bağladığı concept'in UYGUNLUĞUNU test et.
+
+    Node'un kolonundan distinct değerleri (capped) çekip concept'in tanımıyla
+    (canonical_values / tip) karşılaştırır; düşük örtüşmede uyarı döner. Konsept
+    enum/bucket ise değer örtüşmesi, time ise tarih-parse'ı, scalar ise sayısallık
+    bakılır.
+
+    Request:  ``{"scope": <draft>, "alias": "...", "column": "...", "concept": "..."}``
+    Response: ``{"ok": bool, "level": "ok|warn", "message": "...",
+                 "match_ratio": float, "distinct_sample": [...], "unmatched": [...]}``
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    column = (body.get("column") or "").strip()
+    concept_id = (body.get("concept") or "").strip()
+    if not isinstance(scope_in, dict) or not alias or not column or not concept_id:
+        return _json({"ok": False, "errors": ["scope, alias, column, concept zorunlu"]}, status=400)
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_$#]*$", column):  # SQL'e interpolate edilir
+        return _json({"ok": False, "errors": ["geçersiz kolon adı"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+    if not any(b.alias == alias for b in scope.basket):
+        return _json({"ok": False, "errors": [f"'{alias}' basket'te yok"]}, status=400)
+
+    reg = current_app.config.get("CONCEPT_REGISTRY")
+    concept = None
+    if reg is not None:
+        concept = next((c for c in reg.all_concepts() if c.id == concept_id), None)
+    if concept is None:
+        return _json({"ok": False, "errors": [f"'{concept_id}' concept'i bulunamadı"]}, status=400)
+    ctype = getattr(concept, "type", "scalar")
+    canon = list(concept.canonical_codes()) if hasattr(concept, "canonical_codes") else []
+
+    # Kolonun distinct örneğini node'dan çek (DuckDB sample).
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
+    from presentations import duck
+    conn = duck.connect_duckdb(":memory:")
+    registered: set[str] = set()
+    try:
+        try:
+            _preview_sample_into_duck(conn, scope, alias, dc, pid,
+                catalog=_catalog(), registry=reg,
+                bindings=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+                registered=registered)
+        except Exception as exc:
+            return _json({"ok": False, "phase": "sample",
+                          "errors": [str(exc).splitlines()[0][:200]]}, status=400)
+        try:
+            rows = conn.execute(
+                f'SELECT DISTINCT "{column}" FROM "{alias}" '
+                f'WHERE "{column}" IS NOT NULL LIMIT 500').fetchall()
+        except Exception as exc:
+            return _json({"ok": False, "errors": [f"kolon okunamadı: {str(exc).splitlines()[0][:160]}"]},
+                         status=400)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    distinct = [r[0] for r in rows]
+    sample = [duck._jsonable(v) for v in distinct[:25]]
+
+    # Tip-bazlı uygunluk.
+    level, message, ratio, unmatched = "ok", "", 1.0, []
+    if ctype in ("enum", "bucket") and canon:
+        canon_set = {str(x).strip().upper() for x in canon}
+        dvals = [str(v).strip().upper() for v in distinct]
+        matched = [v for v in dvals if v in canon_set]
+        ratio = (len(matched) / len(dvals)) if dvals else 1.0
+        unmatched = [str(v) for v in distinct
+                     if str(v).strip().upper() not in canon_set][:15]
+        if ratio < 0.5:
+            level = "warn"
+            message = (f"Değerlerin yalnız %{round(ratio*100)}'i '{concept_id}' "
+                       f"concept'inin tanımlı değerleriyle eşleşiyor. Uyumsuz örnekler: "
+                       + ", ".join(unmatched[:8]))
+        elif unmatched:
+            level = "warn"
+            message = (f"Çoğu değer eşleşiyor ama bazıları tanımlı değil: "
+                       + ", ".join(unmatched[:8]))
+    elif ctype == "time":
+        import pandas as pd
+        ok_n = 0
+        for v in distinct[:200]:
+            try:
+                pd.to_datetime(v); ok_n += 1
+            except Exception:
+                pass
+        ratio = ok_n / min(len(distinct), 200) if distinct else 1.0
+        if ratio < 0.8:
+            level = "warn"
+            message = f"Değerlerin %{round(ratio*100)}'i tarih olarak ayrıştırılabildi — '{concept_id}' bir zaman concept'i."
+    else:  # scalar
+        num_n = 0
+        for v in distinct[:200]:
+            try:
+                float(v); num_n += 1
+            except (TypeError, ValueError):
+                pass
+        ratio = num_n / min(len(distinct), 200) if distinct else 1.0
+        if ratio < 0.8:
+            level = "warn"
+            message = f"Değerlerin %{round(ratio*100)}'i sayısal — '{concept_id}' skalar bir concept; tür uyuşmuyor olabilir."
+
+    return _json({"ok": True, "level": level, "message": message,
+                  "match_ratio": round(ratio, 3), "concept_type": ctype,
+                  "distinct_sample": sample, "unmatched": unmatched,
+                  "distinct_count": len(distinct)})
+
+
 @presentations_bp.route("/<pid>/scope/distinct", methods=["GET"])
 @login_required
 def scope_distinct(pid: str):

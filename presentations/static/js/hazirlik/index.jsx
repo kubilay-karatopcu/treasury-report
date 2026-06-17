@@ -36,7 +36,7 @@ import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2, Pencil,
   Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag, Code2,
-  Play, Lock, Columns3,
+  Play, Lock, Columns3, ChevronDown,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -87,6 +87,8 @@ const PATCH_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/patch`);
 const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
+const CONCEPTS = DATA.concepts || [];   // #4 — {id,label,type,canonical_values}
+const VALIDATE_CONCEPT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/validate-concept`);
 const SUGGESTED = DATA.suggested_edges || [];
 // Reload'da türetilmiş node'ların kolonlarını hemen doldur (ilk render'da "0
 // kolon" görünmesin). hydrateDerivedCols hoist'lu — aşağıda tanımlı.
@@ -2127,6 +2129,103 @@ function CodeArea({ value, onChange, language = "python", readOnly = false }) {
   );
 }
 
+// #4 — aranabilir konsept seçici (dropdown + search).
+function ConceptPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return CONCEPTS.filter((c) => !s || c.id.toLowerCase().includes(s)
+      || (c.label || "").toLowerCase().includes(s)).slice(0, 60);
+  }, [q]);
+  const cur = CONCEPTS.find((c) => c.id === value);
+  return (
+    <div className="hz-concept-picker" ref={ref}>
+      <button type="button" className="hz-concept-pick-btn" onClick={() => setOpen((v) => !v)}>
+        <span className={cur ? "" : "hz-muted"}>{cur ? (cur.label || cur.id) : "konsept seç…"}</span>
+        <ChevronDown size={12} />
+      </button>
+      {open && (
+        <div className="hz-concept-menu">
+          <input autoFocus className="hz-concept-search" placeholder="konsept ara…"
+                 value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="hz-concept-list">
+            {value && (
+              <button type="button" className="hz-concept-item is-clear"
+                      onClick={() => { onChange(null); setOpen(false); }}>— kaldır —</button>
+            )}
+            {filtered.map((c) => (
+              <button type="button" key={c.id} className="hz-concept-item"
+                      onClick={() => { onChange(c.id); setOpen(false); }}>
+                <span>{c.label || c.id}</span>
+                <span className="hz-concept-type">{c.type}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <div className="hz-muted" style={{ padding: 8, fontSize: 11 }}>eşleşme yok</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// #4 — "Konseptler" sekmesi: her kolon | bağlı concept (kaynaktan izlenen ya da
+// kullanıcı seçimi). Seçimden sonra distinct değerlerle uygunluk test edilir.
+function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidate }) {
+  const [valid, setValid] = useState({});   // col -> {level,message,loading}
+  const tracked = (col) => columnConcepts[col] || colMeta[col]?.concept || null;
+  const fromSource = (col) => !columnConcepts[col] && !!colMeta[col]?.concept;
+  const setConcept = async (col, conceptId) => {
+    onSetConcept(col, conceptId);
+    if (!conceptId) { setValid((v) => ({ ...v, [col]: null })); return; }
+    setValid((v) => ({ ...v, [col]: { loading: true } }));
+    try {
+      const res = await onValidate(col, conceptId);
+      setValid((v) => ({ ...v, [col]: res }));
+    } catch (e) {
+      setValid((v) => ({ ...v, [col]: { level: "warn", message: String(e.message || e) } }));
+    }
+  };
+  return (
+    <div className="hz-concepts-tab ts-scroll">
+      <table className="hz-concepts-table">
+        <thead><tr><th>Kolon</th><th>Konsept</th></tr></thead>
+        <tbody>
+          {(columns || []).map((col) => {
+            const t = tracked(col); const v = valid[col];
+            return (
+              <tr key={col}>
+                <td className="hz-concepts-col" title={col}>{col}</td>
+                <td>
+                  <div className="hz-concepts-cell">
+                    <ConceptPicker value={t} onChange={(cid) => setConcept(col, cid)} />
+                    {fromSource(col) && <span className="hz-concept-src" title="Kaynak tablonun dökümanından geldi">kaynak</span>}
+                    {v?.loading && <Loader2 size={12} className="ts-spin" />}
+                    {v && !v.loading && v.level === "warn" && <span className="hz-concept-warn">⚠</span>}
+                    {v && !v.loading && v.level === "ok" && !v.message && <span className="hz-concept-ok">✓</span>}
+                  </div>
+                  {v && !v.loading && v.message && (
+                    <div className={`hz-concept-msg${v.level === "warn" ? " is-warn" : ""}`}>{v.message}</div>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // Faz P — bir python node'unun "Kaynak Script" sekmesi. Giriş bağlama satırı
 // salt-okunur (input_node_df = bağlı tablo); kod alanı düzenlenir; sağ altta
 // Çalıştır (output_node_df kontrolü + örnek satır) ve Kaydet.
@@ -2160,7 +2259,7 @@ function PythonScriptTab({ item, sourceAlias, onRun, onSave, run }) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename, onCreatePython, onRunPython, onSavePython, pythonRun }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename, onCreatePython, onRunPython, onSavePython, pythonRun, onSetConcept, onValidateConcept }) {
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
@@ -2370,6 +2469,9 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
             <div className="hz-preview-tabs">
               <button type="button" className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>Veri</button>
               <button type="button" className={tab === "filter" ? "on" : ""} onClick={() => setTab("filter")}>Filtreleme</button>
+              {(preview.data_columns || []).length > 0 && (
+                <button type="button" className={tab === "concepts" ? "on" : ""} onClick={() => setTab("concepts")}>Konseptler</button>
+              )}
               {isPython && (
                 <button type="button" className={tab === "script" ? "on" : ""} onClick={() => setTab("script")}>Kaynak Script</button>
               )}
@@ -2413,6 +2515,14 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                           çalışır. Build/cron sırasında tam veri üzerinde yeniden koşar.</>}
                   </p>
                 </div>
+              ) : tab === "concepts" ? (
+                <ConceptsTab
+                  columns={preview.data_columns || []}
+                  colMeta={Object.fromEntries((COLS_BY_ALIAS[preview.alias] || []).map((c) => [c.name, c]))}
+                  columnConcepts={(item && item.column_concepts) || {}}
+                  onSetConcept={(col, cid) => onSetConcept && onSetConcept(preview.alias, col, cid)}
+                  onValidate={(col, cid) => onValidateConcept(preview.alias, col, cid)}
+                />
               ) : isPython && tab === "script" ? (
                 <PythonScriptTab
                   item={item}
@@ -3917,6 +4027,30 @@ function App() {
     setToast(cols ? `'${alias}' script + ${cols.length} kolon kaydedildi` : `'${alias}' script kaydedildi`);
   }, [pythonRun]);
 
+  // #4 — kolona concept bağla (column_concepts'e yaz; debounced save-draft persist eder).
+  const setColumnConcept = useCallback((alias, column, conceptId) => {
+    setScope((s) => ({
+      ...s,
+      basket: (s.basket || []).map((b) => {
+        if (b.alias !== alias) return b;
+        const cc = { ...(b.column_concepts || {}) };
+        if (conceptId) cc[column] = conceptId; else delete cc[column];
+        return { ...b, column_concepts: cc };
+      }),
+    }));
+  }, []);
+
+  // #4 — seçilen concept'in kolona uygunluğunu sunucuda test et (distinct vs tanım).
+  const validateConcept = useCallback(async (alias, column, concept) => {
+    const r = await fetch(VALIDATE_CONCEPT_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope, alias, column, concept }),
+    });
+    const d = await r.json();
+    if (!d.ok) return { level: "warn", message: (d.errors || ["doğrulanamadı"]).join("; ") };
+    return { level: d.level, message: d.message };
+  }, [scope]);
+
   // Drawer resize (drag the top edge up/down).
   const startResize = (e) => {
     e.preventDefault();
@@ -4225,6 +4359,8 @@ function App() {
               onRunPython={runPythonNode}
               onSavePython={savePythonNode}
               pythonRun={pythonRun}
+              onSetConcept={setColumnConcept}
+              onValidateConcept={validateConcept}
             />
           )}
         </main>
