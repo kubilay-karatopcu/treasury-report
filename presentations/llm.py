@@ -172,12 +172,17 @@ class QwenClient:
         bound_concepts: list[dict] | None = None,
         catalog_excerpt: list[dict] | None = None,
         history: list[dict] | None = None,
+        selected_alias: str | None = None,
+        selected_columns: list[str] | None = None,
     ) -> dict:
         """Phase 8.f Hazırlık chat: scope refinement suggestions.
 
         Returns ``{"explanation": str, "suggestions": [{"kind": ..., ...}]}``
         matching the contract in PHASE_8_SPEC §5.3. One retry on invalid JSON
         with the error fed back as a follow-up turn (§10.f).
+
+        ``selected_alias`` (Faz P): kullanıcı bir node'a tıkladıysa node-scope —
+        model o node'dan ``create_python_node`` önerebilir.
         """
         system = load_prompt("scope_refine")
         composed = compose_scope_user_message(
@@ -185,6 +190,8 @@ class QwenClient:
             bound_concepts=bound_concepts,
             catalog_excerpt=catalog_excerpt,
             history=history,
+            selected_alias=selected_alias,
+            selected_columns=selected_columns,
         )
         result = self._call_scope(system, composed)
         if result.get("_invalid"):
@@ -597,6 +604,8 @@ def compose_scope_user_message(
     bound_concepts: list[dict] | None = None,
     catalog_excerpt: list[dict] | None = None,
     history: list[dict] | None = None,
+    selected_alias: str | None = None,
+    selected_columns: list[str] | None = None,
 ) -> str:
     """Render the user-side payload for `suggest_scope_refinements`.
 
@@ -646,6 +655,27 @@ def compose_scope_user_message(
             l = j.get("left") or {}
             r = j.get("right") or {}
             parts.append(f"- `{j.get('id','?')}` {l.get('alias')}.{l.get('column')} ↔ {r.get('alias')}.{r.get('column')} ({j.get('kind','?')})")
+
+    # 1b. Seçili node (node-scope) — kullanıcı bir node'a tıkladıysa odak budur.
+    # create_python_node önerisi bu node'u kaynak (input_node_df) alır.
+    if selected_alias:
+        sel = next((b for b in basket if b.get("alias") == selected_alias), None)
+        parts.append(f"\n## Seçili node (ODAK): `{selected_alias}`")
+        if sel is not None:
+            if sel.get("table_ref"):
+                ref = sel["table_ref"]
+                parts.append(f"- kaynak: Oracle tablosu {ref.get('schema','')}.{ref.get('name','')}")
+            elif sel.get("derivation"):
+                parts.append(f"- kaynak: türetilmiş ({sel['derivation'].get('kind','?')})")
+            elif sel.get("sql"):
+                parts.append("- kaynak: manuel SQL")
+        if selected_columns:
+            parts.append("- kolonlar: " + ", ".join(f"`{c}`" for c in selected_columns[:40]))
+        parts.append(
+            "- Kullanıcı bu node üzerinde bir VERİ İŞLEMİ (dönüşüm, hesaplama, "
+            "pivot, temizlik, çok-adımlı mantık) istiyorsa → `create_python_node` "
+            "öner (Python ile yeni node). Kaynak HER ZAMAN bu seçili node olur."
+        )
 
     # 2. Bound concepts — the legal set for filter suggestions.
     if bound_concepts:
@@ -953,14 +983,40 @@ class FakeLLM:
         bound_concepts: list[dict] | None = None,
         catalog_excerpt: list[dict] | None = None,
         history: list[dict] | None = None,
+        selected_alias: str | None = None,
+        selected_columns: list[str] | None = None,
     ) -> dict:
         """Offline canned responses keyed on user intent.
 
-        Covers the 5 suggestion kinds so the demo flow is exercisable without
+        Covers the suggestion kinds so the demo flow is exercisable without
         VPN. Pattern matching is intentionally simple — the real model lives
         on the office machine; this stub just keeps the UX alive in dev.
         """
         msg = (user_message or "").strip().lower()
+
+        # Faz P — node-scope: kullanıcı bir node'a tıklıysa ve bir veri işlemi
+        # istiyorsa create_python_node öner (input_node_df → output_node_df).
+        if selected_alias and re.search(
+            r"python|script|hesapla|dönüş|donus|pivot|topla|oran|yeni\s*kolon|"
+            r"kolon\s*ekle|normalize|temizle|grupla|birleştir|ortalama|kümülat",
+            msg,
+        ):
+            return {
+                "explanation": (
+                    f"(yerel stub) '{selected_alias}' node'undan Python ile yeni bir "
+                    "node üretebilirsin — input_node_df girişi, output_node_df çıkışı."
+                ),
+                "suggestions": [{
+                    "kind": "create_python_node",
+                    "source_alias": selected_alias,
+                    "new_alias": f"{selected_alias}_py",
+                    "python_code": (
+                        "# input_node_df: kaynağın DataFrame'i (pd, np hazır)\n"
+                        "output_node_df = input_node_df.copy()\n"
+                    ),
+                    "rationale": "Prosedürel dönüşüm için Python node.",
+                }],
+            }
         basket = scope.get("basket") or []
         aliases = [b.get("alias") for b in basket if b.get("alias")]
         raw_aliases = [b.get("alias") for b in basket if b.get("table_ref") and b.get("alias")]

@@ -2267,6 +2267,7 @@ def scope_chat(pid: str):
     scope_in = body.get("scope") or {}
     user_message = (body.get("message") or "").strip()
     history = body.get("history") or []
+    selected_alias = (body.get("selected_alias") or "").strip() or None
     if not user_message:
         return _json({"error": "Mesaj boş olamaz."}, status=400)
     if not isinstance(scope_in, dict):
@@ -2284,6 +2285,20 @@ def scope_chat(pid: str):
     bound = _bound_concepts_for_scope(scope_in, cols_by_alias)
     catalog_excerpt = _catalog_excerpt_for_basket(scope_in)
 
+    # Faz P — node-scope: seçili node'un kolonlarını LLM bağlamına ver. Türetilmiş
+    # node'lar cols_by_alias'ta olmayabilir (yalnız raw main'ler dolduruldu); o
+    # zaman projection.columns'a düş.
+    selected_columns: list[str] | None = None
+    if selected_alias:
+        meta = cols_by_alias.get(selected_alias)
+        if meta:
+            selected_columns = [c.get("name") for c in meta if c.get("name")]
+        else:
+            sel = next((b for b in (scope_in.get("basket") or [])
+                        if b.get("alias") == selected_alias), None)
+            if sel is not None:
+                selected_columns = list((sel.get("projection") or {}).get("columns") or [])
+
     llm = current_app.config.get("LLM_CLIENT")
     if llm is None:
         return _json({"error": "LLM_CLIENT not configured"}, status=500)
@@ -2295,6 +2310,8 @@ def scope_chat(pid: str):
             bound_concepts=bound,
             catalog_excerpt=catalog_excerpt,
             history=history,
+            selected_alias=selected_alias,
+            selected_columns=selected_columns,
         )
     except Exception as exc:
         log.exception("scope_chat: LLM call failed")
@@ -2415,6 +2432,8 @@ def _mutate_scope_with_suggestion(scope: dict, sugg: dict) -> dict:
         return _apply_create_aggregate(s, sugg)
     if kind == "create_calculation":
         return _apply_create_calculation(s, sugg)
+    if kind == "create_python_node":
+        return _apply_create_python_node(s, sugg)
     raise _ApplyError(f"Bilinmeyen öneri tipi: {kind!r}")
 
 
@@ -2620,6 +2639,51 @@ def _apply_create_calculation(s: dict, sugg: dict) -> dict:
             "columns": [c["name"] for c in norm_cols],
             "include_all": False,
         },
+        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
+    })
+    return s
+
+
+def _apply_create_python_node(s: dict, sugg: dict) -> dict:
+    """Faz P — apply a `create_python_node` suggestion → add a kind:"python"
+    derivation. Tek-girişli: source_alias = input_node_df. Script
+    ``validate_python`` whitelist'inden geçmeli (LLM kötü/kaçışlı kod ürettiyse
+    reddedilir — kullanıcı sonra düzenleyip Çalıştır'la deneyebilir).
+
+    Suggestion shape:
+      {"kind": "create_python_node", "source_alias": "deposits",
+       "new_alias": "deposits_py", "python_code": "output_node_df = ..."}
+    """
+    from presentations.python_runtime import validate_python
+
+    source_alias = sugg.get("source_alias")
+    if not source_alias:
+        raise _ApplyError("create_python_node: source_alias zorunlu")
+    aliases_in_basket = {b.get("alias") for b in s["basket"]}
+    if source_alias not in aliases_in_basket:
+        raise _ApplyError(f"create_python_node: source_alias '{source_alias}' basket'te yok")
+
+    new_alias = sugg.get("new_alias") or f"{source_alias}_py"
+    # Çakışıyorsa benzersizleştir (_2, _3 …) — Apply'ı bloklamak yerine.
+    base, n = new_alias, 2
+    while new_alias in aliases_in_basket:
+        new_alias = f"{base}_{n}"
+        n += 1
+
+    code = sugg.get("python_code") or ""
+    check = validate_python(code)
+    if not check.ok:
+        raise _ApplyError("create_python_node: script reddedildi: " + "; ".join(check.errors))
+
+    s["basket"].append({
+        "alias": new_alias,
+        "derivation": {
+            "kind": "python",
+            "source_alias": source_alias,
+            "python_code": code,
+            "output_columns": [],
+        },
+        "projection": {"columns": [], "include_all": True},
         "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
     })
     return s

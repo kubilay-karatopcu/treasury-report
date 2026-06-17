@@ -1827,7 +1827,7 @@ function SourcesSidebar({
 
 // ── Stage-2 LLM scope-refinement chat ────────────────────────────────────────
 
-function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply, onDismiss, applyingId }) {
+function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply, onDismiss, applyingId, selectedAlias }) {
   const taRef = useRef(null);
   const listRef = useRef(null);
 
@@ -1850,6 +1850,11 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
       <div className="chat-box-header">
         <MessageSquare size={11} strokeWidth={2} />
         <span>Scope Asistanı</span>
+        {selectedAlias && (
+          <span className="chat-scope-chip" title="Bu node odakta — Python ile veri işlemi isteyebilirsin">
+            <Code2 size={10} /> {selectedAlias}
+          </span>
+        )}
       </div>
       <div className="chat-messages ts-scroll" ref={listRef}>
         {history.length === 0 && !busy && (
@@ -1871,7 +1876,9 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
         value={draft || ""}
         onChange={(e) => onDraftChange(e.target.value)}
         onKeyDown={onKey}
-        placeholder="Scope hakkında soru sor…"
+        placeholder={selectedAlias
+          ? `'${selectedAlias}' üzerinde Python ile işlem iste — örn. "kümülatif topla", "şu oranı hesapla"…`
+          : "Scope hakkında soru sor…"}
         disabled={busy}
       />
       <div className="chat-footer">
@@ -1917,6 +1924,7 @@ const KIND_LABEL = {
   confirm_join: "Join onayla",
   create_aggregate: "Agregat tablo",
   create_calculation: "Hesaplanmış tablo",
+  create_python_node: "Python node",
 };
 
 // Human-friendly Turkish description for a suggestion card. Replaces the
@@ -1961,6 +1969,8 @@ function summariseSuggestion(s) {
       );
     }
 
+    case "create_python_node":
+      return `'${s.source_alias}' node'undan Python ile yeni node ('${s.new_alias || s.source_alias + "_py"}'): input_node_df → output_node_df.`;
     case "create_calculation": {
       const srcs = s.source_aliases || [];
       const join_keys = s.join_keys || [];
@@ -2000,6 +2010,9 @@ function SuggestionCard({ suggestion, onApply, onDismiss, busy }) {
         <span className="hz-sugg-kind">{KIND_LABEL[suggestion.kind] || suggestion.kind}</span>
       </div>
       <div className="hz-sugg-body">{summariseSuggestion(suggestion)}</div>
+      {suggestion.kind === "create_python_node" && suggestion.python_code && (
+        <div className="hz-sugg-code"><CodeArea language="python" value={suggestion.python_code} readOnly /></div>
+      )}
       {suggestion.rationale && <div className="hz-sugg-rationale">{suggestion.rationale}</div>}
       <div className="hz-sugg-actions">
         <button className="ts-btn ts-btn--sm ts-btn--primary" disabled={busy} onClick={onApply}>
@@ -2652,7 +2665,8 @@ function App() {
     try {
       const r = await fetch(CHAT_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope, message, history: historyPayload }),
+        // Faz P — açık node varsa node-scope: LLM o node'dan create_python_node önerebilir.
+        body: JSON.stringify({ scope, message, history: historyPayload, selected_alias: preview?.alias || null }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
@@ -2667,7 +2681,7 @@ function App() {
     } finally {
       setChatBusy(false);
     }
-  }, [scope, chatHistory]);
+  }, [scope, chatHistory, preview]);
 
   const dismissSuggestion = useCallback((turnId, suggestionId) => {
     setChatHistory((h) => h.map((t) => {
@@ -3033,6 +3047,7 @@ function App() {
   const applySuggestion = useCallback(async (turnId, suggestion) => {
     setApplyingId(suggestion.id);
     try {
+      const before = new Set((scope.basket || []).map((b) => b.alias));
       const r = await fetch(APPLY_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope, suggestion }),
@@ -3045,6 +3060,14 @@ function App() {
       setScope(data.scope);
       setToast(`'${KIND_LABEL[suggestion.kind] || suggestion.kind}' uygulandı.`);
       dismissSuggestion(turnId, suggestion.id);
+      // Faz P — yeni python node'unu script sekmesinde aç (kullanıcı görüp Çalıştırsın).
+      if (suggestion.kind === "create_python_node") {
+        const added = (data.scope.basket || []).map((b) => b.alias).find((a) => !before.has(a));
+        if (added) {
+          setPythonRun({ alias: added, running: false, error: null, summary: null });
+          setPreview({ alias: added, openTab: "script", derived: true, isPython: true, data_columns: [], rows: [] });
+        }
+      }
       if ((data.warnings || []).length) {
         setChatHistory((h) => [...h, {
           role: "assistant", _turnId: `t_${rid()}`,
@@ -3949,7 +3972,7 @@ function App() {
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
             onSend: sendChat, onApply: applySuggestion, onDismiss: dismissSuggestion,
-            applyingId,
+            applyingId, selectedAlias: preview?.alias || null,
           }}
         />
         {docsTable && (
