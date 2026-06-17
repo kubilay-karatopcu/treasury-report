@@ -58,6 +58,44 @@ from presentations.scope.validators import validate_scope
 log = logging.getLogger(__name__)
 
 
+# ── Önizleme cache (Faz P-fix) ───────────────────────────────────────────────
+# Hazırlık önizlemeleri tasarım-anında Oracle'a gidiyor; "cached" rozeti bir
+# ROUTING kararıdır (build'de materialise edilir), "zaten cache'li" demek değil.
+# Aynı node'u tekrar açmak her seferinde Oracle'a gitmesin diye kısa-TTL,
+# process-içi bir sample cache'i: ilk açılış yavaş, tekrarlar anında.
+_PREVIEW_CACHE: dict[str, tuple[float, dict]] = {}
+_PREVIEW_CACHE_LOCK = threading.Lock()
+_PREVIEW_TTL_SECONDS = 300
+_PREVIEW_CACHE_CAP = 128
+
+
+def _preview_cache_get(key: str) -> dict | None:
+    now = time.time()
+    with _PREVIEW_CACHE_LOCK:
+        hit = _PREVIEW_CACHE.get(key)
+        if hit is None:
+            return None
+        ts, payload = hit
+        if now - ts >= _PREVIEW_TTL_SECONDS:
+            _PREVIEW_CACHE.pop(key, None)
+            return None
+        return payload
+
+
+def _preview_cache_put(key: str, payload: dict) -> None:
+    now = time.time()
+    with _PREVIEW_CACHE_LOCK:
+        if key not in _PREVIEW_CACHE and len(_PREVIEW_CACHE) >= _PREVIEW_CACHE_CAP:
+            oldest = min(_PREVIEW_CACHE.items(), key=lambda kv: kv[1][0])[0]
+            _PREVIEW_CACHE.pop(oldest, None)
+        _PREVIEW_CACHE[key] = (now, payload)
+
+
+def _preview_cache_key(*parts: str) -> str:
+    import hashlib
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:24]
+
+
 def _json(payload: Any, status: int = 200) -> Response:
     return Response(
         json.dumps(payload, ensure_ascii=False, default=_json_default),
@@ -1506,6 +1544,12 @@ def scope_preview_sql(pid: str):
         return _json({"ok": False, "phase": "sql", "errors": chk.errors,
                       "warnings": chk.warnings}, status=400)
 
+    # Aynı SQL'i tekrar önizlerken Oracle'a gitme — kısa-TTL cache (yavaşlık fix).
+    cache_key = _preview_cache_key("sql", pid, sql)
+    cached = _preview_cache_get(cache_key)
+    if cached is not None:
+        return _json({**cached, "cached": True})
+
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
@@ -1532,11 +1576,13 @@ def scope_preview_sql(pid: str):
     # SqlDatasetModal reads `columns`. Return both so one endpoint serves both.
     # Gate bilgisi (truncated/cap/reason) modalda gösterilir — kullanıcı örneğin
     # 5000 satırlık kapıya takıldığını GÖRMELİ ("önizleme = tüm veri" sanmasın).
-    return _json({"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
-                  "row_count": int(len(df)),
-                  "truncated": bool(gate.truncated), "cap": gate.cap,
-                  "gate_reason": gate.reason,
-                  "warnings": chk.warnings})
+    payload = {"ok": True, "columns": cols, "data_columns": cols, "rows": rows,
+               "row_count": int(len(df)),
+               "truncated": bool(gate.truncated), "cap": gate.cap,
+               "gate_reason": gate.reason,
+               "warnings": chk.warnings}
+    _preview_cache_put(cache_key, payload)
+    return _json(payload)
 
 
 @presentations_bp.route("/<pid>/scope/explain-sql", methods=["POST"])
@@ -1805,6 +1851,12 @@ def scope_preview(pid: str):
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return _json({"error": "DATA_CLIENT not configured"}, status=500)
+
+    cache_key = _preview_cache_key("main", full, select, str(limit))
+    cached = _preview_cache_get(cache_key)
+    if cached is not None:
+        return _json({**cached, "cached": True})
+
     sql = f"SELECT {select} FROM {full} FETCH FIRST {limit} ROWS ONLY"
     try:
         df = dc.get_data(base_prefix=None, dataset=f"preview::{full}", query=sql, query_params={})
@@ -1816,12 +1868,14 @@ def scope_preview(pid: str):
     if df is None:
         df = pd.DataFrame()
     rows = [[duck._jsonable(v) for v in r] for r in df.itertuples(index=False, name=None)]
-    return _json({
+    payload = {
         "columns": _columns_for(schema, table) or [{"name": str(c)} for c in df.columns],
         "data_columns": [str(c) for c in df.columns],
         "rows": rows,
         "row_count": int(len(df)),
-    })
+    }
+    _preview_cache_put(cache_key, payload)
+    return _json(payload)
 
 
 def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
@@ -1940,6 +1994,13 @@ def scope_preview_derivation(pid: str):
     if item is None or item.derivation is None:
         return _json({"ok": False, "errors": [f"'{alias}' türetilmiş bir tablo değil"]}, status=400)
 
+    # Aynı node'u (scope değişmeden) tekrar açmak Oracle örneklemesini tekrarlamasın.
+    cache_key = _preview_cache_key(
+        "deriv", pid, alias, json.dumps(scope_in, sort_keys=True, default=str))
+    cached = _preview_cache_get(cache_key)
+    if cached is not None:
+        return _json({**cached, "cached": True})
+
     d = item.derivation
     src_aliases = [d.source_alias] if d.kind == "aggregate" else list(d.source_aliases)
 
@@ -2002,9 +2063,11 @@ def scope_preview_derivation(pid: str):
         pretty = sqlparse.format(compiled, reindent=True, keyword_case="upper")
     except Exception:
         pretty = compiled
-    return _json({"ok": True, "columns": [{"name": c} for c in cols],
-                  "data_columns": cols, "rows": rows,
-                  "row_count": int(len(out_df)), "derived": True, "sql": pretty})
+    payload = {"ok": True, "columns": [{"name": c} for c in cols],
+               "data_columns": cols, "rows": rows,
+               "row_count": int(len(out_df)), "derived": True, "sql": pretty}
+    _preview_cache_put(cache_key, payload)
+    return _json(payload)
 
 
 @presentations_bp.route("/<pid>/scope/preview-python", methods=["POST"])

@@ -153,3 +153,18 @@ def test_source_sql_unknown_alias_400(client):
     r = client.post("/presentations/p_t/scope/source-sql",
                     json={"scope": scope, "alias": "nope"})
     assert r.status_code == 400
+
+
+# ── Önizleme cache (yavaşlık fix) ───────────────────────────────────────────
+
+def test_preview_sql_caches_repeat_calls(client, dc):
+    from presentations.routes_scope import _PREVIEW_CACHE
+    _PREVIEW_CACHE.clear()
+    body = {"sql": "SELECT X, Y FROM CACHE_ME"}
+    r1 = client.post("/presentations/p_t/scope/preview-sql", json=body).get_json()
+    assert r1["ok"] is True and not r1.get("cached")
+    n_after_first = len([q for q in dc.queries if "CACHE_ME" in q])
+    r2 = client.post("/presentations/p_t/scope/preview-sql", json=body).get_json()
+    assert r2["ok"] is True and r2.get("cached") is True
+    # İkinci çağrı Oracle'a GİTMEDİ — query sayısı artmadı.
+    assert len([q for q in dc.queries if "CACHE_ME" in q]) == n_after_first
