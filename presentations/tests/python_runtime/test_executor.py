@@ -94,10 +94,40 @@ def test_cpu_limit_kills_infinite_loop(df):
     assert "CPU" in (r.error or "") or "zaman aşımı" in (r.error or "")
 
 
+def test_dtype_preservation_no_parquet_engine(df):
+    # Transfer JSON Table Schema (orient='table') — parquet engine GEREKTİRMEZ
+    # (ofis bug'ı: alt-process'te pyarrow yoktu). int/float/datetime/bool korunur.
+    rich = pd.DataFrame({
+        "i": [1, 2, 3],
+        "f": [1.5, 2.0, 3.25],
+        "s": ["a", "b", "c"],
+        "d": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+        "b": [True, False, True],
+    })
+    r = run_python_transform("output_node_df = input_node_df", rich)
+    assert r.ok, r.error
+    dts = {c: str(t) for c, t in r.df.dtypes.items()}
+    assert dts["i"] == "int64"
+    assert dts["f"] == "float64"
+    assert "datetime64" in dts["d"]
+    assert dts["b"] == "bool"
+    assert r.df["f"].tolist() == [1.5, 2.0, 3.25]
+
+
+def test_groupby_with_index_preserved(df):
+    # Anlamlı index (groupby keys) kolona çevrilir → kaybolmaz.
+    code = (
+        "g = input_node_df.groupby('a', as_index=True)['b'].sum().to_frame()\n"
+        "output_node_df = g\n"
+    )
+    r = run_python_transform(code, df)
+    assert r.ok, r.error
+    assert "a" in r.df.columns and "b" in r.df.columns
+
+
 def test_wall_timeout(df):
-    # CPU limitini yüksek tut ki duvar-saati timeout'u devreye girsin (uyku
-    # CPU yakmaz). datetime allowlist'te; busy-sleep yerine time.sleep yasak
-    # olduğundan numpy ile küçük bir meşgul döngü + düşük wall timeout.
+    # datetime allowlist'te ama time.sleep yasak; CPU limitini yüksek tutup
+    # küçük bir meşgul döngü + düşük wall timeout ile duvar-saatini tetikle.
     code = (
         "x = 0\n"
         "while x < 10**12:\n"

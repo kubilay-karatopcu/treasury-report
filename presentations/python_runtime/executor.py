@@ -36,6 +36,32 @@ DEFAULT_WALL_TIMEOUT = 60
 _MAX_STDOUT_CHARS = 20_000
 
 
+def write_table_json(df, path) -> None:
+    """DataFrame'i alt-process'e güvenli + bağımsız biçimde aktar: JSON Table
+    Schema (``orient='table'``). Parquet/pickle yerine bunu kullanıyoruz çünkü:
+
+    - pyarrow/fastparquet GEREKTİRMEZ (ofiste alt-process'te eksikti → "no
+      parquet engine" hatası). JSON saf stdlib.
+    - Kod ÇALIŞTIRMAZ (pickle'ın aksine) — sandbox'tan ebeveyne güvenli okuma.
+    - dtype'ları korur (int/float/datetime/bool), pandas 3.0 Arrow-backed string
+      depolamasına bağlı değildir (değerleri serialize eder, depolamayı değil).
+
+    Anlamlı (RangeIndex olmayan) index kolona çevrilir — groupby sonucu kaybolmasın
+    + table orient'in tekrarlı-index hatası önlensin.
+    """
+    import pandas as pd
+    d = df if df is not None else pd.DataFrame()
+    if not isinstance(d.index, pd.RangeIndex):
+        d = d.reset_index()
+    d.to_json(str(path), orient="table", index=False)
+
+
+def read_table_json(path):
+    """``write_table_json`` ile yazılmış JSON Table Schema'yı DataFrame'e oku."""
+    import pandas as pd
+    return pd.read_json(str(path), orient="table")
+
+
 @dataclass
 class PythonRunResult:
     """Bir transform çalıştırmasının sonucu."""
@@ -92,15 +118,13 @@ def run_python_transform(
     with tempfile.TemporaryDirectory(prefix="pyrt_") as tmp:
         tmp_path = Path(tmp)
         code_path = tmp_path / "script.py"
-        in_path = tmp_path / "in.parquet"
-        out_path = tmp_path / "out.parquet"
+        in_path = tmp_path / "in.json"
+        out_path = tmp_path / "out.json"
         err_path = tmp_path / "err.json"
 
         code_path.write_text(code, encoding="utf-8")
         try:
-            (input_df if input_df is not None else pd.DataFrame()).to_parquet(
-                in_path, index=False
-            )
+            write_table_json(input_df if input_df is not None else pd.DataFrame(), in_path)
         except Exception as exc:
             return PythonRunResult(ok=False, error=f"Giriş verisi hazırlanamadı: {exc}")
 
@@ -129,7 +153,7 @@ def run_python_transform(
 
         if proc.returncode == 0 and out_path.exists():
             try:
-                df = pd.read_parquet(out_path)
+                df = read_table_json(out_path)
             except Exception as exc:
                 return PythonRunResult(
                     ok=False, error=f"Çıktı okunamadı: {exc}", stdout=stdout
