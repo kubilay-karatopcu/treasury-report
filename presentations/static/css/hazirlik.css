@@ -675,6 +675,28 @@
 .hz-colmenu-item:hover { background: #1e293b; }
 .hz-colmenu-item input { cursor: pointer; }
 
+/* #4 — Konseptler sekmesi + aranabilir konsept seçici */
+.hz-concepts-tab { padding: 8px; height: 100%; overflow: auto; }
+.hz-concepts-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hz-concepts-table th { text-align: left; color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 4px 6px; border-bottom: 1px solid #334155; }
+.hz-concepts-table td { padding: 5px 6px; border-bottom: 1px solid #1e293b; vertical-align: top; }
+.hz-concepts-col { font-family: ui-monospace, Menlo, Consolas, monospace; color: #e2e8f0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hz-concepts-cell { display: flex; align-items: center; gap: 6px; }
+.hz-concept-src { font-size: 9px; background: rgba(16,185,129,.18); color: #34d399; padding: 1px 5px; border-radius: 8px; }
+.hz-concept-warn { color: #f59e0b; font-size: 13px; }
+.hz-concept-ok { color: #34d399; font-size: 13px; }
+.hz-concept-msg { font-size: 11px; color: #94a3b8; margin-top: 3px; line-height: 1.4; }
+.hz-concept-msg.is-warn { color: #fbbf24; }
+.hz-concept-picker { position: relative; min-width: 160px; }
+.hz-concept-pick-btn { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; padding: 3px 8px; font-size: 12px; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 5px; cursor: pointer; }
+.hz-concept-menu { position: absolute; top: calc(100% + 3px); left: 0; z-index: 70; width: 250px; max-height: 280px; display: flex; flex-direction: column; background: #0f172a; border: 1px solid #334155; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+.hz-concept-search { margin: 6px; padding: 4px 8px; font-size: 12px; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 4px; }
+.hz-concept-list { overflow: auto; padding: 0 4px 4px; }
+.hz-concept-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 6px; font-size: 12px; color: #e2e8f0; background: transparent; border: none; border-radius: 4px; cursor: pointer; text-align: left; }
+.hz-concept-item:hover { background: #1e293b; }
+.hz-concept-item.is-clear { color: #f87171; }
+.hz-concept-type { font-size: 9px; color: #64748b; text-transform: uppercase; }
+
 /* Preview hata kutusu — hatayı + üreten kaynağı (SQL) birlikte göster */
 .hz-preview-errbox { padding: 4px 0 10px; }
 .hz-err-sql { margin: 0 8px; }
