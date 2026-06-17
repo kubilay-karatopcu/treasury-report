@@ -2566,6 +2566,22 @@ def concept_filter_suggestions(pid: str):
             seen.add(cid)
             suggestions.append(_filter_proposal_from_concept(concept))
 
+    # #4 — Hazırlık'ta kullanıcının KOLONLARA bağladığı concept'ler (manifest
+    # basket'teki column_concepts). Katalog doc-binding'i olmayan üretilmiş
+    # kolonlar da bir concept'e tekabül edebilir → Sunum'da filtre olarak görünsün.
+    for item in (manifest.get("basket") or []):
+        for _col, cid in (item.get("column_concepts") or {}).items():
+            if not cid:
+                continue
+            block_count[cid] = block_count.get(cid, 0) + 1
+            if cid in existing or cid in seen:
+                continue
+            concept = eff.get(cid)
+            if concept is None:
+                continue
+            seen.add(cid)
+            suggestions.append(_filter_proposal_from_concept(concept))
+
     for s in suggestions:
         s["block_count"] = block_count.get(s["semantic_tag"], 1)
 

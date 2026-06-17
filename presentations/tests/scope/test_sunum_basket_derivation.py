@@ -57,3 +57,18 @@ class TestManifestBasketFromScope:
     def test_table_projection_columns_carried(self):
         out = _manifest_basket_from_scope(_scope([_BASE]))
         assert out[0]["columns"] == ["BRANCH_CODE", "BALANCE_TRY"]
+
+
+def test_manifest_basket_carries_column_concepts():
+    # #4 — Hazırlık'ta kolona bağlanan concept Sunum manifest basket'ine taşınır
+    # (filtre önerileri görsün diye).
+    main = {**_BASE, "column_concepts": {"BRANCH_CODE": "branch"}}
+    scope = _scope([main])
+    out = _manifest_basket_from_scope(scope)
+    entry = next(e for e in out if e["alias"] == "deposits")
+    assert entry["column_concepts"] == {"BRANCH_CODE": "branch"}
+
+
+def test_manifest_basket_column_concepts_default_empty():
+    out = _manifest_basket_from_scope(_scope([_SQL]))
+    assert out[0]["column_concepts"] == {}

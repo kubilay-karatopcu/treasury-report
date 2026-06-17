@@ -625,6 +625,9 @@ def _manifest_basket_from_scope(scope: ScopeContract) -> list[dict[str, Any]]:
     for b in scope.basket:
         if b.alias in hidden:
             continue
+        # #4 — kullanıcının Hazırlık'ta kolonlara bağladığı concept'ler Sunum'a
+        # taşınır (filtre önerileri bunları da görür). {KOLON: concept_id}.
+        cc = dict(b.column_concepts or {})
         if b.table_ref is not None:
             cols = [] if b.projection.include_all else list(b.projection.columns or [])
             out.append({
@@ -632,16 +635,18 @@ def _manifest_basket_from_scope(scope: ScopeContract) -> list[dict[str, Any]]:
                 "alias": b.alias,
                 "columns": cols,
                 "source": "table",
+                "column_concepts": cc,
             })
         elif b.sql is not None:
             out.append({
                 "table": b.alias, "alias": b.alias, "columns": [],
-                "source": "sql",
+                "source": "sql", "column_concepts": cc,
             })
         elif b.derivation is not None:
             out.append({
                 "table": b.alias, "alias": b.alias, "columns": [],
                 "source": "derived", "derivation_kind": b.derivation.kind,
+                "column_concepts": cc,
             })
     return out
 
