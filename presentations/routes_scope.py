@@ -2107,33 +2107,47 @@ def scope_preview_python(pid: str):
     if not check.ok:
         return _json({"ok": False, "phase": "validate", "errors": check.errors}, status=400)
 
+    # Aynı (kaynak + kod + scope) tekrar çalıştırılırsa hiç koşma → instant.
+    scope_hash = json.dumps(scope_in, sort_keys=True, default=str)
+    result_key = _preview_cache_key("pyresult", pid, source_alias, python_code, scope_hash)
+    cached = _preview_cache_get(result_key)
+    if cached is not None:
+        return _json({**cached, "cached": True})
+
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return _json({"ok": False, "errors": ["DATA_CLIENT yapılandırılmamış."]}, status=500)
 
     from presentations import duck
 
-    catalog = _catalog()
-    registry = current_app.config.get("CONCEPT_REGISTRY")
-    bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
-    conn = duck.connect_duckdb(":memory:")
-    registered: set[str] = set()
-    try:
+    # Kaynak ÖRNEĞİ koddan bağımsızdır → ayrı cache'le (kullanıcı kodu düzenleyip
+    # tekrar çalıştırınca Oracle'a GİTME, sadece sandbox koşsun). "cacheli kaynaktan
+    # cacheleye gitme" geri bildirimi (#1).
+    sample_key = _preview_cache_key("pysample", pid, source_alias, scope_hash)
+    input_df = _preview_cache_get(sample_key)
+    if input_df is None:
+        catalog = _catalog()
+        registry = current_app.config.get("CONCEPT_REGISTRY")
+        bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
+        conn = duck.connect_duckdb(":memory:")
+        registered: set[str] = set()
         try:
-            _preview_sample_into_duck(conn, scope, source_alias, dc, pid,
-                catalog=catalog, registry=registry, bindings=bindings, registered=registered)
-        except ValueError as exc:
-            return _json({"ok": False, "phase": "oracle", "errors": [str(exc)]}, status=400)
-        except Exception as exc:
-            msg = str(exc).strip().splitlines()[0][:240]
-            return _json({"ok": False, "phase": "oracle",
-                          "errors": [f"{source_alias}: {msg}"]}, status=502)
-        input_df = conn.execute(f'SELECT * FROM "{source_alias}"').fetchdf()
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+            try:
+                _preview_sample_into_duck(conn, scope, source_alias, dc, pid,
+                    catalog=catalog, registry=registry, bindings=bindings, registered=registered)
+            except ValueError as exc:
+                return _json({"ok": False, "phase": "oracle", "errors": [str(exc)]}, status=400)
+            except Exception as exc:
+                msg = str(exc).strip().splitlines()[0][:240]
+                return _json({"ok": False, "phase": "oracle",
+                              "errors": [f"{source_alias}: {msg}"]}, status=502)
+            input_df = conn.execute(f'SELECT * FROM "{source_alias}"').fetchdf()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _preview_cache_put(sample_key, input_df)
 
     result = run_python_transform(python_code, input_df)
     if not result.ok:
@@ -2144,10 +2158,12 @@ def scope_preview_python(pid: str):
     out_df = result.df.head(200)
     cols = [str(c) for c in out_df.columns]
     rows = [[duck._jsonable(v) for v in r] for r in out_df.itertuples(index=False, name=None)]
-    return _json({"ok": True, "columns": [{"name": c} for c in cols],
-                  "data_columns": cols, "rows": rows,
-                  "row_count": int(result.row_count or 0), "derived": True,
-                  "output_columns": result.columns or cols, "stdout": result.stdout})
+    payload = {"ok": True, "columns": [{"name": c} for c in cols],
+               "data_columns": cols, "rows": rows,
+               "row_count": int(result.row_count or 0), "derived": True,
+               "output_columns": result.columns or cols, "stdout": result.stdout}
+    _preview_cache_put(result_key, payload)
+    return _json(payload)
 
 
 @presentations_bp.route("/<pid>/scope/source-sql", methods=["POST"])
@@ -2593,6 +2609,8 @@ def _mutate_scope_with_suggestion(scope: dict, sugg: dict) -> dict:
         return _apply_create_calculation(s, sugg)
     if kind == "create_python_node":
         return _apply_create_python_node(s, sugg)
+    if kind == "edit_python_node":
+        return _apply_edit_python_node(s, sugg)
     raise _ApplyError(f"Bilinmeyen öneri tipi: {kind!r}")
 
 
@@ -2845,4 +2863,26 @@ def _apply_create_python_node(s: dict, sugg: dict) -> dict:
         "projection": {"columns": [], "include_all": True},
         "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
     })
+    return s
+
+
+def _apply_edit_python_node(s: dict, sugg: dict) -> dict:
+    """Faz P / #2 — VAR OLAN bir python node'unun script'ini değiştir (yeni node
+    yaratmaz). Edge'e tıklayıp sohbeti o node'a kapsadığında LLM bunu önerir;
+    yalnız o node'un kaynağını etkiler. Script ``validate_python``'dan geçmeli;
+    output_columns sıfırlanır (yeniden Çalıştır ile dolar)."""
+    from presentations.python_runtime import validate_python
+
+    alias = sugg.get("alias")
+    code = sugg.get("python_code") or ""
+    if not alias:
+        raise _ApplyError("edit_python_node: alias zorunlu")
+    target = next((b for b in s["basket"] if b.get("alias") == alias), None)
+    if target is None or (target.get("derivation") or {}).get("kind") != "python":
+        raise _ApplyError(f"edit_python_node: '{alias}' bir python node değil")
+    check = validate_python(code)
+    if not check.ok:
+        raise _ApplyError("edit_python_node: script reddedildi: " + "; ".join(check.errors))
+    target["derivation"]["python_code"] = code
+    target["derivation"]["output_columns"] = []
     return s

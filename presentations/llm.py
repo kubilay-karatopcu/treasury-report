@@ -660,22 +660,34 @@ def compose_scope_user_message(
     # create_python_node önerisi bu node'u kaynak (input_node_df) alır.
     if selected_alias:
         sel = next((b for b in basket if b.get("alias") == selected_alias), None)
+        sel_kind = (sel.get("derivation") or {}).get("kind") if sel else None
         parts.append(f"\n## Seçili node (ODAK): `{selected_alias}`")
         if sel is not None:
             if sel.get("table_ref"):
                 ref = sel["table_ref"]
                 parts.append(f"- kaynak: Oracle tablosu {ref.get('schema','')}.{ref.get('name','')}")
             elif sel.get("derivation"):
-                parts.append(f"- kaynak: türetilmiş ({sel['derivation'].get('kind','?')})")
+                parts.append(f"- kaynak: türetilmiş ({sel_kind})")
             elif sel.get("sql"):
                 parts.append("- kaynak: manuel SQL")
         if selected_columns:
             parts.append("- kolonlar: " + ", ".join(f"`{c}`" for c in selected_columns[:40]))
-        parts.append(
-            "- Kullanıcı bu node üzerinde bir VERİ İŞLEMİ (dönüşüm, hesaplama, "
-            "pivot, temizlik, çok-adımlı mantık) istiyorsa → `create_python_node` "
-            "öner (Python ile yeni node). Kaynak HER ZAMAN bu seçili node olur."
-        )
+        if sel_kind == "python":
+            # ODAK zaten bir python node → MEVCUT script'i DÜZENLE (yeni node yaratma).
+            cur_code = (sel.get("derivation") or {}).get("python_code") or ""
+            parts.append(
+                f"- Bu node ZATEN bir Python node. Kullanıcı dönüşümü değiştirmek "
+                f"isterse → `edit_python_node` öner (alias=`{selected_alias}`, "
+                "tüm güncel python_code ile). YENİ node ÜRETME."
+            )
+            if cur_code:
+                parts.append("- mevcut script:\n```\n" + cur_code[:1500] + "\n```")
+        else:
+            parts.append(
+                "- Kullanıcı bu node üzerinde bir VERİ İŞLEMİ (dönüşüm, hesaplama, "
+                "pivot, temizlik, çok-adımlı mantık) istiyorsa → `create_python_node` "
+                "öner (Python ile yeni node). Kaynak HER ZAMAN bu seçili node olur."
+            )
 
     # 2. Bound concepts — the legal set for filter suggestions.
     if bound_concepts:
@@ -995,12 +1007,31 @@ class FakeLLM:
         msg = (user_message or "").strip().lower()
 
         # Faz P — node-scope: kullanıcı bir node'a tıklıysa ve bir veri işlemi
-        # istiyorsa create_python_node öner (input_node_df → output_node_df).
+        # istiyorsa python öner. ODAK zaten python node ise MEVCUT'u düzenle.
         if selected_alias and re.search(
             r"python|script|hesapla|dönüş|donus|pivot|topla|oran|yeni\s*kolon|"
-            r"kolon\s*ekle|normalize|temizle|grupla|birleştir|ortalama|kümülat",
+            r"kolon\s*ekle|normalize|temizle|grupla|birleştir|ortalama|kümülat|değiştir|guncelle|güncelle",
             msg,
         ):
+            sel = next((b for b in (scope.get("basket") or [])
+                        if b.get("alias") == selected_alias), None)
+            is_python = (sel.get("derivation") or {}).get("kind") == "python" if sel else False
+            if is_python:
+                return {
+                    "explanation": (
+                        f"(yerel stub) '{selected_alias}' python node'unun script'ini "
+                        "güncelliyorum."
+                    ),
+                    "suggestions": [{
+                        "kind": "edit_python_node",
+                        "alias": selected_alias,
+                        "python_code": (
+                            "# input_node_df: kaynağın DataFrame'i (pd, np hazır)\n"
+                            "output_node_df = input_node_df.copy()\n"
+                        ),
+                        "rationale": "Mevcut Python dönüşümünü güncelle.",
+                    }],
+                }
             return {
                 "explanation": (
                     f"(yerel stub) '{selected_alias}' node'undan Python ile yeni bir "
