@@ -1585,6 +1585,18 @@ def apply_dashboard_filters(pid: str):
 
     from .concepts.integration import derive_source_tables as _derive_st
 
+    # #4 end-to-end — dataset (türetilmiş) node'lara concept filtresi uygulamak için:
+    # (a) aktif concept filtrelerinin sade hali, (b) alias → column_concepts haritası.
+    _concept_filter_dicts = [
+        {"concept": f.concept, "operator": f.operator, "values": list(f.values)}
+        for f in resolved_concept_filters
+    ]
+    _alias_column_concepts = {
+        item.get("alias"): (item.get("column_concepts") or {})
+        for item in (manifest.get("basket") or [])
+        if item.get("alias")
+    }
+
     results: list[dict] = []
     touched = 0
 
@@ -1600,7 +1612,11 @@ def apply_dashboard_filters(pid: str):
         if isinstance(binding, dict) and binding.get("alias"):
             from .scope.materialize import project_block_from_dataset
             with session.duck_conn() as conn:
-                df = project_block_from_dataset(conn, binding, filter_state)
+                df = project_block_from_dataset(
+                    conn, binding, filter_state,
+                    concept_filters=_concept_filter_dicts,
+                    column_concepts=_alias_column_concepts.get(binding.get("alias")),
+                )
             if df is None:
                 results.append({
                     "id": block["id"], "status": "empty",
