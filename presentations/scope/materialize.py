@@ -443,7 +443,50 @@ def _filter_predicate(spec: dict, value, params: dict, idx: int) -> str | None:
     return None
 
 
-def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = None):
+def _concept_predicates(column_concepts, concept_filters, params: dict) -> list[str]:
+    """#4 / end-to-end — dataset (türetilmiş) node'a CONCEPT filtrelerini uygula.
+
+    ``column_concepts = {COLUMN: concept_id}`` kullanıcının Hazırlık'ta o node'un
+    kolonuna bağladığı concept'tir → IDENTITY semantiği (kolon değeri = canonical
+    değer). Aktif concept filtrelerinden, bu node'un bir kolonuna bağlı olan her
+    concept için DuckDB predicate'i üretilir. Böylece concept filtresi katalog
+    tablolarındaki gibi türetilmiş node'larda da çalışır.
+
+    ``concept_filters = [{"concept", "operator", "values"}]`` (canonical değerler).
+    """
+    if not column_concepts or not concept_filters:
+        return []
+    by_concept: dict[str, list[str]] = {}
+    for col, cid in column_concepts.items():
+        if cid and _IDENT_RE.match(str(col)):
+            by_concept.setdefault(cid, []).append(str(col))
+    clauses: list[str] = []
+    idx = 0
+    for f in concept_filters:
+        cid = (f or {}).get("concept")
+        op = (f or {}).get("operator")
+        vals = (f or {}).get("values") or []
+        cols = by_concept.get(cid)
+        if not cols or not vals:
+            continue
+        for col in cols:
+            p = f"cf{idx}"
+            if op == "between" and len(vals) == 2 and vals[0] is not None and vals[1] is not None:
+                params[f"{p}_lo"] = _coerce(vals[0])
+                params[f"{p}_hi"] = _coerce(vals[1])
+                clauses.append(f'"{col}" BETWEEN ${p}_lo AND ${p}_hi')
+            elif op in ("in", "eq"):
+                names = []
+                for j, x in enumerate(vals):
+                    params[f"{p}_{j}"] = _coerce(x)
+                    names.append(f"${p}_{j}")
+                clauses.append(f'"{col}" IN ({", ".join(names)})')
+            idx += 1
+    return clauses
+
+
+def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = None,
+                               *, concept_filters=None, column_concepts=None):
     """Project a dataset-bound Sunum block from its materialised DuckDB view,
     applying interactive dashboard filters as LOCAL DuckDB predicates.
 
@@ -453,6 +496,10 @@ def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = 
     deterministic mapping (no regex inference). Returns the projected DataFrame,
     or ``None`` when the alias view isn't registered (dataset not materialised).
     NEVER touches Oracle — the view came from parquet via :func:`load_into_duck`.
+
+    ``concept_filters`` + ``column_concepts`` (end-to-end #4): aktif concept
+    filtreleri, kullanıcının bu node kolonlarına bağladığı concept'lerle
+    eşleşirse identity predicate olarak da uygulanır.
     """
     alias = (binding or {}).get("alias")
     if not alias or not _IDENT_RE.match(str(alias)) or not _view_exists(conn, alias):
@@ -472,6 +519,9 @@ def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = 
         frag = _filter_predicate(spec, value, params, i)
         if frag:
             clauses.append(frag)
+    # Concept filtreleri (column_concepts → identity) — katalog binding'i olmayan
+    # türetilmiş node'lara da uygulanır.
+    clauses += _concept_predicates(column_concepts, concept_filters, params)
 
     sql = f'SELECT {select} FROM "{alias}"'
     if clauses:
