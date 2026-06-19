@@ -556,6 +556,10 @@ def konsept_create():
             aliases = [a.strip() for a in (cv.get("aliases") or []) if a and a.strip()]
             if aliases:
                 entry["aliases"] = aliases
+            # bucket (Aralık) konseptleri: sayısal banda alt–üst sınır taşır.
+            dr = cv.get("day_range")
+            if isinstance(dr, (list, tuple)) and len(dr) == 2:
+                entry["day_range"] = [dr[0], dr[1]]
             cvs.append(entry)
         concept_dict["canonical_values"] = cvs
 
@@ -585,6 +589,88 @@ def konsept_create():
         registry.save_file(file_name, raw)
     except Exception as exc:
         log.exception("konsept_create: save failed for %s", cid)
+        return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=500)
+
+    return _json({"ok": True, "id": cid, "scope": scope})
+
+
+@presentations_bp.route("/atolye/konseptler/update", methods=["POST"])
+@login_required
+def konsept_update():
+    """Update an EXISTING concept in its scope file (Hazırlık inline-edit).
+
+    Body: create ile aynı şekil ``{id, name, type, description, canonical_values}``.
+    Scope registry'den (id'nin yaşadığı dosya) çözülür; body'deki scope yok sayılır.
+    Yalnız user/global scope buradan düzenlenebilir.
+    """
+    from presentations.concepts.schema import Concept, load_concept_file_from_dict
+
+    body = request.get_json(silent=True) or {}
+    cid = (body.get("id") or "").strip().lower()
+    name = (body.get("name") or "").strip()
+    ctype = (body.get("type") or "").strip()
+    description = (body.get("description") or "").strip()
+    cvs_in = body.get("canonical_values") or []
+
+    registry = current_app.config.get("CONCEPT_REGISTRY")
+    if registry is None:
+        return _json({"ok": False, "errors": ["Concept registry yapılandırılmamış."]}, status=400)
+    if not cid or not name or not ctype:
+        return _json({"ok": False, "errors": ["id, ad ve tür zorunlu."]}, status=400)
+    if ctype not in ("enum", "time", "bucket", "scalar"):
+        return _json({"ok": False, "errors": ["Tür enum / time / bucket / scalar olmalı."]}, status=400)
+
+    existing = next((c for c in registry.all_concepts() if c.id == cid), None)
+    if existing is None:
+        return _json({"ok": False, "errors": [f"'{cid}' bulunamadı."]}, status=404)
+    scope = (getattr(existing, "scope", "user") or "user")
+    if scope not in ("user", "global"):
+        return _json({"ok": False, "errors": ["Yalnız user/global scope buradan düzenlenebilir."]}, status=400)
+
+    concept_dict: dict[str, Any] = {"id": cid, "name": name, "type": ctype, "scope": scope}
+    if description:
+        concept_dict["description"] = description
+    if ctype in ("enum", "bucket"):
+        cvs: list[dict] = []
+        for cv in cvs_in:
+            code = (cv.get("code") or "").strip()
+            if not code:
+                continue
+            entry: dict[str, Any] = {"code": code}
+            label = (cv.get("label") or "").strip()
+            if label:
+                entry["label"] = label
+            aliases = [a.strip() for a in (cv.get("aliases") or []) if a and a.strip()]
+            if aliases:
+                entry["aliases"] = aliases
+            # bucket (Aralık) konseptleri: sayısal banda alt–üst sınır taşır.
+            dr = cv.get("day_range")
+            if isinstance(dr, (list, tuple)) and len(dr) == 2:
+                entry["day_range"] = [dr[0], dr[1]]
+            cvs.append(entry)
+        concept_dict["canonical_values"] = cvs
+
+    try:
+        Concept.model_validate(concept_dict)
+    except Exception as exc:
+        return _json({"ok": False, "errors": [f"Geçersiz concept: {exc}"]}, status=400)
+
+    file_name = scope  # user.yaml / global.yaml
+    raw = registry.get_file_raw(file_name)
+    if not isinstance(raw, dict) or not isinstance(raw.get("concepts"), list):
+        return _json({"ok": False, "errors": ["Scope dosyası okunamadı."]}, status=400)
+    if not any((c or {}).get("id") == cid for c in raw["concepts"]):
+        return _json({"ok": False, "errors": [f"'{cid}' '{file_name}' dosyasında yok."]}, status=404)
+    raw["concepts"] = [concept_dict if (c or {}).get("id") == cid else c for c in raw["concepts"]]
+
+    try:
+        load_concept_file_from_dict(raw)
+    except Exception as exc:
+        return _json({"ok": False, "errors": [f"Dosya doğrulanamadı: {exc}"]}, status=400)
+    try:
+        registry.save_file(file_name, raw)
+    except Exception as exc:
+        log.exception("konsept_update: save failed for %s", cid)
         return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=500)
 
     return _json({"ok": True, "id": cid, "scope": scope})
