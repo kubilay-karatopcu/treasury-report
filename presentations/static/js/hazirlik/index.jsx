@@ -29,6 +29,7 @@ import "ag-grid-community/styles/ag-theme-alpine.css";
 // and api.js's API_BASE is hazirlik-aware (strips /hazirlik/ from the path).
 import UploadModal from "../editor/components/UploadModal.jsx";
 import FilterPanel from "./FilterPanel.jsx";
+import useResizable from "../editor/lib/useResizable.js";
 import CodeMirror from "@uiw/react-codemirror";
 import { python as cmPython } from "@codemirror/lang-python";
 import { sql as cmSql } from "@codemirror/lang-sql";
@@ -36,7 +37,7 @@ import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2, Pencil,
   Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag, Code2,
-  Play, Lock, Columns3, ChevronDown,
+  Play, Lock, Columns3, ChevronDown, Search,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -89,6 +90,8 @@ const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
 const CONCEPTS = DATA.concepts || [];   // #4 — {id,label,type,canonical_values}
 const VALIDATE_CONCEPT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/validate-concept`);
+// Yeni konsept oluşturma — Kütüphane ile AYNI endpoint (registry'ye yazar, ~2s'de reload).
+const CONCEPT_CREATE_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/atolye/konseptler/create";
 const SUGGESTED = DATA.suggested_edges || [];
 // Reload'da türetilmiş node'ların kolonlarını hemen doldur (ilk render'da "0
 // kolon" görünmesin). hydrateDerivedCols hoist'lu — aşağıda tanımlı.
@@ -474,7 +477,8 @@ function nodeData(item) {
     const kindLabel = d.kind === "filter" ? "filtre"
       : d.kind === "calculated" ? "hesaplama"
       : d.kind === "join" ? "join"
-      : d.kind === "union" ? "union" : "aggregate";
+      : d.kind === "union" ? "union"
+      : d.kind === "python" ? "python" : "aggregate";
     const srcLabel = d.source_alias || derivSourceAliases(d).join(" + ");
     return {
       item, derived: true, desc: `${srcLabel} → ${kindLabel}`,
@@ -1511,6 +1515,28 @@ function VizSlot({ hidden, canDelete, onToggle, onDelete }) {
   );
 }
 
+// Minimal SQL pretty-printer for the read-only "Kaynak Query" tab — the
+// backend emits the query on a single line; break before major clauses and put
+// each top-level (paren-depth 0) SELECT column on its own indented line so it's
+// readable. Not a full parser; good enough for the SELECT/FROM/JOIN/WHERE/GROUP
+// BY shapes we generate.
+function formatSql(sql) {
+  if (!sql) return sql;
+  let s = String(sql).replace(/\s+/g, " ").trim();
+  s = s.replace(
+    /\s+\b(FROM|WHERE|GROUP BY|HAVING|ORDER BY|LIMIT|UNION ALL|UNION|LEFT JOIN|RIGHT JOIN|INNER JOIN|FULL JOIN|CROSS JOIN|JOIN)\b/gi,
+    "\n$1",
+  );
+  let out = "", depth = 0;
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === "," && depth === 0) { out += ",\n  "; continue; }
+    out += ch;
+  }
+  return out;
+}
+
 function SourcesSidebar({
   scope, onOpenDocs, libraryBlocks, chat,
   hiddenAliases, onToggleVisibility, onRemove,
@@ -1521,6 +1547,8 @@ function SourcesSidebar({
   // with per-group search inputs, mirroring the Keşif Sepet pattern.
   const [tableSearch, setTableSearch] = useState("");
   const [blockSearch, setBlockSearch] = useState("");
+  // Sürüklenebilir sidebar genişliği (Sunum'la aynı hook + .resize-handle).
+  const [sidebarW, startSidebarDrag] = useResizable("hz-sidebar", 320, "right", { min: 260, max: 680 });
 
   // Build a flat list of basket tables with the catalog row (for the eye
   // icon → docs) attached. Derived items have no table_ref → skip eye.
@@ -1590,7 +1618,9 @@ function SourcesSidebar({
     && (libraryBlocks || []).length === 0;
 
   return (
-    <aside className="editor-sidebar hz-sidebar">
+    <aside className="editor-sidebar hz-sidebar" style={{ "--ts-sidebar-w": sidebarW + "px" }}>
+      <div className="resize-handle resize-handle--right" onMouseDown={startSidebarDrag}
+           title="Sürükle: panel genişliğini değiştir" />
       <div className="sidebar-inner">
         <div className="sidebar-section sidebar-section--sources ts-scroll">
           <div className="sidebar-label">
@@ -2130,7 +2160,7 @@ function CodeArea({ value, onChange, language = "python", readOnly = false }) {
 }
 
 // #4 — aranabilir konsept seçici (dropdown + search).
-function ConceptPicker({ value, onChange }) {
+function ConceptPicker({ value, onChange, onBrowse }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef(null);
@@ -2157,6 +2187,12 @@ function ConceptPicker({ value, onChange }) {
           <input autoFocus className="hz-concept-search" placeholder="konsept ara…"
                  value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="hz-concept-list">
+            {onBrowse && (
+              <button type="button" className="hz-concept-item hz-concept-item--browse"
+                      onClick={() => { setOpen(false); onBrowse(); }}>
+                <span><Search size={11} /> Detaylı ara…</span>
+              </button>
+            )}
             {value && (
               <button type="button" className="hz-concept-item is-clear"
                       onClick={() => { onChange(null); setOpen(false); }}>— kaldır —</button>
@@ -2180,7 +2216,7 @@ function ConceptPicker({ value, onChange }) {
 
 // #4 — "Konseptler" sekmesi: her kolon | bağlı concept (kaynaktan izlenen ya da
 // kullanıcı seçimi). Seçimden sonra distinct değerlerle uygunluk test edilir.
-function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidate }) {
+function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidate, onBrowse }) {
   const [valid, setValid] = useState({});   // col -> {level,message,loading}
   const tracked = (col) => columnConcepts[col] || colMeta[col]?.concept || null;
   const fromSource = (col) => !columnConcepts[col] && !!colMeta[col]?.concept;
@@ -2207,7 +2243,8 @@ function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidat
                 <td className="hz-concepts-col" title={col}>{col}</td>
                 <td>
                   <div className="hz-concepts-cell">
-                    <ConceptPicker value={t} onChange={(cid) => setConcept(col, cid)} />
+                    <ConceptPicker value={t} onChange={(cid) => setConcept(col, cid)}
+                      onBrowse={onBrowse ? () => onBrowse(col, t) : undefined} />
                     {fromSource(col) && <span className="hz-concept-src" title="Kaynak tablonun dökümanından geldi">kaynak</span>}
                     {v?.loading && <Loader2 size={12} className="ts-spin" />}
                     {v && !v.loading && v.level === "warn" && <span className="hz-concept-warn">⚠</span>}
@@ -2223,6 +2260,172 @@ function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidat
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ── Konsept Tarayıcı (Hazırlık side panel) ─────────────────────────────────
+// "Detaylı ara" ile sağda açılır: kategori (Global/Departman/Kullanıcı) + arama
+// + kart listesi + "Konsept ekle". Kart "Seç" → açık kolonun concept'ini set eder.
+function conceptCategory(c) {
+  const s = (c.scope || "global").toLowerCase();
+  if (s === "user") return "user";
+  if (s.startsWith("dept")) return "dept";
+  return "global";
+}
+const CAT_LABEL = { global: "Global", dept: "Departman", user: "Kullanıcı" };
+
+function ConceptBrowser({ concepts, target, current, onSelect, onClose, onAddNew }) {
+  const [cat, setCat] = useState("all");
+  const [q, setQ] = useState("");
+  const counts = useMemo(() => {
+    const m = { global: 0, dept: 0, user: 0 };
+    for (const c of concepts) m[conceptCategory(c)]++;
+    return m;
+  }, [concepts]);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return concepts.filter((c) => {
+      if (cat !== "all" && conceptCategory(c) !== cat) return false;
+      if (!s) return true;
+      // Semantik-ish: başlık + id + açıklama + tip üzerinde tarama.
+      return [c.id, c.label, c.description, c.type].some((x) => (x || "").toLowerCase().includes(s));
+    });
+  }, [concepts, cat, q]);
+  return (
+    <aside className="hz-cbrowser">
+      <div className="hz-cbrowser__head">
+        <span className="hz-cbrowser__title">
+          <Search size={13} /> Konsept Tarayıcı
+          {target ? <span className="hz-cbrowser__target">{target}</span> : null}
+        </span>
+        <button type="button" className="hz-icon-btn" onClick={onClose} title="Kapat"><X size={14} /></button>
+      </div>
+      <input className="hz-cbrowser__search" autoFocus placeholder="ara — başlık · açıklama · tip…"
+             value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="hz-cbrowser__cats">
+        {["all", "global", "dept", "user"].map((k) => (
+          <button key={k} type="button"
+                  className={`hz-cbrowser__cat${cat === k ? " on" : ""}`}
+                  onClick={() => setCat(k)}>
+            {k === "all" ? "Tümü" : CAT_LABEL[k]}{k !== "all" ? ` ${counts[k]}` : ""}
+          </button>
+        ))}
+      </div>
+      <div className="hz-cbrowser__list ts-scroll">
+        {filtered.map((c) => {
+          const ca = conceptCategory(c);
+          return (
+            <div key={c.id} className={`hz-cbrowser__card${current === c.id ? " is-sel" : ""}`}>
+              <div className="hz-cbrowser__card-head">
+                <span className="hz-cbrowser__card-name" title={c.id}>{c.label || c.id}</span>
+                <span className="hz-cbrowser__card-type">{c.type}</span>
+              </div>
+              <div className="hz-cbrowser__card-meta">
+                <span className={`hz-cbrowser__scope hz-cbrowser__scope--${ca}`}>{CAT_LABEL[ca]}</span>
+                <code className="hz-cbrowser__card-id">{c.id}</code>
+              </div>
+              {c.description && <div className="hz-cbrowser__card-desc">{c.description}</div>}
+              <div className="hz-cbrowser__card-actions">
+                <button type="button" className="ts-btn ts-btn--sm ts-btn--primary"
+                        onClick={() => onSelect(c.id)}>
+                  {current === c.id ? "✓ Seçili" : "Seç"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {filtered.length === 0 && <div className="hz-cbrowser__empty">Eşleşen konsept yok.</div>}
+      </div>
+      <div className="hz-cbrowser__foot">
+        <button type="button" className="ts-btn ts-btn--sm hz-cbrowser__add" onClick={onAddNew}>
+          <Plus size={13} /> Konsept ekle
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+// Yeni konsept tanımlama modal'ı — Kütüphane formunun React karşılığı; AYNI
+// /atolye/konseptler/create endpoint'ine POST eder (registry'ye yazar, ~2s
+// reload). Başarılıysa onCreated ile listeye eklenir + dropdown'da görünür.
+function NewConceptModal({ onClose, onCreated }) {
+  const [id, setId] = useState("");
+  const [name, setName] = useState("");
+  const [type, setType] = useState("enum");
+  const [scope, setScope] = useState("user");
+  const [desc, setDesc] = useState("");
+  const [canon, setCanon] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const needsCanon = type === "enum" || type === "bucket";
+  const valid = /^[a-z][a-z0-9_]*$/.test(id.trim()) && name.trim();
+  const submit = async () => {
+    setBusy(true); setErr(null);
+    const canonical_values = needsCanon
+      ? canon.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+          const [code, label, aliases] = l.split("|").map((x) => (x || "").trim());
+          return { code, label: label || code, aliases: (aliases || "").split(",").map((a) => a.trim()).filter(Boolean) };
+        })
+      : [];
+    try {
+      const r = await fetch(CONCEPT_CREATE_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: id.trim(), name: name.trim(), type, scope, description: desc.trim(), canonical_values }),
+      });
+      const data = await r.json();
+      if (!data.ok) { setErr((data.errors || [data.error || "Oluşturulamadı"]).join("; ")); return; }
+      onCreated({
+        id: data.id || id.trim(), label: name.trim(), type,
+        ops: type === "time" ? ["between", "last_n_days", "eq"] : (needsCanon ? ["in", "not_in", "eq"] : ["eq", "between"]),
+        canonical_values: canonical_values.map((c) => c.code),
+        scope: data.scope || scope, description: desc.trim(),
+      });
+    } catch (e) { setErr(String(e)); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Yeni konsept tanımla" size="sm" onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="ts-btn ts-btn--sm" onClick={onClose}>Vazgeç</button>
+          <button type="button" className="ts-btn ts-btn--sm ts-btn--primary" disabled={!valid || busy} onClick={submit}>
+            {busy ? <Loader2 size={13} className="ts-spin" /> : <Plus size={13} />} Oluştur
+          </button>
+        </>
+      }>
+      {err && <div className="hz-error">{err}</div>}
+      <label className="hz-field">Kimlik (lower_snake, benzersiz)
+        <input type="text" value={id} onChange={(e) => setId(e.target.value)} placeholder="ör. counterparty_segment" />
+      </label>
+      <label className="hz-field">Ad
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="ör. Karşı Taraf Segmenti" />
+      </label>
+      <div className="hz-row">
+        <label className="hz-field">Tip
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="enum">enum</option>
+            <option value="time">time</option>
+            <option value="bucket">bucket</option>
+            <option value="scalar">scalar</option>
+          </select>
+        </label>
+        <label className="hz-field">Kapsam
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
+            <option value="user">Kullanıcı</option>
+            <option value="global">Global</option>
+          </select>
+        </label>
+      </div>
+      <label className="hz-field">Açıklama
+        <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="kısa tanım (opsiyonel)" />
+      </label>
+      {needsCanon && (
+        <label className="hz-field">Kanonik değerler — satır başına: <code>KOD | Etiket | alias1,alias2</code>
+          <textarea className="hz-sql-textarea" rows={4} value={canon}
+            onChange={(e) => setCanon(e.target.value)}
+            placeholder={"RETAIL | Bireysel | RET\nCORP | Kurumsal"} />
+        </label>
+      )}
+    </Modal>
   );
 }
 
@@ -2259,7 +2462,7 @@ function PythonScriptTab({ item, sourceAlias, onRun, onSave, run }) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename, onCreatePython, onRunPython, onSavePython, pythonRun, onSetConcept, onValidateConcept }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename, onCreatePython, onRunPython, onSavePython, pythonRun, onSetConcept, onValidateConcept, onOpenConceptBrowser }) {
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
@@ -2499,7 +2702,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                 </div>
               ) : hasQuery && tab === "query" ? (
                 <div className="hz-filter-sql ts-scroll">
-                  <div className="hz-sql-cm"><CodeArea language="sql" value={preview.sql || "—"} readOnly /></div>
+                  <div className="hz-sql-cm"><CodeArea language="sql" value={preview.sql ? formatSql(preview.sql) : "—"} readOnly /></div>
                   <p className="hz-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
                     {isFilter
                       ? <>Bu, dataset'i materialise eden Oracle sorgusu (relative tarihler her
@@ -2522,6 +2725,7 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                   columnConcepts={(item && item.column_concepts) || {}}
                   onSetConcept={(col, cid) => onSetConcept && onSetConcept(preview.alias, col, cid)}
                   onValidate={(col, cid) => onValidateConcept(preview.alias, col, cid)}
+                  onBrowse={(col, cur) => onOpenConceptBrowser && onOpenConceptBrowser(preview.alias, col, cur)}
                 />
               ) : isPython && tab === "script" ? (
                 <PythonScriptTab
@@ -2662,6 +2866,10 @@ function App() {
   const [previewLoading, setPreviewLoading] = useState(false);
   // Faz P — python node "Çalıştır" durumu: { alias, running, error, summary, columns }.
   const [pythonRun, setPythonRun] = useState(null);
+  // Konsept tarayıcı side panel ("Detaylı ara") + yeni-konsept modal.
+  const [conceptBrowser, setConceptBrowser] = useState(null);  // {alias, column, current}
+  const [newConceptOpen, setNewConceptOpen] = useState(false);
+  const [conceptList, setConceptList] = useState(CONCEPTS);
   const [drawerH, setDrawerH] = useState(260);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -3270,12 +3478,60 @@ function App() {
       setScope(data.scope);
       setToast(`'${KIND_LABEL[suggestion.kind] || suggestion.kind}' uygulandı.`);
       dismissSuggestion(turnId, suggestion.id);
-      // Faz P — yeni python node'unu script sekmesinde aç (kullanıcı görüp Çalıştırsın).
+      // Faz P — yeni python node'u LLM'den TAM kodla geldi → OTOMATİK çalıştır ve
+      // sonucu Veri sekmesinde göster (kullanıcı "Çalıştır"a basmasın; node boş
+      // "no rows" görünmesin). Çalıştırma data.scope üzerinden yapılır (React
+      // state henüz güncellenmedi). Hata olursa Kaynak Script'e düşülür.
       if (suggestion.kind === "create_python_node") {
         const added = (data.scope.basket || []).map((b) => b.alias).find((a) => !before.has(a));
+        const node = (data.scope.basket || []).find((b) => b.alias === added);
+        const deriv = (node && node.derivation) || {};
         if (added) {
-          setPythonRun({ alias: added, running: false, error: null, summary: null });
-          setPreview({ alias: added, openTab: "script", derived: true, isPython: true, data_columns: [], rows: [] });
+          setPythonRun({ alias: added, running: true, error: null, summary: null });
+          setPreviewLoading(true);
+          setPreview({ alias: added, openTab: "data", derived: true, isPython: true, data_columns: [], rows: [] });
+          try {
+            const pr = await fetch(PYTHON_PREVIEW_URL, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                scope: data.scope, source_alias: deriv.source_alias,
+                python_code: deriv.python_code || "",
+              }),
+            });
+            const pres = await pr.json();
+            if (pres.ok) {
+              // Çıktı kolonlarını node'a YAZ (runPythonNode ile aynı) → node kartı
+              // "N kolon" gösterir, Konseptler sekmesi bu kolonları listeler,
+              // downstream görür. Yoksa node "0 kolon" + Konseptler boş kalır.
+              const outCols = pres.output_columns || pres.data_columns || [];
+              setScope((s) => ({
+                ...s,
+                basket: (s.basket || []).map((b) => (b.alias === added && b.derivation ? {
+                  ...b, derivation: { ...b.derivation, output_columns: outCols },
+                } : b)),
+              }));
+              if (outCols.length) {
+                COLS_BY_ALIAS[added] = outCols.map((n) => ({ name: n, type: null, concept: null, join_key: false }));
+              }
+              // summary STRING olmalı — PythonScriptTab {run.summary}'yi doğrudan
+              // render ediyor; obje verilirse React #31 (beyaz ekran). runPythonNode
+              // ile aynı format.
+              setPythonRun({ alias: added, running: false, error: null,
+                summary: `✓ ${pres.row_count} satır · ${outCols.length} kolon`, columns: outCols });
+              setPreview({ alias: added, openTab: "data", derived: true, isPython: true, ...pres });
+            } else {
+              const emsg = (pres.errors || ["Python önizleme başarısız"]).join("; ");
+              setPythonRun({ alias: added, running: false, error: emsg, summary: null });
+              setPreview({ alias: added, openTab: "script", derived: true, isPython: true,
+                data_columns: [], rows: [], error: emsg });
+            }
+          } catch (e) {
+            setPythonRun({ alias: added, running: false, error: String(e), summary: null });
+            setPreview({ alias: added, openTab: "script", derived: true, isPython: true,
+              data_columns: [], rows: [] });
+          } finally {
+            setPreviewLoading(false);
+          }
         }
       }
       // edit_python_node: kod güncellendi → script editörü re-sync olur; eski
@@ -4361,11 +4617,35 @@ function App() {
               pythonRun={pythonRun}
               onSetConcept={setColumnConcept}
               onValidateConcept={validateConcept}
+              onOpenConceptBrowser={(alias, col, cur) => setConceptBrowser({ alias, column: col, current: cur || null })}
             />
           )}
         </main>
+        {conceptBrowser && (
+          <ConceptBrowser
+            concepts={conceptList}
+            target={conceptBrowser.column}
+            current={conceptBrowser.current}
+            onClose={() => setConceptBrowser(null)}
+            onAddNew={() => setNewConceptOpen(true)}
+            onSelect={(cid) => {
+              setColumnConcept(conceptBrowser.alias, conceptBrowser.column, cid);
+              setConceptBrowser((b) => (b ? { ...b, current: cid } : b));
+            }}
+          />
+        )}
       </div>
 
+      {newConceptOpen && (
+        <NewConceptModal
+          onClose={() => setNewConceptOpen(false)}
+          onCreated={(c) => {
+            CONCEPTS.push(c); setConceptList([...CONCEPTS]);
+            setNewConceptOpen(false);
+            setToast(`'${c.label || c.id}' konsepti eklendi`);
+          }}
+        />
+      )}
       {joinModal && (
         <JoinKeyModal left={joinModal.left} right={joinModal.right}
           preLcol={joinModal.preLcol} preRcol={joinModal.preRcol}

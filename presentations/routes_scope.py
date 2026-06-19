@@ -318,7 +318,11 @@ def _concepts_payload() -> list[dict[str, Any]]:
             ops = ["eq", "between"]
         codes = c.canonical_codes() if hasattr(c, "canonical_codes") else []
         out.append({"id": c.id, "label": getattr(c, "name", c.id),
-                    "type": t, "ops": ops, "canonical_values": codes})
+                    "type": t, "ops": ops, "canonical_values": codes,
+                    # Konsept tarayıcı (Hazırlık side panel): kategori filtresi +
+                    # semantik arama için scope + açıklama.
+                    "scope": getattr(c, "scope", None) or "global",
+                    "description": getattr(c, "description", None) or ""})
     out.sort(key=lambda x: x["id"])
     return out
 
@@ -1951,17 +1955,29 @@ def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
                 _preview_sample_into_duck(conn, scope, s, dc, pid,
                     catalog=catalog, registry=registry, bindings=bindings,
                     registered=registered, depth=depth + 1)
-            if d.kind == "aggregate":
-                compiled = compile_aggregate_sql(src)
-            elif d.kind == "join":
-                lc = list(conn.execute(f'SELECT * FROM "{d.source_aliases[0]}" LIMIT 0').fetchdf().columns)
-                rc = list(conn.execute(f'SELECT * FROM "{d.source_aliases[1]}" LIMIT 0').fetchdf().columns)
-                compiled = compile_join_sql(src, lc, rc)
-            elif d.kind == "union":
-                compiled = compile_union_sql(src)
+            if d.kind == "python":
+                # Python node: kaynağın (yukarıda örneklendi) DataFrame'ini al,
+                # sandbox'ta script'i koştur, çıktıyı view olarak kaydet. Eskiden
+                # python kind compile_calculated_sql'e düşüp "list index out of
+                # range" patlatıyordu → concept doğrulama + türetilmiş önizleme bozuktu.
+                from presentations.python_runtime import run_python_transform
+                input_df = conn.execute(f'SELECT * FROM "{d.source_alias}"').fetchdf()
+                result = run_python_transform(d.python_code or "", input_df)
+                if not result.ok:
+                    raise ValueError(f"'{alias}' python çalıştırılamadı: {result.error}")
+                df = result.df if result.df is not None else pd.DataFrame()
             else:
-                compiled = compile_calculated_sql(src)
-            df = conn.execute(compiled).fetchdf()
+                if d.kind == "aggregate":
+                    compiled = compile_aggregate_sql(src)
+                elif d.kind == "join":
+                    lc = list(conn.execute(f'SELECT * FROM "{d.source_aliases[0]}" LIMIT 0').fetchdf().columns)
+                    rc = list(conn.execute(f'SELECT * FROM "{d.source_aliases[1]}" LIMIT 0').fetchdf().columns)
+                    compiled = compile_join_sql(src, lc, rc)
+                elif d.kind == "union":
+                    compiled = compile_union_sql(src)
+                else:
+                    compiled = compile_calculated_sql(src)
+                df = conn.execute(compiled).fetchdf()
     else:
         raise ValueError(f"Kaynak '{alias}' önizlenemiyor")
 
