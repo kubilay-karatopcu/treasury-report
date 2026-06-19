@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Database, Tag, Hash, Type as TypeIcon, Eye, Loader2, AlertTriangle, X, Sparkles } from 'lucide-react';
 import { AgGridReact } from 'ag-grid-react';
 import useStore from '../lib/store.js';
-import { fetchTablePreview, fetchTableConcepts, previewView } from '../lib/api.js';
+import { fetchTablePreview, fetchTableConcepts, fetchTableDetail, previewView } from '../lib/api.js';
 
 /**
  * Side-dock variant of the catalog docs (was a modal previously).
@@ -22,6 +22,11 @@ export default function TableDocsPanel({ width, onResizeStart }) {
   const [loadingPreview, setLoadingPreview] = useState(false);
   // Phase 7 — per-column concept status, keyed by UPPERCASE column name.
   const [conceptCols, setConceptCols] = useState({});
+  // Columns fetched on demand from the catalog DETAIL endpoint. The Sunum
+  // /sources list strips `columns` (payload size), so a corporate table's
+  // docs panel would otherwise show "Kolonlar (0)". Mirrors Keşif, which
+  // also reads columns from the detail endpoint.
+  const [detailCols, setDetailCols] = useState(null);
 
   // Reset preview state when target table changes (or panel closes).
   useEffect(() => {
@@ -44,6 +49,20 @@ export default function TableDocsPanel({ width, onResizeStart }) {
     return () => { cancelled = true; };
   }, [table?.id]);
 
+  // Lazy-load columns for a corporate table whose /sources entry has none
+  // (the list endpoint strips them). Produced tables + uploads already carry
+  // their columns, so skip the fetch for those.
+  useEffect(() => {
+    let cancelled = false;
+    setDetailCols(null);
+    if (table?.id && !table.produced && !(table.columns && table.columns.length)) {
+      fetchTableDetail(table.id)
+        .then((res) => { if (!cancelled) setDetailCols(res.columns || []); })
+        .catch(() => { if (!cancelled) setDetailCols([]); });
+    }
+    return () => { cancelled = true; };
+  }, [table?.id, table?.produced]);
+
   // ESC ile panel kapansın.
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') closeDocsTable(); }
@@ -64,7 +83,9 @@ export default function TableDocsPanel({ width, onResizeStart }) {
     );
   }
 
-  const cols    = table.columns || [];
+  // Prefer columns embedded in the /sources entry (uploads), else the
+  // on-demand catalog detail (corporate tables).
+  const cols    = (table.columns && table.columns.length) ? table.columns : (detailCols || []);
   const filters = table.common_filters || [];
   const hasConceptInfo = Object.keys(conceptCols).length > 0;
 
@@ -118,7 +139,13 @@ export default function TableDocsPanel({ width, onResizeStart }) {
             <span>Kolonlar ({cols.length})</span>
           </div>
           {cols.length === 0 ? (
-            <div className="docs-empty">Bu tablo için kolon tanımı yok.</div>
+            detailCols === null ? (
+              <div className="docs-preview-loading">
+                <Loader2 size={14} className="ts-spin" /><span>Kolonlar yükleniyor…</span>
+              </div>
+            ) : (
+              <div className="docs-empty">Bu tablo için kolon tanımı yok.</div>
+            )
           ) : (
             <table className="docs-cols-table">
               <thead>
@@ -316,6 +343,20 @@ function ProducedDocsPanel({ table, width, onResizeStart, onClose }) {
   }, [onClose]);
 
   const cols = data?.columns || [];
+  const manifest = useStore((s) => s.manifest);
+  // Concept bindings the user attached to this produced view's columns in
+  // Hazırlık (carried in manifest.basket[].column_concepts). The preview
+  // endpoint returns only column names, so the concepts come from the store.
+  const columnConcepts = useMemo(() => {
+    const item = (manifest?.basket || []).find(
+      (b) => b.alias === table.id || b.table === table.id);
+    const out = {};
+    for (const [k, v] of Object.entries(item?.column_concepts || {})) {
+      if (v) out[String(k).toUpperCase()] = v;
+    }
+    return out;
+  }, [manifest, table.id]);
+  const hasConcepts = Object.keys(columnConcepts).length > 0;
   const kindLabel = table.source === 'sql' ? 'manuel SQL'
     : table.derivation_kind === 'join'       ? 'join'
     : table.derivation_kind === 'union'      ? 'union'
@@ -369,13 +410,34 @@ function ProducedDocsPanel({ table, width, onResizeStart, onClose }) {
             </div>
           ) : (
             <table className="docs-cols-table">
-              <thead><tr><th>Kolon</th></tr></thead>
+              <thead><tr><th>Kolon</th><th>Concept</th></tr></thead>
               <tbody>
-                {cols.map((c) => (
-                  <tr key={c}><td className="docs-col-name">{c}</td></tr>
-                ))}
+                {cols.map((c) => {
+                  const concept = columnConcepts[String(c).toUpperCase()];
+                  return (
+                    <tr key={c}>
+                      <td className="docs-col-name">{c}</td>
+                      <td className="docs-col-concept">
+                        {concept ? (
+                          <span className="docs-concept docs-concept--bound">
+                            <Sparkles size={10} strokeWidth={2} />{concept}
+                          </span>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          )}
+          {hasConcepts && (
+            <div className="docs-concept-legend">
+              <span className="docs-concept docs-concept--bound">
+                <Sparkles size={10} strokeWidth={2} />concept
+              </span>
+              bağlı kolonlar üstteki filtre çubuğundan filtrelenebilir (filtrenin
+              semantic_tag&apos;i bu concept ile AYNI olmalı).
+            </div>
           )}
         </div>
 

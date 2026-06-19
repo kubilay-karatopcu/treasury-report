@@ -246,9 +246,52 @@ onaylanmış olmalı (data ekibi /concepts/review'dan onaylar). Binding yoksa o
 filtre o bloğa uygulanmaz (blok "filtre uygulanmadı" rozetiyle filtresiz
 render olur) — bu bir hata değildir.
 
-Tablo dokümantasyonu BULUNMAYAN tablolar için: eski şekilde hardcoded SQL
-yaz (`data_source.original_sql` ile, sentinel olmadan). Concept-native shape
-sadece dokümante tablolar için.
+## ÜRETİLMİŞ (Hazırlık) tablolarda filtre (KRİTİK — concept-bound dataset)
+"## Yüklü veri (DuckDB view'leri)" altında listelenen ÜRETİLMİŞ tablolar
+(Hazırlık'ta python / aggregate / join / manuel-SQL ile oluşturulmuş, katalogda
+OLMAYAN view'lar) katalog table-doc'u taşımaz — AMA kullanıcı Hazırlık'ta
+kolonlarına concept bağlamış olabilir. Böyle bir kolon o listede `→ concept: X`
+ile işaretlidir.
+
+Bu işaret VARSA o üretilmiş-tablo kolonu da TAM katalog tabloları gibi
+filtrelenebilir — kullanıcı "X'e göre filtre", "filtre olarak ekle", "kullanıcı
+filtreleyebilsin" derse:
+- Blok query'sinde WHERE'e `{{concept_filters}}` koy. Kolon adını/değerini
+  SQL'e HARDCODE ETME (`WHERE PORTFOLIO_SIDE = 'LIABILITY'` YANLIŞ — hem değeri
+  uydurmuş olursun hem filtre interaktif olmaz).
+- `/filters/-` patch'i at: `semantic_tag` = o kolonun `→ concept: X`'indeki X;
+  `allowed_values` = o kolonun yanındaki `[değerler: ...]` listesi (varsa — filtre
+  çubuğunda seçenekler bundan görünür). Liste yoksa allowed_values'u atla.
+- `source_tables` EKLEME (üretilmiş tablo katalog tablosu değil; sistem filtreyi
+  view'ın column_concepts'i üzerinden uygular).
+- Kullanıcı bir DEĞER söylediyse onu `default`'a koy; sadece "filtre ekle"
+  dediyse `default: []` (kullanıcı sonra seçer).
+
+Örnek — "duration_ts_by_side'dan AVG_MACAULAY_DURATION ortalaması KPI olsun" +
+"portfolio_side filtre olarak eklensin" (listede PORTFOLIO_SIDE → concept:
+portfolio_side):
+```json
+[
+ {"op":"replace","path":"<seçili_kpi_path>","value":{
+   "id":"<ORİJİNAL_ID>","type":"kpi","locked":false,
+   "title":"Ortalama Macaulay Süresi",
+   "data_source":{"original_sql":"SELECT ROUND(AVG(AVG_MACAULAY_DURATION),2) AS value FROM duration_ts_by_side WHERE {{concept_filters}}"},
+   "config":{"value":0,"unit":"","delta":0,"delta_label":"","period":""}}},
+ {"op":"add","path":"/filters/-","value":{
+   "id":"f_portfolio_side","semantic_tag":"portfolio_side","type":"enum_multi",
+   "label":"Portföy Tarafı","allowed_values":["ASSET","LIABILITY"],"default":[]}}
+]
+```
+(`allowed_values`'ı listede PORTFOLIO_SIDE'ın `[değerler: ASSET, LIABILITY]`
+kısmından aldık.) Filtre aktif değilken `{{concept_filters}}` otomatik `1 = 1` olur → KPI tüm
+satırların ortalamasını gösterir; kullanıcı bir taraf seçince ona göre yeniden
+hesaplanır. (Üretilmiş tabloda `→ concept` İŞARETİ YOKSA o kolon filtreye
+bağlanamaz — UYDURMA semantic_tag kullanma, hardcode etmen gerekirse açıkla.)
+
+Tablo dokümantasyonu BULUNMAYAN ve `→ concept` işaretli kolonu da OLMAYAN
+tablolar için: eski şekilde hardcoded SQL yaz (`data_source.original_sql` ile,
+sentinel olmadan). Concept-native shape dokümante tablolar VE concept-bound
+üretilmiş tablolar için.
 - Aggregation (GROUP BY, SUM, COUNT, AVG, MIN, MAX, DISTINCT) veya küçük limit (FETCH FIRST <=5000) ZORUNLU değil ama tavsiye edilir. Limitsiz raw query yazarsan sistem otomatik ilk 5000 satıra sınırlar.
 - Tek SELECT. ;, INSERT, UPDATE, DELETE, DDL YASAK.
 
@@ -358,6 +401,38 @@ SQL'ini katalog'a göre düzelt.
   - heatmap: SQL üç kolon (x, y, value)
   - data_table: SQL columns + rows direkt yansır
 - `config` ön-değerleri (placeholder) verirsin, sistem SQL sonucundan üzerine yazar. Boş/0/[] verebilirsin ama tutarlı bir taslak olsun (ör. bar_chart için `series: [{"name": "Mevduat", "values": []}]`).
+
+## Çok serili grafik — kategoriyi SERİYE çevir (pivot, KRİTİK)
+Kural: SQL'in ilk kolonu eksen (x/kategori), **sonraki HER sayısal kolon AYRI bir
+seri** (çizgi/bar) olur. Yani "aynı chartta N çizgi/seri", "her X için bir line",
+"X'e göre ayrı çizgiler", "X kırılımında", "üst üste N line", "3 seri olsun"
+denince → SQL'in N sayısal kolon döndürmesi gerekir.
+
+Bir KATEGORİ kolonunu (örn. PORTFOLIO_SIDE) tek değer kolonuyla bırakırsan TEK
+çizgi çıkar — tüm kategoriler tek seride karışır (kullanıcının "tek çıkıyor"
+şikâyeti budur). Kategoriyi seriye çevirmek = **PIVOT**: x-ekseni kolonuna göre
+GROUP BY yapıp her kategori değeri için koşullu agregasyonla ayrı kolon üret.
+
+DuckDB (ÜRETİLMİŞ tablo / Excel) — `FILTER` kullan:
+```sql
+SELECT AS_OF_DATE,
+       AVG(AVG_MODIFIED_DURATION) FILTER (WHERE PORTFOLIO_SIDE = 'ASSET')     AS "ASSET",
+       AVG(AVG_MODIFIED_DURATION) FILTER (WHERE PORTFOLIO_SIDE = 'LIABILITY') AS "LIABILITY",
+       AVG(AVG_MODIFIED_DURATION) FILTER (WHERE PORTFOLIO_SIDE = 'EQUITY')    AS "EQUITY"
+FROM duration_ts_by_side
+GROUP BY AS_OF_DATE
+ORDER BY AS_OF_DATE
+```
+Oracle (katalog tablosu) — `FILTER` yok, `CASE` kullan:
+`AVG(CASE WHEN PORTFOLIO_SIDE='ASSET' THEN AVG_MODIFIED_DURATION END) AS "ASSET"`, ...
+
+Kolon adları = seri adları (kullanıcı efsanede bunları görür). config.series'i de
+N elemanlı taslakla doldur:
+`"series":[{"name":"ASSET","values":[]},{"name":"LIABILITY","values":[]},{"name":"EQUITY","values":[]}]`
+
+❌ Yanlış (tek çizgi): `SELECT AS_OF_DATE, AVG_MODIFIED_DURATION FROM duration_ts_by_side ORDER BY AS_OF_DATE`
+✅ Doğru: yukarıdaki pivot → 3 ayrı çizgi. (Bir kategori değerinin verisi yoksa
+o serinin çizgisi boş çıkar — bu normal.)
 
 # Eksen etiketleri DÜZ STRİNG
 - ❌ x_axis: [{"date": "..."}], categories: [{"name": "..."}]
