@@ -442,42 +442,60 @@ def compile_calculated_sql(item: BasketItem) -> str:
     if len(d.source_aliases) == 1:
         from_clause = f'"{d.source_aliases[0]}"'
     else:
-        # First alias is the FROM root; subsequent aliases come in via
-        # INNER JOIN clauses. We trust the validator to have rejected
-        # multi-source derivations missing join_keys.
+        # First alias is the FROM root; subsequent aliases come in via INNER
+        # JOIN clauses. We trust the validator to have rejected multi-source
+        # derivations missing join_keys.
+        #
+        # Add ONE table at a time and fold EVERY key that links the new table to
+        # an already-joined table into a single `ON ... AND ...` clause. Emitting
+        # one JOIN per key (the old behaviour) re-joined the same table when a
+        # join used multiple columns (e.g. date + currency) → DuckDB "Ambiguous
+        # reference to table … duplicate alias".
         from_clause = f'"{d.source_aliases[0]}"'
         joined: set[str] = {d.source_aliases[0]}
-        for jk in d.join_keys:
-            # Pick whichever side is not yet joined — gives a stable order
-            # regardless of how the user expressed the keys.
-            if jk.right_alias in joined and jk.left_alias not in joined:
-                add_alias, left, right = jk.left_alias, jk.right_alias, jk.left_alias
-                left_col, right_col = jk.right_column, jk.left_column
-            else:
-                add_alias = jk.right_alias if jk.right_alias not in joined else jk.left_alias
-                left, right = jk.left_alias, jk.right_alias
-                left_col, right_col = jk.left_column, jk.right_column
-            from_clause += (
-                f' INNER JOIN "{add_alias}" '
-                f'ON "{left}"."{left_col}" = "{right}"."{right_col}"'
-            )
-            joined.add(add_alias)
+        remaining = list(d.join_keys)
+        while remaining:
+            nxt = None
+            for jk in remaining:
+                if jk.left_alias in joined and jk.right_alias not in joined:
+                    nxt = jk.right_alias
+                    break
+                if jk.right_alias in joined and jk.left_alias not in joined:
+                    nxt = jk.left_alias
+                    break
+            if nxt is None:
+                break   # remaining keys link already-joined tables (cycle) — skip
+            conds, rest = [], []
+            for jk in remaining:
+                if ((jk.left_alias == nxt and jk.right_alias in joined)
+                        or (jk.right_alias == nxt and jk.left_alias in joined)):
+                    conds.append(
+                        f'"{jk.left_alias}"."{jk.left_column}" = '
+                        f'"{jk.right_alias}"."{jk.right_column}"'
+                    )
+                else:
+                    rest.append(jk)
+            from_clause += f' INNER JOIN "{nxt}" ON ' + " AND ".join(conds)
+            joined.add(nxt)
+            remaining = rest
     select_list = ", ".join(f"{c.expr} AS \"{c.name}\"" for c in d.columns)
     return f"SELECT {select_list} FROM {from_clause}"
 
 
 def compile_join_sql(item: BasketItem, left_cols, right_cols) -> str:
-    """JOIN of exactly two source aliases on one key (Hazırlık ER node).
+    """JOIN of exactly two source aliases on one OR MORE keys (Hazırlık ER node).
 
     Output = all LEFT columns, then all RIGHT columns; a right-side name that
     collides with a left name is prefixed with the right alias
     (``competitor_BRANCH_CODE``) so the materialised view has unique columns.
     Runs on the already-materialised DuckDB views (like calculated), so the
     fetch pass must register both sources first.
+
+    Multi-column joins (e.g. date + currency) AND every ``join_key`` into the
+    ON clause — the schema guarantees ≥1 key, all between the two aliases.
     """
     d = item.derivation
     left, right = d.source_aliases[0], d.source_aliases[1]
-    jk = d.join_keys[0]
     jtype = "LEFT JOIN" if d.join_type == "left" else "INNER JOIN"
     left_set = set(left_cols or [])
     sel = [f'"{left}"."{c}" AS "{c}"' for c in (left_cols or [])]
@@ -485,7 +503,10 @@ def compile_join_sql(item: BasketItem, left_cols, right_cols) -> str:
         out = c if c not in left_set else f"{right}_{c}"
         sel.append(f'"{right}"."{c}" AS "{out}"')
     select_list = ", ".join(sel) if sel else "*"
-    cond = f'"{jk.left_alias}"."{jk.left_column}" = "{jk.right_alias}"."{jk.right_column}"'
+    cond = " AND ".join(
+        f'"{jk.left_alias}"."{jk.left_column}" = "{jk.right_alias}"."{jk.right_column}"'
+        for jk in d.join_keys
+    )
     return f'SELECT {select_list} FROM "{left}" {jtype} "{right}" ON {cond}'
 
 
@@ -498,6 +519,64 @@ def compile_union_sql(item: BasketItem) -> str:
     d = item.derivation
     op = "UNION ALL" if d.union_all else "UNION"
     return f" {op} ".join(f'SELECT * FROM "{a}"' for a in d.source_aliases)
+
+
+def _pull_source_into_duck(
+    dc, conn, scope: ScopeContract, src: BasketItem, *,
+    catalog: Catalog | None,
+    concept_registry, binding_catalog,
+) -> bool:
+    """Pull a non-derived source dataset (a ``table_ref`` main or a ``sql``
+    dataset) straight into ``conn`` as a view so that a **cached** derivation
+    sitting on a **lazy** source can still materialise at build / hydration time.
+
+    Pass 1 only fetches ``cached`` mains, so a lazy source feeding a derivation
+    was otherwise never registered and the derivation got silently dropped with
+    "unresolved sources" — leaving no parquet and making the Sunum produced-table
+    preview 500 with "Table … does not exist". This mirrors the cron
+    ``_compute_dataset_df`` path, which already pulls a lazy source to feed a
+    derived dataset.
+
+    The source is pulled *projected* (only the scoped columns) but **uncapped** —
+    a derivation needs every source row to be correct (truncating would skew an
+    aggregate / weighted average). It is NOT persisted as a dataset: no parquet is
+    written and it is not added to ``loaded`` / ``cached_tables`` — only the small
+    derived RESULT is. Returns True when a view was registered.
+    """
+    import pandas as pd
+
+    from presentations.duck import materialize_table
+
+    if src.table_ref is not None:
+        sql, binds = compose_cached_sql(
+            scope, src, catalog,
+            concept_registry=concept_registry, binding_catalog=binding_catalog,
+        )
+        label = f"{src.table_ref.schema_name}.{src.table_ref.name}"
+    elif src.sql is not None:
+        from presentations.sql.validator import validate_sql
+        chk = validate_sql(src.sql)
+        if not chk.ok:
+            raise RuntimeError(
+                f"derived source '{src.alias}' SQL whitelist'i geçemedi: "
+                f"{'; '.join(chk.errors)}"
+            )
+        sql, binds = src.sql, {}
+        label = "manuel SQL"
+    else:
+        return False  # derived source — resolved by the dependency loop, not here
+
+    df = dc.get_data(
+        base_prefix=None,
+        dataset=f"scope::{scope.presentation_id}/{src.alias}",
+        query=sql, query_params=binds,
+    )
+    if df is None or len(df.columns) == 0:
+        return False
+    materialize_table(conn, src.alias, df)
+    log.info("scope.fetch_cached_tables: lazy source '%s' ← %s pulled on demand "
+             "for a cached derivation (%d rows)", src.alias, label, len(df))
+    return True
 
 
 def fetch_cached_tables(
@@ -672,14 +751,34 @@ def fetch_cached_tables(
         still = []
         for item in pending:
             d = item.derivation
-            if not (duck_source_aliases(scope, item) <= registered):
-                still.append(item)
-                continue
             all_srcs = ({d.source_alias} if d.kind in ("aggregate", "filter", "python") and d.source_alias
                         else set(d.source_aliases))
+            # Re-entry: an inherited derivation (neither it nor any of its sources
+            # changed) keeps the previous build's view — skip it BEFORE the source
+            # gate so we don't pull a (possibly lazy/expensive) source just to
+            # rebuild an unchanged result.
             if refetch_only is not None and not (all_srcs & refetch_only) and item.alias not in refetch_only:
                 registered.add(item.alias)   # treated as up-to-date (inherited view)
                 progressed = True
+                continue
+            # A cached derivation can sit on a LAZY main (or lazy SQL dataset) that
+            # Pass 1 skipped — lazy tables aren't pre-fetched. Pull those *table*
+            # sources on demand and register them as views so the derivation can
+            # run, mirroring the cron `_compute_dataset_df` path. The big source
+            # itself is NOT persisted (no parquet, never counted as cached); only
+            # the small derived RESULT is. Missing *derived* sources are left to
+            # the dependency loop below.
+            for alias in list(duck_source_aliases(scope, item) - registered):
+                src = scope.basket_item(alias)
+                if src is None or src.derivation is not None:
+                    continue
+                if _pull_source_into_duck(
+                    dc, conn, scope, src, catalog=catalog,
+                    concept_registry=concept_registry, binding_catalog=binding_catalog,
+                ):
+                    registered.add(alias)
+            if not (duck_source_aliases(scope, item) <= registered):
+                still.append(item)
                 continue
             if d.kind == "filter":
                 src = scope.basket_item(d.source_alias)

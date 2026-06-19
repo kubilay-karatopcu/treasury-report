@@ -185,6 +185,91 @@ def test_unmaterialised_dataset_block_renders_empty_not_oracle(tmp_path):
     assert dc.get_data_calls == []
 
 
+class _OracleDC(_FakeDC):
+    """Like _FakeDC but get_data returns a fixed source DataFrame — models the
+    one permitted on-demand pull of a lazy source feeding a derivation."""
+
+    def __init__(self, source_df):
+        super().__init__()
+        self._src = source_df
+
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+        self.get_data_calls.append({"query": query})
+        return self._src.copy()
+
+
+def test_duckdb_preview_hydrates_python_node_over_lazy_source(tmp_path):
+    """Regression for the reported bug: a *cached* python node sitting on a
+    *lazy* main. The Sunum produced-table docs panel calls
+    /duckdb/preview/<alias>; with no parquet (build couldn't materialise it,
+    because Pass 1 skipped the lazy source) the endpoint 500'd with
+    "Table … does not exist". The hydration fallback must now pull the lazy
+    source on demand, run the derivation, and register the view."""
+    dc = _OracleDC(pd.DataFrame({"BRANCH_CODE": ["A", "B"], "BALANCE_TRY": [1000, 5000]}))
+    scope_store = LocalScopeStore(tmp_path / "scopes")
+    scope_store.save(load_scope_from_dict({
+        "presentation_id": "p_pylazy", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [
+            {
+                "table_ref": {"schema": "EDW", "name": "DEPOSITS"}, "alias": "deposits",
+                "projection": {"columns": ["BRANCH_CODE", "BALANCE_TRY"], "include_all": False},
+                "routing": {"decision": "lazy", "estimated_bytes": 500_000_001,
+                            "threshold_bytes": 500_000_000},
+            },
+            {
+                "derivation": {"kind": "python", "source_alias": "deposits",
+                               "python_code": "output_node_df = input_node_df.assign("
+                                              "BALANCE_K=input_node_df['BALANCE_TRY'] / 1000)"},
+                "alias": "deposits_py",
+                "projection": {"columns": [], "include_all": True},
+                "routing": {"decision": "cached", "estimated_bytes": 0},
+            },
+        ],
+        "filters": {"pinned": [], "interactive": []},
+    }))
+    # NOTE: no write_dataset() — the parquet is absent on purpose (this is the
+    # broken-build state). The endpoint must still hydrate via the fetch fallback.
+
+    app = Flask(__name__)
+    app.config.update(
+        SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True,
+        DATA_CLIENT=dc, SCOPE_STORE=scope_store,
+        SESSION_REGISTRY=SessionRegistry(dc=dc, duck_base_dir=tmp_path / "duck"),
+    )
+    lm = LoginManager(app)
+
+    @lm.user_loader
+    def _load(_id):
+        return _FakeUser()
+
+    @app.before_request
+    def _force_login():
+        from flask_login import current_user
+        if not getattr(current_user, "is_authenticated", False):
+            login_user(_FakeUser())
+
+    app.register_blueprint(presentations_bp, url_prefix="/presentations")
+    with app.app_context():
+        sess = app.config["SESSION_REGISTRY"].get_or_create("A16438", "p_pylazy")
+        basket = [{"table": "deposits_py", "alias": "deposits_py", "columns": [],
+                   "source": "derived"}]
+        sess.set_manifest({
+            "id": "p_pylazy", "version": 1,
+            "scope_ref": {"presentation_id": "p_pylazy", "scope_version": 1},
+            "basket": basket, "blocks": [],
+        })
+        # Prime the signature so the legacy populate_basket path is skipped and the
+        # preview exercises the scope hydration fallback (the path under test).
+        sess._last_basket_signature = sess.basket_signature(basket)
+
+    resp = app.test_client().get("/presentations/p_pylazy/duckdb/preview/deposits_py")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    data = resp.get_json()
+    assert "BALANCE_K" in (data.get("columns") or []), data
+    assert data.get("row_count") == 2, data
+
+
 def test_duckdb_preview_hydrates_produced_view(tmp_path):
     """Regression: the Sunum produced-table docs panel calls /duckdb/preview/<alias>.
     Produced views (manuel SQL / join / filter) aren't persisted in the session

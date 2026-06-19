@@ -13,6 +13,7 @@ import pandas as pd
 
 from presentations.scope.schema import (
     BasketItem,
+    CalculatedColumn,
     CalculatedJoinKey,
     Derivation,
     Projection,
@@ -20,7 +21,7 @@ from presentations.scope.schema import (
     load_scope_from_dict,
 )
 from presentations.scope.fetch import (
-    compile_join_sql, compile_union_sql, fetch_cached_tables,
+    compile_calculated_sql, compile_join_sql, compile_union_sql, fetch_cached_tables,
 )
 
 
@@ -119,6 +120,74 @@ class TestCompileJoinSql:
         df = conn.execute(compile_join_sql(_join_item(), lc, rc)).fetchdf()
         assert list(df.columns) == ["BRANCH_CODE", "BALANCE", "competitor_BRANCH_CODE", "RATE"]
         assert len(df) == 2
+
+
+def _multikey_join_keys():
+    return [
+        CalculatedJoinKey(left_alias="duration_report", left_column="AS_OF_DATE",
+                          right_alias="fx_daily", right_column="VALUE_DATE"),
+        CalculatedJoinKey(left_alias="duration_report", left_column="CURRENCY",
+                          right_alias="fx_daily", right_column="CCY"),
+    ]
+
+
+class TestMultiKeyJoin:
+    """Regression for the reported bug: joining two tables on TWO columns
+    (date + currency). The old compilers either ignored the 2nd key
+    (compile_join_sql) or re-joined the same table per key, producing
+    DuckDB "Ambiguous reference … duplicate alias" (compile_calculated_sql)."""
+
+    def _join_item(self):
+        d = Derivation(kind="join", source_aliases=["duration_report", "fx_daily"],
+                       join_keys=_multikey_join_keys(), join_type="inner")
+        return BasketItem(alias="dur_fx", derivation=d,
+                          projection=Projection(columns=[], include_all=True),
+                          routing=Routing(decision="cached", estimated_bytes=0))
+
+    def test_join_ands_all_keys_one_join(self):
+        sql = compile_join_sql(self._join_item(), ["AS_OF_DATE", "CURRENCY"],
+                               ["VALUE_DATE", "CCY"])
+        assert sql.count(" JOIN ") == 1                       # ONE join, not per-key
+        assert '"duration_report"."AS_OF_DATE" = "fx_daily"."VALUE_DATE"' in sql
+        assert '"duration_report"."CURRENCY" = "fx_daily"."CCY"' in sql
+        assert " AND " in sql
+
+    def test_join_multikey_duckdb_e2e(self):
+        conn = duckdb.connect(":memory:")
+        conn.execute("CREATE TABLE duration_report AS SELECT * FROM (VALUES "
+                     "(DATE '2026-01-01','USD',1.0),(DATE '2026-01-01','EUR',2.0)) "
+                     't("AS_OF_DATE","CURRENCY","MAC")')
+        conn.execute("CREATE TABLE fx_daily AS SELECT * FROM (VALUES "
+                     "(DATE '2026-01-01','USD',32.0),(DATE '2026-01-01','EUR',35.0)) "
+                     't("VALUE_DATE","CCY","RATE")')
+        lc = list(conn.execute("SELECT * FROM duration_report LIMIT 0").fetchdf().columns)
+        rc = list(conn.execute("SELECT * FROM fx_daily LIMIT 0").fetchdf().columns)
+        df = conn.execute(compile_join_sql(self._join_item(), lc, rc)).fetchdf()
+        # date matches every row; currency disambiguates → USD↔USD, EUR↔EUR only.
+        assert len(df) == 2
+
+    def test_calculated_multikey_same_pair_no_duplicate_alias(self):
+        d = Derivation(
+            kind="calculated", source_aliases=["duration_report", "fx_daily"],
+            join_keys=_multikey_join_keys(),
+            columns=[
+                CalculatedColumn(name="AS_OF_DATE", expr='"duration_report"."AS_OF_DATE"'),
+                CalculatedColumn(name="RATE", expr='"fx_daily"."RATE"'),
+            ])
+        item = BasketItem(alias="dur_fx_calc", derivation=d,
+                          projection=Projection(columns=[], include_all=True),
+                          routing=Routing(decision="cached", estimated_bytes=0))
+        sql = compile_calculated_sql(item)
+        assert sql.count(" JOIN ") == 1                        # ONE join, not two
+        assert " AND " in sql
+        # Must run without DuckDB "Ambiguous reference … duplicate alias".
+        conn = duckdb.connect(":memory:")
+        conn.execute("CREATE TABLE duration_report AS SELECT * FROM (VALUES "
+                     "(DATE '2026-01-01','USD',1.0)) t(\"AS_OF_DATE\",\"CURRENCY\",\"MAC\")")
+        conn.execute("CREATE TABLE fx_daily AS SELECT * FROM (VALUES "
+                     "(DATE '2026-01-01','USD',32.0)) t(\"VALUE_DATE\",\"CCY\",\"RATE\")")
+        df = conn.execute(sql).fetchdf()
+        assert len(df) == 1 and df["RATE"][0] == 32.0
 
 
 def _union_item(union_all=True) -> BasketItem:
