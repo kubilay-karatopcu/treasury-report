@@ -778,6 +778,32 @@
 .hz-cbrowser__foot { flex: 0 0 auto; padding: 10px 12px; border-top: 1px solid #334155; }
 .hz-cbrowser__add { width: 100%; justify-content: center; }
 
+/* MVP — kolona göre öneri şeridi (Sparkles): mevcut konseptlerden sıralı, amber aksan. */
+.hz-cbrowser__sugg {
+  flex: 0 0 auto; padding: 9px 12px 8px; border-bottom: 1px solid #334155;
+  display: flex; flex-direction: column; gap: 7px;
+  background: linear-gradient(180deg, rgba(245,158,11,.07), transparent);
+}
+.hz-cbrowser__sugg-h {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #fbbf24;
+}
+.hz-cbrowser__sugg-load { display: flex; align-items: center; gap: 6px; color: #94a3b8; font-size: 12px; padding: 2px 0 4px; }
+.hz-cbrowser__sugg-card {
+  border: 1px solid rgba(245,158,11,.35); border-radius: 8px; padding: 8px 9px; background: #15203a;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.hz-cbrowser__sugg-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hz-cbrowser__sugg-name { font-size: 12.5px; font-weight: 600; color: #f1f5f9; word-break: break-word; }
+.hz-cbrowser__sugg-score {
+  font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; flex-shrink: 0;
+  color: #fbbf24; background: rgba(245,158,11,.14); padding: 1px 6px; border-radius: 8px;
+}
+.hz-cbrowser__sugg-why { font-size: 10.5px; color: #94a3b8; line-height: 1.4; }
+.hz-cbrowser__sugg-pick { align-self: flex-end; }
+.hz-spin { animation: hz-spin-kf .8s linear infinite; }
+@keyframes hz-spin-kf { to { transform: rotate(360deg); } }
+
 /* Yeni-konsept modal — Kütüphane'nin .ka-modal stili: köşeli (radius yok),
    gold aksanlı, koyu PRISMA token'ları, geniş (600px). Token fallback'leri
    hazırlık sayfasında da çalışsın diye verildi. */
