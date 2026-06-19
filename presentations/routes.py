@@ -1634,6 +1634,61 @@ def apply_dashboard_filters(pid: str):
                 touched += 1
             continue
 
+        # ── Produced / scope-alias SQL block (aggregation on a Hazırlık view) ─
+        # A block whose SQL reads a Hazırlık view (produced derivation or cached
+        # dataset) runs in the SESSION DuckDB, not Oracle — so the catalog-table
+        # concept compiler (which needs a documented SCHEMA.TABLE) can't reach it.
+        # But the user may have bound a concept to a produced column in Hazırlık,
+        # carried here as basket[].column_concepts. When such a block embeds the
+        # {{concept_filters}} sentinel, replace it with DuckDB predicates from
+        # those column_concepts + the active filters — the aggregation counterpart
+        # of the projection-only dataset_binding path. This is what makes an
+        # AVG/SUM KPI on a produced table interactively filterable.
+        _sa_sql = block.get("query") or (block.get("data_source") or {}).get("original_sql") or ""
+        if "{{concept_filters}}" in _sa_sql and _alias_column_concepts:
+            _refs = duck.find_view_refs(_sa_sql, list(_alias_column_concepts.keys()))
+            if _refs:
+                from .scope.materialize import inject_dataset_concepts
+                from .routes_scope import hydrate_block_datasets, load_scope_for_manifest
+                from .aggregation_gate import validate_and_wrap
+                merged_cc: dict = {}
+                for _a in _refs:
+                    merged_cc.update(_alias_column_concepts.get(_a) or {})
+                inj_sql, inj_params = inject_dataset_concepts(
+                    _sa_sql, merged_cc, _concept_filter_dicts)
+                # An active filter whose concept is bound to NO referenced column
+                # is "blind" on this block (e.g. an as_of_time filter while the
+                # produced view's date column is bound to trade_time). Surface it
+                # like the catalog-table path so the UI shows "filtre uygulanmadı"
+                # instead of the filter silently doing nothing.
+                _bound = set(merged_cc.values())
+                _applied = [{"concept": f["concept"]} for f in _concept_filter_dicts
+                            if f.get("concept") in _bound]
+                _blind = [f["concept"] for f in _concept_filter_dicts
+                          if f.get("concept") not in _bound]
+                try:
+                    with session.duck_conn() as conn:
+                        _sc = load_scope_for_manifest(manifest)
+                        if _sc is not None:
+                            hydrate_block_datasets(dc, conn, _sc, _sa_sql)
+                        gate = validate_and_wrap(inj_sql, dialect="duckdb")
+                        df = (conn.execute(gate.sql, inj_params).fetchdf()
+                              if inj_params else conn.execute(gate.sql).fetchdf())
+                    _apply_df_to_block(block, df, engine="dataset_sql", query=_sa_sql)
+                    results.append({
+                        "id": block["id"], "status": "dataset_sql",
+                        "row_count": int(len(df)), "aliases": _refs,
+                        "applied_predicates": _applied,
+                        "blind_filters": _blind,
+                        "concept_injected": bool(_applied),
+                    })
+                    touched += 1
+                except Exception as exc:
+                    msg = str(exc).strip().splitlines()[0][:240]
+                    results.append({"id": block["id"], "status": "error",
+                                     "kind": "duckdb", "error": msg})
+                continue
+
         # Data-bound blocks participate if they EITHER declare variables
         # (Phase 6.5) OR are concept-native (source_tables + active concept
         # filters, Phase 7). Concept-native blocks have no `variables`, so the

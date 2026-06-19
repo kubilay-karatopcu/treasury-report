@@ -485,6 +485,31 @@ def _concept_predicates(column_concepts, concept_filters, params: dict) -> list[
     return clauses
 
 
+_CONCEPT_SENTINEL = "{{concept_filters}}"
+
+
+def inject_dataset_concepts(
+    sql: str, column_concepts: dict | None, concept_filters,
+) -> tuple[str, dict]:
+    """Replace the ``{{concept_filters}}`` sentinel in a produced-view block's
+    SQL with DuckDB predicates derived from the view's ``column_concepts`` and
+    the active dashboard concept filters.
+
+    This is the aggregation (manual-SQL) counterpart to the projection-only
+    :func:`project_block_from_dataset` path: a KPI / chart that runs ``AVG(...)``
+    over a Hazırlık-produced view becomes interactively filterable by a concept
+    the user bound to one of its columns — WITHOUT a catalog table-doc binding
+    (the Phase 7 compiler is catalog-table-only, so it can't reach a derived
+    view). Returns ``(sql, params)``; when no active filter maps to a bound
+    column the sentinel collapses to ``1 = 1`` (no-op, returns all rows).
+    Parameterised ``$``-binds only — values are never concatenated into SQL.
+    """
+    params: dict = {}
+    clauses = _concept_predicates(column_concepts or {}, concept_filters or [], params)
+    predicate = " AND ".join(clauses) if clauses else "1 = 1"
+    return sql.replace(_CONCEPT_SENTINEL, predicate), params
+
+
 def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = None,
                                *, concept_filters=None, column_concepts=None):
     """Project a dataset-bound Sunum block from its materialised DuckDB view,
