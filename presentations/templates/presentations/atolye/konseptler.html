@@ -135,6 +135,20 @@
     font-family: var(--serif); font-style: italic; font-size: 12px; color: var(--ink-faint);
     margin: 0 0 18px; line-height: 1.5;
   }
+  .ka-help {
+    font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--ink-mute);
+    background: var(--bg-0); border: 1px solid var(--border-soft);
+    border-left: 2px solid var(--gold); padding: 8px 11px; margin: 0 0 14px;
+  }
+  .ka-vtable { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  .ka-vtable th { text-align: left; font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-mute); padding: 0 6px 5px 0; font-weight: normal; }
+  .ka-vtable td { padding: 2px 6px 2px 0; }
+  .ka-vtable input { width: 100%; box-sizing: border-box; padding: 7px 9px; background: var(--bg-0); border: 1px solid var(--border-soft); color: var(--ink); font-family: var(--mono); font-size: 12px; }
+  .ka-vtable input:focus { outline: none; border-color: var(--gold); }
+  .ka-rowdel { width: 30px; height: 33px; cursor: pointer; background: transparent; border: 1px solid var(--border-soft); color: var(--ink-mute); font-size: 15px; line-height: 1; }
+  .ka-rowdel:hover { color: #d66; border-color: #d66; }
+  .ka-addrow { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; padding: 7px 13px; cursor: pointer; background: transparent; border: 1px dashed var(--border-soft); color: var(--gold); }
+  .ka-addrow:hover { background: var(--gold); color: var(--bg-0); border-style: solid; }
   .ka-field { margin-bottom: 14px; }
   .ka-field label {
     display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
@@ -335,10 +349,10 @@
       <div class="ka-row">
         <div class="ka-field"><label for="ncType">Tür</label>
           <select id="ncType" onchange="onCreateTypeChange()">
-            <option value="enum">enum — sabit değer kümesi</option>
-            <option value="time">time — tarih / zaman</option>
-            <option value="bucket">bucket — sayısal kova (day_range)</option>
-            <option value="scalar">scalar — serbest sayısal</option>
+            <option value="enum">Kategori</option>
+            <option value="bucket">Aralık</option>
+            <option value="time">Tarih/Zaman</option>
+            <option value="scalar">Sayısal</option>
           </select></div>
         <div class="ka-field"><label for="ncScope">Scope</label>
           <select id="ncScope">
@@ -347,14 +361,17 @@
           </select></div>
       </div>
 
+      <div class="ka-help" id="ncTypeHelp"></div>
+
       <div class="ka-field"><label for="ncDesc">Açıklama (opsiyonel)</label>
         <input id="ncDesc" placeholder="Bu concept neyi temsil ediyor?" autocomplete="off" /></div>
 
       <div class="ka-params" id="ncCanonWrap">
         <div class="ka-field" style="margin:0;">
-          <label for="ncCanon">Kanonik değerler — her satır: <code>KOD | Etiket | alias1, alias2</code></label>
-          <textarea id="ncCanon" placeholder="TRY | Türk Lirası | TL, TRL&#10;USD | US Doları | Dollar&#10;EUR | Euro"></textarea>
-          <div class="ka-sub">Sadece KOD zorunlu. enum/bucket için doldur; time/scalar'da gizlenir.</div>
+          <label id="ncCanonLabel">Değer eşlemeleri</label>
+          <table class="ka-vtable" id="ncCanonTable"><thead id="ncCanonHead"></thead><tbody id="ncCanonBody"></tbody></table>
+          <button type="button" class="ka-addrow" onclick="addCanonRow()">+ Satır ekle</button>
+          <div class="ka-sub" id="ncCanonSub"></div>
         </div>
       </div>
 
@@ -505,19 +522,54 @@
     // ── Yeni concept tanımlama ─────────────────────────────────────────────
     function openCreate() { $('ncErr').textContent = ''; onCreateTypeChange(); $('kcOverlay').classList.add('open'); $('ncId').focus(); }
     function closeCreate() { $('kcOverlay').classList.remove('open'); }
+    const TYPE_HELP = {
+      enum: 'Tablodaki farklı yazımları tek bir değere toplar. Örn: tabloda "Dolar", "$", "USD" geçiyorsa → hepsini tek "USD" değerine bağlarsın.',
+      bucket: 'Sayıyı aralıklara bölüp her birine ad verir. Örn: vade (gün) → 0–30: "0-1A", 31–90: "1A-3A".',
+      time: 'Tarih kolonu — tarihe göre filtre + gün/ay/yıl gruplama. Örn: snapshot tarihi.',
+      scalar: 'Düz sayı (oran, tutar, adet) — eşleme yok.',
+    };
+    function ncRowHtml(isBucket) {
+      return isBucket
+        ? '<td><input class="ncv-label" placeholder="1A-3A" /></td><td><input class="ncv-lo" placeholder="31" /></td><td><input class="ncv-hi" placeholder="90" /></td><td><button type="button" class="ka-rowdel" title="Satırı sil" onclick="this.closest(\'tr\').remove()">×</button></td>'
+        : '<td><input class="ncv-code" placeholder="USD" /></td><td><input class="ncv-aliases" placeholder="Dolar, $, Dollar" /></td><td><button type="button" class="ka-rowdel" title="Satırı sil" onclick="this.closest(\'tr\').remove()">×</button></td>';
+    }
+    function addCanonRow() {
+      const tr = document.createElement('tr');
+      tr.innerHTML = ncRowHtml($('ncType').value === 'bucket');
+      $('ncCanonBody').appendChild(tr);
+    }
     function onCreateTypeChange() {
       const t = $('ncType').value;
-      $('ncCanonWrap').hidden = !(t === 'enum' || t === 'bucket');
+      const isBucket = t === 'bucket';
+      const need = (t === 'enum' || t === 'bucket');
+      $('ncTypeHelp').textContent = TYPE_HELP[t] || '';
+      $('ncCanonWrap').hidden = !need;
+      $('ncCanonLabel').textContent = isBucket ? 'Aralıklar' : 'Değer eşlemeleri';
+      $('ncCanonHead').innerHTML = isBucket
+        ? '<tr><th>Etiket</th><th>Alt</th><th>Üst</th><th></th></tr>'
+        : '<tr><th>Konsept değeri</th><th>Tablodaki karşılık(lar)</th><th></th></tr>';
+      $('ncCanonBody').innerHTML = '';
+      if (need) addCanonRow();
+      $('ncCanonSub').textContent = isBucket
+        ? 'Etiket zorunlu; alt/üst boş = açık uç. Sayı = gün/birim.'
+        : 'Konsept değeri zorunlu; tablodaki karşılıkları virgülle ayır.';
     }
     function parseCanon() {
       const out = [];
-      ($('ncCanon').value || '').split('\n').forEach(line => {
-        const parts = line.split('|').map(s => s.trim());
-        if (!parts[0]) return;
-        const entry = { code: parts[0] };
-        if (parts[1]) entry.label = parts[1];
-        if (parts[2]) entry.aliases = parts[2].split(',').map(a => a.trim()).filter(Boolean);
-        out.push(entry);
+      const isBucket = $('ncType').value === 'bucket';
+      $('ncCanonBody').querySelectorAll('tr').forEach(tr => {
+        if (isBucket) {
+          const label = ((tr.querySelector('.ncv-label') || {}).value || '').trim();
+          if (!label) return;
+          const lo = ((tr.querySelector('.ncv-lo') || {}).value || '').trim();
+          const hi = ((tr.querySelector('.ncv-hi') || {}).value || '').trim();
+          out.push({ code: label, label, day_range: [lo === '' ? null : Number(lo), hi === '' ? null : Number(hi)] });
+        } else {
+          const code = ((tr.querySelector('.ncv-code') || {}).value || '').trim();
+          if (!code) return;
+          const aliases = ((tr.querySelector('.ncv-aliases') || {}).value || '');
+          out.push({ code, label: code, aliases: aliases.split(',').map(a => a.trim()).filter(Boolean) });
+        }
       });
       return out;
     }
