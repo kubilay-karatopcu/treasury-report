@@ -119,3 +119,37 @@ class TestComposeUserMessage:
             table_docs=[_example_doc()],
         )
         assert "UYGUN_TALEP" in msg
+
+
+class TestDataSummaryConceptAnnotation:
+    """The Sunum edit LLM must see which PRODUCED-view columns are concept-bound
+    (column_concepts surfaced via data_summary) so it offers an interactive
+    filter instead of hardcoding a WHERE value."""
+
+    def test_concept_bound_column_marked_and_warned(self):
+        from presentations.llm import _data_summary_section
+        summary = {
+            "duration_ts_by_side": {
+                "row_count": 120,
+                "columns": [
+                    {"name": "PORTFOLIO_SIDE", "type": "VARCHAR",
+                     "concept": "portfolio_side",
+                     "distinct_values": ["ASSET", "LIABILITY"]},
+                    {"name": "AVG_MACAULAY_DURATION", "type": "DOUBLE"},
+                ],
+            }
+        }
+        section = _data_summary_section(summary)
+        assert "PORTFOLIO_SIDE:VARCHAR → concept: portfolio_side" in section
+        # Distinct values surfaced → become the filter's allowed_values.
+        assert "[değerler: ASSET, LIABILITY]" in section
+        # Actionable hint: use the sentinel + a filter patch, never hardcode.
+        assert "{{concept_filters}}" in section
+        assert "/filters/-" in section
+
+    def test_plain_column_has_no_concept_marker(self):
+        from presentations.llm import _data_summary_section
+        summary = {"v": {"row_count": 1, "columns": [{"name": "A", "type": "INT"}]}}
+        section = _data_summary_section(summary)
+        assert "→ concept:" not in section
+        assert "{{concept_filters}}" not in section

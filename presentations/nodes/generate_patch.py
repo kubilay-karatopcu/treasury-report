@@ -601,7 +601,57 @@ def _build_data_summary(state) -> dict | None:
         return None
     try:
         with state.session.duck_conn() as conn:
-            return summarize_views(conn, views)
+            summary = summarize_views(conn, views)
     except Exception as exc:
         log.warning("generate_patch: summarize_views failed: %s", exc)
         return None
+
+    # Annotate produced-view columns with the concept the user bound to them in
+    # Hazırlık (manifest.basket[].column_concepts) + a small DISTINCT sample. The
+    # LLM otherwise sees only name:type and can't tell PORTFOLIO_SIDE is concept-
+    # bound → it hardcodes a WHERE value instead of offering an interactive
+    # {{concept_filters}} filter. The distinct values become the filter's
+    # allowed_values (the produced view has no table-doc to source them from).
+    try:
+        cc_by_alias = {
+            b["alias"]: {str(k).upper(): v
+                         for k, v in (b.get("column_concepts") or {}).items()}
+            for b in ((state.manifest or {}).get("basket") or [])
+            if isinstance(b, dict) and b.get("alias") and b.get("column_concepts")
+        }
+        if cc_by_alias:
+            with state.session.duck_conn() as conn:
+                for view, info in summary.items():
+                    cc = cc_by_alias.get(view)
+                    if not cc:
+                        continue
+                    for col in info.get("columns", []):
+                        concept = cc.get(str(col.get("name")).upper())
+                        if not concept:
+                            continue
+                        col["concept"] = concept
+                        _attach_distinct_values(conn, view, col)
+    except Exception as exc:
+        log.warning("generate_patch: concept annotation failed (non-fatal): %s", exc)
+
+    return summary
+
+
+def _attach_distinct_values(conn, view: str, col: dict, cap: int = 50) -> None:
+    """Attach the distinct values of a concept-bound produced-view column (low-
+    cardinality dim) so the LLM can populate the dashboard filter's
+    allowed_values. Capped — a column with more than ``cap`` distinct values
+    isn't a sensible enum filter, so we leave allowed_values unset."""
+    name = str(col.get("name") or "")
+    if not name.replace("_", "").isalnum() or not str(view).replace("_", "").isalnum():
+        return
+    try:
+        rows = conn.execute(
+            f'SELECT DISTINCT "{name}" AS v FROM "{view}" '
+            f'WHERE "{name}" IS NOT NULL ORDER BY v LIMIT {cap + 1}'
+        ).fetchall()
+    except Exception:
+        return
+    vals = [r[0] for r in rows]
+    if 0 < len(vals) <= cap:
+        col["distinct_values"] = [str(v) for v in vals]
