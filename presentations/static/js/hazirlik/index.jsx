@@ -92,6 +92,7 @@ const CONCEPTS = DATA.concepts || [];   // #4 — {id,label,type,canonical_value
 const VALIDATE_CONCEPT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/validate-concept`);
 // Yeni konsept oluşturma — Kütüphane ile AYNI endpoint (registry'ye yazar, ~2s'de reload).
 const CONCEPT_CREATE_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/atolye/konseptler/create";
+const CONCEPT_UPDATE_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/atolye/konseptler/update";
 const SUGGESTED = DATA.suggested_edges || [];
 // Reload'da türetilmiş node'ların kolonlarını hemen doldur (ilk render'da "0
 // kolon" görünmesin). hydrateDerivedCols hoist'lu — aşağıda tanımlı.
@@ -2201,7 +2202,7 @@ function ConceptPicker({ value, onChange, onBrowse }) {
               <button type="button" key={c.id} className="hz-concept-item"
                       onClick={() => { onChange(c.id); setOpen(false); }}>
                 <span>{c.label || c.id}</span>
-                <span className="hz-concept-type">{c.type}</span>
+                <span className="hz-concept-type">{CONCEPT_TYPE_LABEL[c.type] || c.type}</span>
               </button>
             ))}
             {filtered.length === 0 && (
@@ -2220,17 +2221,33 @@ function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidat
   const [valid, setValid] = useState({});   // col -> {level,message,loading}
   const tracked = (col) => columnConcepts[col] || colMeta[col]?.concept || null;
   const fromSource = (col) => !columnConcepts[col] && !!colMeta[col]?.concept;
-  const setConcept = async (col, conceptId) => {
-    onSetConcept(col, conceptId);
+  const lastValidated = useRef(null);  // null = henüz tohumlanmadı (mount)
+  // Bir kolonun concept'ini doğrula (distinct vs tanım). Hem dropdown hem panel
+  // "Seç" aşağıdaki effect üzerinden buraya düşer → #2: panel seçimi de test edilir.
+  const runValidate = (col, conceptId) => {
+    lastValidated.current[col] = conceptId || null;
     if (!conceptId) { setValid((v) => ({ ...v, [col]: null })); return; }
     setValid((v) => ({ ...v, [col]: { loading: true } }));
-    try {
-      const res = await onValidate(col, conceptId);
-      setValid((v) => ({ ...v, [col]: res }));
-    } catch (e) {
-      setValid((v) => ({ ...v, [col]: { level: "warn", message: String(e.message || e) } }));
-    }
+    Promise.resolve(onValidate(col, conceptId))
+      .then((res) => setValid((v) => ({ ...v, [col]: res })))
+      .catch((e) => setValid((v) => ({ ...v, [col]: { level: "warn", message: String(e.message || e) } })));
   };
+  const setConcept = (col, conceptId) => { onSetConcept(col, conceptId); };
+  // SADECE kullanıcı bir concept SEÇİNCE (dropdown VEYA panel "Seç" → columnConcepts)
+  // doğrula. Mount'ta ya da kaynaktan-izlenen (colMeta) concept'lerde OTOMATİK
+  // tetikleme YOK → Konseptler açılınca validate-concept seli/donması olmaz: mevcut
+  // (persist) seçimler "doğrulandı" diye tohumlanır, çalıştırılmaz.
+  useEffect(() => {
+    if (lastValidated.current === null) {
+      lastValidated.current = {};
+      (columns || []).forEach((col) => { lastValidated.current[col] = columnConcepts[col] || null; });
+      return;
+    }
+    (columns || []).forEach((col) => {
+      const c = columnConcepts[col] || null;
+      if (lastValidated.current[col] !== c) runValidate(col, c);
+    });
+  }, [columnConcepts]);  // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="hz-concepts-tab ts-scroll">
       <table className="hz-concepts-table">
@@ -2273,10 +2290,28 @@ function conceptCategory(c) {
   return "global";
 }
 const CAT_LABEL = { global: "Global", dept: "Departman", user: "Kullanıcı" };
+// Konsept türleri — kullanıcı-dostu ad + açıklama. İç kod (enum/bucket/time/scalar)
+// değişmiyor (registry/derleyici onları bekler); yalnız görünen etiket + yardım.
+const CONCEPT_TYPE_LABEL = { enum: "Kategori", bucket: "Aralık", time: "Tarih/Zaman", scalar: "Sayısal" };
+const CONCEPT_TYPE_HELP = {
+  enum: "Tablodaki farklı yazımları tek bir değere toplar. Örn: tabloda \"Dolar\", \"$\", \"USD\" geçiyorsa → hepsini tek \"USD\" değerine bağlarsın.",
+  bucket: "Sayıyı aralıklara bölüp her birine ad verir. Örn: vade (gün) → 0–30: \"0-1A\", 31–90: \"1A-3A\".",
+  time: "Tarih kolonu — tarihe göre filtre + gün/ay/yıl gruplama. Örn: snapshot tarihi.",
+  scalar: "Düz sayı (oran, tutar, adet) — eşleme yok.",
+};
 
-function ConceptBrowser({ concepts, target, current, onSelect, onClose, onAddNew }) {
+function ConceptBrowser({ concepts, target, current, height, editableIds, onSelect, onClose, onAddNew, onEdit }) {
   const [cat, setCat] = useState("all");
   const [q, setQ] = useState("");
+  const ref = useRef(null);
+  // Dışarı tıkla → kapat (yeni-konsept modal'ı hariç; o panelin ÜSTÜNDE açılır).
+  useEffect(() => {
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target) && !e.target.closest(".hz-ncm-overlay")) onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [onClose]);
   const counts = useMemo(() => {
     const m = { global: 0, dept: 0, user: 0 };
     for (const c of concepts) m[conceptCategory(c)]++;
@@ -2292,7 +2327,7 @@ function ConceptBrowser({ concepts, target, current, onSelect, onClose, onAddNew
     });
   }, [concepts, cat, q]);
   return (
-    <aside className="hz-cbrowser">
+    <aside className="hz-cbrowser" ref={ref} style={height ? { height: `${height}px` } : undefined}>
       <div className="hz-cbrowser__head">
         <span className="hz-cbrowser__title">
           <Search size={13} /> Konsept Tarayıcı
@@ -2307,7 +2342,8 @@ function ConceptBrowser({ concepts, target, current, onSelect, onClose, onAddNew
           <button key={k} type="button"
                   className={`hz-cbrowser__cat${cat === k ? " on" : ""}`}
                   onClick={() => setCat(k)}>
-            {k === "all" ? "Tümü" : CAT_LABEL[k]}{k !== "all" ? ` ${counts[k]}` : ""}
+            {k === "all" ? "Tümü" : CAT_LABEL[k]}
+            {k !== "all" ? <span className="hz-cbrowser__cat-n">{counts[k]}</span> : null}
           </button>
         ))}
       </div>
@@ -2318,7 +2354,7 @@ function ConceptBrowser({ concepts, target, current, onSelect, onClose, onAddNew
             <div key={c.id} className={`hz-cbrowser__card${current === c.id ? " is-sel" : ""}`}>
               <div className="hz-cbrowser__card-head">
                 <span className="hz-cbrowser__card-name" title={c.id}>{c.label || c.id}</span>
-                <span className="hz-cbrowser__card-type">{c.type}</span>
+                <span className="hz-cbrowser__card-type">{CONCEPT_TYPE_LABEL[c.type] || c.type}</span>
               </div>
               <div className="hz-cbrowser__card-meta">
                 <span className={`hz-cbrowser__scope hz-cbrowser__scope--${ca}`}>{CAT_LABEL[ca]}</span>
@@ -2326,6 +2362,12 @@ function ConceptBrowser({ concepts, target, current, onSelect, onClose, onAddNew
               </div>
               {c.description && <div className="hz-cbrowser__card-desc">{c.description}</div>}
               <div className="hz-cbrowser__card-actions">
+                {editableIds && editableIds[c.id] && onEdit && (
+                  <button type="button" className="ts-btn ts-btn--sm" onClick={() => onEdit(c.id)}
+                          title="Bu ekrandan eklediğin konsepti düzenle">
+                    <Pencil size={12} /> Düzenle
+                  </button>
+                )}
                 <button type="button" className="ts-btn ts-btn--sm ts-btn--primary"
                         onClick={() => onSelect(c.id)}>
                   {current === c.id ? "✓ Seçili" : "Seç"}
@@ -2345,87 +2387,145 @@ function ConceptBrowser({ concepts, target, current, onSelect, onClose, onAddNew
   );
 }
 
-// Yeni konsept tanımlama modal'ı — Kütüphane formunun React karşılığı; AYNI
-// /atolye/konseptler/create endpoint'ine POST eder (registry'ye yazar, ~2s
-// reload). Başarılıysa onCreated ile listeye eklenir + dropdown'da görünür.
-function NewConceptModal({ onClose, onCreated }) {
-  const [id, setId] = useState("");
-  const [name, setName] = useState("");
-  const [type, setType] = useState("enum");
-  const [scope, setScope] = useState("user");
-  const [desc, setDesc] = useState("");
-  const [canon, setCanon] = useState("");
+// Yeni/var-olan konsept tanımlama modal'ı — Kütüphane formunun React karşılığı.
+// `initial` verilirse DÜZENLEME modu (update endpoint), yoksa OLUŞTURMA (create).
+// Aynı /atolye/konseptler/{create,update} endpoint'lerine POST eder (registry'ye
+// yazar, ~2s reload). Başarılıysa onSaved(summary, form, isEdit) ile döner.
+function NewConceptModal({ initial, onClose, onSaved }) {
+  const isEdit = !!initial;
+  const [id, setId] = useState(initial?.id || "");
+  const [name, setName] = useState(initial?.name || "");
+  const [type, setType] = useState(initial?.type || "enum");
+  const [scope, setScope] = useState(initial?.scope || "user");
+  const [desc, setDesc] = useState(initial?.description || "");
+  const [rows, setRows] = useState(initial?.rows || []);  // Kategori: {code,aliases}; Aralık: {label,lo,hi}
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const isBucket = type === "bucket";
   const needsCanon = type === "enum" || type === "bucket";
   const valid = /^[a-z][a-z0-9_]*$/.test(id.trim()) && name.trim();
+  // Tür değişince değer satırlarını sıfırla (Kategori ↔ Aralık kolonları farklı).
+  const onType = (t) => { setType(t); setRows([]); };
+  const addRow = () => setRows((r) => [...r, isBucket ? { label: "", lo: "", hi: "" } : { code: "", aliases: "" }]);
+  const updRow = (i, k, v) => setRows((r) => r.map((row, j) => (j === i ? { ...row, [k]: v } : row)));
+  const delRow = (i) => setRows((r) => r.filter((_, j) => j !== i));
+  // Satırlardan canonical_values üret. Kategori: konsept değeri = code = label,
+  // tablodaki karşılıklar = aliases. Aralık: etiket + [alt, üst] → day_range.
+  const buildCanon = () => isBucket
+    ? rows.filter((r) => (r.label || "").trim()).map((r) => ({
+        code: r.label.trim(), label: r.label.trim(),
+        day_range: [r.lo === "" || r.lo == null ? null : Number(r.lo), r.hi === "" || r.hi == null ? null : Number(r.hi)],
+      }))
+    : rows.filter((r) => (r.code || "").trim()).map((r) => ({
+        code: r.code.trim(), label: r.code.trim(),
+        aliases: (r.aliases || "").split(",").map((a) => a.trim()).filter(Boolean),
+      }));
   const submit = async () => {
     setBusy(true); setErr(null);
-    const canonical_values = needsCanon
-      ? canon.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
-          const [code, label, aliases] = l.split("|").map((x) => (x || "").trim());
-          return { code, label: label || code, aliases: (aliases || "").split(",").map((a) => a.trim()).filter(Boolean) };
-        })
-      : [];
+    const canonical_values = needsCanon ? buildCanon() : [];
     try {
-      const r = await fetch(CONCEPT_CREATE_URL, {
+      const r = await fetch(isEdit ? CONCEPT_UPDATE_URL : CONCEPT_CREATE_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: id.trim(), name: name.trim(), type, scope, description: desc.trim(), canonical_values }),
       });
       const data = await r.json();
-      if (!data.ok) { setErr((data.errors || [data.error || "Oluşturulamadı"]).join("; ")); return; }
-      onCreated({
+      if (!data.ok) { setErr((data.errors || [data.error || "Kaydedilemedi"]).join("; ")); return; }
+      const summary = {
         id: data.id || id.trim(), label: name.trim(), type,
         ops: type === "time" ? ["between", "last_n_days", "eq"] : (needsCanon ? ["in", "not_in", "eq"] : ["eq", "between"]),
         canonical_values: canonical_values.map((c) => c.code),
         scope: data.scope || scope, description: desc.trim(),
-      });
+      };
+      const form = { id: id.trim(), name: name.trim(), type, scope: data.scope || scope, description: desc.trim(), rows };
+      onSaved(summary, form, isEdit);
     } catch (e) { setErr(String(e)); } finally { setBusy(false); }
   };
   return (
-    <Modal title="Yeni konsept tanımla" size="sm" onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="ts-btn ts-btn--sm" onClick={onClose}>Vazgeç</button>
-          <button type="button" className="ts-btn ts-btn--sm ts-btn--primary" disabled={!valid || busy} onClick={submit}>
-            {busy ? <Loader2 size={13} className="ts-spin" /> : <Plus size={13} />} Oluştur
+    <div className="hz-ncm-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="hz-ncm-modal" role="dialog" aria-modal="true">
+        <h3 className="hz-ncm-title">{isEdit ? "Konsepti düzenle" : "Yeni konsept tanımla"}</h3>
+        {err && <div className="hz-ncm-err">{err}</div>}
+        <div className="hz-ncm-field">
+          <label>Kimlik (lower_snake, benzersiz)</label>
+          <input type="text" value={id} onChange={(e) => setId(e.target.value)} readOnly={isEdit}
+                 placeholder="ör. counterparty_segment" />
+        </div>
+        <div className="hz-ncm-field">
+          <label>Ad</label>
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="ör. Karşı Taraf Segmenti" />
+        </div>
+        <div className="hz-ncm-row">
+          <div className="hz-ncm-field">
+            <label>Tür</label>
+            <select value={type} onChange={(e) => onType(e.target.value)}>
+              <option value="enum">Kategori</option>
+              <option value="bucket">Aralık</option>
+              <option value="time">Tarih/Zaman</option>
+              <option value="scalar">Sayısal</option>
+            </select>
+          </div>
+          <div className="hz-ncm-field">
+            <label>Kapsam</label>
+            <select value={scope} onChange={(e) => setScope(e.target.value)} disabled={isEdit}>
+              <option value="user">Kullanıcı</option>
+              <option value="global">Global</option>
+            </select>
+          </div>
+        </div>
+        <div className="hz-ncm-help">{CONCEPT_TYPE_HELP[type]}</div>
+        <div className="hz-ncm-field">
+          <label>Açıklama</label>
+          <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="kısa tanım (opsiyonel)" />
+        </div>
+        {needsCanon && (
+          <div className="hz-ncm-field">
+            <label>{isBucket ? "Aralıklar" : "Değer eşlemeleri"}</label>
+            <table className="hz-ncm-table">
+              <thead>
+                <tr>
+                  {isBucket
+                    ? (<><th>Etiket</th><th>Alt</th><th>Üst</th></>)
+                    : (<><th>Konsept değeri</th><th>Tablodaki karşılık(lar)</th></>)}
+                  <th aria-label="sil"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    {isBucket ? (
+                      <>
+                        <td><input value={r.label || ""} onChange={(e) => updRow(i, "label", e.target.value)} placeholder="1A-3A" /></td>
+                        <td><input value={r.lo || ""} onChange={(e) => updRow(i, "lo", e.target.value)} placeholder="31" /></td>
+                        <td><input value={r.hi || ""} onChange={(e) => updRow(i, "hi", e.target.value)} placeholder="90" /></td>
+                      </>
+                    ) : (
+                      <>
+                        <td><input value={r.code || ""} onChange={(e) => updRow(i, "code", e.target.value)} placeholder="USD" /></td>
+                        <td><input value={r.aliases || ""} onChange={(e) => updRow(i, "aliases", e.target.value)} placeholder="Dolar, $, Dollar" /></td>
+                      </>
+                    )}
+                    <td><button type="button" className="hz-ncm-rowdel" onClick={() => delRow(i)} title="Satırı sil"><X size={12} /></button></td>
+                  </tr>
+                ))}
+                {rows.length === 0 && (
+                  <tr><td className="hz-ncm-table-empty" colSpan={isBucket ? 4 : 3}>Henüz satır yok — "Satır ekle" ile başla.</td></tr>
+                )}
+              </tbody>
+            </table>
+            <button type="button" className="hz-ncm-addrow" onClick={addRow}><Plus size={12} /> Satır ekle</button>
+            <div className="hz-ncm-sub">{isBucket
+              ? "Etiket zorunlu; alt/üst boş bırakılabilir (açık uç). Sayı = gün/birim."
+              : "Konsept değeri zorunlu; tablodaki karşılıkları virgülle ayır."}</div>
+          </div>
+        )}
+        <div className="hz-ncm-actions">
+          <button type="button" onClick={onClose}>Vazgeç</button>
+          <button type="button" className="primary" disabled={!valid || busy} onClick={submit}>
+            {busy ? (isEdit ? "Kaydediliyor…" : "Oluşturuluyor…") : (isEdit ? "Kaydet" : "+ Oluştur")}
           </button>
-        </>
-      }>
-      {err && <div className="hz-error">{err}</div>}
-      <label className="hz-field">Kimlik (lower_snake, benzersiz)
-        <input type="text" value={id} onChange={(e) => setId(e.target.value)} placeholder="ör. counterparty_segment" />
-      </label>
-      <label className="hz-field">Ad
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="ör. Karşı Taraf Segmenti" />
-      </label>
-      <div className="hz-row">
-        <label className="hz-field">Tip
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="enum">enum</option>
-            <option value="time">time</option>
-            <option value="bucket">bucket</option>
-            <option value="scalar">scalar</option>
-          </select>
-        </label>
-        <label className="hz-field">Kapsam
-          <select value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="user">Kullanıcı</option>
-            <option value="global">Global</option>
-          </select>
-        </label>
+        </div>
       </div>
-      <label className="hz-field">Açıklama
-        <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="kısa tanım (opsiyonel)" />
-      </label>
-      {needsCanon && (
-        <label className="hz-field">Kanonik değerler — satır başına: <code>KOD | Etiket | alias1,alias2</code>
-          <textarea className="hz-sql-textarea" rows={4} value={canon}
-            onChange={(e) => setCanon(e.target.value)}
-            placeholder={"RETAIL | Bireysel | RET\nCORP | Kurumsal"} />
-        </label>
-      )}
-    </Modal>
+    </div>
   );
 }
 
@@ -2599,13 +2699,24 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
               <Save size={13} /> Filtreyi kaydet
             </button>
           )}
-          {tab === "data" && (
-            <button className="ts-btn ts-btn--sm hz-py-create" disabled={!preview || preview.error}
-                    onClick={() => onCreatePython && onCreatePython(preview.alias)}
-                    title="Bu tablodan Python ile yeni bir node üret (input_node_df → output_node_df)">
-              <Code2 size={13} /> <ArrowRight size={12} /> <Table2 size={13} /> Python
-            </button>
-          )}
+          {tab === "data" && (() => {
+            // #1 — Python YALNIZ cache'li (materialised) veride çalışır: lazy/main
+            // tabloda veri cache'lenmediğinden örnekleyip python koşamayız. Uygun:
+            // türetilmiş node'lar (zaten materialised) + cache'li main + SQL dataset.
+            const canPy = !!item && (item.derivation != null || item.sql != null || item.routing?.decision === "cached");
+            return canPy ? (
+              <button className="ts-btn ts-btn--sm hz-py-create" disabled={!preview || preview.error}
+                      onClick={() => onCreatePython && onCreatePython(preview.alias)}
+                      title="Bu tablodan Python ile yeni bir node üret (input_node_df → output_node_df)">
+                <Code2 size={13} /> <ArrowRight size={12} /> <Table2 size={13} /> Python
+              </button>
+            ) : (
+              <span className="hz-py-blocked"
+                    title="Bu main tablo cache'li değil (lazy) — veriyi cache'lemediğimiz için python çalıştıramayız. Node'u cached yap, sonra Python üret. (Lazy tablo için SQL → Tablo kullanılabilir.)">
+                <Lock size={12} /> Python: tablo cache'li değil
+              </span>
+            );
+          })()}
           {tab === "data" && (
             <div className="hz-colmenu-wrap" ref={colMenuRef}>
               <button className="ts-btn ts-btn--sm" disabled={!preview || preview.error}
@@ -2870,6 +2981,10 @@ function App() {
   const [conceptBrowser, setConceptBrowser] = useState(null);  // {alias, column, current}
   const [newConceptOpen, setNewConceptOpen] = useState(false);
   const [conceptList, setConceptList] = useState(CONCEPTS);
+  const [createdForms, setCreatedForms] = useState({});   // bu oturumda üretilen konsept form'ları (id → form) → buradan editlenebilir
+  const [editConcept, setEditConcept] = useState(null);   // {form} | null → modal düzenleme modu
+  // #1 — preview drawer kapanınca (canvas/pane tıkı, X) konsept panelini de kapat.
+  useEffect(() => { if (!preview) setConceptBrowser(null); }, [preview]);
   const [drawerH, setDrawerH] = useState(260);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -4626,8 +4741,11 @@ function App() {
             concepts={conceptList}
             target={conceptBrowser.column}
             current={conceptBrowser.current}
+            height={drawerH}
+            editableIds={createdForms}
             onClose={() => setConceptBrowser(null)}
             onAddNew={() => setNewConceptOpen(true)}
+            onEdit={(cid) => setEditConcept(createdForms[cid])}
             onSelect={(cid) => {
               setColumnConcept(conceptBrowser.alias, conceptBrowser.column, cid);
               setConceptBrowser((b) => (b ? { ...b, current: cid } : b));
@@ -4636,13 +4754,17 @@ function App() {
         )}
       </div>
 
-      {newConceptOpen && (
+      {(newConceptOpen || editConcept) && (
         <NewConceptModal
-          onClose={() => setNewConceptOpen(false)}
-          onCreated={(c) => {
-            CONCEPTS.push(c); setConceptList([...CONCEPTS]);
-            setNewConceptOpen(false);
-            setToast(`'${c.label || c.id}' konsepti eklendi`);
+          initial={editConcept}
+          onClose={() => { setNewConceptOpen(false); setEditConcept(null); }}
+          onSaved={(summary, form, isEdit) => {
+            const i = CONCEPTS.findIndex((c) => c.id === summary.id);
+            if (i >= 0) CONCEPTS[i] = summary; else CONCEPTS.push(summary);
+            setConceptList([...CONCEPTS]);
+            setCreatedForms((m) => ({ ...m, [summary.id]: form }));
+            setNewConceptOpen(false); setEditConcept(null);
+            setToast(isEdit ? `'${summary.label || summary.id}' güncellendi` : `'${summary.label || summary.id}' eklendi`);
           }}
         />
       )}

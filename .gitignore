@@ -38,6 +38,8 @@ presentations/static/js/bloklar.bundle.js.map
 
 # DEV-only — local stub, sample data, reference dumps. PROD'da kullanılmaz.
 fake_db.py
+# Kullanıcı-scope konseptler kişiseldir (Phase 7: user-scope DB/lokal) — git'e girmez.
+presentations/catalog/concepts/user.yaml
 granted_tables.txt
 examples/
 reference/
