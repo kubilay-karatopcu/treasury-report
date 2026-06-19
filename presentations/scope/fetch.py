@@ -411,6 +411,15 @@ def compile_aggregate_sql(item: BasketItem) -> str:
         else:
             selects.append(f'{_AGG[m.fn]}("{m.column}") AS "{m.as_}"')
     sel = ", ".join(selects) if selects else "*"
+    # Guard: measures-with-no-group_by emits `SELECT col, SUM(...) FROM t` with
+    # NO GROUP BY → DuckDB binder error ("column must appear in the GROUP BY
+    # clause"). Fail loud with an actionable message instead of shipping broken
+    # SQL (the LLM occasionally proposes this; the right fix is a python_node).
+    if d.measures and not d.group_by:
+        raise ValueError(
+            f"aggregate '{item.alias}': measures var ama group_by boş — "
+            "GROUP BY'sız SUM/AVG geçersiz. Bu dönüşüm için python_node kullan."
+        )
     group = (" GROUP BY " + ", ".join(f'"{g}"' for g in d.group_by)) if d.group_by else ""
     return f'SELECT {sel} FROM "{d.source_alias}"{group}'
 
