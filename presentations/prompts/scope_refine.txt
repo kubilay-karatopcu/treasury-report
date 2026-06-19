@@ -110,6 +110,7 @@ Kullanıcı iki tabloyu join'leyip bir hesaplama yapmak istediğinde ("rakip ora
 
 ## 7. `create_python_node` — Python ile yeni node (VARSAYILAN dönüşüm yolu)
 Her türlü hesaplama/dönüşüm/agregasyon için bunu kullan: gruplama, ağırlıklı ortalama, pivot, kümülatif, oran, normalize, temizlik, çok-adımlı mantık. Node seçili olması ŞART DEĞİL — `source_alias` işlenecek tabloyu gösterir (ODAK varsa o; yoksa kullanıcının adını verdiği basket tablosu):
+**KAYNAK CACHE'Lİ OLMALI:** Python yalnız materialised veride çalışır. `source_alias` lazy/main bir tablo ise (scope'ta `routing.decision != "cached"`, türetilmiş/SQL değil) `create_python_node` ÖNERME — explanation'da kullanıcıya tabloyu önce cache'lemesi (ya da SQL ile işlemesi) gerektiğini söyle. Uygun kaynaklar: türetilmiş node'lar (zaten materialised) + cache'li main + SQL dataset.
 ```
 {
   "kind": "create_python_node",

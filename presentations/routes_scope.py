@@ -2980,6 +2980,16 @@ def _apply_create_python_node(s: dict, sugg: dict) -> dict:
     if source_alias not in aliases_in_basket:
         raise _ApplyError(f"create_python_node: source_alias '{source_alias}' basket'te yok")
 
+    # #1 — Python YALNIZ cache'li (materialised) veride çalışır. Lazy/main kaynakta
+    # veri cache'lenmediğinden örnekleyip python koşamayız → reddet. Uygun: türetilmiş
+    # node (zaten materialised) + SQL dataset + cache'li main. (SQL → Tablo lazy yolu.)
+    src_item = next((b for b in s["basket"] if b.get("alias") == source_alias), None)
+    if src_item is not None and not src_item.get("derivation") and not src_item.get("sql") \
+            and (src_item.get("routing") or {}).get("decision") != "cached":
+        raise _ApplyError(
+            f"create_python_node: '{source_alias}' cache'li değil (lazy/main). "
+            "Python yalnız materialised veride çalışır — tabloyu önce cache'le.")
+
     new_alias = sugg.get("new_alias") or f"{source_alias}_py"
     # Çakışıyorsa benzersizleştir (_2, _3 …) — Apply'ı bloklamak yerine.
     base, n = new_alias, 2
