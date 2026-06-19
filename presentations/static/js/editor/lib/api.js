@@ -535,3 +535,29 @@ export async function fetchTableConcepts(tableId) {
     return { columns: {} };
   }
 }
+
+
+/**
+ * Full table detail (columns WITH types) for a corporate catalog table.
+ * The /sources list endpoint strips `columns` to keep the payload small, so
+ * the docs panel fetches them on demand from the catalog detail endpoint.
+ * `tableId` is "SCHEMA.TABLE". Returns `{ columns: [{name, type, ...}] }` and
+ * never throws — degrades to an empty list so the panel just shows no columns.
+ */
+export async function fetchTableDetail(tableId) {
+  const dot = String(tableId || '').indexOf('.');
+  if (dot < 0) return { columns: [] };
+  const schema = tableId.slice(0, dot);
+  const table = tableId.slice(dot + 1);
+  try {
+    const resp = await fetch(
+      `${PRES_BASE}/catalog/${encodeURIComponent(schema)}/${encodeURIComponent(table)}`,
+      { headers: { Accept: 'application/json' }, cache: 'no-store' },
+    );
+    if (!resp.ok) return { columns: [] };
+    const body = await resp.json();
+    return { ...body, columns: body.columns || [] };
+  } catch (_e) {
+    return { columns: [] };
+  }
+}

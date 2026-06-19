@@ -268,6 +268,10 @@ function _defaultTitle(type) {
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
+// Debounce handle for auto-applying dashboard filters on change (#3 — the user
+// shouldn't press "Güncelle"; sliding a date range should re-render live).
+let _autoApplyTimer = null;
+
 const useStore = create((set) => ({
   mode:            'editor',
   manifest:        null,
@@ -808,6 +812,18 @@ const useStore = create((set) => ({
 
   setFilterValue: (filterId, value) => {
     set((s) => ({ filterState: { ...s.filterState, [filterId]: value } }));
+    // Auto-apply (debounced): re-run blocks without the "Güncelle" button.
+    // Coalesces rapid changes (date-range slide, multi-select toggles). If an
+    // apply is already in flight, retry shortly so the latest value still lands.
+    if (_autoApplyTimer) clearTimeout(_autoApplyTimer);
+    const tick = () => {
+      const st = useStore.getState();
+      if (!st.manifest) { _autoApplyTimer = null; return; }
+      if (st.filterBusy) { _autoApplyTimer = setTimeout(tick, 300); return; }
+      _autoApplyTimer = null;
+      st.applyFilters().catch((e) => console.error('auto-apply başarısız:', e));
+    };
+    _autoApplyTimer = setTimeout(tick, 450);
   },
 
   initFilterStateFromManifest: () => {
