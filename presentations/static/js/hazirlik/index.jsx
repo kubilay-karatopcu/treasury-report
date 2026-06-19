@@ -37,7 +37,7 @@ import {
   X, Plus, Trash2, Database, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight,
   MessageSquare, Save, Eraser, Table2, Pencil,
   Building2, Percent, Network, Calendar, Upload, Send, Loader2, Eye, EyeOff, Info, Tag, Code2,
-  Play, Lock, Columns3, ChevronDown, Search,
+  Play, Lock, Columns3, ChevronDown, Search, Sparkles,
 } from "lucide-react";
 
 // Same icon picker Sunum's Basket.jsx uses — domain.icon takes the
@@ -90,6 +90,8 @@ const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
 const CONCEPTS = DATA.concepts || [];   // #4 — {id,label,type,canonical_values}
 const VALIDATE_CONCEPT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/validate-concept`);
+// MVP — kolona göre konsept önerisi (sıralı mevcut + yeni taslak), deterministik backend.
+const SUGGEST_CONCEPTS_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/suggest-concepts`);
 // Yeni konsept oluşturma — Kütüphane ile AYNI endpoint (registry'ye yazar, ~2s'de reload).
 const CONCEPT_CREATE_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/atolye/konseptler/create";
 const CONCEPT_UPDATE_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/atolye/konseptler/update";
@@ -2300,7 +2302,7 @@ const CONCEPT_TYPE_HELP = {
   scalar: "Düz sayı (oran, tutar, adet) — eşleme yok.",
 };
 
-function ConceptBrowser({ concepts, target, current, height, editableIds, onSelect, onClose, onAddNew, onEdit }) {
+function ConceptBrowser({ concepts, target, current, height, editableIds, suggest, onSelect, onClose, onAddNew, onEdit }) {
   const [cat, setCat] = useState("all");
   const [q, setQ] = useState("");
   const ref = useRef(null);
@@ -2347,6 +2349,26 @@ function ConceptBrowser({ concepts, target, current, height, editableIds, onSele
           </button>
         ))}
       </div>
+      {suggest && (suggest.loading || (suggest.ranked && suggest.ranked.length > 0)) && (
+        <div className="hz-cbrowser__sugg">
+          <div className="hz-cbrowser__sugg-h"><Sparkles size={12} /> Bu kolona uygun</div>
+          {suggest.loading ? (
+            <div className="hz-cbrowser__sugg-load"><Loader2 size={12} className="hz-spin" /> aranıyor…</div>
+          ) : suggest.ranked.map((s) => (
+            <div key={s.id} className="hz-cbrowser__sugg-card">
+              <div className="hz-cbrowser__sugg-top">
+                <span className="hz-cbrowser__sugg-name" title={s.id}>{s.label}</span>
+                <span className="hz-cbrowser__sugg-score" title="tahmini uyum">%{Math.round((s.score || 0) * 100)}</span>
+              </div>
+              <div className="hz-cbrowser__sugg-why">{s.rationale}</div>
+              <button type="button" className="ts-btn ts-btn--sm ts-btn--primary hz-cbrowser__sugg-pick"
+                      onClick={() => onSelect(s.id)}>
+                {current === s.id ? "✓ Seçili" : "Seç"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="hz-cbrowser__list ts-scroll">
         {filtered.map((c) => {
           const ca = conceptCategory(c);
@@ -2379,8 +2401,10 @@ function ConceptBrowser({ concepts, target, current, height, editableIds, onSele
         {filtered.length === 0 && <div className="hz-cbrowser__empty">Eşleşen konsept yok.</div>}
       </div>
       <div className="hz-cbrowser__foot">
-        <button type="button" className="ts-btn ts-btn--sm hz-cbrowser__add" onClick={onAddNew}>
-          <Plus size={13} /> Konsept ekle
+        <button type="button" className="ts-btn ts-btn--sm hz-cbrowser__add"
+                onClick={() => onAddNew(suggest && suggest.draft)}
+                title={target ? `'${target}' kolonuna göre ön-dolu açılır` : undefined}>
+          <Plus size={13} /> Konsept ekle{suggest && suggest.draft ? " (öneri dolu)" : ""}
         </button>
       </div>
     </aside>
@@ -2391,8 +2415,7 @@ function ConceptBrowser({ concepts, target, current, height, editableIds, onSele
 // `initial` verilirse DÜZENLEME modu (update endpoint), yoksa OLUŞTURMA (create).
 // Aynı /atolye/konseptler/{create,update} endpoint'lerine POST eder (registry'ye
 // yazar, ~2s reload). Başarılıysa onSaved(summary, form, isEdit) ile döner.
-function NewConceptModal({ initial, onClose, onSaved }) {
-  const isEdit = !!initial;
+function NewConceptModal({ initial, isEdit = false, onClose, onSaved }) {
   const [id, setId] = useState(initial?.id || "");
   const [name, setName] = useState(initial?.name || "");
   const [type, setType] = useState(initial?.type || "enum");
@@ -2979,12 +3002,34 @@ function App() {
   const [pythonRun, setPythonRun] = useState(null);
   // Konsept tarayıcı side panel ("Detaylı ara") + yeni-konsept modal.
   const [conceptBrowser, setConceptBrowser] = useState(null);  // {alias, column, current}
-  const [newConceptOpen, setNewConceptOpen] = useState(false);
+  const [conceptModal, setConceptModal] = useState(null);  // {initial, isEdit} | null → yeni / taslak / düzenle
   const [conceptList, setConceptList] = useState(CONCEPTS);
   const [createdForms, setCreatedForms] = useState({});   // bu oturumda üretilen konsept form'ları (id → form) → buradan editlenebilir
-  const [editConcept, setEditConcept] = useState(null);   // {form} | null → modal düzenleme modu
+  // MVP — "Detaylı ara" açılınca kolona göre öneri (sıralı mevcut + yeni taslak).
+  const [conceptSuggest, setConceptSuggest] = useState(null);  // {loading, ranked, draft, column} | null
   // #1 — preview drawer kapanınca (canvas/pane tıkı, X) konsept panelini de kapat.
   useEffect(() => { if (!preview) setConceptBrowser(null); }, [preview]);
+  // MVP — konsept tarayıcı açılınca kolona göre öneri çek (deterministik backend).
+  // Deps yalnız alias+column: seçim (current değişimi) yeniden çekmesin.
+  useEffect(() => {
+    if (!conceptBrowser) { setConceptSuggest(null); return; }
+    const { alias, column } = conceptBrowser;
+    let alive = true;
+    setConceptSuggest({ loading: true, ranked: [], draft: null, column });
+    fetch(SUGGEST_CONCEPTS_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope, alias, column }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return;
+        setConceptSuggest(d && d.ok
+          ? { loading: false, ranked: d.ranked_existing || [], draft: d.draft_new || null, column }
+          : { loading: false, ranked: [], draft: null, column });
+      })
+      .catch(() => { if (alive) setConceptSuggest({ loading: false, ranked: [], draft: null, column }); });
+    return () => { alive = false; };
+  }, [conceptBrowser?.alias, conceptBrowser?.column]);  // eslint-disable-line react-hooks/exhaustive-deps
   const [drawerH, setDrawerH] = useState(260);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -4743,9 +4788,10 @@ function App() {
             current={conceptBrowser.current}
             height={drawerH}
             editableIds={createdForms}
+            suggest={conceptSuggest}
             onClose={() => setConceptBrowser(null)}
-            onAddNew={() => setNewConceptOpen(true)}
-            onEdit={(cid) => setEditConcept(createdForms[cid])}
+            onAddNew={(draft) => setConceptModal({ initial: draft || null, isEdit: false })}
+            onEdit={(cid) => setConceptModal({ initial: createdForms[cid], isEdit: true })}
             onSelect={(cid) => {
               setColumnConcept(conceptBrowser.alias, conceptBrowser.column, cid);
               setConceptBrowser((b) => (b ? { ...b, current: cid } : b));
@@ -4754,16 +4800,17 @@ function App() {
         )}
       </div>
 
-      {(newConceptOpen || editConcept) && (
+      {conceptModal && (
         <NewConceptModal
-          initial={editConcept}
-          onClose={() => { setNewConceptOpen(false); setEditConcept(null); }}
+          initial={conceptModal.initial}
+          isEdit={conceptModal.isEdit}
+          onClose={() => setConceptModal(null)}
           onSaved={(summary, form, isEdit) => {
             const i = CONCEPTS.findIndex((c) => c.id === summary.id);
             if (i >= 0) CONCEPTS[i] = summary; else CONCEPTS.push(summary);
             setConceptList([...CONCEPTS]);
             setCreatedForms((m) => ({ ...m, [summary.id]: form }));
-            setNewConceptOpen(false); setEditConcept(null);
+            setConceptModal(null);
             setToast(isEdit ? `'${summary.label || summary.id}' güncellendi` : `'${summary.label || summary.id}' eklendi`);
           }}
         />
