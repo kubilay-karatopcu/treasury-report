@@ -22,6 +22,7 @@ import {
 import GraphCanvas from "./GraphCanvas.jsx";
 import { useBlocksState, BlocksFilters, BlocksCenter } from "./blocks_workbench.jsx";
 import ChatDrawer from "./ChatDrawer.jsx";
+import useResizable from "../editor/lib/useResizable.js";
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
 
@@ -599,6 +600,9 @@ function App() {
   // its column template when the rail is collapsed so the left rail +
   // canvas reclaim the freed width.
   const isRightOpen = !!selectedId || basket.length > 0;
+  // Sürüklenebilir sol panel (Sunum/Hazırlık'la aynı hook + .resize-handle).
+  // Grid tabanlı olduğu için genişliği inline grid-template-columns ile veriyoruz.
+  const [leftW, startLeftDrag] = useResizable("kesif-left", 280, "right", { min: 220, max: 560 });
 
   return (
     <>
@@ -613,7 +617,10 @@ function App() {
         onChange={onTitleChange}
         onSave={onWorkshopSave}
       />
-      <div className={`kesif-body${isRightOpen ? "" : " kesif-body--right-collapsed"}`}>
+      <div className={`kesif-body${isRightOpen ? "" : " kesif-body--right-collapsed"}`}
+           style={{ gridTemplateColumns: isRightOpen ? `${leftW}px 1fr 340px` : `${leftW}px 1fr` }}>
+        <div className="resize-handle" style={{ left: (leftW - 3) + "px" }}
+             onMouseDown={startLeftDrag} title="Sürükle: panel genişliğini değiştir" />
         <LeftRail
           facets={facets}
           loading={loadingCatalog}
