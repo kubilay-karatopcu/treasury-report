@@ -760,57 +760,81 @@ const EDGE_TYPES = { hzPairEdge: HzPairEdge };
 function JoinKeyModal({ left, right, preLcol, preRcol, onSave, onClose }) {
   const lc = COLS_BY_ALIAS[left] || [];
   const rc = COLS_BY_ALIAS[right] || [];
-  const [lcol, setLcol] = useState(preLcol || lc[0]?.name || "");
-  const [rcol, setRcol] = useState(preRcol || rc[0]?.name || "");
+  // Multi-key: a list of {lcol, rcol} pairs, all AND'ed in the join condition
+  // (e.g. date + currency). Seeded with the dragged columns (or first of each).
+  const [keys, setKeys] = useState([{
+    lcol: preLcol || lc[0]?.name || "",
+    rcol: preRcol || rc[0]?.name || "",
+  }]);
   const [kind, setKind] = useState("inner");
 
-  // Each side's selected column's concept — render as a chip so the user
-  // sees at a glance whether the pairing makes semantic sense.
-  const lConcept = lc.find((c) => c.name === lcol)?.concept || null;
-  const rConcept = rc.find((c) => c.name === rcol)?.concept || null;
-  const conceptsMatch = lConcept && rConcept && lConcept === rConcept;
-
-  // Format an <option> label that includes the column's concept (if any) so
-  // the dropdown also shows the semantic tag inline.
   const optLabel = (c) => (c.concept ? `${c.name} · ${c.concept}` : c.name);
+  const conceptOf = (cols, name) => cols.find((c) => c.name === name)?.concept || null;
+
+  const setKey = (i, patch) =>
+    setKeys((ks) => ks.map((k, j) => (j === i ? { ...k, ...patch } : k)));
+  const addKey = () =>
+    setKeys((ks) => [...ks, { lcol: lc[0]?.name || "", rcol: rc[0]?.name || "" }]);
+  const removeKey = (i) => setKeys((ks) => ks.filter((_, j) => j !== i));
+
+  const validKeys = keys.filter((k) => k.lcol && k.rcol);
+  const anyMismatch = validKeys.some((k) => {
+    const l = conceptOf(lc, k.lcol), r = conceptOf(rc, k.rcol);
+    return l && r && l !== r;
+  });
 
   return (
-    <Modal title={`Join Tablosu: ${left} + ${right}`} onClose={onClose} footer={
+    <Modal title={`Join Tablosu: ${left} + ${right}`} size="lg" onClose={onClose} footer={
       <>
         <button className="ts-btn" onClick={onClose}>Vazgeç</button>
-        <button className="ts-btn ts-btn--primary" disabled={!lcol || !rcol}
-          onClick={() => onSave({ lcol, rcol, kind })}>Join tablosu oluştur</button>
+        <button className="ts-btn ts-btn--primary" disabled={!validKeys.length}
+          onClick={() => onSave({ keys: validKeys, kind })}>Join tablosu oluştur</button>
       </>
     }>
       <p className="hz-muted">
         İki tabloyu birleştirip <strong>yeni bir türetilmiş tablo</strong> üretir
-        (ortada bir node). Hangi kolonlardan birleşsin?
+        (ortada bir node). Hangi kolon(lar)dan birleşsin? Birden çok anahtar
+        eklersen hepsi <strong>AND</strong>’lenir.
       </p>
-      <div className="hz-row">
-        <label className="hz-field">{left}
-          <select value={lcol} onChange={(e) => setLcol(e.target.value)}>
-            {lc.map((c) => <option key={c.name} value={c.name}>{optLabel(c)}</option>)}
-            {lc.length === 0 && <option value="">(kolon yok)</option>}
-          </select>
-          {lConcept && (
-            <span className={`hz-col-concept hz-join-concept${conceptsMatch ? " hz-join-concept--match" : ""}`}>{lConcept}</span>
-          )}
-        </label>
-        <label className="hz-field">{right}
-          <select value={rcol} onChange={(e) => setRcol(e.target.value)}>
-            {rc.map((c) => <option key={c.name} value={c.name}>{optLabel(c)}</option>)}
-            {rc.length === 0 && <option value="">(kolon yok)</option>}
-          </select>
-          {rConcept && (
-            <span className={`hz-col-concept hz-join-concept${conceptsMatch ? " hz-join-concept--match" : ""}`}>{rConcept}</span>
-          )}
-        </label>
+      <div className="hz-join-keys">
+        <div className="hz-join-keys__head">
+          <span>{left}</span><span></span><span>{right}</span><span></span>
+        </div>
+        {keys.map((k, i) => {
+          const lConcept = conceptOf(lc, k.lcol);
+          const rConcept = conceptOf(rc, k.rcol);
+          const match = lConcept && rConcept && lConcept === rConcept;
+          const chip = (c) => c && (
+            <span className={`hz-col-concept hz-join-concept${match ? " hz-join-concept--match" : ""}`}>{c}</span>
+          );
+          return (
+            <div className="hz-join-key-row" key={i}>
+              <div className="hz-join-key-cell">
+                <select value={k.lcol} onChange={(e) => setKey(i, { lcol: e.target.value })}>
+                  {lc.map((c) => <option key={c.name} value={c.name}>{optLabel(c)}</option>)}
+                  {lc.length === 0 && <option value="">(kolon yok)</option>}
+                </select>
+                {chip(lConcept)}
+              </div>
+              <div className="hz-join-key-eq">=</div>
+              <div className="hz-join-key-cell">
+                <select value={k.rcol} onChange={(e) => setKey(i, { rcol: e.target.value })}>
+                  {rc.map((c) => <option key={c.name} value={c.name}>{optLabel(c)}</option>)}
+                  {rc.length === 0 && <option value="">(kolon yok)</option>}
+                </select>
+                {chip(rConcept)}
+              </div>
+              <button type="button" className="hz-join-key-del" title="Anahtarı kaldır"
+                disabled={keys.length === 1} onClick={() => removeKey(i)}>×</button>
+            </div>
+          );
+        })}
+        <button type="button" className="hz-add-key" onClick={addKey}>+ Anahtar ekle</button>
       </div>
-      {lConcept && rConcept && (
-        <p className={`hz-join-concept-hint${conceptsMatch ? " is-match" : " is-mismatch"}`}>
-          {conceptsMatch
-            ? `✓ Her iki tarafta da '${lConcept}' concept'i — anlamsal eşleşme.`
-            : `⚠ Concept'ler farklı: '${lConcept}' ↔ '${rConcept}'. Join yine de kurulabilir ama semantik eşleşme yok.`}
+      {anyMismatch && (
+        <p className="hz-join-concept-hint is-mismatch">
+          ⚠ Bazı anahtar çiftlerinde concept’ler farklı. Join yine kurulabilir
+          ama o kolonların anlamsal eşleşmesi yok — kolon adlarını kontrol et.
         </p>
       )}
       <label className="hz-field">Join türü
@@ -3926,7 +3950,7 @@ function App() {
   // (iki tablonun bağlantısının ortasında yeni tablo). DuckDB'de hesaplanır,
   // cron/cache normal türetilmiş node gibi. (Eski scope.joins metadata yolu
   // yalnız LLM önerili edge onayında kaldı.)
-  const addJoinNode = ({ left, right, lcol, rcol, joinType }) => {
+  const addJoinNode = ({ left, right, keys, joinType }) => {
     // Kaynak adlarını kırp ki `_join` suffix'i daima sığsın + sonradan filtre
     // (`_f`) eklenince 40 sınırını taşmasın.
     const alias = makeAlias(`${left}_${right}`.slice(0, 32) + "_join", scope.basket.map((b) => b.alias));
@@ -3937,7 +3961,10 @@ function App() {
       derivation: {
         kind: "join",
         source_aliases: [left, right],
-        join_keys: [{ left_alias: left, left_column: lcol, right_alias: right, right_column: rcol }],
+        // Multi-key: every pair AND'ed in the join condition (compile_join_sql).
+        join_keys: (keys || []).map((k) => ({
+          left_alias: left, left_column: k.lcol, right_alias: right, right_column: k.rcol,
+        })),
         join_type: joinType === "left" ? "left" : "inner",
       },
       projection: { columns: cols.map((c) => c.name), include_all: false },
@@ -4819,8 +4846,8 @@ function App() {
         <JoinKeyModal left={joinModal.left} right={joinModal.right}
           preLcol={joinModal.preLcol} preRcol={joinModal.preRcol}
           onClose={() => setJoinModal(null)}
-          onSave={({ lcol, rcol, kind }) => addJoinNode({
-            left: joinModal.left, right: joinModal.right, lcol, rcol, joinType: kind,
+          onSave={({ keys, kind }) => addJoinNode({
+            left: joinModal.left, right: joinModal.right, keys, joinType: kind,
           })} />
       )}
       {unionModal && (

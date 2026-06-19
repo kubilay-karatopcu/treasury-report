@@ -281,8 +281,27 @@ def _data_summary_section(data_summary: dict | None) -> str:
 
     for view, info in data_summary.items():
         lines.append(f"### {view}  ({info['row_count']} satır)")
-        cols = ", ".join(f"{c['name']}:{c['type']}" for c in info["columns"])
-        lines.append(f"Kolonlar: {cols}")
+        col_bits = []
+        has_concept = False
+        for c in info["columns"]:
+            if c.get("concept"):
+                bit = f"{c['name']}:{c['type']} → concept: {c['concept']}"
+                if c.get("distinct_values"):
+                    vals = ", ".join(str(v) for v in c["distinct_values"][:30])
+                    bit += f" [değerler: {vals}]"
+                col_bits.append(bit)
+                has_concept = True
+            else:
+                col_bits.append(f"{c['name']}:{c['type']}")
+        lines.append(f"Kolonlar: {', '.join(col_bits)}")
+        if has_concept:
+            lines.append(
+                "  ↑ '→ concept: X' işaretli kolonlar bu ÜRETİLMİŞ tabloda bir concept'e "
+                "bağlı → interaktif filtreye uygun. Kullanıcı bu kolona göre filtre/değer "
+                "isterse SQL'e HARDCODE ETME: WHERE'e {{concept_filters}} koy ve "
+                "/filters/- patch'i at (semantic_tag=X, allowed_values=[değerler: ...] "
+                "listesi)."
+            )
 
         if info.get("sample"):
             col_names = [c["name"] for c in info["columns"]]

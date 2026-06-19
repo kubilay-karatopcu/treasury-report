@@ -83,6 +83,50 @@ def test_build_pass_runs_python_node():
     assert rows == [("A", 1.0), ("B", 5.0)]
 
 
+def test_build_pass_runs_python_node_over_lazy_source():
+    """Regression: a *cached* python node whose SOURCE is a *lazy* main.
+
+    Pass 1 skips lazy tables, so the source view used to be missing and the
+    derivation was silently dropped ("unresolved sources") → no parquet, and the
+    Sunum produced-table preview 500'd with "Table … does not exist". The source
+    must now be pulled on demand (projected) so the derivation materialises —
+    matching the cron path. The lazy source itself is NOT counted as cached."""
+    dc = StubDC(pd.DataFrame({"BRANCH_CODE": ["A", "B"], "BALANCE_TRY": [1000, 5000]}))
+    conn = duckdb.connect(":memory:")
+    scope = load_scope_from_dict({
+        "presentation_id": "p_py", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [
+            {
+                "table_ref": {"schema": "EDW", "name": "DEPOSITS"}, "alias": "deposits",
+                "projection": {"columns": ["BRANCH_CODE", "BALANCE_TRY"], "include_all": False},
+                # Just over the byte threshold — routed lazy, as a big main would be.
+                "routing": {"decision": "lazy", "estimated_bytes": 500_000_001,
+                            "threshold_bytes": 500_000_000},
+            },
+            {
+                "derivation": {"kind": "python", "source_alias": "deposits",
+                               "python_code": _PYTHON_CODE},
+                "alias": "deposits_py",
+                "projection": {"columns": [], "include_all": True},
+                "routing": {"decision": "cached", "estimated_bytes": 0},
+            },
+        ],
+    })
+
+    loaded = fetch_cached_tables(dc, conn, scope, catalog=None)
+
+    assert "deposits_py" in loaded, loaded
+    assert loaded["deposits_py"]["derived_from"] == "deposits"
+    # The big lazy source is pulled transiently for the derivation but NOT
+    # persisted as a cached dataset.
+    assert "deposits" not in loaded, loaded
+    rows = conn.execute(
+        "SELECT BRANCH_CODE, BALANCE_K FROM deposits_py ORDER BY BRANCH_CODE"
+    ).fetchall()
+    assert rows == [("A", 1.0), ("B", 5.0)]
+
+
 def test_build_pass_python_failure_raises():
     dc = StubDC(pd.DataFrame({"BRANCH_CODE": ["A"], "BALANCE_TRY": [10]}))
     conn = duckdb.connect(":memory:")

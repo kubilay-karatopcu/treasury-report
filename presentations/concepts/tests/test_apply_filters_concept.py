@@ -216,3 +216,84 @@ def test_multi_table_block_is_concept_blind():
     # No predicate was injected — Oracle saw the original join query.
     assert "SEGMENT IN" not in dc.calls[-1]["query"]
     assert "JOIN EDW.BRANCH_DIM" in dc.calls[-1]["query"]
+
+
+def _produced_kpi_manifest():
+    # KPI (aggregation) over a Hazırlık-PRODUCED view `deps_py`. The user bound
+    # the SEGMENT column to the `segment` concept in Hazırlık (column_concepts),
+    # carried into manifest.basket. The block embeds {{concept_filters}}, so
+    # apply-filters injects a DuckDB predicate from column_concepts — the
+    # aggregation counterpart of the projection-only dataset_binding path.
+    # No catalog table-doc, no Oracle (the view lives in the session DuckDB).
+    return {
+        "id": "p1", "version": 1,
+        "basket": [{"table": "deps_py", "alias": "deps_py", "columns": [],
+                    "source": "derived", "column_concepts": {"SEGMENT": "segment"}}],
+        "filters": [{"id": "f_segment", "semantic_tag": "segment",
+                     "type": "enum_multi", "label": "Segment",
+                     "allowed_values": ["RETAIL", "SME", "CORP", "PRIVATE"]}],
+        "blocks": [{
+            "id": "sec", "type": "section_header", "title": "x", "children": [{
+                "id": "b_kpi", "type": "kpi", "title": "Ortalama",
+                "data_source": {"original_sql":
+                    "SELECT ROUND(AVG(AMT), 2) AS value FROM deps_py WHERE {{concept_filters}}"},
+                "config": {"value": 0, "unit": "", "delta": 0, "delta_label": "", "period": ""},
+            }],
+        }],
+    }
+
+
+def _register_produced_view(app):
+    sess = app.config["SESSION_REGISTRY"].get_or_create("A16438", "p1")
+    sess._conn.execute(
+        'CREATE TABLE deps_py AS SELECT * FROM (VALUES '
+        "('RETAIL', 100), ('RETAIL', 200), ('SME', 300)) t(\"SEGMENT\", \"AMT\")"
+    )
+
+
+def _kpi_value(app):
+    sess = app.config["SESSION_REGISTRY"].get_or_create("A16438", "p1")
+    return sess.get_manifest()["blocks"][0]["children"][0]["config"]["value"]
+
+
+def test_produced_view_kpi_concept_filtered():
+    """An AVG KPI over a produced view becomes interactively filterable by a
+    concept the user bound to a produced column — runs in DuckDB, NOT Oracle."""
+    dc = _RecordingDC()
+    app = _make_app(_produced_kpi_manifest(), dc)
+    _register_produced_view(app)
+    resp = _post(app.test_client(), "p1", {"f_segment": ["RETAIL"]})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    blocks = {b["id"]: b for b in resp.get_json()["blocks"]}
+    assert blocks["b_kpi"]["status"] == "dataset_sql", blocks["b_kpi"]
+    assert dc.calls == []                       # viewer-read-only: no Oracle
+    assert _kpi_value(app) == 150.0             # AVG(100, 200) over RETAIL only
+
+
+def test_produced_view_kpi_no_active_filter_shows_all():
+    dc = _RecordingDC()
+    app = _make_app(_produced_kpi_manifest(), dc)
+    _register_produced_view(app)
+    resp = _post(app.test_client(), "p1", {})   # nothing selected → sentinel = 1 = 1
+    assert resp.status_code == 200
+    assert _kpi_value(app) == 200.0             # AVG(100, 200, 300) over all rows
+
+
+def test_produced_view_blind_filter_reported():
+    """A filter whose concept is bound to NONE of the view's columns is blind:
+    the block still renders (all rows) but the response flags the blind concept
+    so the UI shows 'filtre uygulanmadı' instead of the filter silently doing
+    nothing (the as_of_time-vs-trade_time confusion)."""
+    m = _produced_kpi_manifest()
+    m["filters"].append({"id": "f_ccy", "semantic_tag": "currency",
+                         "type": "enum_multi", "label": "Para",
+                         "allowed_values": ["TRY", "USD"]})
+    dc = _RecordingDC()
+    app = _make_app(m, dc)
+    _register_produced_view(app)
+    resp = _post(app.test_client(), "p1", {"f_ccy": ["TRY"]})
+    kpi = {b["id"]: b for b in resp.get_json()["blocks"]}["b_kpi"]
+    assert kpi["status"] == "dataset_sql"
+    assert "currency" in (kpi.get("blind_filters") or []), kpi
+    assert kpi.get("concept_injected") is False
+    assert _kpi_value(app) == 200.0          # blind → not filtered → all rows
