@@ -13,7 +13,7 @@
 
 {% block head %}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=34">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=11">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/kesif.css') }}?v=12">
   {# Workbench's internal Bloklar tab (rendered by kesif.bundle.js) shares
      the same card/grid styles as the original /atolye/bloklar bundle did. #}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/bloklar.css') }}?v=4">
@@ -35,5 +35,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/kesif.bundle.js') }}?v=28"></script>
+  <script src="{{ url_for('presentations.static', filename='js/kesif.bundle.js') }}?v=29"></script>
 {% endblock %}
