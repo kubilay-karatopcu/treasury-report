@@ -2273,6 +2273,134 @@ def scope_source_sql(pid: str):
         return _json({"ok": False, "errors": [msg]}, status=400)
 
 
+def _infer_col_dtype(values: list) -> str:
+    """Kolonun örnek değerlerinden Oracle-benzeri tip çıkar (türetilmiş kolonda
+    Oracle dtype yok). inference dtype_filter + taslak bunu kullanır."""
+    import pandas as pd
+    vals = [v for v in values if v is not None][:200]
+    if not vals:
+        return "VARCHAR2"
+    dt = 0
+    for v in vals:
+        try:
+            pd.to_datetime(v); dt += 1
+        except Exception:
+            pass
+    if dt / len(vals) >= 0.9:
+        return "DATE"
+    num = 0
+    for v in vals:
+        try:
+            float(v); num += 1
+        except (TypeError, ValueError):
+            pass
+    if num / len(vals) >= 0.9:
+        return "NUMBER"
+    return "VARCHAR2"
+
+
+def _draft_concept_from_column(column: str, distinct: list, dtype: str) -> dict:
+    """Kolonun veri şeklinden YENİ konsept taslağı (kullanıcı editleyip onaylar).
+    ``rows``, frontend tablo editörünün beklediği şekildedir."""
+    cid = re.sub(r"[^a-z0-9_]+", "_", column.lower()).strip("_") or "yeni_konsept"
+    name = column.replace("_", " ").strip().title() or column
+    if dtype == "DATE":
+        return {"type": "time", "id": cid, "name": name, "rows": []}
+    if dtype == "NUMBER":
+        # Sayısal → varsayılan Sayısal (Aralık/bucket bandları kullanıcıya ait).
+        return {"type": "scalar", "id": cid, "name": name, "rows": []}
+    uniq = list(dict.fromkeys(str(v) for v in distinct))
+    if 0 < len(uniq) <= 30:  # düşük kardinalite → Kategori taslağı
+        return {"type": "enum", "id": cid, "name": name,
+                "rows": [{"code": v, "aliases": ""} for v in uniq]}
+    return {"type": "scalar", "id": cid, "name": name, "rows": []}
+
+
+@presentations_bp.route("/<pid>/scope/suggest-concepts", methods=["POST"])
+@login_required
+def scope_suggest_concepts(pid: str):
+    """MVP — bir kolon için (a) en uygun MEVCUT konseptleri sırala + (b) yeni
+    konsept taslağı öner. Deterministik: kolon canlı örneklenir, Phase 7.c
+    ``infer_bindings`` ile sıralanır; taslak tip-çıkarımıyla kurulur.
+
+    Request:  ``{"scope": <draft>, "alias": "...", "column": "..."}``
+    Response: ``{"ok": true, "ranked_existing": [{id,label,type,score,rationale}],
+                 "draft_new": {type,id,name,rows}, "dtype": "...", "distinct_count": int}``
+    """
+    body = request.get_json(silent=True) or {}
+    scope_in = body.get("scope")
+    alias = (body.get("alias") or "").strip()
+    column = (body.get("column") or "").strip()
+    if not isinstance(scope_in, dict) or not alias or not column:
+        return _json({"ok": False, "errors": ["scope, alias, column zorunlu"]}, status=400)
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_$#]*$", column):  # SQL'e interpolate edilir
+        return _json({"ok": False, "errors": ["geçersiz kolon adı"]}, status=400)
+    try:
+        scope = load_scope_from_dict({"scope": scope_in})
+    except (ValidationError, ValueError) as exc:
+        return _json({"ok": False, "errors": _flatten(exc)}, status=400)
+    if not any(b.alias == alias for b in scope.basket):
+        return _json({"ok": False, "errors": [f"'{alias}' basket'te yok"]}, status=400)
+
+    reg = current_app.config.get("CONCEPT_REGISTRY")
+    dc = current_app.config.get("DATA_CLIENT")
+    if reg is None or dc is None:
+        return _json({"ok": False, "errors": ["yapılandırma eksik"]}, status=500)
+
+    from presentations import duck
+    conn = duck.connect_duckdb(":memory:")
+    registered: set[str] = set()
+    try:
+        try:
+            _preview_sample_into_duck(conn, scope, alias, dc, pid,
+                catalog=_catalog(), registry=reg,
+                bindings=current_app.config.get("CONCEPT_BINDING_CATALOG"),
+                registered=registered)
+        except Exception as exc:
+            return _json({"ok": False, "phase": "sample",
+                          "errors": [str(exc).splitlines()[0][:200]]}, status=400)
+        try:
+            rows = conn.execute(
+                f'SELECT DISTINCT "{column}" FROM "{alias}" '
+                f'WHERE "{column}" IS NOT NULL LIMIT 200').fetchall()
+        except Exception as exc:
+            return _json({"ok": False, "errors": [f"kolon okunamadı: {str(exc).splitlines()[0][:160]}"]},
+                         status=400)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    distinct = [r[0] for r in rows]
+    sample = [duck._jsonable(v) for v in distinct]
+    dtype = _infer_col_dtype(distinct)
+
+    # (a) Mevcut konseptleri sırala (Phase 7.c deterministik pipeline).
+    from presentations.concepts.inference.pipeline import infer_bindings
+    from presentations.concepts.inference.types import ColumnProfile
+    proposals = infer_bindings(
+        [ColumnProfile(name=column, dtype=dtype, sample_values=sample)], reg).get(column, [])
+    by_id = {c.id: c for c in reg.all_concepts()}
+    ranked: list[dict] = []
+    seen: set[str] = set()
+    for p in proposals:
+        if p.concept in seen:
+            continue
+        seen.add(p.concept)
+        c = by_id.get(p.concept)
+        ranked.append({"id": p.concept, "label": getattr(c, "name", p.concept) if c else p.concept,
+                       "type": getattr(c, "type", None) if c else None,
+                       "score": round(p.score, 3), "rationale": p.rationale})
+
+    # (b) Yeni konsept taslağı (kolon veri şeklinden).
+    draft = _draft_concept_from_column(column, distinct, dtype)
+
+    return _json({"ok": True, "column": column, "dtype": dtype,
+                  "distinct_count": len(distinct), "sample": sample[:25],
+                  "ranked_existing": ranked[:5], "draft_new": draft})
+
+
 @presentations_bp.route("/<pid>/scope/validate-concept", methods=["POST"])
 @login_required
 def scope_validate_concept(pid: str):
