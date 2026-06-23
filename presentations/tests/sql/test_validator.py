@@ -1,6 +1,8 @@
 """Tests for presentations.sql.validator — one per spec §4.1 rule."""
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from presentations.sql.validator import extract_bind_vars, validate_sql
@@ -150,3 +152,50 @@ def test_extract_binds_ignores_postgres_cast():
 def test_extract_binds_ignores_inside_strings():
     sql = "SELECT 'foo :bar baz' AS s FROM dual"
     assert extract_bind_vars(sql) == []
+
+
+# ── Regression: keyword-named identifiers must not be false-rejected ──────
+
+@pytest.mark.parametrize("sql", [
+    "SELECT comment FROM tickets",
+    'SELECT "DELETE" FROM t',
+    "SELECT BEGIN FROM t",
+])
+def test_keyword_named_identifier_not_rejected(sql):
+    # A column or quoted identifier named like a banned keyword is legitimate
+    # — only a *statement-leading* or real DML/DDL keyword should reject.
+    r = validate_sql(sql, declared_variables=set())
+    assert r.ok, r.errors
+
+
+@pytest.mark.parametrize("sql", [
+    "DROP TABLE x",
+    "INSERT INTO foo VALUES(1)",
+    "DELETE FROM t",
+    "SELECT 1; DROP TABLE x",
+])
+def test_leading_or_multi_statement_banned_still_rejected(sql):
+    assert not validate_sql(sql, declared_variables=set()).ok
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM (DELETE FROM t)",
+    "WITH x AS (DELETE FROM t) SELECT * FROM x",
+])
+def test_nested_dml_keyword_rejected(sql):
+    # Defense-in-depth: a real DML keyword (Keyword.DML) nested in a subquery or
+    # CTE must still reject even though the statement leads with SELECT/WITH.
+    # sqlparse tags these as Keyword.DML (distinct from a keyword-named column),
+    # so leading-token-only would wrongly accept them.
+    assert not validate_sql(sql, declared_variables=set()).ok
+
+
+def test_sub_outside_noise_preserves_literals_and_comments():
+    from presentations.sql.validator import sub_outside_noise
+    pat = re.compile(r":(\w+)")
+    sql = "SELECT ':x' AS a /* :y */ , b -- :z\nFROM t WHERE c = :w"
+    out = sub_outside_noise(pat, "BIND", sql)
+    assert "':x'" in out          # literal untouched
+    assert "/* :y */" in out      # block comment untouched
+    assert "-- :z" in out         # line comment untouched
+    assert "c = BIND" in out      # only the code bind rewritten

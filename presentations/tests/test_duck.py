@@ -27,6 +27,39 @@ class FakeDC:
         return pd.DataFrame()
 
 
+class TestJsonable:
+    """_jsonable: pandas eksik-değer sentinel'leri JSON null'a inmeli; literal
+    '<NA>'/'NaT' string'i sızmamalı (pandas3 nullable/Arrow dtype regresyonu)."""
+
+    def test_nat_returns_none(self):
+        assert duck._jsonable(pd.NaT) is None
+
+    def test_na_returns_none(self):
+        assert duck._jsonable(pd.NA) is None
+
+    def test_valid_values_unchanged(self):
+        assert duck._jsonable(None) is None
+        assert duck._jsonable(float("nan")) is None
+        assert duck._jsonable("x") == "x"
+        assert duck._jsonable(True) is True
+        assert duck._jsonable(3) == 3
+        # Geçerli timestamp str() ile (BOŞLUK ayraçlı, 'T' değil) — korunur.
+        assert duck._jsonable(pd.Timestamp("2025-01-02 03:04:05")) == "2025-01-02 03:04:05"
+
+    def test_nullable_and_datetime_columns_roundtrip_to_none(self):
+        """execute_block_sql kalıbı: Int64 null + datetime NaT, itertuples üzerinden
+        _jsonable'a girer ve '<NA>'/'NaT' değil None olmalı."""
+        df = pd.DataFrame({
+            "n": pd.array([1, None], dtype="Int64"),
+            "d": [pd.Timestamp("2025-01-01"), pd.NaT],
+        })
+        rows = [
+            [duck._jsonable(v) for v in row]
+            for row in df.itertuples(index=False, name=None)
+        ]
+        assert rows == [[1, "2025-01-01 00:00:00"], [None, None]]
+
+
 class TestRegisterDataframe:
     def test_register_makes_view_queryable(self, conn):
         df = pd.DataFrame({"a": [1, 2, 3]})
@@ -149,6 +182,22 @@ class TestMaterializeTable:
         duck.register_dataframe(conn, "ds2", pd.DataFrame({"A": [1]}))
         duck.materialize_table(conn, "ds2", pd.DataFrame({"A": [1, 2, 3]}))
         assert conn.execute('SELECT COUNT(*) FROM "ds2"').fetchone()[0] == 3
+
+    def test_re_materialize_existing_table(self):
+        """A-fix regression: ikinci materialize (re-build / cron refresh) — `name`
+        artık gerçek bir TABLE; eski `DROP VIEW IF EXISTS` duckdb 1.5.2'de
+        tip-uyuşmazlığı CatalogException atıyordu (her yeniden-build çöküyordu).
+        Aynı kalıcı conn'da tekrar materialize çökmemeli, veriyi değiştirmeli."""
+        import pandas as pd
+        from presentations import duck
+
+        conn = duck.connect_duckdb(":memory:")
+        duck.materialize_table(conn, "ds3", pd.DataFrame({"A": [1, 2]}))
+        # İkinci materialize — eskiden burada CatalogException patlıyordu.
+        duck.materialize_table(conn, "ds3", pd.DataFrame({"A": [10, 20, 30]}))
+        assert conn.execute('SELECT COUNT(*) FROM "ds3"').fetchone()[0] == 3
+        assert conn.execute('SELECT SUM(A) FROM "ds3"').fetchone()[0] == 60
+        conn.close()
 
     def test_internal_names_hidden_from_list_views(self):
         import pandas as pd

@@ -41,6 +41,46 @@ class TestFindViewRefs:
     def test_ignores_substring(self):
         assert duck.find_view_refs("SELECT * FROM deposits_daily", ["deposits"]) == []
 
+    def test_ignores_scope_view_name_in_string_literal(self):
+        # Scope-view adı yalnızca string literal/etiket olarak geçiyor; gerçek
+        # tablo Oracle'daki EDW.REAL_TABLE. DuckDB'ye yönlendirme TETİKLENMEMELİ.
+        assert duck.find_view_refs(
+            "SELECT 'deposits_by_branch' AS label FROM EDW.REAL_TABLE",
+            ["deposits_by_branch"],
+        ) == []
+
+    def test_ignores_scope_view_name_as_column_alias(self):
+        # `AS deposits_by_branch` bir kolon takma adı, tablo referansı değil.
+        assert duck.find_view_refs(
+            "SELECT some_col AS deposits_by_branch FROM EDW.REAL_TABLE",
+            ["deposits_by_branch"],
+        ) == []
+
+    def test_ignores_scope_view_name_in_comment(self):
+        assert duck.find_view_refs(
+            "SELECT 1 /* deposits_by_branch */ FROM EDW.REAL_TABLE",
+            ["deposits_by_branch"],
+        ) == []
+
+    def test_matches_real_join(self):
+        assert duck.find_view_refs(
+            "SELECT * FROM a JOIN positions p ON a.k = p.k", ["positions"],
+        ) == ["positions"]
+
+    def test_matches_view_shadowing_real_table(self):
+        # Gerçek tablo adı bir scope-view ile aynıysa yine DuckDB'ye yönlenir
+        # (bilinçli view-shadowing davranışı korunur).
+        assert duck.find_view_refs("SELECT * FROM positions", ["positions"]) == ["positions"]
+
+    def test_matches_real_view_after_comment(self):
+        # FROM/JOIN ile tablo adı ARASINDA yorum olsa bile gerçek scope-view
+        # yakalanmalı — aksi halde blok yanlışlıkla Oracle'a yönlenip
+        # "table does not exist" ile patlardı (review'ın yakaladığı regresyon).
+        assert duck.find_view_refs(
+            "SELECT * FROM /* c */ positions", ["positions"]) == ["positions"]
+        assert duck.find_view_refs(
+            "SELECT * FROM a JOIN -- x\n positions ON 1=1", ["positions"]) == ["positions"]
+
 
 # ── execute_block_sql routing ────────────────────────────────────────────────
 
@@ -80,3 +120,21 @@ class TestExecuteBlockRouting:
                                     "SELECT * FROM EDW.SOME_TABLE")
         assert ds["engine"] == "oracle"
         assert len(dc.calls) == 1  # routed to Oracle, as before
+
+    def test_block_mentioning_scope_view_in_literal_routes_to_oracle(self):
+        # Regresyon: blok gerçek Oracle tablosundan SELECT yapıyor ama SQL bir
+        # scope-view adını yalnızca string literal olarak içeriyor. Eski bare-
+        # token regex bunu DuckDB'ye yanlış yönlendirip "table does not exist"
+        # ile patlatıyordu; artık Oracle'a yönlenmeli.
+        conn = duckdb.connect()
+        duck.register_dataframe(
+            conn, "deposits_by_branch",
+            pd.DataFrame({"branch": ["A"], "total": [10]}),
+        )
+        dc = OracleStub()
+        ds = duck.execute_block_sql(
+            dc, conn, "blk_lit",
+            "SELECT 'deposits_by_branch' AS label, x FROM EDW.SOME_TABLE",
+        )
+        assert ds["engine"] == "oracle"
+        assert len(dc.calls) == 1

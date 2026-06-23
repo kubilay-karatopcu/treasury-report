@@ -139,6 +139,150 @@ def test_rule7_threshold_below_floor_warns(validator_cases, catalog, scope_from_
     ]
 
 
+# ── Rule 4/8: reversed NUMERIC between (edge case) ───────────────────────────
+# Ters sayısal between (from > to) eskiden yalnız tarih çözülünce yakalanıyordu;
+# sayısal aralık (tutar/adet) sızıp `col BETWEEN 20 AND 10` üretip sessizce 0
+# satır eşliyordu. Hem pinned hem raw için _StubCatalog yeterli (between kolu
+# katalog çağırmaz).
+
+
+class _StubCatalog:
+    """between kontrolü kataloğa dokunmaz; table_meta/concept_canonical_codes
+    None döndüren minimal stub."""
+
+    def table_meta(self, *a):
+        return None
+
+    def concept_canonical_codes(self, c):
+        return None
+
+
+def _scope_with_filters(scope_from_excerpt, filters):
+    return scope_from_excerpt({
+        "basket": [{
+            "alias": "positions",
+            "table_ref": {"schema": "S", "name": "T"},
+            "projection": {"columns": [], "include_all": True},
+            "routing": {"decision": "cached", "estimated_bytes": 0},
+        }],
+        "filters": filters,
+        "joins": [],
+    })
+
+
+def test_raw_reversed_numeric_between_errors(scope_from_excerpt):
+    scope = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [], "interactive": [],
+        "raw": [{"id": "rf_amt", "alias": "positions", "column": "AMOUNT",
+                 "op": "between", "from": 20, "to": 10}],
+    })
+    errors, _ = V.rule_raw_filters(scope, _StubCatalog())
+    assert errors == ["Raw filter 'rf_amt': between requires from <= to (got 20 > 10)"]
+
+
+def test_pinned_reversed_numeric_between_errors(scope_from_excerpt):
+    scope = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [{"id": "pf_amt", "concept": "amount",
+                    "op": "between", "from": 20, "to": 10}],
+        "interactive": [], "raw": [],
+    })
+    errors, _ = V.rule_pinned_consistency(scope, _StubCatalog())
+    assert errors == ["Pinned filter 'pf_amt': between requires from <= to (got 20 > 10)"]
+
+
+def test_numeric_between_correct_order_ok(scope_from_excerpt):
+    cat = _StubCatalog()
+    pinned = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [{"id": "pf_amt", "concept": "amount",
+                    "op": "between", "from": 10, "to": 20}],
+        "interactive": [], "raw": [],
+    })
+    raw = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [], "interactive": [],
+        "raw": [{"id": "rf_amt", "alias": "positions", "column": "AMOUNT",
+                 "op": "between", "from": 10, "to": 20}],
+    })
+    assert V.rule_pinned_consistency(pinned, cat) == ([], [])
+    assert V.rule_raw_filters(raw, cat) == ([], [])
+
+
+def test_reversed_date_between_still_errors(scope_from_excerpt):
+    # Regresyon: tarih ters aralığı eskisi gibi hata vermeli.
+    cat = _StubCatalog()
+    pinned = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [{"id": "pf_d", "concept": "date", "op": "between",
+                    "from": "2025-12-31", "to": "2025-10-01"}],
+        "interactive": [], "raw": [],
+    })
+    raw = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [], "interactive": [],
+        "raw": [{"id": "rf_d", "alias": "positions", "column": "D",
+                 "op": "between", "from": "2025-12-31", "to": "2025-10-01"}],
+    })
+    p_err, _ = V.rule_pinned_consistency(pinned, cat)
+    r_err, _ = V.rule_raw_filters(raw, cat)
+    assert p_err == ["Pinned filter 'pf_d': between requires from <= to (got 2025-12-31 > 2025-10-01)"]
+    assert r_err == ["Raw filter 'rf_d': between requires from <= to (got 2025-12-31 > 2025-10-01)"]
+
+
+# ── Rule 4: in/not_in scalar `value` kanonik kontrolü (FIX B) ────────────────
+# Bir 'in' filtresi yanlışlıkla skalar `value` taşıyorsa (op/value uyumsuzluğu),
+# rule_pinned_consistency eskiden `f.values or []` okuyup kanonik üyelik
+# kontrolünü TÜMÜYLE ATLIYORDU → kanonik-dışı kod sessizce geçiyordu. Artık
+# skalar `value` de aralık kontrolünden geçer.
+
+class _CanonStubCatalog:
+    """concept_canonical_codes belirli bir concept için kanonik liste döndürür;
+    table_meta None (between yolu kataloğa dokunmaz)."""
+
+    def table_meta(self, *a):
+        return None
+
+    def concept_canonical_codes(self, concept_id):
+        return ["TRY", "USD", "EUR"] if concept_id == "currency" else None
+
+
+def test_in_filter_scalar_value_outside_canonical_flagged(scope_from_excerpt):
+    scope = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [{"id": "pf_ccy", "concept": "currency",
+                    "op": "in", "value": "ZZZ"}],
+        "interactive": [], "raw": [],
+    })
+    errors, _ = V.rule_pinned_consistency(scope, _CanonStubCatalog())
+    assert errors == [
+        "Pinned filter 'pf_ccy': value 'ZZZ' not in concept 'currency' canonical_values"
+    ]
+
+
+def test_in_filter_scalar_value_in_canonical_ok(scope_from_excerpt):
+    # Doğru op/value kullanımı (values listesi) ve kanonik-içi skalar `value`
+    # ikisi de temiz geçmeli — false positive yok.
+    via_values = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [{"id": "pf_ccy", "concept": "currency",
+                    "op": "in", "values": ["TRY", "USD"]}],
+        "interactive": [], "raw": [],
+    })
+    via_scalar = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [{"id": "pf_ccy", "concept": "currency",
+                    "op": "in", "value": "EUR"}],
+        "interactive": [], "raw": [],
+    })
+    assert V.rule_pinned_consistency(via_values, _CanonStubCatalog()) == ([], [])
+    assert V.rule_pinned_consistency(via_scalar, _CanonStubCatalog()) == ([], [])
+
+
+def test_unresolvable_relative_date_between_silently_skipped(scope_from_excerpt):
+    # Çözülemeyen string ifadeler (örn. değişken adları) sıralanamaz → sessiz
+    # geç; sayısal kola da düşmemeli (false positive yok).
+    scope = _scope_with_filters(scope_from_excerpt, {
+        "pinned": [{"id": "pf_rel", "concept": "date", "op": "between",
+                    "from": "some_var", "to": "other_var"}],
+        "interactive": [], "raw": [],
+    })
+    errors, _ = V.rule_pinned_consistency(scope, _StubCatalog())
+    assert errors == []
+
+
 # ── Aggregate ────────────────────────────────────────────────────────────────
 
 def test_sample_scope_validates_clean(sample_scope, catalog):

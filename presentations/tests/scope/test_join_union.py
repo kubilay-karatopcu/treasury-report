@@ -121,6 +121,30 @@ class TestCompileJoinSql:
         assert list(df.columns) == ["BRANCH_CODE", "BALANCE", "competitor_BRANCH_CODE", "RATE"]
         assert len(df) == 2
 
+    def test_collision_against_preexisting_prefixed_left_col(self):
+        # Sol tarafta zaten `competitor_BRANCH_CODE` adlı bir kolon varken
+        # BRANCH_CODE üzerinden join (sağ alias 'competitor'): eski derleyici
+        # prefiksli adı YİNE üretip iki kez `AS "competitor_BRANCH_CODE"`
+        # yazıyordu → DuckDB ikinciyi sessizce `_1` yapardı. Artık çıkış
+        # adlarının tümüne karşı benzersizleştirilip `_2` ile stabil ad alır.
+        item = _join_item()
+        left_cols = ["competitor_BRANCH_CODE", "BRANCH_CODE", "BALANCE"]
+        right_cols = ["BRANCH_CODE", "RATE"]
+        sql = compile_join_sql(item, left_cols, right_cols)
+        # Sağ join-anahtarı kolonu beklenen, stabil ada gider — sessiz '_1' YOK.
+        assert 'AS "competitor_BRANCH_CODE_2"' in sql
+        assert 'AS "competitor_BRANCH_CODE_1"' not in sql
+
+        conn = duckdb.connect(":memory:")
+        conn.execute("CREATE TABLE deposits AS SELECT 'X' AS competitor_BRANCH_CODE, "
+                     "'B01' AS BRANCH_CODE, 100 AS BALANCE")
+        conn.execute("CREATE TABLE competitor AS SELECT 'B01' AS BRANCH_CODE, 5.0 AS RATE")
+        cols = [c[0] for c in conn.execute(sql).description]
+        # Hiçbir kolon DuckDB tarafından sessizce '_1'e yeniden adlandırılmaz.
+        assert cols == ["competitor_BRANCH_CODE", "BRANCH_CODE", "BALANCE",
+                        "competitor_BRANCH_CODE_2", "RATE"]
+        assert len(set(cols)) == len(cols)  # tüm adlar benzersiz
+
 
 def _multikey_join_keys():
     return [
@@ -213,12 +237,32 @@ class TestCompileUnionSql:
         df2 = conn.execute(compile_union_sql(_union_item(False))).fetchdf()
         assert len(df2) == 1  # UNION dedups
 
-    def test_duckdb_column_count_mismatch_errors(self):
+    def test_duckdb_by_name_aligns_swapped_columns_preserves_dtype(self):
+        # BUG #6 (sessiz bozulma): UNION KONUMSALDIR. Aynı kolon adlarını FARKLI
+        # sırada taşıyan iki kaynak — q1=(D date, CUR str), q2=(CUR str, D date).
+        # Eski `UNION ALL` D kolonuna currency string'i koyup dtype'ı DATE→str
+        # düşürürdü (DuckDB hata vermeden). `BY NAME` ada göre hizalar.
+        conn = duckdb.connect(":memory:")
+        conn.execute("CREATE TABLE q1_data AS SELECT DATE '2026-01-01' AS D, 'USD' AS CUR")
+        conn.execute("CREATE TABLE q2_data AS SELECT 'EUR' AS CUR, DATE '2026-02-02' AS D")
+        sql = compile_union_sql(_union_item(True))
+        assert "BY NAME" in sql
+        df = conn.execute(sql).fetchdf()
+        assert str(df["D"].dtype).startswith("datetime64")  # DATE korunur, str'e düşmez
+        assert set(df["CUR"]) == {"USD", "EUR"}              # değerler doğru kolonda
+        assert df.loc[df["CUR"] == "EUR", "D"].iloc[0] == pd.Timestamp("2026-02-02")
+
+    def test_duckdb_by_name_fills_missing_column_with_null(self):
+        # BY NAME ile kolon-sayısı uyuşmazlığı artık hata değil: eksik kolon
+        # NULL ile doldurulur (ada göre hizalama daha sağlam). Eski konumsal
+        # UNION burada hata verirdi — yeni davranış kasıtlı.
         conn = duckdb.connect(":memory:")
         conn.execute("CREATE TABLE q1_data AS SELECT 1 AS A, 2 AS B")
         conn.execute("CREATE TABLE q2_data AS SELECT 1 AS A")  # one column
-        with pytest.raises(Exception):
-            conn.execute(compile_union_sql(_union_item(True))).fetchdf()
+        df = conn.execute(compile_union_sql(_union_item(True))).fetchdf()
+        assert list(df.columns) == ["A", "B"]
+        assert len(df) == 2
+        assert pd.isna(df["B"]).sum() == 1  # eksik B kolonu NULL
 
 
 # ── Sunum basket hides passive sources re-added for materialisation ──────────
