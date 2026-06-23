@@ -21,7 +21,28 @@ import yaml
 
 class _BoolSafeLoader(yaml.SafeLoader):
     """SafeLoader that does not treat YAML 1.1 booleans (on/off/yes/no) as
-    bools, so codes like ``ON`` load as the string ``"ON"``."""
+    bools, so codes like ``ON`` load as the string ``"ON"``.
+
+    Ayrıca yinelenen eşleme anahtarlarını sessizce (son-kazanır) kabul etmek
+    yerine reddeder: kazara veya LLM kaynaklı çift ``version:`` /
+    ``presentation_id:`` gibi bir anahtar, gölgelenmiş değerle sessizce
+    yüklenip pydantic'in ``extra='forbid'`` denetiminden kaçardı.
+    """
+
+    def construct_mapping(self, node, deep=False):  # noqa: D401
+        # Merge (``<<``) anahtarlarını PyYAML'in kendi mantığıyla düzleştir,
+        # sonra anahtarları teker teker kurarak yinelenenleri yakala.
+        self.flatten_mapping(node)
+        mapping: dict = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=True)
+            if key in mapping:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping", node.start_mark,
+                    f"found duplicate key ({key!r})", key_node.start_mark,
+                )
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
 
 
 _BoolSafeLoader.yaml_implicit_resolvers = {

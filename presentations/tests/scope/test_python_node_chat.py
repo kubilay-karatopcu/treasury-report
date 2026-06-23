@@ -105,6 +105,30 @@ def test_profile_node_df_hides_high_cardinality_values():
     assert "AC000000" not in sample
 
 
+def test_profile_node_df_handles_duplicate_column_labels():
+    # join/union sonrası YİNELENEN kolon adları: pozisyonla dolaşılmazsa
+    # df[name] DataFrame döndürür, str(.dtype) patlar ve her iki kolon da
+    # dtype='?'/sample='' kalırdı — LLM ipucu tam belirsiz durumda boşa çıkardı.
+    import pandas as pd
+    df = pd.DataFrame({
+        "_num": [1.0, 2.0, 3.0],
+        "_dt": pd.to_datetime(["2025-01-01", "2025-02-01", "2025-03-01"]),
+        "_txt": ["Ege", "Marmara", "Ege"],
+    })
+    df.columns = ["a", "a", "b"]
+    prof = _profile_node_df(df)
+    assert prof["row_count"] == 3
+    cols = prof["columns"]
+    assert len(cols) == 3
+    assert cols[0]["name"] == "a" and cols[1]["name"] == "a"
+    # her yinelenen kolon kendi POZİSYONUNA göre gerçek dtype+örnek alır
+    assert cols[0]["dtype"] != "?" and cols[0]["sample"] != ""
+    assert cols[1]["dtype"] != "?" and cols[1]["sample"] != ""
+    assert cols[0]["dtype"] == "float64"
+    assert cols[1]["dtype"].startswith("datetime64")
+    assert cols[2]["dtype"] in ("object", "str")
+
+
 # ── FakeLLM stub ────────────────────────────────────────────────────────────
 
 def test_stub_suggests_python_node_in_node_scope():

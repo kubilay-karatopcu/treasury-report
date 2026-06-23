@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from presentations.scope.schema import (
     BasketItem,
+    Filters,
     Join,
     PinnedFilter,
     Routing,
@@ -13,6 +15,7 @@ from presentations.scope.schema import (
     ScopeRef,
     TableRef,
     dump_scope_yaml,
+    load_scope_from_dict,
     load_scope_yaml,
     scope_to_dict,
 )
@@ -156,6 +159,94 @@ class TestIdentifierRules:
             })
 
 
+# ── ID benzersizliği (FIX A) ────────────────────────────────────────────────
+# Join.id / PinnedFilter.id / InteractiveFilter.id / RawFilter.id şemada
+# benzersiz olmalı: find_* / patch validator ilk eşleşeni alır, tekrar eden id
+# ikinciyi sessizce gölgeler (alias benzersizliği gibi şemada kesilir).
+
+class TestIdUniqueness:
+    def _two(self, ids):
+        return [{"id": ids[0], "concept": "c", "op": "in", "values": ["A"]},
+                {"id": ids[1], "concept": "c", "op": "in", "values": ["B"]}]
+
+    def test_duplicate_pinned_id_rejected(self):
+        with pytest.raises(ValidationError, match="Duplicate pinned filter id 'pf_dup'"):
+            Filters.model_validate({
+                "pinned": self._two(["pf_dup", "pf_dup"]),
+                "interactive": [], "raw": [],
+            })
+
+    def test_duplicate_interactive_id_rejected(self):
+        with pytest.raises(ValidationError, match="Duplicate interactive filter id 'if_dup'"):
+            Filters.model_validate({
+                "pinned": [],
+                "interactive": [{"id": "if_dup", "concept": "c", "op": "in"},
+                                {"id": "if_dup", "concept": "c", "op": "in"}],
+                "raw": [],
+            })
+
+    def test_duplicate_raw_id_rejected(self):
+        with pytest.raises(ValidationError, match="Duplicate raw filter id 'rf_dup'"):
+            Filters.model_validate({
+                "pinned": [], "interactive": [],
+                "raw": [{"id": "rf_dup", "alias": "positions", "column": "C",
+                         "op": "eq", "value": 1},
+                        {"id": "rf_dup", "alias": "positions", "column": "C",
+                         "op": "eq", "value": 2}],
+            })
+
+    def test_unique_filter_ids_accepted(self):
+        f = Filters.model_validate({
+            "pinned": self._two(["pf_a", "pf_b"]),
+            "interactive": [{"id": "if_a", "concept": "c", "op": "in"},
+                            {"id": "if_b", "concept": "c", "op": "in"}],
+            "raw": [{"id": "rf_a", "alias": "positions", "column": "C",
+                     "op": "eq", "value": 1}],
+        })
+        assert [p.id for p in f.pinned] == ["pf_a", "pf_b"]
+        assert [i.id for i in f.interactive] == ["if_a", "if_b"]
+        assert [r.id for r in f.raw] == ["rf_a"]
+
+    def _scope_with_joins(self, joins):
+        return {
+            "presentation_id": "p", "version": 1, "created_by": "A",
+            "created_at": "2026-06-15T10:00:00Z",
+            "basket": [
+                {"alias": "positions", "table_ref": {"schema": "S", "name": "T"},
+                 "projection": {"columns": [], "include_all": True},
+                 "routing": {"decision": "cached", "estimated_bytes": 0}},
+                {"alias": "branch_dim", "table_ref": {"schema": "S", "name": "T2"},
+                 "projection": {"columns": [], "include_all": True},
+                 "routing": {"decision": "cached", "estimated_bytes": 0}},
+            ],
+            "joins": joins,
+        }
+
+    def test_duplicate_join_id_rejected(self):
+        dup = [
+            {"id": "j_dup", "kind": "lookup",
+             "left": {"alias": "positions", "column": "X"},
+             "right": {"alias": "branch_dim", "column": "Y"}},
+            {"id": "j_dup", "kind": "inner",
+             "left": {"alias": "positions", "column": "X"},
+             "right": {"alias": "branch_dim", "column": "Y"}},
+        ]
+        with pytest.raises(ValidationError, match="Duplicate join id 'j_dup'"):
+            load_scope_from_dict(self._scope_with_joins(dup))
+
+    def test_unique_join_ids_accepted(self):
+        ok = [
+            {"id": "j_one", "kind": "lookup",
+             "left": {"alias": "positions", "column": "X"},
+             "right": {"alias": "branch_dim", "column": "Y"}},
+            {"id": "j_two", "kind": "inner",
+             "left": {"alias": "positions", "column": "X"},
+             "right": {"alias": "branch_dim", "column": "Y"}},
+        ]
+        sc = load_scope_from_dict(self._scope_with_joins(ok))
+        assert [j.id for j in sc.joins] == ["j_one", "j_two"]
+
+
 class TestScopeRef:
     def test_valid(self):
         r = ScopeRef.model_validate({"presentation_id": "p_abc123", "scope_version": 4})
@@ -164,3 +255,43 @@ class TestScopeRef:
     def test_requires_version(self):
         with pytest.raises(ValidationError):
             ScopeRef.model_validate({"presentation_id": "p_abc123"})
+
+
+# ── Bool-safe loader: yinelenen anahtarlar reddedilir (silent-corruption fix) ─
+
+class TestDuplicateKeysRejected:
+    """``_BoolSafeLoader`` yinelenen eşleme anahtarlarını sessizce son-kazanır
+    olarak kabul etmek yerine hata vermeli; bool-resolver override'ı ve geçerli
+    YAML davranışı bozulmamalı."""
+
+    def test_duplicate_top_level_key_raises(self):
+        from presentations.scope._yaml import load_yaml
+        with pytest.raises(yaml.constructor.ConstructorError):
+            load_yaml("version: 1\nversion: 2\n")
+
+    def test_duplicate_nested_key_raises(self):
+        from presentations.scope._yaml import load_yaml
+        with pytest.raises(yaml.constructor.ConstructorError):
+            load_yaml("scope:\n  presentation_id: a\n  presentation_id: b\n")
+
+    def test_valid_yaml_still_loads(self):
+        from presentations.scope._yaml import load_yaml
+        assert load_yaml("a: 1\nb:\n  c: 2\n") == {"a": 1, "b": {"c": 2}}
+
+    def test_bool_resolver_override_intact(self):
+        # Gerçek YAML bool'ları bool kalır; ``ON`` / ``NO`` gibi kodlar string.
+        from presentations.scope._yaml import load_yaml
+        out = load_yaml("flag: true\noff: false\ncode: ON\nno: NO\n")
+        assert out == {"flag": True, "off": False, "code": "ON", "no": "NO"}
+
+    def test_sample_scope_still_loads(self, phase8_dir):
+        from presentations.scope._yaml import load_yaml
+        text = (phase8_dir / "sample_scope.yaml").read_text(encoding="utf-8")
+        raw = load_yaml(text)
+        assert set(raw.keys()) == {"scope"}
+
+    def test_concept_loader_duplicate_key_raises(self):
+        # Parite: concepts/registry yükleyicisi de yinelenen anahtarı reddetmeli.
+        from presentations.concepts.registry import _load_yaml
+        with pytest.raises(yaml.constructor.ConstructorError):
+            _load_yaml("id: a\nid: b\n")

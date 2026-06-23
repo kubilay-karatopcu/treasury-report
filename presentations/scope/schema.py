@@ -663,12 +663,30 @@ class RawFilter(BaseModel):
         return self
 
 
+def _check_unique_ids(items: list[Any], *, what: str) -> None:
+    """ID benzersizliğini doğrula (rule_alias_uniqueness ile aynı dil). ID'ler
+    aynı zamanda Sunum patch validator'ında path anahtarı + find_* erişimcileri
+    ilk eşleşeni döndürür; tekrar eden ID ikinciyi sessizce gölgeler."""
+    seen: set[str] = set()
+    for it in items:
+        if it.id in seen:
+            raise ValueError(f"Duplicate {what} id '{it.id}'")
+        seen.add(it.id)
+
+
 class Filters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pinned: list[PinnedFilter] = Field(default_factory=list)
     interactive: list[InteractiveFilter] = Field(default_factory=list)
     raw: list[RawFilter] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _unique_filter_ids(self) -> "Filters":
+        _check_unique_ids(self.pinned, what="pinned filter")
+        _check_unique_ids(self.interactive, what="interactive filter")
+        _check_unique_ids(self.raw, what="raw filter")
+        return self
 
 
 # Faz R1 — Derivation.filters: "Filters" forward-ref'ini şimdi çöz (Filters
@@ -731,6 +749,13 @@ class ScopeContract(BaseModel):
             raise ValueError(
                 f"parent_version ({self.parent_version}) must be < version ({self.version})"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _unique_join_ids(self) -> "ScopeContract":
+        # find_join ilk eşleşeni döndürür; tekrar eden join id ikinciyi sessizce
+        # gölgeler (alias benzersizliği gibi şemada kesilir).
+        _check_unique_ids(self.joins, what="join")
         return self
 
     # ── Convenience accessors (used by validators / routing / resolver) ──────
