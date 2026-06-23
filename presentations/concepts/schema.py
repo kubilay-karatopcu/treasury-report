@@ -308,6 +308,10 @@ def load_concept_file_from_dict(raw: dict[str, Any]) -> ConceptFile:
 # ════════════════════════════════════════════════════════════════════════
 
 _COLUMN_RE = re.compile(r"^[A-Z_][A-Z0-9_$#]*$")
+# Tablo tanımlayıcısı: opsiyonel tek noktalı (şema-nitelikli) bileşene izin
+# verir (ör. DIM.BRANCH). Bind DEĞERLERİ parametreli kalır; bu regex yalnızca
+# table-doc YAML'inden gelip derlenen SQL'e gömülen tanımlayıcıları sınırlar.
+_TABLE_RE = re.compile(r"^[A-Z_][A-Z0-9_$#]*(\.[A-Z_][A-Z0-9_$#]*)?$")
 
 # Provenance of a binding. Only ``human_verified`` reaches the compiler
 # (locked decision §10.4). Inferred / llm_proposed bindings live in the YAML
@@ -349,6 +353,26 @@ class LookupTransform(BaseModel):
     dim_table: str = Field(min_length=1)
     dim_key: str = Field(min_length=1)
     dim_canonical: str = Field(min_length=1)
+
+    @field_validator("dim_table")
+    @classmethod
+    def _check_dim_table(cls, v: str) -> str:
+        # Derleyici (_compile_in lookup dalı) bu tanımlayıcıyı derlenen
+        # alt-sorguya verbatim gömer; ColumnBinding.column ile aynı katı
+        # Oracle tanımlayıcı kuralını uygula. dim_table şema-nitelikli olabilir.
+        if not _TABLE_RE.match(v):
+            raise ValueError(
+                f"dim_table {v!r} must be an ALL_CAPS Oracle identifier "
+                "(optionally SCHEMA-qualified)"
+            )
+        return v
+
+    @field_validator("dim_key", "dim_canonical")
+    @classmethod
+    def _check_dim_columns(cls, v: str) -> str:
+        if not _COLUMN_RE.match(v):
+            raise ValueError(f"{v!r} must be an ALL_CAPS Oracle identifier")
+        return v
 
 
 class BucketFromRangeTransform(BaseModel):

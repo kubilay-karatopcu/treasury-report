@@ -25,7 +25,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from presentations.duck import register_dataframe
@@ -390,30 +390,81 @@ def _view_exists(conn, alias: str) -> bool:
         return False
 
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+# Tam-anchor'lu: ya saf ISO tarih ya da saat bileşenli ISO datetime. Başlangıç-
+# anchor'lı eski desen '2026-06-01extra' gibi artık çöpü sessizce kabul edip
+# tarihe kırpıyordu; bu yüzden $ ile sona da sabitliyoruz.
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}:?\d{2}|Z)?$"
+)
 
 
 def _coerce(v):
-    """Coerce ISO-date-looking strings to date objects so DuckDB binds them as
-    DATE (correct comparison against a DATE column); pass everything else
-    through. Bound as parameters — never concatenated."""
-    if isinstance(v, str) and _DATE_RE.match(v):
-        try:
-            return date.fromisoformat(v[:10])
-        except ValueError:
-            return v
+    """ISO tarih/zaman görünümlü string'leri DuckDB'nin doğru tipte bağlaması için
+    coerce et: saat bileşeni varsa ``datetime`` (TIMESTAMP), saf tarih ise ``date``
+    (DATE) dön. Saat bileşeni ARTIK sessizce düşmüyor (Oracle DATE kolonları saat
+    taşır, parquet'te datetime64 olarak korunur). Tanınamayan / artık karakterli
+    değer ham string olarak geçer. Her zaman parametre olarak bağlanır — asla
+    SQL'e gömülmez."""
+    if isinstance(v, str):
+        if _DATE_RE.match(v):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return v
+        if _DATETIME_RE.match(v):
+            try:
+                return datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                return v
     return v
 
 
-def _filter_predicate(spec: dict, value, params: dict, idx: int) -> str | None:
+def _is_pure_date(v) -> bool:
+    """datetime, date'in alt sınıfı — saat bileşeni TAŞIMAYAN saf tarih mi?"""
+    return isinstance(v, date) and not isinstance(v, datetime)
+
+
+def _datetime_columns(conn, alias: str) -> frozenset:
+    """Materialise edilmiş view'ın datetime/timestamp tipli kolonlarını DuckDB
+    ``DESCRIBE``'ından oku. between/eq'in saf-tarih sınırını gün-içi satırları da
+    kapsayacak şekilde genişletip genişletmeyeceğine bununla karar verilir."""
+    try:
+        rows = conn.execute('DESCRIBE "' + alias + '"').fetchall()
+    except Exception:
+        return frozenset()
+    out: set[str] = set()
+    for r in rows:
+        t = str(r[1]).upper()
+        if "TIMESTAMP" in t or "DATETIME" in t or t == "DATE":
+            out.add(str(r[0]))
+    return frozenset(out)
+
+
+def _day_inclusive_upper(hi, col_is_dt: bool):
+    """TIMESTAMP kolon + saf-tarih üst sınır → gün-kapsayıcı (yarı-açık) semantik.
+    BETWEEN inclusive üst sınırı, sınır gününde 14:30 gibi satırları düşürürdü;
+    sınırı (hi + 1 gün)'e çekip ``< hi`` kullanırsak tüm gün dahil olur. Geriye
+    ``(yeni_hi, yarı_açık_mi)`` döner."""
+    if col_is_dt and _is_pure_date(hi):
+        return hi + timedelta(days=1), True
+    return hi, False
+
+
+def _filter_predicate(spec: dict, value, params: dict, idx: int,
+                      dt_cols: frozenset = frozenset()) -> str | None:
     """Build one DuckDB WHERE fragment for an interactive-filter→column spec,
     binding values into ``params`` ($-style). Returns None to skip (no/empty
     value, bad column, or unknown op). Determinism: the column is declared
-    explicitly on the binding (no regex inference)."""
+    explicitly on the binding (no regex inference).
+
+    ``dt_cols`` view'ın datetime/timestamp kolon adı kümesidir; saf-tarih sınırlı
+    between/eq bunlar üzerinde gün-kapsayıcı yarı-açık aralığa dönüşür."""
     col = spec.get("column")
     op = spec.get("op")
     if not col or not _IDENT_RE.match(str(col)):
         return None
+    col_is_dt = col in dt_cols
     p = f"flt{idx}"
     if op == "between":
         if not isinstance(value, dict):
@@ -422,8 +473,11 @@ def _filter_predicate(spec: dict, value, params: dict, idx: int) -> str | None:
         hi = value.get("to", value.get("max"))
         if lo is None or hi is None:
             return None
+        hi_c, half_open = _day_inclusive_upper(_coerce(hi), col_is_dt)
         params[f"{p}_lo"] = _coerce(lo)
-        params[f"{p}_hi"] = _coerce(hi)
+        params[f"{p}_hi"] = hi_c
+        if half_open:
+            return f'"{col}" >= ${p}_lo AND "{col}" < ${p}_hi'
         return f'"{col}" BETWEEN ${p}_lo AND ${p}_hi'
     if op in ("in", "not_in"):
         vals = value if isinstance(value, list) else None
@@ -438,12 +492,20 @@ def _filter_predicate(spec: dict, value, params: dict, idx: int) -> str | None:
     if op in ("eq", "date"):
         if value is None or value == "":
             return None
-        params[p] = _coerce(value)
+        v_c = _coerce(value)
+        # eq + saf-tarih değer + TIMESTAMP kolon → o günün tüm satırları (gece
+        # yarısı dışındakiler de). Aksi halde 14:30 satırı 0 satır eşleşirdi.
+        if col_is_dt and _is_pure_date(v_c):
+            params[f"{p}_lo"] = v_c
+            params[f"{p}_hi"] = v_c + timedelta(days=1)
+            return f'"{col}" >= ${p}_lo AND "{col}" < ${p}_hi'
+        params[p] = v_c
         return f'"{col}" = ${p}'
     return None
 
 
-def _concept_predicates(column_concepts, concept_filters, params: dict) -> list[str]:
+def _concept_predicates(column_concepts, concept_filters, params: dict,
+                        dt_cols: frozenset = frozenset()) -> list[str]:
     """#4 / end-to-end — dataset (türetilmiş) node'a CONCEPT filtrelerini uygula.
 
     ``column_concepts = {COLUMN: concept_id}`` kullanıcının Hazırlık'ta o node'un
@@ -470,11 +532,16 @@ def _concept_predicates(column_concepts, concept_filters, params: dict) -> list[
         if not cols or not vals:
             continue
         for col in cols:
+            col_is_dt = col in dt_cols
             p = f"cf{idx}"
             if op == "between" and len(vals) == 2 and vals[0] is not None and vals[1] is not None:
+                hi_c, half_open = _day_inclusive_upper(_coerce(vals[1]), col_is_dt)
                 params[f"{p}_lo"] = _coerce(vals[0])
-                params[f"{p}_hi"] = _coerce(vals[1])
-                clauses.append(f'"{col}" BETWEEN ${p}_lo AND ${p}_hi')
+                params[f"{p}_hi"] = hi_c
+                if half_open:
+                    clauses.append(f'"{col}" >= ${p}_lo AND "{col}" < ${p}_hi')
+                else:
+                    clauses.append(f'"{col}" BETWEEN ${p}_lo AND ${p}_hi')
             elif op in ("in", "eq"):
                 names = []
                 for j, x in enumerate(vals):
@@ -532,6 +599,9 @@ def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = 
     cols = [c for c in (binding.get("columns") or []) if _IDENT_RE.match(str(c))]
     select = ", ".join(f'"{c}"' for c in cols) if cols else "*"
 
+    # Kolon tipleri view'dan (DESCRIBE) okunur → datetime kolonlarda saf-tarih
+    # sınırlı between/eq gün-içi satırları da kapsar.
+    dt_cols = _datetime_columns(conn, alias)
     fs = filter_state or {}
     params: dict[str, Any] = {}
     clauses: list[str] = []
@@ -541,12 +611,12 @@ def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = 
         value = fs.get(spec.get("filter_id"))
         if value is None:
             continue
-        frag = _filter_predicate(spec, value, params, i)
+        frag = _filter_predicate(spec, value, params, i, dt_cols)
         if frag:
             clauses.append(frag)
     # Concept filtreleri (column_concepts → identity) — katalog binding'i olmayan
     # türetilmiş node'lara da uygulanır.
-    clauses += _concept_predicates(column_concepts, concept_filters, params)
+    clauses += _concept_predicates(column_concepts, concept_filters, params, dt_cols)
 
     sql = f'SELECT {select} FROM "{alias}"'
     if clauses:

@@ -25,6 +25,7 @@ from datetime import date
 from typing import Any
 
 from presentations.blocks.schema import Block, Variable
+from presentations.sql.validator import sub_outside_noise
 
 
 # ── Public dataclass ──────────────────────────────────────────────────────
@@ -205,5 +206,8 @@ def expand_binds(
 
         raise ValueError(f"unsupported variable type for :{name}: {var.type!r}")
 
-    rewritten = _BIND_RE.sub(_replace, block.query)
+    # Expand binds only outside string literals and comments so a ``:name``
+    # inside a quoted literal or a comment is left verbatim (bug #9) and the
+    # executed SQL matches what validate_sql sees after _strip_noise.
+    rewritten = sub_outside_noise(_BIND_RE, _replace, block.query)
     return BoundQuery(sql=rewritten, params=params)

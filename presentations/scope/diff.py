@@ -146,6 +146,41 @@ class ScopeDiff:
         return False
 
 
+def close_affected_over_derivations(seed: set[str], scope: ScopeContract) -> set[str]:
+    """Transitively expand ``seed`` to every derived basket node whose source
+    *chain* reaches a seed alias.
+
+    :attr:`ScopeDiff.affected_aliases` only knows directly added / changed /
+    filter-targeted aliases — it cannot see that a *derived* node (aggregate /
+    filter / join / union / calculated / python) transitively depends on a
+    changed source. Without this closure a 2+-hop chain (``src → agg_b →
+    agg_c``, only ``src`` changed) leaves ``agg_c`` pinned to the previous
+    build's materialised view → stale downstream data in Sunum.
+
+    Fixpoint over direct source edges (``source_alias`` + ``source_aliases``).
+    Pure & deterministic: same inputs → same set, order-independent."""
+    edges: dict[str, set[str]] = {}
+    for b in scope.basket:
+        d = b.derivation
+        if d is None:
+            continue
+        srcs: set[str] = set()
+        if d.source_alias:
+            srcs.add(d.source_alias)
+        srcs |= set(d.source_aliases or [])
+        edges[b.alias] = srcs
+
+    out = set(seed)
+    changed = True
+    while changed:
+        changed = False
+        for alias, srcs in edges.items():
+            if alias not in out and (srcs & out):
+                out.add(alias)
+                changed = True
+    return out
+
+
 # ── Diff computation ────────────────────────────────────────────────────────
 
 def _basket_eq(a: BasketItem, b: BasketItem) -> bool:

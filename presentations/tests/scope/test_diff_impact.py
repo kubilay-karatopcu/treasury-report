@@ -20,6 +20,7 @@ import pytest
 from presentations.scope.diff import (
     PinStateFlip,
     ScopeDiff,
+    close_affected_over_derivations,
     diff_scopes,
     serialise_diff,
 )
@@ -325,3 +326,64 @@ class TestDiffSerialise:
         out = serialise_diff(diff_scopes(_scope(v1_scope_dict), _scope(v2)))
         assert out["removed"] == ["deposits_daily"]
         assert out["breaking"] is True
+
+
+# ── B-fix: transitive closure of affected aliases over derivation chains ──────
+
+def _chain_scope_dict(src_cols):
+    """src (raw) → agg_b (aggregate on src) → agg_c (aggregate on agg_b)."""
+    def _agg(alias, source):
+        return {
+            "alias": alias,
+            "derivation": {"kind": "aggregate", "source_alias": source,
+                           "group_by": ["G"],
+                           "measures": [{"column": "TOTAL", "fn": "sum", "as": "TOTAL"}]},
+            "projection": {"columns": ["G", "TOTAL"], "include_all": False},
+            "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1_000},
+        }
+    return {"scope": {
+        "presentation_id": "p_chain", "version": 1,
+        "created_by": "A", "created_at": "2026-05-24T00:00:00Z",
+        "basket": [
+            {"alias": "src",
+             "table_ref": {"schema": "EDW", "name": "DEPOSITS"},
+             "projection": {"columns": src_cols, "include_all": False},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1_000}},
+            _agg("agg_b", "src"),
+            _agg("agg_c", "agg_b"),
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []},
+        "joins": [],
+    }}
+
+
+class TestDerivationClosure:
+    def test_closure_is_transitive(self):
+        scope = _scope(_chain_scope_dict(["G", "TOTAL"]))
+        # Root değişti → 2-kademe aşağıdaki türetilmiş node'lar da kapanışa girer.
+        assert close_affected_over_derivations({"src"}, scope) == {"src", "agg_b", "agg_c"}
+        # Orta node → o + altı.
+        assert close_affected_over_derivations({"agg_b"}, scope) == {"agg_b", "agg_c"}
+        # Yaprak → yalnız kendisi.
+        assert close_affected_over_derivations({"agg_c"}, scope) == {"agg_c"}
+        # Alakasız / boş seed dokunulmaz.
+        assert close_affected_over_derivations({"other"}, scope) == {"other"}
+        assert close_affected_over_derivations(set(), scope) == set()
+
+    def test_downstream_block_warned_only_with_scope(self):
+        # Yalnız kök kaynağın (src) projection'ı değişir; agg_b / agg_c tanımı aynı.
+        old = _scope(_chain_scope_dict(["G", "TOTAL"]))
+        new = _scope(_chain_scope_dict(["G", "TOTAL", "EXTRA"]))
+        diff = diff_scopes(old, new)
+        assert set(diff.changed_aliases) == {"src"}
+        manifest = {"blocks": [{
+            "id": "blk1", "title": "KPI", "type": "kpi",
+            "data_source": {"sql": "SELECT SUM(TOTAL) FROM agg_c"},
+        }]}
+        # scope verilmezse: 2-kademe aşağıdaki blok UYARILMAZ (eski hata reprosu).
+        assert compute_affected_blocks(diff, manifest) == []
+        # scope verilince: agg_c'yi okuyan blok 'warning' olarak işaretlenir.
+        with_scope = compute_affected_blocks(diff, manifest, scope=new)
+        assert len(with_scope) == 1
+        assert with_scope[0].block_id == "blk1"
+        assert with_scope[0].severity == "warning"

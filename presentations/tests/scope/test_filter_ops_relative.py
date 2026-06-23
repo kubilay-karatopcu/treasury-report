@@ -12,6 +12,9 @@ from datetime import date, timedelta
 from presentations.scope.catalog import DictCatalog
 from presentations.scope.fetch import _raw_predicates
 from presentations.scope.routing import _as_date, _days_in_range, decide_routing
+
+import duckdb
+import pandas as pd
 from presentations.scope.schema import (
     PinnedFilter,
     Projection,
@@ -77,6 +80,97 @@ def test_raw_between_numeric():
     clauses, binds = _raw_predicates(scope, scope.basket[0])
     assert any("AMT BETWEEN" in c for c in clauses)
     assert 10 in binds.values() and 20 in binds.values()
+
+
+# ── #4/#5 — empty IN + relative/ISO date resolution in eq / gt-lte ──────────
+
+def _scope_with(raw):
+    return load_scope_from_dict({"scope": {
+        "presentation_id": "p", "version": 1, "created_by": "A16438",
+        "created_at": "2025-01-01T00:00:00Z",
+        "basket": [{
+            "alias": "tbl",
+            "table_ref": {"schema": "EDW", "name": "T"},
+            "projection": {"columns": ["SEG", "D"], "include_all": False},
+            "routing": {"decision": "cached", "decided_by": "system",
+                        "estimated_bytes": 1000},
+        }],
+        "filters": {"pinned": [], "interactive": [], "raw": raw},
+        "joins": [],
+    }})
+
+
+def _run_duck(clauses, binds):
+    # Mirror compile_filter_sql's derived-source path: Oracle ':' binds become
+    # DuckDB '$' binds. Materialise a tiny table and count surviving rows.
+    con = duckdb.connect()
+    df = pd.DataFrame({
+        "SEG": ["RETAIL", "SME", "CORP"],
+        "D": [date.today(), date.today() - timedelta(days=10),
+              date.today() - timedelta(days=40)],
+    })
+    con.register("t_raw", df)
+    con.execute('CREATE TABLE t AS SELECT * FROM t_raw')
+    where = (" WHERE " + " AND ".join(c.replace(":", "$") for c in clauses)) if clauses else ""
+    sql = "SELECT * FROM t" + where
+    return len(con.execute(sql, binds).fetchdf() if binds else con.execute(sql).fetchdf())
+
+
+def test_empty_in_matches_zero_rows():
+    # Boş `in` → predicate DÜŞMEMELİ (yoksa WHERE yok → TÜM satırlar). 1 = 0 yay.
+    scope = _scope_with([{"id": "rf_e", "alias": "tbl", "column": "SEG",
+                          "op": "in", "values": []}])
+    clauses, binds = _raw_predicates(scope, scope.basket[0])
+    assert clauses == ["1 = 0"]
+    assert binds == {}
+    assert _run_duck(clauses, binds) == 0
+
+
+def test_empty_not_in_is_noop_all_rows():
+    # Boş `not_in` mantıken match-all → güvenli no-op (1 = 0 YAYMA).
+    scope = _scope_with([{"id": "rf_n", "alias": "tbl", "column": "SEG",
+                          "op": "not_in", "values": []}])
+    clauses, binds = _raw_predicates(scope, scope.basket[0])
+    assert clauses == []
+    assert _run_duck(clauses, binds) == 3
+
+
+def test_gte_resolves_relative_date():
+    # 'today - 7d' → date'e çözülmeli; ham string DuckDB DATE'inde ConversionException.
+    scope = _scope_with([{"id": "rf_g", "alias": "tbl", "column": "D",
+                          "op": "gte", "value": "today - 7d"}])
+    clauses, binds = _raw_predicates(scope, scope.basket[0])
+    assert (date.today() - timedelta(days=7)) in binds.values()
+    assert all(isinstance(v, date) for v in binds.values())
+    assert _run_duck(clauses, binds) == 1   # yalnız today satırı
+
+
+def test_eq_resolves_relative_date():
+    scope = _scope_with([{"id": "rf_q", "alias": "tbl", "column": "D",
+                          "op": "eq", "value": "today"}])
+    clauses, binds = _raw_predicates(scope, scope.basket[0])
+    assert date.today() in binds.values()
+    assert _run_duck(clauses, binds) == 1
+
+
+def test_nonempty_in_still_positional_binds():
+    # Pozisyonel placeholder + bind — değer SQL'e KONKATLANMAZ (injection).
+    scope = _scope_with([{"id": "rf_i", "alias": "tbl", "column": "SEG",
+                          "op": "in", "values": ["RETAIL", "SME"]}])
+    clauses, binds = _raw_predicates(scope, scope.basket[0])
+    assert clauses == ["SEG IN (:tbl_rf0_0, :tbl_rf0_1)"]
+    assert set(binds.values()) == {"RETAIL", "SME"}
+    assert "RETAIL" not in clauses[0]   # değer string'e gömülmemiş
+    assert _run_duck(clauses, binds) == 2
+
+
+def test_eq_plain_value_unchanged():
+    # Düz string eq: _as_date None döner → ham değere düşer (davranış değişmez).
+    scope = _scope_with([{"id": "rf_s", "alias": "tbl", "column": "SEG",
+                          "op": "eq", "value": "RETAIL"}])
+    clauses, binds = _raw_predicates(scope, scope.basket[0])
+    assert binds == {"tbl_rf0": "RETAIL"}
+    assert _run_duck(clauses, binds) == 1
 
 
 def test_as_date_grammar():
