@@ -113,19 +113,26 @@ def _compile_in(
         )
 
     if kind == "map":
-        # pairs maps table_value → canonical; invert to canonical → table_value.
-        inv: dict[str, str] = {}
+        # pairs maps table_value → canonical; invert to canonical → [table_value...].
+        # Non-injective maps (birden çok table değeri aynı canonical'e gider) için
+        # TÜM table karşılıklarını topla; aksi halde diğer gösterim altındaki
+        # satırlar sessizce düşerdi. Determinism: her canonical'in table değerleri
+        # sıralanır → byte-aynı çıktı.
+        inv: dict[str, list[str]] = {}
         for table_val, canon_code in binding.transform.pairs.items():
-            inv.setdefault(canon_code, table_val)
+            inv.setdefault(canon_code, []).append(table_val)
         params = {}
         placeholders = []
-        for i, v in enumerate(canon):
-            table_val = inv.get(v)
-            if table_val is None:
+        i = 0
+        for v in canon:
+            table_vals = inv.get(v)
+            if not table_vals:
                 continue  # canonical value has no representation in this table
-            name = _bind_name(f, str(i))
-            params[name] = table_val
-            placeholders.append(f":{name}")
+            for table_val in sorted(table_vals):
+                name = _bind_name(f, str(i))
+                params[name] = table_val
+                placeholders.append(f":{name}")
+                i += 1
         if not placeholders:
             return _empty(f)
         return CompiledPredicate(
@@ -201,14 +208,35 @@ def _compile_between(f: ResolvedFilter, binding) -> CompiledPredicate:
 
 
 def _compile_eq(f: ResolvedFilter, binding, registry: ConceptRegistry) -> CompiledPredicate:
-    canon = _canonical_values(f, registry)
-    if not canon:
-        return _empty(f)
-    name = _bind_name(f, "0")
-    return CompiledPredicate(
-        filter_id=f.filter_id, concept=f.concept, blind=False,
-        sql=f"{binding.column} = :{name}", params={name: canon[0]},
+    kind = binding.transform.kind
+    # time_truncation: _compile_between ile aynı hedef seçimi — TIMESTAMP kolonu
+    # gün bazında karşılaştır, yoksa intraday bir TIMESTAMP date'e asla eşit
+    # olmaz → sessizce 0 satır.
+    if kind == "time_truncation":
+        if len(f.values) != 1:
+            return _blind(f)
+        name = _bind_name(f, "0")
+        return CompiledPredicate(
+            filter_id=f.filter_id, concept=f.concept, blind=False,
+            sql=f"TRUNC({binding.column}) = :{name}", params={name: f.values[0]},
+        )
+    if kind == "identity":
+        canon = _canonical_values(f, registry)
+        if not canon:
+            return _empty(f)
+        name = _bind_name(f, "0")
+        return CompiledPredicate(
+            filter_id=f.filter_id, concept=f.concept, blind=False,
+            sql=f"{binding.column} = :{name}", params={name: canon[0]},
+        )
+    # map / lookup / bucket: kind'e duyarlı doğru ele alış _compile_in'de zaten
+    # var (map ters-çevirme, lookup subquery, bucket aralık). eq'i tek elemanlı
+    # bir "in" gibi derleyerek tüm kind'lerde doğruluğu koru.
+    single = ResolvedFilter(
+        concept=f.concept, operator="in", values=f.values,
+        filter_id=f.filter_id, granularity=f.granularity,
     )
+    return _compile_in(single, binding, registry)
 
 
 def compile_filter_for_table(

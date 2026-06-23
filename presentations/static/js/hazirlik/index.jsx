@@ -191,10 +191,17 @@ function makeAlias(name, existing) {
   if (!/^[a-z]/.test(base)) base = "t_" + base;
   base = base.slice(0, 40);
   while (base.length < 3) base += "_t";
-  let alias = base, i = 2;
   const taken = new Set(existing);
-  while (taken.has(alias)) { alias = `${base}_${i}`.slice(0, 40); i++; }
-  return alias;
+  if (!taken.has(base)) return base;
+  // Çakışma → sayısal ek (`_2`, `_3`…). Ek'e DAİMA yer aç: base'i (40 − ek
+  // uzunluğu) kadar kırp. (Eski `${base}_${i}`.slice(0,40) ek'i kesip hep base'i
+  // üretiyordu → 40 karakterlik base'te taken.has hep true = SONSUZ DÖNGÜ/donma.
+  // Ör. `createPythonNode`'da 40-karakterlik bir source alias'tan `<src>_py`.)
+  for (let i = 2; ; i++) {
+    const suffix = `_${i}`;
+    const alias = base.slice(0, 40 - suffix.length) + suffix;
+    if (!taken.has(alias)) return alias;
+  }
 }
 
 // Bir node'a filtre atınca oluşan deterministik child alias (`<kaynak>_f`).

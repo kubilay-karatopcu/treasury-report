@@ -279,6 +279,95 @@ def test_project_rejects_bad_identifier():
     assert _proj_conn() is not None
 
 
+# ── #8 _coerce + datetime gün-kapsayıcı sınır (intraday TIMESTAMP) ─────────────
+
+from datetime import date, datetime
+
+from presentations.scope.materialize import _coerce
+
+
+def test_coerce_keeps_time_component():
+    # Saat bileşeni ARTIK düşmüyor → TIMESTAMP olarak bağlanabilsin.
+    assert _coerce("2026-06-30 14:30:00") == datetime(2026, 6, 30, 14, 30)
+    assert _coerce("2026-06-30T14:30:00") == datetime(2026, 6, 30, 14, 30)
+
+
+def test_coerce_pure_date_stays_date():
+    assert _coerce("2026-06-01") == date(2026, 6, 1)
+    assert not isinstance(_coerce("2026-06-01"), datetime)
+
+
+def test_coerce_rejects_trailing_garbage():
+    # Başlangıç-anchor'lı eski desen bunu sessizce date(2026,6,1)'e kırpıyordu.
+    assert _coerce("2026-06-01extra") == "2026-06-01extra"
+    assert _coerce("2026-06-01 lunch") == "2026-06-01 lunch"
+    assert _coerce("TRY") == "TRY"
+
+
+def _intraday_conn():
+    conn = connect_duckdb(":memory:")
+    conn.register("positions", pd.DataFrame({
+        "AS_OF_DATE": pd.to_datetime([
+            "2026-06-01 09:00:00", "2026-06-15 12:00:00",
+            "2026-06-30 14:30:00", "2026-07-01 00:00:00",
+        ]),
+        "CCY": ["TRY", "USD", "EUR", "GBP"],
+        "TOTAL": [1.0, 2.0, 3.0, 4.0],
+    }))
+    return conn
+
+
+def test_project_eq_intraday_timestamp_matches_row():
+    # eq saf-tarih + TIMESTAMP kolon → o günün 14:30 satırı da eşleşir
+    # (eski kod gece yarısı dışı hiçbir satırı bulamazdı).
+    conn = _intraday_conn()
+    binding = {
+        "alias": "positions", "columns": ["CCY"],
+        "filters": [{"filter_id": "if_d", "column": "AS_OF_DATE", "op": "eq"}],
+    }
+    out = project_block_from_dataset(conn, binding, {"if_d": "2026-06-30"})
+    assert list(out["CCY"]) == ["EUR"]
+
+
+def test_project_between_includes_intraday_upper_bound_day():
+    # Üst sınır günü (2026-06-30) intraday satır taşıyor → DAHIL edilmeli;
+    # eski inclusive BETWEEN onu (00:00 sınırı yüzünden) düşürüyordu.
+    conn = _intraday_conn()
+    binding = {
+        "alias": "positions", "columns": ["CCY"],
+        "filters": [{"filter_id": "if_d", "column": "AS_OF_DATE", "op": "between"}],
+    }
+    out = project_block_from_dataset(
+        conn, binding, {"if_d": {"from": "2026-06-01", "to": "2026-06-30"}})
+    assert list(out["CCY"]) == ["TRY", "USD", "EUR"]  # July dışarıda, 06-30 14:30 içeride
+
+
+def test_project_concept_between_includes_intraday_upper_day():
+    conn = _intraday_conn()
+    out = project_block_from_dataset(
+        conn, {"alias": "positions", "columns": ["CCY"]},
+        concept_filters=[{"concept": "c_date", "operator": "between",
+                          "values": ["2026-06-01", "2026-06-30"]}],
+        column_concepts={"AS_OF_DATE": "c_date"})
+    assert list(out["CCY"]) == ["TRY", "USD", "EUR"]
+
+
+def test_project_pure_date_column_between_inclusive():
+    # Saf DATE kolonda (saat yok) eski inclusive BETWEEN davranışı korunur.
+    conn = connect_duckdb(":memory:")
+    conn.register("daily", pd.DataFrame({
+        "D": pd.to_datetime(["2026-06-01", "2026-06-30", "2026-07-01"]).date,
+        "V": [1, 2, 3],
+    }))
+    binding = {
+        "alias": "daily", "columns": ["V"],
+        "filters": [{"filter_id": "if_d", "column": "D", "op": "between"}],
+    }
+    out = project_block_from_dataset(
+        conn, binding, {"if_d": {"from": "2026-06-01", "to": "2026-06-30"}})
+    assert list(out["V"]) == [1, 2]
+
+
 # ── Derived (aggregate) dataset materialisation — cron-able (Faz C) ──────────
 
 def _derived_scope(routing="cached", refresh=None):

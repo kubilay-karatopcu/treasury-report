@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/editor.css') }}?v=35">
   {# React Flow styles, bundled by esbuild from @xyflow/react/dist/style.css #}
   <link rel="stylesheet" href="{{ url_for('presentations.static', filename='js/hazirlik.bundle.css') }}?v=4">
-  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/hazirlik.css') }}?v=24">
+  <link rel="stylesheet" href="{{ url_for('presentations.static', filename='css/hazirlik.css') }}?v=25">
   {# Phase 11.kesif — dark override. #}
   <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/editor_dark.css') }}?v=1">
   <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/hazirlik_dark.css') }}?v=6">
@@ -33,5 +33,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}?v=38"></script>
+  <script src="{{ url_for('presentations.static', filename='js/hazirlik.bundle.js') }}?v=39"></script>
 {% endblock %}

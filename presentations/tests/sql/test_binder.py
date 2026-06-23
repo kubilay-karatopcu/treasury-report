@@ -165,3 +165,35 @@ def test_date_range_via_accessors():
     bound = expand_binds(block, resolved)
     assert bound.params["rng_from"] == date(2026, 5, 14)
     assert bound.params["rng_to"] == date(2026, 5, 21)
+
+
+def test_expand_binds_leaves_literals_and_comments_untouched():
+    """Bug #9: a ``:name`` inside a string literal or a comment must NOT be
+    treated as a bind. Only references in code expand; the executed SQL then
+    matches what validate_sql sees after stripping noise."""
+    block = Block(
+        id="blk_bug9", version=1, title="x", team="treasury", owner="x",
+        created_at="2026-05-21T10:00:00Z",
+        query=(
+            "SELECT 'filter: :currencies' AS label,  -- note :currencies\n"
+            "       /* keep :currencies */ x "
+            "FROM t WHERE ccy IN (:currencies)"
+        ),
+        visualization={"type": "kpi", "config": {}},
+        variables=[{
+            "name": "currencies", "semantic_tag": "currency", "type": "enum_multi",
+            "required": True, "allowed_values": ["TRY", "USD", "EUR"],
+            "default": ["TRY", "USD"],
+        }],
+    )
+    resolved = resolve_variables(block, today=date(2026, 5, 21))
+    bound = expand_binds(block, resolved)
+
+    # String literal preserved verbatim — NOT expanded.
+    assert "'filter: :currencies'" in bound.sql
+    # Line comment and block comment preserved verbatim.
+    assert "-- note :currencies" in bound.sql
+    assert "/* keep :currencies */" in bound.sql
+    # Only the real WHERE reference expands positionally.
+    assert "IN (:currencies_0, :currencies_1)" in bound.sql
+    assert bound.params == {"currencies_0": "TRY", "currencies_1": "USD"}

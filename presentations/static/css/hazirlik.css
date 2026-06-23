@@ -464,6 +464,12 @@
   border: 1px solid #e2e8f0; border-radius: 4px;
   background: #fff;
   overflow: hidden;
+  /* Liste flex-column + max-height:30vh ile sınırlı; satırlar flex item olduğu
+     için (üstelik overflow:hidden min-height'ı 0'a düşürür) varsayılan
+     flex-shrink:1 onları 30vh'a sığsın diye ezerdi → satırlar üst üste binerdi.
+     flex-shrink:0 ile satır boyu sabit kalır, içerik taşınca .hz-basket-list
+     scroll'u (overflow-y:auto) devreye girer. */
+  flex-shrink: 0;
 }
 .hz-basket-row__main {
   flex: 1 1 auto;

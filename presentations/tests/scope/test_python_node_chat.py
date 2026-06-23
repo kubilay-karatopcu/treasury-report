@@ -11,7 +11,11 @@ from __future__ import annotations
 import pytest
 
 from presentations.llm import FakeLLM, compose_scope_user_message
-from presentations.routes_scope import _ApplyError, _mutate_scope_with_suggestion
+from presentations.routes_scope import (
+    _ApplyError,
+    _mutate_scope_with_suggestion,
+    _profile_node_df,
+)
 
 
 def _scope():
@@ -42,6 +46,87 @@ def test_compose_includes_selected_node_block():
 def test_compose_without_selection_has_no_focus_block():
     msg = compose_scope_user_message(_scope(), "merhaba")
     assert "Seçili node (ODAK)" not in msg
+
+
+# ── Öneri 1: ODAK node data profili (dtype + örnek) ──────────────────────────
+
+def test_compose_renders_profile_dtypes_over_names():
+    profile = {"row_count": 12340, "columns": [
+        {"name": "REGION", "dtype": "object", "sample": "Marmara, Ege"},
+        {"name": "SNAPSHOT_MONTH", "dtype": "datetime64[ns]",
+         "sample": "aralık 2025-01-01 → 2025-12-01"},
+        {"name": "BALANCE_TRY", "dtype": "float64", "sample": "aralık 0 → 4.2e+08"},
+    ]}
+    msg = compose_scope_user_message(
+        _scope(), "pivotla",
+        selected_alias="deposits",
+        selected_columns=["REGION", "SNAPSHOT_MONTH", "BALANCE_TRY"],
+        selected_profile=profile,
+    )
+    assert "datetime64[ns]" in msg          # LLM artık tarih tipini GÖRÜYOR (asıl fix)
+    assert "SNAPSHOT_MONTH" in msg
+    assert "12.340" in msg                   # satır sayısı (TR binlik ayraç)
+    # profil varken düz isim-listesi satırına DÜŞÜLMEZ
+    assert "- kolonlar: `REGION`" not in msg
+
+
+def test_compose_falls_back_to_names_without_profile():
+    msg = compose_scope_user_message(
+        _scope(), "pivotla",
+        selected_alias="deposits", selected_columns=["REGION", "BALANCE_TRY"],
+    )
+    assert "- kolonlar: `REGION`, `BALANCE_TRY`" in msg
+    assert "datetime64" not in msg
+
+
+def test_profile_node_df_flags_datetime_and_categorical():
+    import pandas as pd
+    df = pd.DataFrame({
+        "REGION": ["Marmara", "Ege", "Marmara"],
+        "SNAPSHOT_MONTH": pd.to_datetime(["2025-05-01", "2025-06-01", "2025-05-01"]),
+        "BALANCE_TRY": [1.0, 2.5, 3.0],
+    })
+    prof = _profile_node_df(df)
+    assert prof["row_count"] == 3
+    by = {c["name"]: c for c in prof["columns"]}
+    # asıl bug: tarih kolonu integer-ay sanılıyordu — artık dtype açıkça datetime
+    assert by["SNAPSHOT_MONTH"]["dtype"].startswith("datetime64")
+    assert by["REGION"]["dtype"] in ("object", "str")  # pandas sürümüne göre değişir
+    assert "Marmara" in by["REGION"]["sample"]   # düşük-kardinalite → değerler
+    assert by["BALANCE_TRY"]["dtype"] == "float64"
+
+
+def test_profile_node_df_hides_high_cardinality_values():
+    import pandas as pd
+    df = pd.DataFrame({"ACCOUNT_ID": [f"AC{i:06d}" for i in range(50)]})
+    prof = _profile_node_df(df)
+    sample = prof["columns"][0]["sample"]
+    assert "farklı değer" in sample              # ham değer SIZDIRILMAZ (PII)
+    assert "AC000000" not in sample
+
+
+def test_profile_node_df_handles_duplicate_column_labels():
+    # join/union sonrası YİNELENEN kolon adları: pozisyonla dolaşılmazsa
+    # df[name] DataFrame döndürür, str(.dtype) patlar ve her iki kolon da
+    # dtype='?'/sample='' kalırdı — LLM ipucu tam belirsiz durumda boşa çıkardı.
+    import pandas as pd
+    df = pd.DataFrame({
+        "_num": [1.0, 2.0, 3.0],
+        "_dt": pd.to_datetime(["2025-01-01", "2025-02-01", "2025-03-01"]),
+        "_txt": ["Ege", "Marmara", "Ege"],
+    })
+    df.columns = ["a", "a", "b"]
+    prof = _profile_node_df(df)
+    assert prof["row_count"] == 3
+    cols = prof["columns"]
+    assert len(cols) == 3
+    assert cols[0]["name"] == "a" and cols[1]["name"] == "a"
+    # her yinelenen kolon kendi POZİSYONUNA göre gerçek dtype+örnek alır
+    assert cols[0]["dtype"] != "?" and cols[0]["sample"] != ""
+    assert cols[1]["dtype"] != "?" and cols[1]["sample"] != ""
+    assert cols[0]["dtype"] == "float64"
+    assert cols[1]["dtype"].startswith("datetime64")
+    assert cols[2]["dtype"] in ("object", "str")
 
 
 # ── FakeLLM stub ────────────────────────────────────────────────────────────

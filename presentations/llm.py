@@ -174,6 +174,7 @@ class QwenClient:
         history: list[dict] | None = None,
         selected_alias: str | None = None,
         selected_columns: list[str] | None = None,
+        selected_profile: dict | None = None,
     ) -> dict:
         """Phase 8.f Hazırlık chat: scope refinement suggestions.
 
@@ -192,6 +193,7 @@ class QwenClient:
             history=history,
             selected_alias=selected_alias,
             selected_columns=selected_columns,
+            selected_profile=selected_profile,
         )
         result = self._call_scope(system, composed)
         if result.get("_invalid"):
@@ -625,6 +627,7 @@ def compose_scope_user_message(
     history: list[dict] | None = None,
     selected_alias: str | None = None,
     selected_columns: list[str] | None = None,
+    selected_profile: dict | None = None,
 ) -> str:
     """Render the user-side payload for `suggest_scope_refinements`.
 
@@ -689,7 +692,19 @@ def compose_scope_user_message(
                 parts.append(f"- kaynak: türetilmiş ({sel_kind})")
             elif sel.get("sql"):
                 parts.append("- kaynak: manuel SQL")
-        if selected_columns:
+        # Öneri 1 — kolon TİPLERİNİ ve örnek değerleri ver (yalnız isim değil).
+        # LLM `create_python_node` kodunu tipe göre yazsın: tarih kolonunda `.dt`,
+        # integer-ay sanıp `.map()` ile sessizce NaN üretmesin. Profil yoksa
+        # (lazy/materialise edilmemiş node) eski davranışa düş: düz isim listesi.
+        if selected_profile and selected_profile.get("columns"):
+            rc = selected_profile.get("row_count")
+            if isinstance(rc, int):
+                parts.append(f"- satır sayısı: {rc:,}".replace(",", "."))
+            parts.append("- kolonlar (ad : tip — örnek değerler; tipleri VARSAYMA, buradan al):")
+            for c in selected_profile["columns"][:40]:
+                nm, dt, ex = c.get("name", "?"), c.get("dtype", "?"), c.get("sample", "")
+                parts.append(f"  - `{nm}` : {dt}" + (f" — {ex}" if ex else ""))
+        elif selected_columns:
             parts.append("- kolonlar: " + ", ".join(f"`{c}`" for c in selected_columns[:40]))
         if sel_kind == "python":
             # ODAK zaten bir python node → MEVCUT script'i DÜZENLE (yeni node yaratma).
@@ -1016,6 +1031,7 @@ class FakeLLM:
         history: list[dict] | None = None,
         selected_alias: str | None = None,
         selected_columns: list[str] | None = None,
+        selected_profile: dict | None = None,
     ) -> dict:
         """Offline canned responses keyed on user intent.
 

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Iterable, Iterator
 
 import sqlparse
 from sqlparse import tokens as T
@@ -74,12 +74,6 @@ _PROCEDURAL_PHRASES = (re.compile(r"\bEXECUTE\s+IMMEDIATE\b", re.IGNORECASE),)
 
 FORBIDDEN_SINGLE = _DDL_KEYWORDS | _DML_WRITE_KEYWORDS | _PROCEDURAL_KEYWORDS
 
-# Cheap pre-screen by raw text — catches obvious cases before parsing and is
-# the source of the "anywhere in the query" check called for by spec.
-_FORBIDDEN_RE = {
-    kw: re.compile(rf"\b{kw}\b", re.IGNORECASE) for kw in FORBIDDEN_SINGLE
-}
-
 
 # ── Bind variable extraction ──────────────────────────────────────────────
 
@@ -88,20 +82,92 @@ _FORBIDDEN_RE = {
 # (handled separately by stripping literals first).
 _BIND_VAR_RE = re.compile(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)")
 
-# Strip single-quoted strings (Oracle escapes via doubled '').
-_STRING_LIT_RE = re.compile(r"'(?:[^']|'')*'")
-# Strip block + line comments before bind extraction.
-_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
-_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+def iter_sql_spans(sql: str) -> Iterator[tuple[str, bool]]:
+    """Yield ``(text, is_noise)`` spans covering *sql* from start to end.
+
+    A *noise* span is a single-quoted string literal (``''`` escapes a quote),
+    a ``--`` line comment, or a ``/* */`` block comment. Every other span is
+    code (``is_noise`` is False). Concatenating all yielded ``text`` values
+    reproduces *sql* exactly.
+
+    An *unterminated* string literal or block comment is reported as code, so
+    this scanner matches the closing-delimiter-required regexes it replaces.
+    """
+    i = 0
+    n = len(sql)
+    code_start = 0
+    while i < n:
+        c = sql[i]
+        if c == "/" and i + 1 < n and sql[i + 1] == "*":
+            end = sql.find("*/", i + 2)
+            if end == -1:
+                break  # unterminated -> trailing code
+            if i > code_start:
+                yield sql[code_start:i], False
+            end += 2
+            yield sql[i:end], True
+            i = code_start = end
+            continue
+        if c == "-" and i + 1 < n and sql[i + 1] == "-":
+            if i > code_start:
+                yield sql[code_start:i], False
+            end = sql.find("\n", i + 2)
+            if end == -1:
+                end = n
+            yield sql[i:end], True
+            i = code_start = end
+            continue
+        if c == "'":
+            j = i + 1
+            closed = False
+            while j < n:
+                if sql[j] == "'":
+                    if j + 1 < n and sql[j + 1] == "'":
+                        j += 2
+                        continue
+                    j += 1
+                    closed = True
+                    break
+                j += 1
+            if not closed:
+                break  # unterminated -> trailing code
+            if i > code_start:
+                yield sql[code_start:i], False
+            yield sql[i:j], True
+            i = code_start = j
+            continue
+        i += 1
+    if code_start < n:
+        yield sql[code_start:], False
+
+
+def sub_outside_noise(pattern: "re.Pattern[str]", repl, sql: str) -> str:
+    """Apply ``pattern.sub(repl, ...)`` to *sql*'s code spans only.
+
+    String literals and comments are preserved verbatim, so a ``:bind`` (or any
+    keyword) inside them is never rewritten. Used by the bind expander so
+    placeholders inside literals/comments stay intact, matching what the
+    validator sees after :func:`_strip_noise`.
+    """
+    return "".join(
+        text if is_noise else pattern.sub(repl, text)
+        for text, is_noise in iter_sql_spans(sql)
+    )
 
 
 def _strip_noise(sql: str) -> str:
     """Remove comments and string literals so they don't poison keyword/bind
-    detection. Replaces with single space to preserve token boundaries."""
-    s = _BLOCK_COMMENT_RE.sub(" ", sql)
-    s = _LINE_COMMENT_RE.sub(" ", s)
-    s = _STRING_LIT_RE.sub("''", s)
-    return s
+    detection. Comments collapse to a single space (preserving token
+    boundaries); string literals collapse to an empty literal ``''``."""
+    out: list[str] = []
+    for text, is_noise in iter_sql_spans(sql):
+        if not is_noise:
+            out.append(text)
+        elif text.startswith("'"):
+            out.append("''")
+        else:
+            out.append(" ")
+    return "".join(out)
 
 
 def extract_bind_vars(sql: str) -> list[str]:
@@ -213,17 +279,33 @@ def validate_sql(
         )
         # Continue — surfacing forbidden-keyword errors too is useful for UX.
 
-    # ── Rules 3, 4, 5: forbidden keywords anywhere ────────────────────
+    # ── Rules 3, 4, 5: forbidden keyword as a real DDL/DML/procedural token ──
+    # Reject a banned keyword when it is the statement-leading token OR appears
+    # as an actual DML/DDL KEYWORD (e.g. a nested DELETE/DROP/INSERT in a
+    # subquery or CTE) — but NOT when it is merely a column or quoted identifier.
+    # sqlparse tags `SELECT comment`'s comment and `SELECT BEGIN` as a generic
+    # Keyword and `"DELETE"` as a quoted literal, while a real `DELETE FROM` is
+    # Keyword.DML and `DROP` is Keyword.DDL. This fixes the false-reject of
+    # keyword-named identifiers (mirroring aggregation_gate's leading-token
+    # policy) without weakening defense-in-depth against nested DML/DDL.
+    flagged: list[str] = []
+    if top in FORBIDDEN_SINGLE:
+        flagged.append(top)
+    for tok in stmt.flatten():
+        if tok.ttype in (T.Keyword.DML, T.Keyword.DDL):
+            u = tok.value.strip().upper()
+            if u in FORBIDDEN_SINGLE and u not in flagged:
+                flagged.append(u)
+    for kw in flagged:
+        kind = _classify_kw(kw)
+        errors.append(
+            f"Forbidden {kind} keyword detected: {kw!r}. "
+            "Only SELECT and WITH are allowed."
+        )
+
+    # EXECUTE IMMEDIATE is a two-word procedural construct; a leading EXECUTE
+    # already fails the SELECT/WITH check, but a nested form must also reject.
     cleaned = _strip_noise(sql)
-
-    for kw in sorted(FORBIDDEN_SINGLE):
-        if _FORBIDDEN_RE[kw].search(cleaned):
-            kind = _classify_kw(kw)
-            errors.append(
-                f"Forbidden {kind} keyword detected: {kw!r}. "
-                "Only SELECT and WITH are allowed."
-            )
-
     for pat in _PROCEDURAL_PHRASES:
         m = pat.search(cleaned)
         if m:
