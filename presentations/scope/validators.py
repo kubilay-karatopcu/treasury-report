@@ -106,6 +106,14 @@ def _as_date(v):
         return None
 
 
+def _as_number(v):
+    # Somut sayısal sınır mı? bool, int alt sınıfı olduğu için hariç tutulur
+    # (aksi halde True/False '1/0' gibi sıralanırdı).
+    if isinstance(v, bool):
+        return None
+    return v if isinstance(v, (int, float)) else None
+
+
 def rule_pinned_consistency(scope: ScopeContract, catalog: Catalog):
     errors: list[str] = []
     for f in scope.filters.pinned:
@@ -116,6 +124,11 @@ def rule_pinned_consistency(scope: ScopeContract, catalog: Catalog):
             # values can't be ordered — skip rather than lexically comparing
             # exprs (which wrongly ranks "today - 7d" > "today").
             inverted = lo_d is not None and hi_d is not None and lo_d > hi_d
+            if not inverted:
+                # Tarih çözülmediyse, her iki sınır da somut sayıysa doğrudan
+                # karşılaştır (ters sayısal aralık sessizce 0 satır eşler).
+                lo_n, hi_n = _as_number(lo), _as_number(hi)
+                inverted = lo_n is not None and hi_n is not None and lo_n > hi_n
             if inverted:
                 errors.append(
                     f"Pinned filter '{f.id}': between requires from <= to "
@@ -234,7 +247,13 @@ def rule_raw_filters(scope: ScopeContract, catalog: Catalog):
             )
         if f.op == "between":
             lo, hi = _as_date(f.from_), _as_date(f.to)
-            if lo is not None and hi is not None and lo > hi:
+            inverted = lo is not None and hi is not None and lo > hi
+            if not inverted:
+                # Tarih çözülmediyse somut sayısal sınırları doğrudan karşılaştır
+                # (ters sayısal between sessizce 0 satır eşler).
+                lo_n, hi_n = _as_number(f.from_), _as_number(f.to)
+                inverted = lo_n is not None and hi_n is not None and lo_n > hi_n
+            if inverted:
                 errors.append(
                     f"Raw filter '{f.id}': between requires from <= to "
                     f"(got {f.from_} > {f.to})"

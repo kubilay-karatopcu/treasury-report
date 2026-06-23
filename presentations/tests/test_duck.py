@@ -150,6 +150,22 @@ class TestMaterializeTable:
         duck.materialize_table(conn, "ds2", pd.DataFrame({"A": [1, 2, 3]}))
         assert conn.execute('SELECT COUNT(*) FROM "ds2"').fetchone()[0] == 3
 
+    def test_re_materialize_existing_table(self):
+        """A-fix regression: ikinci materialize (re-build / cron refresh) — `name`
+        artık gerçek bir TABLE; eski `DROP VIEW IF EXISTS` duckdb 1.5.2'de
+        tip-uyuşmazlığı CatalogException atıyordu (her yeniden-build çöküyordu).
+        Aynı kalıcı conn'da tekrar materialize çökmemeli, veriyi değiştirmeli."""
+        import pandas as pd
+        from presentations import duck
+
+        conn = duck.connect_duckdb(":memory:")
+        duck.materialize_table(conn, "ds3", pd.DataFrame({"A": [1, 2]}))
+        # İkinci materialize — eskiden burada CatalogException patlıyordu.
+        duck.materialize_table(conn, "ds3", pd.DataFrame({"A": [10, 20, 30]}))
+        assert conn.execute('SELECT COUNT(*) FROM "ds3"').fetchone()[0] == 3
+        assert conn.execute('SELECT SUM(A) FROM "ds3"').fetchone()[0] == 60
+        conn.close()
+
     def test_internal_names_hidden_from_list_views(self):
         import pandas as pd
         from presentations import duck

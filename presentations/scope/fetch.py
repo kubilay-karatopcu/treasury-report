@@ -155,7 +155,16 @@ def _raw_predicates_from(raw_filters, prefix: str) -> tuple[list[str], dict[str,
     binds: dict[str, Any] = {}
     for i, rf in enumerate(raw_filters):
         col = rf.column
-        if rf.op in ("in", "not_in") and rf.values:
+        if rf.op in ("in", "not_in"):
+            if not rf.values:
+                # Boş `in` HİÇBİR satırı eşlemeli (boş küme) — guard'ı düşürmek
+                # WHERE'i tamamen kaldırıp TÜM satırları döndürürdü (lazy Oracle
+                # main'de full-table scan). Always-false 1 = 0 yay (compiler.py
+                # _empty() ile aynı). Boş `not_in` ise mantıken match-all → güvenli
+                # no-op olarak atlanır (1 = 0 YAYMA).
+                if rf.op == "in":
+                    clauses.append("1 = 0")
+                continue
             names = []
             for j, v in enumerate(rf.values):
                 b = f"{prefix}_rf{i}_{j}"
@@ -170,12 +179,15 @@ def _raw_predicates_from(raw_filters, prefix: str) -> tuple[list[str], dict[str,
             clauses.append(f"{col} BETWEEN :{bf} AND :{bt}")
         elif rf.op == "eq" and rf.value is not None:
             b = f"{prefix}_rf{i}"
-            binds[b] = rf.value
+            # `between` gibi göreli-tarih grammar'ını ('today - 7d') ve ISO
+            # string'leri date'e çöz; düz sayısal/metin değerde _as_date None →
+            # ham değere düşer (davranış değişmez).
+            binds[b] = _as_date(rf.value) or rf.value
             clauses.append(f"{col} = :{b}")
         elif rf.op in ("gt", "gte", "lt", "lte") and rf.value is not None:
             sym = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[rf.op]
             b = f"{prefix}_rf{i}"
-            binds[b] = rf.value
+            binds[b] = _as_date(rf.value) or rf.value
             clauses.append(f"{col} {sym} :{b}")
     return clauses, binds
 
@@ -497,10 +509,25 @@ def compile_join_sql(item: BasketItem, left_cols, right_cols) -> str:
     d = item.derivation
     left, right = d.source_aliases[0], d.source_aliases[1]
     jtype = "LEFT JOIN" if d.join_type == "left" else "INNER JOIN"
-    left_set = set(left_cols or [])
-    sel = [f'"{left}"."{c}" AS "{c}"' for c in (left_cols or [])]
+    # Çıkış adlarının TÜMÜNE karşı benzersizlik garanti et — yalnız ham sol
+    # kümeye bakmak yetmez: sol tarafta zaten `<right>_<col>` adlı bir kolon
+    # varsa prefiksli ad da çakışır, DuckDB ikinciyi sessizce `_1` yapardı
+    # (hiçbir binding/türetilmiş düğüm bunu beklemez). _dedupe_columns gibi
+    # `_2`, `_3`… artırarak deterministik, beklenen bir ad üret.
+    used: set[str] = set()
+    sel: list[str] = []
+    for c in (left_cols or []):
+        used.add(c)
+        sel.append(f'"{left}"."{c}" AS "{c}"')
     for c in (right_cols or []):
-        out = c if c not in left_set else f"{right}_{c}"
+        out = c
+        if out in used:
+            base, i = f"{right}_{c}", 2
+            out = base
+            while out in used:
+                out = f"{base}_{i}"
+                i += 1
+        used.add(out)
         sel.append(f'"{right}"."{c}" AS "{out}"')
     select_list = ", ".join(sel) if sel else "*"
     cond = " AND ".join(
@@ -511,13 +538,21 @@ def compile_join_sql(item: BasketItem, left_cols, right_cols) -> str:
 
 
 def compile_union_sql(item: BasketItem) -> str:
-    """UNION [ALL] of the source aliases, positional (``SELECT * FROM a UNION …``).
+    """UNION [ALL] of the source aliases, aligned BY NAME.
 
-    Column count + types must line up — validated at design time (frontend
-    pre-check) and enforced by DuckDB on execute. ``union_all=False`` → DISTINCT.
+    DuckDB's bare ``UNION`` is POSITIONAL — two sources carrying the same column
+    names in a different order would silently misalign (a DATE column receiving a
+    currency string, dtype downgrading DATE→str, no error). ``... BY NAME`` aligns
+    columns by name instead; a column present in only one source is NULL-filled
+    rather than raising on arity mismatch. Column compatibility is still checked at
+    design time (frontend pre-check). ``union_all=False`` → DISTINCT.
     """
     d = item.derivation
-    op = "UNION ALL" if d.union_all else "UNION"
+    # BY NAME: DuckDB UNION konumsaldır — aynı kolon adlarını FARKLI sırada
+    # taşıyan iki kaynak (iki manuel-SQL düğümü, bağımsız projeksiyonlar)
+    # konuma göre hizalanır → bir DATE kolonu sessizce currency string'i alır,
+    # dtype DATE→str düşer ve DuckDB hata vermez. Ada göre hizala.
+    op = "UNION ALL BY NAME" if d.union_all else "UNION BY NAME"
     return f" {op} ".join(f'SELECT * FROM "{a}"' for a in d.source_aliases)
 
 
@@ -732,6 +767,16 @@ def fetch_cached_tables(
     #     on the materialised source view in DuckDB.
     #   - aggregate / calculated → DuckDB over the materialised source view(s).
     #   - python (Faz P) → source view'i DataFrame'e çek, sandbox'ta çalıştır.
+    # Re-entry stale-data guard (B): refetch_only (= diff.affected_aliases) lists
+    # only DIRECTLY changed/added aliases. A derived node whose source CHAIN — but
+    # not its immediate source — reaches a changed alias would be treated as an
+    # up-to-date "inherited view" at the gate below, keeping the previous build's
+    # data (src → agg_b → agg_c, only src changed → agg_c stale). Close the set
+    # transitively so every transitively-affected derived node is rebuilt.
+    if refetch_only is not None:
+        from presentations.scope.diff import close_affected_over_derivations
+        refetch_only = close_affected_over_derivations(refetch_only, scope)
+
     pending = [b for b in scope.basket
                if b.derivation is not None and b.routing.decision == "cached"]
     registered = set(loaded.keys())  # raw cached tables just loaded in Pass 1

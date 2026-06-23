@@ -126,3 +126,103 @@ def test_invalid_scope_rejected(client, sample_body):
 def test_malformed_body_rejected(client):
     resp = client.post("/presentations/p_abc123/scope", json={"scope": {"version": "not-an-int"}})
     assert resp.status_code == 400
+
+
+# ════════════════════════════════════════════════════════════════════════
+# #10 — entitlement geçidi manuel-SQL sepet öğelerini de kapsar (bypass)
+# ════════════════════════════════════════════════════════════════════════
+
+from flask_login import login_user as _login_user
+
+from presentations import routes_scope as _rs
+from presentations.scope.schema import load_scope_from_dict as _load_scope
+
+_ROUTING = {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}
+
+
+# ── Saf yardımcı: FROM/JOIN bölgesinden SCHEMA.TABLE çıkarımı ────────────────
+
+def test_sql_refs_simple_from():
+    assert _rs._sql_schema_table_refs("SELECT * FROM EDW.DEPOSITS_DAILY") == {"EDW.DEPOSITS_DAILY"}
+
+
+def test_sql_refs_cte_name_not_flagged():
+    # WITH cte adı + SELECT'teki alias.kolon gated sayılmamalı (false-positive yok).
+    sql = "WITH cte AS (SELECT 1 AS k) SELECT cte.k FROM cte"
+    assert _rs._sql_schema_table_refs(sql) == set()
+
+
+def test_sql_refs_subquery_alias_and_columns_not_flagged():
+    sql = "SELECT a.BALANCE, b.RATE FROM EDW.A a JOIN EDW.B b ON a.k = b.k"
+    assert _rs._sql_schema_table_refs(sql) == {"EDW.A", "EDW.B"}
+
+
+def test_sql_refs_join_comma_subquery_cte_all_caught():
+    # JOIN + virgül-join + CTE gövdesi + WHERE alt-sorgusu: hepsi yakalanmalı.
+    sql = (
+        "WITH t AS (SELECT * FROM EDW.A a JOIN ODS_RISK.SECRET b ON a.k=b.k) "
+        "SELECT * FROM t c, EDW.F d WHERE d.x IN (SELECT id FROM HIDDEN.SUB s)"
+    )
+    assert _rs._sql_schema_table_refs(sql) == {"EDW.A", "ODS_RISK.SECRET", "EDW.F", "HIDDEN.SUB"}
+
+
+def test_sql_refs_quoted_identifier():
+    assert _rs._sql_schema_table_refs('SELECT * FROM "ODS_RISK"."EXPOSURE"') == {"ODS_RISK.EXPOSURE"}
+
+
+def test_sql_refs_on_function_comma_not_flagged():
+    # ON içindeki fonksiyon-çağrısı virgülü yeni tablo gibi toplanmamalı.
+    sql = "SELECT * FROM EDW.A a JOIN EDW.B b ON COALESCE(a.k, b.k) = b.k"
+    assert _rs._sql_schema_table_refs(sql) == {"EDW.A", "EDW.B"}
+
+
+# ── Entitlement geçidi: manuel-SQL bypass ────────────────────────────────────
+
+def _scope_with(items):
+    return _load_scope({"scope": {
+        "presentation_id": "p_x", "version": 1, "created_by": "A16438",
+        "created_at": "2026-01-01T00:00:00Z", "basket": items,
+    }})
+
+
+def _denied_in_ctx(app, scope):
+    with app.test_request_context():
+        _login_user(_FakeUser())
+        return _rs._unentitled_tables(scope)
+
+
+def test_manual_sql_gated_schema_denied(app):
+    # treasury kullanıcısı manuel-SQL ile ODS_RISK (risk) çekiyor → RED (bypass).
+    scope = _scope_with([
+        {"alias": "manual1", "sql": "SELECT * FROM ODS_RISK.EXPOSURE", "routing": _ROUTING},
+    ])
+    assert "ODS_RISK.EXPOSURE" in _denied_in_ctx(app, scope)
+
+
+def test_manual_sql_entitled_schema_allowed(app):
+    # Aynı kullanıcı kendi departmanının EDW şemasını manuel-SQL ile çekebilir.
+    scope = _scope_with([
+        {"alias": "manual1", "sql": "SELECT * FROM EDW.DEPOSITS_DAILY", "routing": _ROUTING},
+    ])
+    assert _denied_in_ctx(app, scope) == []
+
+
+def test_manual_sql_join_onto_gated_caught(app):
+    # Entitled bir tablodan gated bir şemaya JOIN da yakalanmalı.
+    scope = _scope_with([
+        {"alias": "manual1",
+         "sql": "SELECT * FROM EDW.DEPOSITS_DAILY d JOIN ODS_RISK.EXPOSURE r ON d.k=r.k",
+         "routing": _ROUTING},
+    ])
+    denied = _denied_in_ctx(app, scope)
+    assert "ODS_RISK.EXPOSURE" in denied
+    assert "EDW.DEPOSITS_DAILY" not in denied
+
+
+def test_table_ref_item_still_gated(app):
+    # table_ref öğeleri eskisi gibi geçide tabi (davranış korunur).
+    scope = _scope_with([
+        {"alias": "tbl1", "table_ref": {"schema": "ODS_RISK", "name": "EXPOSURE"},
+         "projection": {"include_all": True}, "routing": _ROUTING},
+    ])
+    assert "ODS_RISK.EXPOSURE" in _denied_in_ctx(app, scope)

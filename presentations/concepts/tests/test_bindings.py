@@ -37,6 +37,52 @@ def test_lookup_transform():
     assert b.transform.dim_table == "DIM_BRANCH"
 
 
+# ── Lookup identifier validation (defense-in-depth) ────────────────────────
+# dim_table / dim_key / dim_canonical derleyicide alt-sorguya verbatim gömülür;
+# ColumnBinding.column gibi katı Oracle tanımlayıcı doğrulamasına tabi olmalı.
+
+def _lookup(**over):
+    base = {"kind": "lookup", "dim_table": "DIM_BRANCH",
+            "dim_key": "BRANCH_ID", "dim_canonical": "BRANCH_CODE"}
+    base.update(over)
+    return ColumnBinding(concept="branch", column="BRANCH_ID", transform=base)
+
+
+def test_lookup_injection_dim_table_rejected():
+    # Eskiden (min_length=1) kabul ediliyordu; artık reddedilmeli.
+    with pytest.raises(ValidationError):
+        _lookup(dim_table="DIM_BRANCH; DROP TABLE X--")
+
+
+def test_lookup_lowercase_dim_table_rejected():
+    with pytest.raises(ValidationError):
+        _lookup(dim_table="dim_branch")
+
+
+def test_lookup_schema_qualified_dim_table_accepted():
+    # dim_table tek noktalı (şema-nitelikli) olabilir.
+    b = _lookup(dim_table="DIM.BRANCH")
+    assert b.transform.dim_table == "DIM.BRANCH"
+
+
+def test_lookup_double_dotted_dim_table_rejected():
+    with pytest.raises(ValidationError):
+        _lookup(dim_table="DIM.BRANCH.X")
+
+
+def test_lookup_dim_key_validated():
+    with pytest.raises(ValidationError):
+        _lookup(dim_key="BRANCH_ID; --")
+    # Bare dim_key kabul edilir.
+    assert _lookup(dim_key="BRANCH_ID").transform.dim_key == "BRANCH_ID"
+
+
+def test_lookup_dim_canonical_validated():
+    with pytest.raises(ValidationError):
+        _lookup(dim_canonical="DIM.BRANCH")  # nokta bare kolon için geçersiz
+    assert _lookup(dim_canonical="BRANCH_CODE").transform.dim_canonical == "BRANCH_CODE"
+
+
 def test_bucket_from_range_transform():
     b = ColumnBinding(concept="maturity", column="MATURITY_DAYS",
                       transform={"kind": "bucket_from_range", "ranges_concept": "maturity"})

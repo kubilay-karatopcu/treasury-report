@@ -22,6 +22,10 @@ import logging
 import re
 from typing import TYPE_CHECKING, Callable, Optional
 
+import sqlparse
+from sqlparse import sql as _sql
+from sqlparse import tokens as _tok
+
 from .aggregation_gate import GateError, GateResult, MAX_RAW_ROWS, validate_and_wrap
 
 if TYPE_CHECKING:
@@ -113,8 +117,16 @@ def materialize_table(conn, name: str, df):
         pass
     conn.register(tmp, df)
     try:
-        # Aynı isimde önceki register'dan kalan VIEW, CREATE TABLE ile çakışır.
-        conn.execute(f'DROP VIEW IF EXISTS "{name}"')
+        # Aynı isimde önceki register'dan kalan VIEW, CREATE TABLE ile çakışır →
+        # önce onu düşür. AMA `name` zaten gerçek bir TABLE ise (ikinci materialize:
+        # re-build / cron refresh, kalıcı session conn'unda), DROP VIEW IF EXISTS
+        # no-op DEĞİL — duckdb 1.5.2'de tip-uyuşmazlığı CatalogException atar
+        # (IF EXISTS yalnız 'bulunamadı' halini yutar, tip-uyuşmazlığını değil).
+        # try/except ile yut; var olan TABLE'ı zaten CREATE OR REPLACE değiştirir.
+        try:
+            conn.execute(f'DROP VIEW IF EXISTS "{name}"')
+        except Exception:
+            pass
         conn.execute(f'CREATE OR REPLACE TABLE "{name}" AS SELECT * FROM "{tmp}"')
     finally:
         try:
@@ -294,14 +306,90 @@ def find_view_refs(sql: str, view_names: list[str]) -> list[str]:
     leading ``.``/word-char guard — same word-boundary spirit as
     ``find_upload_refs``.
     """
+    table_names = _table_position_names(sql)
     hits: list[str] = []
     for name in view_names:
         if not name:
             continue
-        pat = re.compile(rf"(?<![\w.])({re.escape(name)})(?![\w])", re.IGNORECASE)
-        if pat.search(sql):
-            hits.append(name)
+        if table_names is not None:
+            # sqlparse SQL'i tablo konumlarına çözebildi: yalnızca gerçek
+            # FROM/JOIN tablo adlarıyla eşleştir — literal/yorum/alias içindeki
+            # ad artık DuckDB'ye yanlış yönlendirme tetiklemez.
+            if name.lower() in table_names:
+                hits.append(name)
+        else:
+            # Ayrıştırma başarısız: eski token-regex davranışına düş ki gerçek
+            # FROM/JOIN referansları sessizce kaçırılıp Oracle'a yönlenmesin.
+            pat = re.compile(rf"(?<![\w.])({re.escape(name)})(?![\w])", re.IGNORECASE)
+            if pat.search(sql):
+                hits.append(name)
     return hits
+
+
+def _table_position_names(sql: str) -> Optional[set[str]]:
+    """sqlparse ile ``sql`` içindeki FROM/JOIN konumundaki tablo adlarını
+    (küçük harf; takma ad ve şema öneki soyulmuş) topla.
+
+    Yalnızca gerçek tablo konumlarını sayar: tek tırnaklı string literalleri,
+    yorumları ve ``AS alias`` takma adlarını yok sayar. Böylece bir scope-view
+    adı yalnızca literal/etiket olarak geçtiğinde blok yanlışlıkla DuckDB'ye
+    yönlendirilmez. Alt sorgu / CTE gövdelerine de iner. Ayrıştırma başarısız
+    olursa ``None`` döner → çağıran eski regex davranışına düşer (gerçek
+    referansları kaçırmamak için).
+    """
+    try:
+        parsed = sqlparse.parse(sql)
+    except Exception:
+        return None
+    if not parsed:
+        return None
+    names: set[str] = set()
+
+    def _add(tok):
+        if isinstance(tok, _sql.Identifier):
+            real = tok.get_real_name()  # takma adı ve şema önekini soyar
+            if real:
+                names.add(real.lower())
+        elif isinstance(tok, _sql.IdentifierList):
+            for sub in tok.get_identifiers():
+                _add(sub)
+        elif tok.ttype in (_tok.Name,):
+            names.add(tok.value.lower())
+
+    def _is_comment(tok):
+        return isinstance(tok, _sql.Comment) or (
+            tok.ttype is not None and tok.ttype in _tok.Comment)
+
+    def _walk(tokens):
+        expecting = False  # bir önceki anlamlı token FROM/JOIN mıydı?
+        for tok in tokens:
+            if tok.is_whitespace:
+                continue
+            # Yorumları yok say — FROM/JOIN ile tablo adı ARASINDA bir yorum
+            # (`FROM /*c*/ positions`) `expecting` durumunu tüketip gerçek
+            # tabloyu kaçırmamalı (aksi halde blok yanlışlıkla Oracle'a yönlenir).
+            if _is_comment(tok):
+                continue
+            if expecting:
+                if isinstance(tok, (_sql.Identifier, _sql.IdentifierList)):
+                    _add(tok)
+                elif isinstance(tok, _sql.Parenthesis):
+                    _walk(tok.tokens)  # alt sorgu: içeride yine FROM/JOIN ara
+                elif tok.ttype in (_tok.Name,):
+                    names.add(tok.value.lower())
+                expecting = False
+            if tok.ttype is _tok.Keyword and tok.normalized == "FROM":
+                expecting = True
+                continue
+            if tok.ttype is _tok.Keyword and "JOIN" in tok.normalized:
+                expecting = True
+                continue
+            if tok.is_group:
+                _walk(tok.tokens)
+
+    for stmt in parsed:
+        _walk(stmt.tokens)
+    return names
 
 
 def execute_with_binds(conn, sql: str, params: dict | None):

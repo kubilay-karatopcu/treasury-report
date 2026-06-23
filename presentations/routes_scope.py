@@ -23,6 +23,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import sqlparse
+from sqlparse import tokens as _sqltok
+
 from flask import Response, current_app, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from pydantic import ValidationError
@@ -148,6 +151,89 @@ def _size_estimate_store() -> SizeEstimateStore:
     return store
 
 
+# FROM/JOIN listesinin (tablo bölgesinin) bittiği üst-düzey anahtar kelimeler.
+_FROM_LIST_ENDERS = frozenset({
+    "WHERE", "GROUP", "HAVING", "ORDER", "WINDOW", "QUALIFY",
+    "UNION", "INTERSECT", "MINUS", "EXCEPT",
+    "LIMIT", "OFFSET", "FETCH", "CONNECT", "START", "MODEL",
+    "SELECT", "INTO", "VALUES", "SET", "RETURNING",
+})
+# FROM bölgesi içinde toplamayı askıya alan (join koşulu) anahtarları.
+_FROM_LIST_SUSPENDERS = frozenset({"ON", "USING"})
+_TABLE_NAME_TTYPES = (_sqltok.Name, _sqltok.Literal.String.Symbol)
+
+
+def _strip_ident_quotes(v: str) -> str:
+    """Oracle çift-tırnaklı identifier'dan tırnağı soy (\"EDW\" → EDW)."""
+    if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+        return v[1:-1]
+    return v
+
+
+def _sql_schema_table_refs(sql: str) -> set[str]:
+    """Free-form SQL'in FROM/JOIN bölgelerindeki ``SCHEMA.TABLE`` (şema-nitelikli)
+    referanslarını döndür (#10). Yalnızca tablo-konumundaki iki-parçalı nokta-ayraçlı
+    adlar toplanır; SELECT/WHERE/ON içindeki ``alias.kolon`` ifadeleri, CTE adları
+    (``WITH x AS ...``), alt-sorgu alias'ları ve niteliksiz adlar TOPLANMAZ — bunlar
+    şema→departman geçidine tabi değildir (false-positive yok). JOIN, virgül-join,
+    alt-sorgu ve CTE gövdesi içindeki gated şema referansları yakalanır (bypass
+    kapatılır). Saf fonksiyon: ayrıştırır, çalıştırmaz.
+    """
+    if not isinstance(sql, str) or not sql.strip():
+        return set()
+    try:
+        parsed = sqlparse.parse(sql)
+    except Exception:
+        # Ayrıştırılamayan SQL zaten validate_sql tarafından reddedilir; burada
+        # boş set dönmek geçidi gevşetmez (fetch hiç çalışmaz).
+        return set()
+    refs: set[str] = set()
+    for stmt in parsed:
+        toks = [t for t in stmt.flatten()
+                if not (t.is_whitespace or t.ttype in (
+                    _sqltok.Comment, _sqltok.Comment.Single, _sqltok.Comment.Multiline))]
+        in_from_list = False   # FROM ile bir bölge-bitirici arasında mıyız
+        collecting = False     # şu an bir tablo-adı bekliyor muyuz
+        base_depth = 0         # aktif FROM listesinin parantez derinliği
+        depth = 0
+        i, n = 0, len(toks)
+        while i < n:
+            t = toks[i]
+            tt, v = t.ttype, t.value
+            if tt is _sqltok.Punctuation:
+                if v == "(":
+                    depth += 1
+                elif v == ")":
+                    depth -= 1
+                    if in_from_list and depth < base_depth:
+                        in_from_list = collecting = False
+                elif v == "," and in_from_list and depth == base_depth:
+                    collecting = True
+                i += 1
+                continue
+            if tt in (_sqltok.Keyword, _sqltok.Keyword.DML, _sqltok.Keyword.CTE):
+                u = v.upper()
+                if u == "FROM" or u.endswith("JOIN"):
+                    in_from_list = collecting = True
+                    base_depth = depth
+                elif in_from_list and depth == base_depth and u in _FROM_LIST_ENDERS:
+                    in_from_list = collecting = False
+                elif in_from_list and depth == base_depth and u in _FROM_LIST_SUSPENDERS:
+                    collecting = False
+                i += 1
+                continue
+            if collecting and depth == base_depth and tt in _TABLE_NAME_TTYPES:
+                if (i + 2 < n and toks[i + 1].ttype is _sqltok.Punctuation
+                        and toks[i + 1].value == "."
+                        and toks[i + 2].ttype in _TABLE_NAME_TTYPES):
+                    refs.add(f"{_strip_ident_quotes(v)}.{_strip_ident_quotes(toks[i + 2].value)}")
+                collecting = False
+                i += 1
+                continue
+            i += 1
+    return refs
+
+
 def _unentitled_tables(scope: ScopeContract) -> list[str]:
     """Return ``SCHEMA.TABLE`` strings the current user may NOT fetch (#31).
 
@@ -175,14 +261,26 @@ def _unentitled_tables(scope: ScopeContract) -> list[str]:
         )
         return []
     denied: list[str] = []
-    for item in scope.basket:
-        if item.table_ref is None:
-            continue
-        owner = dept_map.get(item.table_ref.schema_name.upper())
+
+    def _gate(schema_name: str, label: str) -> None:
+        owner = dept_map.get(schema_name.upper())
         if owner is None:
-            continue  # schema not gated by the map
+            return  # schema not gated by the map
         if _normalize_team_token(owner) != user_dept:
-            denied.append(f"{item.table_ref.schema_name}.{item.table_ref.name}")
+            denied.append(label)
+
+    for item in scope.basket:
+        if item.table_ref is not None:
+            _gate(item.table_ref.schema_name,
+                  f"{item.table_ref.schema_name}.{item.table_ref.name}")
+        elif item.sql is not None:
+            # #10 — manuel-SQL (table_ref yok) da geçide tabidir: aksi halde
+            # geçidi olan bir departmanın kullanıcısı `SELECT * FROM GATED.X`
+            # yazıp yetkisi olmayan şemayı tek Oracle servis hesabıyla çekebilir.
+            # Bir SQL node'undan türetilen derivation'lar da source SQL'i burada
+            # taranarak kapatılır (derivation'ın kendisi SQL taşımaz).
+            for ref in sorted(_sql_schema_table_refs(item.sql)):
+                _gate(ref.split(".", 1)[0], ref)
     return denied
 
 
@@ -2691,6 +2789,77 @@ def _catalog_excerpt_for_basket(scope_dict: dict) -> list[dict]:
     return out
 
 
+def _profile_node_df(df, max_cols: int = 40) -> dict:
+    """Öneri 1 — ODAK node'u için kompakt, PII-duyarlı kolon profili.
+
+    Her kolon: pandas dtype + kısa örnek/aralık. LLM `create_python_node`
+    kodunu kolonun GERÇEK tipine göre yazsın diye: tarih/zaman kolonunda `.dt`
+    accessor, integer-ay sanıp `.map({1:'Ocak',...})` ile sessizce NaN üretmesin.
+    Yüksek-kardinaliteli metin kolonlarında yalnız tip + distinct adet gösterilir
+    — ham değer sızdırılmaz (finansal PII). `head()` ham satır dökmekten daha
+    güvenli: daha az token, sızıntı yok, ve aralık/distinct çeşitliliği özetler.
+    """
+    import pandas as pd
+
+    cols: list[dict] = []
+    for name in list(df.columns)[:max_cols]:
+        dtype, sample = "?", ""
+        try:
+            s = df[name]
+            dtype = str(s.dtype)
+            if pd.api.types.is_datetime64_any_dtype(s):
+                lo, hi = s.min(), s.max()
+                sample = f"aralık {lo} → {hi}" if pd.notna(lo) else "(hep boş)"
+            elif pd.api.types.is_bool_dtype(s):
+                vals = [str(v) for v in pd.unique(s.dropna())[:3]]
+                sample = ", ".join(vals) or "(hep boş)"
+            elif pd.api.types.is_numeric_dtype(s):
+                lo, hi = s.min(), s.max()
+                sample = f"aralık {lo:g} → {hi:g}" if pd.notna(lo) else "(hep boş)"
+            else:
+                nun = int(s.nunique(dropna=True))
+                if nun == 0:
+                    sample = "(hep boş)"
+                elif nun <= 12:
+                    sample = ", ".join(str(v) for v in pd.unique(s.dropna())[:6])
+                else:
+                    sample = f"{nun} farklı değer"  # yüksek-kardinalite → değer sızdırma
+        except Exception:
+            pass
+        cols.append({"name": str(name), "dtype": dtype, "sample": sample[:120]})
+    return {"row_count": int(len(df)), "columns": cols}
+
+
+def _node_profile_for_chat(dc, pid: str, alias: str) -> dict | None:
+    """ODAK node'unun materialised verisinden profil (Öneri 1), kısa-TTL cache'li.
+
+    Materialise edilmemiş (lazy) node → None döner; LLM kolon ADLARINA düşer.
+    Her chat turunda büyük parquet'i tekrar S3'ten okumamak için profil
+    ``meta.refreshed_at`` ile anahtarlanır (veri tazelenince doğal invalidasyon).
+    Best-effort: her hata sessizce None — chat'i asla kırmaz."""
+    try:
+        from presentations.scope.materialize import read_dataset, read_dataset_meta
+
+        meta = read_dataset_meta(dc, pid, alias)
+        if meta is None:
+            return None
+        key = _preview_cache_key(
+            "nodeprofile", pid, alias, str(getattr(meta, "refreshed_at", "") or "")
+        )
+        hit = _preview_cache_get(key)
+        if hit is not None:
+            return hit
+        got = read_dataset(dc, pid, alias)
+        if got is None:
+            return None
+        prof = _profile_node_df(got[0])
+        _preview_cache_put(key, prof)
+        return prof
+    except Exception:
+        log.debug("scope_chat: node profili alınamadı (%s/%s)", pid, alias, exc_info=True)
+        return None
+
+
 @presentations_bp.route("/<pid>/scope/chat", methods=["POST"])
 @login_required
 def scope_chat(pid: str):
@@ -2742,6 +2911,14 @@ def scope_chat(pid: str):
             if sel is not None:
                 selected_columns = list((sel.get("projection") or {}).get("columns") or [])
 
+    # Öneri 1 — ODAK node materialise edilmişse gerçek dtype + örnek profili ver
+    # (yalnız kolon adı değil). Best-effort; lazy node ya da hata → isim listesine düşer.
+    selected_profile = None
+    if selected_alias:
+        dc = current_app.config.get("DATA_CLIENT")
+        if dc is not None:
+            selected_profile = _node_profile_for_chat(dc, pid, selected_alias)
+
     llm = current_app.config.get("LLM_CLIENT")
     if llm is None:
         return _json({"error": "LLM_CLIENT not configured"}, status=500)
@@ -2755,6 +2932,7 @@ def scope_chat(pid: str):
             history=history,
             selected_alias=selected_alias,
             selected_columns=selected_columns,
+            selected_profile=selected_profile,
         )
     except Exception as exc:
         log.exception("scope_chat: LLM call failed")

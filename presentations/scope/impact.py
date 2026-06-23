@@ -17,10 +17,13 @@ may bind ``from_scope_filter: <pf_or_if_id>``). We walk both signals.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from presentations.scope.binding import referenced_aliases
-from presentations.scope.diff import ScopeDiff
+from presentations.scope.diff import ScopeDiff, close_affected_over_derivations
+
+if TYPE_CHECKING:
+    from presentations.scope.schema import ScopeContract
 
 
 @dataclass(frozen=True)
@@ -73,8 +76,15 @@ def _block_bindings(block: dict) -> dict[str, dict]:
     return out
 
 
-def compute_affected_blocks(diff: ScopeDiff, manifest: dict | None) -> list[AffectedBlock]:
+def compute_affected_blocks(diff: ScopeDiff, manifest: dict | None,
+                            scope: "ScopeContract | None" = None) -> list[AffectedBlock]:
     """Walk every leaf block and classify whether ``diff`` affects it.
+
+    When ``scope`` is supplied, the *changed* alias set is closed transitively
+    over derivation source chains (B): a block reading a derived alias whose
+    source chain reaches a changed alias also shifts, so it is warned about too
+    (mirrors the fetch re-build closure). Without ``scope`` the behaviour is
+    unchanged (direct changed aliases only).
 
     Returns the list in block-document order (so the warning UI groups
     breaking and warning entries consistently per call)."""
@@ -84,6 +94,8 @@ def compute_affected_blocks(diff: ScopeDiff, manifest: dict | None) -> list[Affe
     blocks = manifest.get("blocks") or []
     removed_aliases = set(diff.removed_aliases)
     changed_aliases = set(diff.changed_aliases)
+    if scope is not None:
+        changed_aliases = close_affected_over_derivations(changed_aliases, scope)
 
     removed_filter_ids: set[str] = set()
     modified_filter_ids: set[str] = set()
