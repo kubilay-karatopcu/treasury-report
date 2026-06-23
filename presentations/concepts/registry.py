@@ -42,7 +42,23 @@ class _ConceptYamlLoader(yaml.SafeLoader):
     bools. Concept codes like ``ON`` (overnight) or ``NO`` must load as the
     strings "ON" / "NO", not ``True`` / ``False``. Only ``true``/``false``
     (any case) remain boolean — matching the YAML 1.2 core schema.
+
+    Ayrıca (scope/_yaml._BoolSafeLoader ile parite) yinelenen eşleme
+    anahtarlarını sessizce son-kazanır kabul etmek yerine reddeder.
     """
+
+    def construct_mapping(self, node, deep=False):  # noqa: D401
+        self.flatten_mapping(node)
+        mapping: dict = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=True)
+            if key in mapping:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping", node.start_mark,
+                    f"found duplicate key ({key!r})", key_node.start_mark,
+                )
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
 
 
 # Rebuild the implicit resolvers: drop the bool resolver, re-add a 1.2-style

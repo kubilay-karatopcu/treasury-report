@@ -259,12 +259,25 @@ def _compute_stats(conn, safe_view, col_list, row_count):
 
 def _jsonable(v):
     import math
+    import numpy as np
+    import pandas as pd
     if v is None:
         return None
     if isinstance(v, (str, bool, int)):
         return v
     if isinstance(v, float):
         return None if math.isnan(v) else v
+    # pandas eksik-değer sentinel'leri (nullable Int64/boolean/Arrow -> pd.NA,
+    # datetime NULL -> pd.NaT) buraya kadar geliyordu ve str() fallback'ı
+    # literal '<NA>'/'NaT' string'i üretiyordu — JSON null olması gerekirken.
+    # pd.isna SADECE skalerde güvenli; dizi/Series'te dizi döndürüp boolean
+    # bağlamda patlar, o yüzden container tiplerini önce ayıkla.
+    if not isinstance(v, (list, tuple, set, dict, np.ndarray, pd.Series, pd.Index)):
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
     if hasattr(v, "item"):
         try:
             return v.item()

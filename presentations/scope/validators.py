@@ -138,7 +138,13 @@ def rule_pinned_consistency(scope: ScopeContract, catalog: Catalog):
             codes = catalog.concept_canonical_codes(f.concept)
             if codes is not None:
                 allowed = set(codes)
-                for v in (f.values or []):
+                # `values` kanonik taşıyıcıdır; ama bir filtre yanlışlıkla skalar
+                # `value` taşıyorsa (op/value uyumsuzluğu) o değer de aralık
+                # kontrolünden geçmeli — yoksa kanonik-dışı kod sessizce sızar.
+                carried = list(f.values) if f.values else []
+                if not carried and f.value is not None:
+                    carried = [f.value]
+                for v in carried:
                     if v not in allowed:
                         errors.append(
                             f"Pinned filter '{f.id}': value '{v}' not in concept "

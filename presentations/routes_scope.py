@@ -2802,10 +2802,13 @@ def _profile_node_df(df, max_cols: int = 40) -> dict:
     import pandas as pd
 
     cols: list[dict] = []
-    for name in list(df.columns)[:max_cols]:
+    # Pozisyonla dolaş (df.iloc[:, idx]): join/union sonrası yinelenen kolon
+    # adlarında df[name] DataFrame döndürür → str(.dtype) patlar, swallow edilir
+    # ve TÜM yinelenen kolonlar dtype='?' kalırdı (Öneri 1'in amacını boşa çıkarır).
+    for idx, name in enumerate(list(df.columns)[:max_cols]):
         dtype, sample = "?", ""
         try:
-            s = df[name]
+            s = df.iloc[:, idx]
             dtype = str(s.dtype)
             if pd.api.types.is_datetime64_any_dtype(s):
                 lo, hi = s.min(), s.max()

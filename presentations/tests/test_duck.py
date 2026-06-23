@@ -27,6 +27,39 @@ class FakeDC:
         return pd.DataFrame()
 
 
+class TestJsonable:
+    """_jsonable: pandas eksik-değer sentinel'leri JSON null'a inmeli; literal
+    '<NA>'/'NaT' string'i sızmamalı (pandas3 nullable/Arrow dtype regresyonu)."""
+
+    def test_nat_returns_none(self):
+        assert duck._jsonable(pd.NaT) is None
+
+    def test_na_returns_none(self):
+        assert duck._jsonable(pd.NA) is None
+
+    def test_valid_values_unchanged(self):
+        assert duck._jsonable(None) is None
+        assert duck._jsonable(float("nan")) is None
+        assert duck._jsonable("x") == "x"
+        assert duck._jsonable(True) is True
+        assert duck._jsonable(3) == 3
+        # Geçerli timestamp str() ile (BOŞLUK ayraçlı, 'T' değil) — korunur.
+        assert duck._jsonable(pd.Timestamp("2025-01-02 03:04:05")) == "2025-01-02 03:04:05"
+
+    def test_nullable_and_datetime_columns_roundtrip_to_none(self):
+        """execute_block_sql kalıbı: Int64 null + datetime NaT, itertuples üzerinden
+        _jsonable'a girer ve '<NA>'/'NaT' değil None olmalı."""
+        df = pd.DataFrame({
+            "n": pd.array([1, None], dtype="Int64"),
+            "d": [pd.Timestamp("2025-01-01"), pd.NaT],
+        })
+        rows = [
+            [duck._jsonable(v) for v in row]
+            for row in df.itertuples(index=False, name=None)
+        ]
+        assert rows == [[1, "2025-01-01 00:00:00"], [None, None]]
+
+
 class TestRegisterDataframe:
     def test_register_makes_view_queryable(self, conn):
         df = pd.DataFrame({"a": [1, 2, 3]})
