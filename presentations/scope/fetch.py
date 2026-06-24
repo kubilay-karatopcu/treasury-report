@@ -295,6 +295,7 @@ def compose_cached_sql(
     *,
     concept_registry=None, binding_catalog=None,
     max_rows: int | None = None,
+    sample_pct: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Compose the projected Oracle SELECT for a cached basket table, shrinking
     it with fetch-time WHERE clauses:
@@ -327,11 +328,15 @@ def compose_cached_sql(
     binds.update(rb)
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    # Oracle row-sampling for design-time preview (Oturum 1, A5): SAMPLE sits on
+    # the table, before WHERE, so the post-filter sample is ≤ sample_pct% —
+    # acceptable for an illustrative preview. Cached/lazy fetches pass None.
+    sample_sql = f" SAMPLE({int(sample_pct)})" if sample_pct else ""
     # Optional safety cap (used by the lazy on-demand path) — bounds the pull
     # when the byte estimate is wrong/absent or pinned filters don't narrow
     # enough. Cached fetches pass max_rows=None (routing keeps them small).
     cap_sql = f" FETCH FIRST {int(max_rows)} ROWS ONLY" if max_rows else ""
-    return f"SELECT {cols} FROM {table}{where_sql}{cap_sql}", binds
+    return f"SELECT {cols} FROM {table}{sample_sql}{where_sql}{cap_sql}", binds
 
 
 def compile_filter_sql(
