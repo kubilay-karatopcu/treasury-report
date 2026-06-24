@@ -906,6 +906,19 @@ def chat_stream(pid: str, token: str):
                 except Exception:
                     app.logger.exception("chat history persist failed (non-fatal)")
 
+                # Audit (Oturum 8 / H1) — kim ne prompt yazdı, asistan ne döndü,
+                # hangi session/kullanıcı. Best-effort (audit.log_event hata yutar).
+                try:
+                    from presentations import audit
+                    audit.log_event(
+                        "llm_chat", user_sicil=sicil, presentation_id=pid,
+                        request_id=token, stage="sunum", prompt=user_msg,
+                        llm_response=" | ".join(a.get("text", "") for a in assistant_msgs),
+                        meta={"assistant_msgs": len(assistant_msgs)},
+                    )
+                except Exception:
+                    pass
+
             except Exception as exc:
                 app.logger.exception("presentations: pipeline error")
                 err = json.dumps({"message": f"Sunucu hatası: {exc}"}, ensure_ascii=False)

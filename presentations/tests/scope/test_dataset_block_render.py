@@ -52,7 +52,7 @@ class _FakeDC:
     def delete_file(self, key):
         self.objects.pop(key, None)
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.get_data_calls.append({"query": query})
         return pd.DataFrame()
 
@@ -193,7 +193,7 @@ class _OracleDC(_FakeDC):
         super().__init__()
         self._src = source_df
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.get_data_calls.append({"query": query})
         return self._src.copy()
 
