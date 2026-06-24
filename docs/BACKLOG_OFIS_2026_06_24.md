@@ -158,7 +158,14 @@ Tek kök: build, request thread'inde senkron + iptal yok.
 
 ---
 
-## Oturum 5 — Hazırlık editör UX
+## Oturum 5 — Hazırlık editör UX — ✅ TAMAM (2026-06-24, branch `feat/oturum-5-editor-ux`)
+
+> Plan ajanı bulgusu: çoğu küçük. Hepsi `hazirlik/index.jsx` + bundle (v40→41).
+> - **E1 ✅** — `posNearSource` artık canlı node konumu VEYA basket `layout` ile çözer (ikisi de yoksa grid); `addUnionNode` canvas node'unu grid yerine `upos`'a koyar (layout ile tutarlı). Üretilen node kaynağın sağına.
+> - **E2 ✅ (zaten vardı, doğrulandı)** — WorkshopHeader'da "Kaydet" butonu + `onSaveWorkshop`→SAVE_DRAFT_URL+toast zaten mevcut (backlog maddesi bayattı); auto-save korunur. DEV'de buton görüldü.
+> - **E3 ✅** — Chat payload zaten doğruydu (`selected_alias=preview.alias`); düzeltilen: (a) chip artık "kaynak→tablo" değil **sadece tablo** ("buradan yeni node türetebilirsin"); (b) **filter edge** tıklaması kaynağı değil **çıktı (türev) node'unu** açar → sohbet o node'u üreten script/query'yi düzenler. Tablo tıklaması zaten doğruydu (o tablo bağlamı).
+> - **E4 ✅** — Concept-suggest `useEffect`: (alias,column) **client cache** (tekrar açılış anında) + 8s **AbortController timeout** (spinner sonsuz dönmez; alttaki tam liste zaten bağımsız). Backend deterministik (LLM değil) — asıl maliyet ilk-dokunuş Oracle sample pull'u, Oturum 1 sample.duckdb ile zaten cache'li.
+> - DEV doğrulandı: bundle v41 render, Kaydet butonu var, konsol temiz. bundle gitignore → ofis `bash build.sh`. (Opsiyonel backlog: E4 backend memo — yapılmadı, gerekmedikçe.)
 
 ### E1 — Üretilen node saçma yere konuyor; kaynağın sağına koysun 🟠
 - Kök neden: `index.jsx:3839 posNearSource()` zaten sağa koyuyor (`src.x+360`); kaynak pozisyonu bulunamayınca `nextNodePos()` grid fallback'i devreye giriyor (= bug).
