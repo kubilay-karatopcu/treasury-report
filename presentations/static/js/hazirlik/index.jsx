@@ -65,6 +65,8 @@ const BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build`);
 const BUILD_ASYNC_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build-async`);
 const buildStatusUrl = (jobId) =>
   _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build-status/${jobId}`);
+const buildCancelUrl = (jobId) =>
+  _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/build-cancel/${jobId}`);
 const PREVIEW_BUILD_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-build`);
 const PREVIEW_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview`);
 const PREVIEW_SQL_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/preview-sql`);
@@ -4522,6 +4524,24 @@ function App() {
   // Bug 1 UX — tam ekran build overlay'i. phase: 'check' (preview-build) →
   // 'fetch' (Oracle çekimi, asıl bekleme) → 'leave' (fade-out + redirect).
   const [buildState, setBuildState] = useState(null);
+  // 2.6: aktif async build job_id — F5/sekme-kapatma/unmount'ta sunucuya "iptal"
+  // (sendBeacon) gönderir. Aksi halde orphan build worker session._exec_lock'u
+  // tutup re-entry'yi (B2) ve Sunum yüklemesini (B3) kilitler.
+  const buildJobRef = useRef(null);
+  useEffect(() => {
+    const beacon = () => {
+      const jid = buildJobRef.current;
+      if (jid && navigator.sendBeacon) {
+        try { navigator.sendBeacon(buildCancelUrl(jid)); } catch { /* yut */ }
+      }
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => {
+      window.removeEventListener("beforeunload", beacon);
+      const jid = buildJobRef.current;
+      if (jid) fetch(buildCancelUrl(jid), { method: "POST" }).catch(() => {});
+    };
+  }, []);
 
   // Overlay'de listelenecek dataset'ler: build'in fiilen hazırlayacağı cached
   // item'lar (pasif + lineage-only main'ler hariç — backend onları çekmez).
@@ -4594,23 +4614,32 @@ function App() {
   // backend) senkron /scope/build'e düşülür.
   const _pollBuild = (jobId, finalScope) => {
     const tick = async () => {
+      if (buildJobRef.current !== jobId) return;   // kullanıcı iptal etti → poll dur
       try {
         const r = await fetch(buildStatusUrl(jobId));
         const s = await r.json();
         if (!r.ok || !s.ok) throw new Error(s.error || `HTTP ${r.status}`);
         if (s.phase === "failed") {
+          buildJobRef.current = null;
           setErr(s.error || "Build başarısız");
+          setBusy(false); setBuildState(null);
+          return;
+        }
+        if (s.phase === "cancelled" || s.phase === "gone") {
+          buildJobRef.current = null;
           setBusy(false); setBuildState(null);
           return;
         }
         setBuildState((b) => (b && b.phase === "fetch" ? { ...b, done: s.done || [] } : b));
         if (s.phase === "done") {
+          buildJobRef.current = null;
           setBuildState({ phase: "leave", scope: finalScope });
           setTimeout(() => { window.location.href = s.redirect; }, 450);
           return;
         }
         setTimeout(tick, 1000);
       } catch (e) {
+        buildJobRef.current = null;
         setErr(String(e.message || e));
         setBusy(false); setBuildState(null);
       }
@@ -4652,8 +4681,19 @@ function App() {
         setBusy(false); setBuildState(null);
         return;
       }
+      buildJobRef.current = data.job_id;
       _pollBuild(data.job_id, finalScope);
     } catch (e) { setErr(String(e)); setBusy(false); setBuildState(null); }
+  };
+
+  // 2.6 — aktif build'i kullanıcı iptali: sunucuya build-cancel + overlay'i kapat.
+  // CancelToken tetiklenince fetch döngüsü sınırda durur, _exec_lock serbest →
+  // re-entry açık. (Mevcut `cancelBuild` onay-modalini kapatır — farklı amaç.)
+  const abortActiveBuild = () => {
+    const jid = buildJobRef.current;
+    buildJobRef.current = null;
+    setBusy(false); setBuildState(null);
+    if (jid) fetch(buildCancelUrl(jid), { method: "POST" }).catch(() => {});
   };
 
   const goToSunum = async () => {
@@ -4934,6 +4974,16 @@ function App() {
                     })}
                   </ul>
                 )}
+                <button
+                  type="button"
+                  onClick={abortActiveBuild}
+                  style={{ marginTop: 14, padding: "6px 16px", borderRadius: 6,
+                           border: "1px solid rgba(255,255,255,0.28)",
+                           background: "transparent", color: "inherit",
+                           cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}
+                >
+                  İptal
+                </button>
               </>
             )}
           </div>
