@@ -296,6 +296,7 @@ def compose_cached_sql(
     concept_registry=None, binding_catalog=None,
     max_rows: int | None = None,
     sample_pct: int | None = None,
+    key_pushdown: tuple[str, list] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Compose the projected Oracle SELECT for a cached basket table, shrinking
     it with fetch-time WHERE clauses:
@@ -326,6 +327,16 @@ def compose_cached_sql(
     rw, rb = _raw_predicates(scope, item)
     where_parts.extend(rw)
     binds.update(rb)
+
+    # Join-key pushdown (Oturum 1, A3): bir join'in KÜÇÜK tarafının anahtarlarını
+    # BÜYÜK/lazy tarafa `IN (...)` olarak it → tüm tabloyu DuckDB'ye çekmek yerine
+    # yalnız eşleşen satırlar iner. Değerler parametreli (asla SQL'e gömülmez).
+    if key_pushdown is not None:
+        kcol, kvals = key_pushdown
+        ph = ", ".join(f":_kpush_{i}" for i in range(len(kvals)))
+        where_parts.append(f"{kcol} IN ({ph})")
+        for i, v in enumerate(kvals):
+            binds[f"_kpush_{i}"] = v
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
     # Oracle row-sampling for design-time preview (Oturum 1, A5): SAMPLE sits on
@@ -565,6 +576,7 @@ def _pull_source_into_duck(
     dc, conn, scope: ScopeContract, src: BasketItem, *,
     catalog: Catalog | None,
     concept_registry, binding_catalog,
+    key_pushdown: tuple[str, list] | None = None,
 ) -> bool:
     """Pull a non-derived source dataset (a ``table_ref`` main or a ``sql``
     dataset) straight into ``conn`` as a view so that a **cached** derivation
@@ -591,8 +603,11 @@ def _pull_source_into_duck(
         sql, binds = compose_cached_sql(
             scope, src, catalog,
             concept_registry=concept_registry, binding_catalog=binding_catalog,
+            key_pushdown=key_pushdown,
         )
         label = f"{src.table_ref.schema_name}.{src.table_ref.name}"
+        if key_pushdown is not None:
+            label += f" (join-key pushdown: {len(key_pushdown[1])} anahtar)"
     elif src.sql is not None:
         from presentations.sql.validator import validate_sql
         chk = validate_sql(src.sql)
@@ -617,6 +632,49 @@ def _pull_source_into_duck(
     log.info("scope.fetch_cached_tables: lazy source '%s' ← %s pulled on demand "
              "for a cached derivation (%d rows)", src.alias, label, len(df))
     return True
+
+
+# Oracle `IN (...)` listesi 1000 ile sınırlı → bunun üstündeki anahtar sayısında
+# pushdown'dan vazgeçip tam pull'a düşeriz (chunked-IN backlog).
+JOIN_PUSHDOWN_MAX_KEYS = 1000
+
+
+def _join_key_pushdown(conn, scope: ScopeContract, item: BasketItem,
+                       src: BasketItem, registered: set[str]) -> tuple[str, list] | None:
+    """A3: ``item`` bir join ise ve ``src`` onun BÜYÜK/lazy tarafıysa, join'in
+    KÜÇÜK (zaten registered) tarafının ayrık anahtar değerlerini döndür →
+    ``src`` Oracle'dan ``WHERE <src_col> IN (...)`` ile çekilir (tüm tablo yerine
+    yalnız eşleşenler). Şu hâllerde ``None`` (= tam pull, mevcut davranış):
+    join değil / tek anahtar değil / src lazy değil / partner registered değil /
+    anahtar sayısı limiti aşıyor / partner'da anahtar yok.
+    """
+    d = item.derivation
+    if d is None or d.kind != "join" or len(d.join_keys) != 1:
+        return None
+    if src.routing.decision != "lazy" or src.table_ref is None:
+        return None
+    jk = d.join_keys[0]
+    if src.alias == jk.right_alias:
+        partner, partner_col, src_col = jk.left_alias, jk.left_column, jk.right_column
+    elif src.alias == jk.left_alias:
+        partner, partner_col, src_col = jk.right_alias, jk.right_column, jk.left_column
+    else:
+        return None
+    if partner not in registered:
+        return None  # küçük taraf henüz DuckDB'de değil → anahtar çıkarılamaz
+    try:
+        rows = conn.execute(
+            f'SELECT DISTINCT "{partner_col}" FROM "{partner}" '
+            f'WHERE "{partner_col}" IS NOT NULL'
+        ).fetchall()
+    except Exception:
+        log.warning("scope.fetch: join pushdown anahtar çıkarımı başarısız "
+                    "(%s.%s) → tam pull", partner, partner_col, exc_info=True)
+        return None
+    values = [r[0] for r in rows]
+    if not values or len(values) > JOIN_PUSHDOWN_MAX_KEYS:
+        return None
+    return (src_col, values)
 
 
 def fetch_cached_tables(
@@ -677,19 +735,18 @@ def fetch_cached_tables(
         drop_relation(conn, alias)
         log.info("scope.fetch_cached_tables: dropped stale relation '%s'", alias)
 
-    # Pasif alias'lar basket'te yalnız LINEAGE için durur (örn. manuel-SQL
-    # node'unun "Çözümle" kaynak main'leri — SQL Oracle'a kendisi gider, main'in
-    # view'ına ihtiyacı yoktur). Bir cached derivation'ın DuckDB kaynağı
-    # OLMAYAN pasifler Oracle'dan hiç çekilmez — "Sunum'a geç" bu yüzden
-    # gereksiz full-table pull yapıyordu.
+    # Karar (Oturum 1, A2): yalnız AKTİF (seçili) tablolar Sunum'da gerekli kabul
+    # edilir → cache'lenir (full fetch + parquet + `loaded`). DISABLE (pasif)
+    # edilen tablolar ASLA dataset olarak persist edilmez; bir cached türetmenin
+    # DuckDB kaynağıysalar Pass 2 onları `_pull_source_into_duck` ile GEÇİCİ çeker
+    # (parquet yok, `loaded`'a girmez) — "disable ise cache'lenmesin, sadece son
+    # tabloyu üretirken kullanılsın". Bu yüzden Pass 1 TÜM inactive item'ları atlar
+    # (eskiden bir cached derivation'ın kaynağı olan pasif main yine persist
+    # ediliyordu; artık yalnız geçici materialize edilir, Sunum'a dataset olmaz).
     inactive = set(scope.inactive_aliases or [])
-    needed_views: set[str] = set()
-    for b in scope.basket:
-        if b.derivation is not None and b.routing.decision == "cached":
-            needed_views |= duck_source_aliases(scope, b)
 
     def _lineage_only(item: BasketItem) -> bool:
-        return item.alias in inactive and item.alias not in needed_views
+        return item.alias in inactive
 
     # Pass 1 + 1b — raw cached tablolar ve manuel-SQL dataset'leri. Oracle
     # pull'ları birbirinden bağımsızdır → thread havuzunda PARALEL çekilir
@@ -822,9 +879,13 @@ def fetch_cached_tables(
                 src = scope.basket_item(alias)
                 if src is None or src.derivation is not None:
                     continue
+                # A3: büyük lazy join kaynağını, küçük (registered) tarafın
+                # anahtarlarıyla daralt → tüm tabloyu çekme.
+                pushdown = _join_key_pushdown(conn, scope, item, src, registered)
                 if _pull_source_into_duck(
                     dc, conn, scope, src, catalog=catalog,
                     concept_registry=concept_registry, binding_catalog=binding_catalog,
+                    key_pushdown=pushdown,
                 ):
                     registered.add(alias)
             if not (duck_source_aliases(scope, item) <= registered):
