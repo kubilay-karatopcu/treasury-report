@@ -181,9 +181,16 @@ def preview_view(conn, view_name, limit=10):
     safe_name = _safe_identifier(view_name)
     df = conn.execute(f"SELECT * FROM {safe_name} LIMIT {int(limit)}").fetchdf()
     total = conn.execute(f"SELECT COUNT(*) FROM {safe_name}").fetchone()[0]
+    # `.values.tolist()` ham float('nan')/pd.NaT sızdırıp `json.dumps`'a geçersiz
+    # `NaN` yazdırıyordu (client: "Unexpected token 'N'"). Diğer preview yolları gibi
+    # hücre-bazlı _jsonable'dan geçir (itertuples kolon dtype'larını korur, .values
+    # tek ndarray'e upcast etmez).
     return {
         "columns": list(df.columns),
-        "rows": df.values.tolist(),
+        "rows": [
+            [_jsonable(v) for v in row]
+            for row in df.itertuples(index=False, name=None)
+        ],
         "row_count": int(total),
     }
 
