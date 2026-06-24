@@ -30,14 +30,19 @@ class _FakeDC:
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
+    from presentations.session import SessionRegistry
     df = pd.DataFrame({
         "BRANCH_CODE": ["A", "A", "B"],
         "BALANCE_TRY": [1000, 2000, 5000],
     })
+    fake_dc = _FakeDC(df)
     app = Flask(__name__)
+    # Oturum 1.6: python preview kaynağı kalıcı session sample DuckDB'sine
+    # örneklenir → SESSION_REGISTRY (izole tmp dir per test).
     app.config.update(SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True,
-                      DATA_CLIENT=_FakeDC(df))
+                      DATA_CLIENT=fake_dc,
+                      SESSION_REGISTRY=SessionRegistry(fake_dc, duck_base_dir=tmp_path))
     lm = LoginManager(app)
 
     @lm.user_loader
