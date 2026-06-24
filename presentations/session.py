@@ -61,6 +61,10 @@ class PresentationSession:
     # is NOT thread-safe. Reentrant so nested helpers (BlockCache, populate_*)
     # can re-acquire. Distinct from _lock, which only guards connection create.
     _exec_lock: threading.RLock = field(default_factory=threading.RLock, init=False)
+    # İzole tasarım-anı sample bağlantısı (Oturum 1): Hazırlık önizleme/türetme
+    # bunu kullanır, build/Sunum `_conn`'u. Ayrı dosya → sample Sunum'a sızamaz.
+    _sample_conn: Optional[duckdb.DuckDBPyConnection] = field(default=None, init=False)
+    _sample_exec_lock: threading.RLock = field(default_factory=threading.RLock, init=False)
 
     # ── Paths ────────────────────────────────────────────────────────────────
 
@@ -71,6 +75,10 @@ class PresentationSession:
     @property
     def duckdb_path(self) -> Path:
         return self.duck_dir / "session.duckdb"
+
+    @property
+    def sample_duckdb_path(self) -> Path:
+        return self.duck_dir / "sample.duckdb"
 
     @property
     def manifest_s3_key(self) -> str:
@@ -106,13 +114,35 @@ class PresentationSession:
             self.touch()
             yield conn
 
+    def get_sample_conn(self) -> duckdb.DuckDBPyConnection:
+        with self._lock:
+            if self._sample_conn is None:
+                self.duck_dir.mkdir(parents=True, exist_ok=True)
+                self._sample_conn = connect_duckdb(str(self.sample_duckdb_path))
+            return self._sample_conn
+
+    @contextmanager
+    def sample_conn(self) -> Iterator[duckdb.DuckDBPyConnection]:
+        """Yield the session's design-time SAMPLE DuckDB connection (Oturum 1).
+
+        A SEPARATE file from ``session.duckdb`` so a design-time sample can never
+        leak into a Sunum block: build/Sunum read ``duck_conn`` (full data),
+        Hazırlık preview/transform read this. Reentrant exec lock like
+        ``duck_conn``; distinct lock so a preview doesn't block a build."""
+        conn = self.get_sample_conn()
+        with self._sample_exec_lock:
+            self.touch()
+            yield conn
+
     def close(self) -> None:
         with self._lock:
-            if self._conn is not None:
-                try:
-                    self._conn.close()
-                finally:
-                    self._conn = None
+            for attr in ("_conn", "_sample_conn"):
+                conn = getattr(self, attr)
+                if conn is not None:
+                    try:
+                        conn.close()
+                    finally:
+                        setattr(self, attr, None)
 
     # ── Manifest (S3-backed) ─────────────────────────────────────────────────
 
@@ -178,6 +208,11 @@ class PresentationSession:
                 self.duckdb_path.unlink()
         except Exception as exc:
             log.warning("session: delete local DuckDB failed: %s", exc)
+        try:
+            if self.sample_duckdb_path.exists():
+                self.sample_duckdb_path.unlink()
+        except Exception as exc:
+            log.warning("session: delete sample DuckDB failed: %s", exc)
 
         self._manifest = None
         self._last_basket_signature = None

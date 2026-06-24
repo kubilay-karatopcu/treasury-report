@@ -1986,20 +1986,32 @@ def scope_preview(pid: str):
 
 
 def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
-                              catalog, registry, bindings, registered, depth=0):
-    """Recursively materialise a row-capped SAMPLE of ``alias`` into a DuckDB
-    view for the design-time derivation preview. Handles main tables, sql
-    datasets AND nested derivations (filter / aggregate / calculated / join /
-    union) — so a join or union of filter nodes previews correctly (the old
-    shallow loop rejected derived sources with "iç içe türetme … desteklenmiyor"
-    / "Kaynak … basket'te yok"). Oracle pulls are capped; DuckDB steps run over
-    the already-registered (capped) source views. Mirrors materialize.py's
-    recursion but sampled, not full.
+                              catalog, registry, bindings, registered, depth=0,
+                              fraction=None, ceiling=None):
+    """Recursively materialise a SAMPLE of ``alias`` into the session SAMPLE
+    DuckDB (Oturum 1) for the design-time derivation preview. Handles main
+    tables, sql datasets AND nested derivations (filter / aggregate / calculated
+    / join / union / python).
+
+    Leaf sources (raw ``table_ref`` / manual ``sql``) are pulled once via Oracle
+    ``SAMPLE(%pct)`` (capped) and PERSISTED in the session sample DuckDB, keyed by
+    the composed-SQL fingerprint (``__dataset_fidelity``). Re-opening a node or
+    editing only its derivation reuses the cached leaf samples with NO Oracle
+    round-trip — this was the "ilk açılışta preview çok yavaş" (A1) cause (the old
+    path re-pulled every source into an ephemeral ``:memory:`` DuckDB each open).
+    Derived steps run over the already-registered (sampled) source views.
     """
     import pandas as pd
     from presentations import duck
     from presentations.scope.fetch import (
         compile_aggregate_sql, compile_calculated_sql, compile_join_sql, compile_union_sql,
+    )
+    from presentations.scope.materialize import (
+        _view_exists, dataset_fidelity, record_fidelity,
+    )
+    from presentations.scope.sample import (
+        DEFAULT_SAMPLE_CEILING_ROWS, DEFAULT_SAMPLE_PCT,
+        compose_sample_sql, sample_fingerprint,
     )
     if alias in registered:
         return
@@ -2008,26 +2020,55 @@ def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
     src = next((b for b in scope.basket if b.alias == alias), None)
     if src is None:
         raise ValueError(f"Kaynak '{alias}' basket'te yok")
-    SAMPLE = 5000
+    frac = DEFAULT_SAMPLE_PCT if fraction is None else fraction
+    ceil_n = DEFAULT_SAMPLE_CEILING_ROWS if ceiling is None else ceiling
+    # Oracle-source filter nodes re-query Oracle per preview (not fidelity-cached);
+    # keep that bounded with a modest preview cap.
+    FILTER_PREVIEW_CAP = 5000
 
+    def _cached_leaf_ok(fp: str) -> bool:
+        fid = dataset_fidelity(conn, alias)
+        return bool(fid and fid.get("fidelity") == "sample"
+                    and fid.get("fingerprint") == fp and _view_exists(conn, alias))
+
+    # ── Leaf: raw Oracle table → proportional SAMPLE(%pct), persisted + reused.
     if src.derivation is None and src.table_ref is not None:
-        full = f"{src.table_ref.schema_name}.{src.table_ref.name}"
-        df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
-                         query=f"SELECT * FROM {full} FETCH FIRST {SAMPLE} ROWS ONLY", query_params={})
-    elif src.derivation is None and getattr(src, "sql", None):
-        # SQL node kaynağı: serbest SQL'i AYNI aggregation_gate'ten geçir
-        # (scope_preview_sql ile tutarlı). Manuel `SELECT * FROM (<sql>) _src`
-        # sarması, trailing ';' / boş gövde / agregasyon içeren SQL'lerde
-        # bozuluyordu ("syntax error at or near ')'/';'"). Gate trailing
-        # noktalama temizler, aggregation'ı sarmaz, raw sorguyu satır-cap'ler.
+        sql, binds, fp = compose_sample_sql(
+            scope, src, catalog, concept_registry=registry, binding_catalog=bindings,
+            fraction=frac, ceiling_rows=ceil_n)
+        if _cached_leaf_ok(fp):
+            registered.add(alias)
+            return  # reuse cached sample — no Oracle round-trip
+        df = dc.get_data(base_prefix=None, dataset=f"sample::{pid}::{alias}",
+                         query=sql, query_params=binds)
+        df = df if df is not None else pd.DataFrame()
+        duck.materialize_table(conn, alias, df)
+        record_fidelity(conn, alias, "sample", fingerprint=fp, row_count=int(len(df)))
+        registered.add(alias)
+        return
+
+    # ── Leaf: SQL node → gate the free SQL (trailing ';' / aggregation safe),
+    # persist the gated sample by its fingerprint.
+    if src.derivation is None and getattr(src, "sql", None):
         from presentations.aggregation_gate import validate_and_wrap, GateError
         try:
             gate = validate_and_wrap(src.sql)
         except GateError as exc:
             raise ValueError(f"'{alias}' SQL kaynağı geçersiz: {exc}")
-        df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
+        fp = sample_fingerprint(gate.sql, {})
+        if _cached_leaf_ok(fp):
+            registered.add(alias)
+            return
+        df = dc.get_data(base_prefix=None, dataset=f"sample::{pid}::{alias}",
                          query=gate.sql, query_params={})
-    elif src.derivation is not None:
+        df = df if df is not None else pd.DataFrame()
+        duck.materialize_table(conn, alias, df)
+        record_fidelity(conn, alias, "sample", fingerprint=fp, row_count=int(len(df)))
+        registered.add(alias)
+        return
+
+    # ── Derived nodes — recomputed over the (cached) source samples each open.
+    if src.derivation is not None:
         d = src.derivation
         if d.kind == "filter":
             base = scope.basket_item(d.source_alias)
@@ -2035,14 +2076,14 @@ def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
                 # filter on an Oracle main → run the (capped) Oracle filter query.
                 compiled, binds = compile_filter_sql(
                     scope, src, catalog, concept_registry=registry,
-                    binding_catalog=bindings, max_rows=SAMPLE)
+                    binding_catalog=bindings, max_rows=FILTER_PREVIEW_CAP)
                 df = dc.get_data(base_prefix=None, dataset=f"preview-deriv::{pid}::{alias}",
                                  query=compiled, query_params=binds)
             else:
                 # filter on a derived source → register the source, filter in DuckDB.
                 _preview_sample_into_duck(conn, scope, d.source_alias, dc, pid,
                     catalog=catalog, registry=registry, bindings=bindings,
-                    registered=registered, depth=depth + 1)
+                    registered=registered, depth=depth + 1, fraction=frac, ceiling=ceil_n)
                 compiled, binds = compile_filter_sql(
                     scope, src, catalog, concept_registry=registry, binding_catalog=bindings)
                 df = conn.execute(compiled, binds).fetchdf() if binds else conn.execute(compiled).fetchdf()
@@ -2052,12 +2093,10 @@ def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
             for s in srcs:
                 _preview_sample_into_duck(conn, scope, s, dc, pid,
                     catalog=catalog, registry=registry, bindings=bindings,
-                    registered=registered, depth=depth + 1)
+                    registered=registered, depth=depth + 1, fraction=frac, ceiling=ceil_n)
             if d.kind == "python":
                 # Python node: kaynağın (yukarıda örneklendi) DataFrame'ini al,
-                # sandbox'ta script'i koştur, çıktıyı view olarak kaydet. Eskiden
-                # python kind compile_calculated_sql'e düşüp "list index out of
-                # range" patlatıyordu → concept doğrulama + türetilmiş önizleme bozuktu.
+                # sandbox'ta script'i koştur, çıktıyı view olarak kaydet.
                 from presentations.python_runtime import run_python_transform
                 input_df = conn.execute(f'SELECT * FROM "{d.source_alias}"').fetchdf()
                 result = run_python_transform(d.python_code or "", input_df)
@@ -2076,11 +2115,17 @@ def _preview_sample_into_duck(conn, scope, alias, dc, pid, *,
                 else:
                     compiled = compile_calculated_sql(src)
                 df = conn.execute(compiled).fetchdf()
-    else:
-        raise ValueError(f"Kaynak '{alias}' önizlenemiyor")
+        # Derived result: a real table so the parent's compile SQL + a re-open
+        # find it; recomputed (CREATE OR REPLACE) on the next open, never reused.
+        df = df if df is not None else pd.DataFrame()
+        if len(df.columns) > 0:
+            duck.materialize_table(conn, alias, df)
+        else:
+            duck.register_dataframe(conn, alias, df)
+        registered.add(alias)
+        return
 
-    duck.register_dataframe(conn, alias, df if df is not None else pd.DataFrame())
-    registered.add(alias)
+    raise ValueError(f"Kaynak '{alias}' önizlenemiyor")
 
 
 @presentations_bp.route("/<pid>/scope/preview-derivation", methods=["POST"])
@@ -2136,10 +2181,13 @@ def scope_preview_derivation(pid: str):
     catalog = _catalog()
     registry = current_app.config.get("CONCEPT_REGISTRY")
     bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
-    conn = duck.connect_duckdb(":memory:")
+    sess = _registry().get_or_create(current_user.sicil, pid)
     registered: set[str] = set()
     cols_by_src: dict[str, list[str]] = {}
-    try:
+    # Persistent session SAMPLE DuckDB (Oturum 1) — leaf samples are cached &
+    # reused across opens; isolated from session.duckdb so they cannot leak into
+    # Sunum. Do NOT close it here (the session owns its lifecycle).
+    with sess.sample_conn() as conn:
         # Sample each source (recursively for nested derivations: a join/union of
         # filter nodes materialises its filter sources first) into DuckDB views.
         for sa in src_aliases:
@@ -2167,11 +2215,6 @@ def scope_preview_derivation(pid: str):
         except Exception as exc:
             msg = str(exc).strip().splitlines()[0][:240]
             return _json({"ok": False, "phase": "duckdb", "errors": [msg], "sql": compiled}, status=400)
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 
     cols = [str(c) for c in out_df.columns]
     rows = [[duck._jsonable(v) for v in r] for r in out_df.itertuples(index=False, name=None)]

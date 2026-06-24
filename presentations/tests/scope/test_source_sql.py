@@ -40,9 +40,13 @@ def dc():
 
 
 @pytest.fixture
-def client(dc):
+def client(dc, tmp_path):
+    from presentations.session import SessionRegistry
     app = Flask(__name__)
-    app.config.update(SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True, DATA_CLIENT=dc)
+    # Oturum 1: preview-derivation uses the session SAMPLE DuckDB → SESSION_REGISTRY
+    # (isolated tmp dir per test so cached samples don't bleed across runs).
+    app.config.update(SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True, DATA_CLIENT=dc,
+                      SESSION_REGISTRY=SessionRegistry(dc, duck_base_dir=tmp_path))
     lm = LoginManager(app)
 
     @lm.user_loader
