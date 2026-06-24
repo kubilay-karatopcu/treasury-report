@@ -25,6 +25,11 @@ Bağımlılık: **1 → 2 ve 3'ü kolaylaştırır.** 4 ve 6 bağımsız, isteni
 
 ## Oturum 1 — Veri mimarisi: sample-cache + neyin cache'leneceği
 
+> **DURUM (2026-06-24, branch `feat/oturum-1-sample-cache`):**
+> - **1.1 ✅** — `scope/sample.py` (`compose_sample_sql`: raw→SAMPLE(%10)+200k tavan, manuel-SQL→top-N; `sample_fingerprint`), `compose_cached_sql`'e `sample_pct` kwarg, `materialize.py` `__dataset_fidelity` ledger (`record_fidelity`/`dataset_fidelity`, `__dataset_meta`'dan ayrı). 10 test + 54 regresyon geçer. Davranış değişikliği yok.
+> - **1.3 tasarım çatalı (korunması gereken doğruluk):** Türetme önizlemesi (`scope_preview_derivation`/`_preview_sample_into_duck`) bugün **ephemeral `:memory:`** DuckDB + her açılışta taze 5000-satır Oracle pull yapıyor (yavaşlığın kaynağı). Sample'ı **kalıcılaştırırken** session.duckdb'ye YAZMAK riskli: build öncesi Sunum'a geçilirse sample tablosu Sunum bloğuna sızıp **yanlış sayı** üretebilir. **Karar (önerilen, uygulanacak):** session başına AYRI bir `sample.duckdb` dosyası — preview oradan okur/yazar (fingerprint ile yeniden kullanır), build/Sunum `session.duckdb`'yi kullanır → sızma imkânsız. `PresentationSession.sample_conn()` eklenecek.
+> - Kalan: 1.2 (basket-add eager warm + UI rozeti — bundle gerekir), 1.4 (A2 lineage build), 1.5 (A3 join pushdown), 1.6 (A4).
+
 Çapa oturum. Şikayetlerin yarısının kök nedeni: tasarım anı tutarlı şekilde sample-DuckDB-backed değil; build full + senkron.
 
 **Hedef mimari (kilitli):**
