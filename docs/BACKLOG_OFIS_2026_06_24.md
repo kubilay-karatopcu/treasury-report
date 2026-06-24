@@ -189,7 +189,12 @@ Tek kök: build, request thread'inde senkron + iptal yok.
 
 ---
 
-## Oturum 6 — Filtre UX (binlik ayraç + tarih toggle)
+## Oturum 6 — Filtre UX (binlik ayraç + tarih toggle) — ✅ TAMAM (2026-06-24, branch `feat/oturum-6-filtre-ux`)
+
+> Hepsi `hazirlik/FilterPanel.jsx` + bundle v41→42.
+> - **F1 ✅** — Aralık/değer numeric input'ları `type="number"`→`type="text"` (virgül girilebilir/görünür) + `onBlur`'da `fmtNum` (binlik ayraç gruplama); `buildSpecs` between/value'da `stripNum` ile virgül söker → spec'e ham sayı gider. IN-listesi dokunulmadı (orada virgül = ayraç). Formatter DEV'de doğrulandı (1000000→1,000,000, ondalık/negatif/idempotent).
+> - **F2 ✅** — Tarih filtresine **"Tekil gün / Aralık"** toggle (`dkind`); tekil modda tek input from=to set eder (`buildSpecs` between from==to = tekil gün); aralık modda iki input (mevcut). Mutlak+Göreli ikisinde de. Kaydedilmiş filtre (from==to/yalnız from) tekil açılır. Eski "tek tarih için sadece soldaki" ipucu kalktı.
+> - DEV doğrulandı: bundle v42 render, konsol temiz. bundle gitignore → ofis `bash build.sh`.
 
 ### F1 — Aralık konseptinde alt/üst değerlere binlik ayraç (virgül) 🟢/S
 - Kök neden: `FilterPanel.jsx:236` `<input type="number">` binlik ayraç gösteremez.
