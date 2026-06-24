@@ -1747,3 +1747,19 @@ body.prisma .lib-detail-meta code {
 }
 
 /* ── Login + helper messages already dark via login.html — no overrides ── */
+
+/* ── C3: "Adımlar" paneli — dark ───────────────────────────────────────────── */
+body.prisma .block-steps { border-top-color: var(--editor-border) !important; }
+body.prisma .block-steps-toggle { color: var(--editor-ink-mute) !important; }
+body.prisma .block-steps-toggle:hover { color: var(--gold-soft) !important; }
+body.prisma .block-steps-empty { color: var(--editor-ink-mute) !important; }
+body.prisma .block-step { border-color: var(--editor-border) !important; }
+body.prisma .block-step-head { background: var(--editor-surface-2) !important; }
+body.prisma .block-step-alias { color: var(--editor-ink) !important; }
+body.prisma .block-step-kind {
+  background: var(--editor-accent-soft) !important; color: var(--gold-soft) !important;
+}
+body.prisma .block-step-src { color: var(--editor-ink-mute) !important; }
+body.prisma .block-step-sql {
+  background: var(--editor-surface-1) !important; color: var(--editor-ink-soft) !important;
+}
