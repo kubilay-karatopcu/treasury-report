@@ -34,16 +34,21 @@ class _FakeDC:
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
+    from presentations.session import SessionRegistry
     df = pd.DataFrame({
         "RES_ID":  [1, 1, 1, 2, 2],
         "CUST_ID": [10, 10, 10, 20, 20],
         "REV_NO":  [1, 2, 3, 5, 7],
         "AMT":     [100, 200, 300, 400, 500],
     })
+    fake_dc = _FakeDC(df)
     app = Flask(__name__)
+    # Oturum 1: preview now uses the session SAMPLE DuckDB → needs SESSION_REGISTRY
+    # (isolated tmp dir per test so cached samples don't bleed across runs).
     app.config.update(SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True,
-                      DATA_CLIENT=_FakeDC(df))
+                      DATA_CLIENT=fake_dc,
+                      SESSION_REGISTRY=SessionRegistry(fake_dc, duck_base_dir=tmp_path))
     lm = LoginManager(app)
 
     @lm.user_loader
@@ -185,6 +190,73 @@ def test_join_on_derived_source_resolves(client):
                        json={"scope": scope, "alias": "nested_join"}).get_json()
     assert data["ok"] is True, data
     assert data.get("sql")
+
+
+def test_leaf_sample_cached_across_opens(tmp_path):
+    """A1 (Oturum 1): the raw source sample is pulled from Oracle ONCE and reused
+    across previews of different derived nodes over it — no re-pull per open.
+    The old path re-pulled every source into an ephemeral :memory: DuckDB."""
+    from presentations.session import SessionRegistry
+
+    class _CountingDC:
+        def __init__(self, df):
+            self._df = df
+            self.datasets: list[str] = []
+
+        def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+            self.datasets.append(dataset or "")
+            return self._df.copy()
+
+    df = pd.DataFrame({"RES_ID": [1, 2, 3], "CUST_ID": [10, 20, 30],
+                       "REV_NO": [1, 2, 3], "AMT": [100, 200, 300]})
+    dc = _CountingDC(df)
+    app = Flask(__name__)
+    app.config.update(SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True, DATA_CLIENT=dc,
+                      SESSION_REGISTRY=SessionRegistry(dc, duck_base_dir=tmp_path))
+    lm = LoginManager(app)
+
+    @lm.user_loader
+    def _load(_id):
+        return _FakeUser()
+
+    @app.before_request
+    def _login():
+        from flask_login import current_user
+        if not getattr(current_user, "is_authenticated", False):
+            login_user(_FakeUser())
+
+    app.register_blueprint(presentations_bp, url_prefix="/presentations")
+    cl = app.test_client()
+
+    def _calc(alias, colname):
+        return {"alias": alias, "derivation": {
+                    "kind": "calculated", "source_aliases": ["res"],
+                    "columns": [{"name": "RES_ID", "expr": "RES_ID"},
+                                {"name": colname, "expr": "AMT * 2"}]},
+                "projection": {"columns": [], "include_all": True},
+                "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}}
+
+    scope = {
+        "presentation_id": "p_cache", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-01T00:00:00Z",
+        "basket": [
+            {"alias": "res", "table_ref": {"schema": "ODS_TREASURY", "name": "RES"},
+             "projection": {"columns": ["RES_ID", "CUST_ID", "REV_NO", "AMT"], "include_all": False},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 1000}},
+            _calc("calc_a", "DBL_A"),
+            _calc("calc_b", "DBL_B"),
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []}, "joins": [],
+    }
+    # Two different derived nodes over the same source → different endpoint-cache
+    # keys, so both reach _preview_sample_into_duck; the SAMPLE is reused.
+    r1 = cl.post("/presentations/p_cache/scope/preview-derivation",
+                 json={"scope": scope, "alias": "calc_a"}).get_json()
+    r2 = cl.post("/presentations/p_cache/scope/preview-derivation",
+                 json={"scope": scope, "alias": "calc_b"}).get_json()
+    assert r1["ok"] and r2["ok"], (r1, r2)
+    res_pulls = [d for d in dc.datasets if d.endswith("::res")]
+    assert len(res_pulls) == 1, dc.datasets  # source sampled once, then reused
 
 
 def test_filter_on_union_source_returns_rows(client):
