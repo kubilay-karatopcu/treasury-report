@@ -83,8 +83,9 @@ class TestComposeUserMessage:
 
 
 class TestParseLlmOutput:
+    # _parse_llm_output 3-tuple döner: (patches, explanation, suggestions).
     def test_plain_json(self):
-        patches, expl = _parse_llm_output(
+        patches, expl, _sugg = _parse_llm_output(
             '{"patches": [{"op":"replace","path":"/x","value":1}], "explanation": "ok"}'
         )
         assert len(patches) == 1
@@ -92,16 +93,61 @@ class TestParseLlmOutput:
 
     def test_with_code_fence(self):
         text = '```json\n{"patches": [], "explanation": "no-op"}\n```'
-        patches, expl = _parse_llm_output(text)
+        patches, expl, _sugg = _parse_llm_output(text)
         assert patches == []
         assert expl == "no-op"
 
     def test_with_prose_around(self):
         text = 'Sure, here it is:\n{"patches": [], "explanation": "ok"}\nLet me know!'
-        patches, expl = _parse_llm_output(text)
+        patches, expl, _sugg = _parse_llm_output(text)
         assert expl == "ok"
 
     def test_garbage_returns_error(self):
-        patches, expl = _parse_llm_output("totally not json")
+        patches, expl, _sugg = _parse_llm_output("totally not json")
         assert patches == []
         assert "parse edilemedi" in expl.lower()
+
+
+class TestGenMaxTokensAndTruncation:
+    # G1 — max_tokens 2048→8192 + truncation tespiti.
+    def test_default_max_tokens_is_high(self):
+        from presentations.llm import QwenClient
+        assert QwenClient(endpoint="http://x", token="t").gen_max_tokens == 8192
+
+    def test_gen_max_tokens_reaches_payload(self, monkeypatch):
+        from presentations import llm as llm_mod
+        from presentations.llm import QwenClient
+        captured = {}
+
+        class _Resp:
+            ok = True
+            status_code = 200
+            def json(self):
+                return {"choices": [{"message": {"content": '{"patches": [], "explanation": "ok"}'},
+                                     "finish_reason": "stop"}]}
+
+        monkeypatch.setattr(llm_mod.requests, "post",
+                            lambda *a, **k: (captured.update(mt=(k.get("json") or {}).get("max_tokens")), _Resp())[1])
+        QwenClient(endpoint="http://x", token="t", gen_max_tokens=12345).generate_patches(
+            "sys", "x", {"blocks": []})
+        assert captured["mt"] == 12345
+
+    def test_truncation_returns_actionable_message_not_partial_patches(self, monkeypatch):
+        from presentations import llm as llm_mod
+        from presentations.llm import QwenClient
+
+        class _Resp:
+            ok = True
+            status_code = 200
+            def json(self):
+                # max_tokens'a takılıp kesilmiş JSON + finish_reason=length
+                return {"choices": [{
+                    "message": {"content": '{"patches": [{"op":"add","path":"/blocks/-","val'},
+                    "finish_reason": "length",
+                }]}
+
+        monkeypatch.setattr(llm_mod.requests, "post", lambda *a, **k: _Resp())
+        patches, expl, _sugg = QwenClient(endpoint="http://x", token="t").generate_patches(
+            "sys", "çok karosel ekle", {"blocks": []})
+        assert patches == []                                   # yarım patch UYGULANMAZ
+        assert ("kesildi" in expl.lower()) or ("max_tokens" in expl.lower())
