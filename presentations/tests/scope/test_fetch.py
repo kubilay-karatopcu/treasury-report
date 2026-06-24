@@ -15,7 +15,7 @@ class StubDC:
         self.df = df
         self.calls = []
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.calls.append({"dataset": dataset, "query": query, "params": query_params})
         return self.df.copy()
 
@@ -294,7 +294,7 @@ def test_fetch_cancel_during_pass1_caught_at_pass2_boundary():
     class _SelfCancelDC:
         def __init__(self):
             self.calls = []
-        def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+        def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
             self.calls.append(dataset)
             tok.cancel()                      # cancel arrives mid-build
             return pd.DataFrame({"CCY": ["TRY"], "BAL": [10]})

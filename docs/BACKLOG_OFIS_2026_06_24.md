@@ -220,7 +220,13 @@ Tek kök: build, request thread'inde senkron + iptal yok.
 
 ---
 
-## Oturum 8 — Audit logging (Oracle tablosu)
+## Oturum 8 — Audit logging (Oracle tablosu) — ✅ TAMAM (2026-06-24, branch `feat/oturum-8-audit-log`)
+
+> Saf backend — ofis: DDL'i bir kez çalıştır (ya da `audit.ensure_table(dc)`) + restart.
+> - **H1 ✅** — `presentations/audit.py`: `AuditLogger` (queue + arka-plan worker, **batch** insert via `dc.get_connection` → raw oracledb DEĞİL; best-effort, request'i ASLA yavaşlatmaz/düşürmez; CLOB ≤1MB clip; `flush()` senkron/test) + `ensure_table` (DDL, ORA-00955 yutar) + `DDL` sabiti + **lazy app-singleton** (`get_logger`/`log_event` — app.py'ye dokunmaz, `current_app.config["DATA_CLIENT"]`/`AUDIT_ENABLED` okur). 7 test.
+> - **Hook'lar:** Sunum chat (`routes.py chat_stream` — kim/ne prompt/asistan ne döndü/session) + Hazırlık scope-chat (`routes_scope.py scope_chat` — ne prompt/LLM ne önerdi/hangi node). Best-effort try/except.
+> - **2.4 REGRESYON FIX (bu branch):** Session 2.4'te `_pull`/Pass-2/`_pull_source_into_duck`'a `cancel_token=cancel_token` eklenince test stub DC'leri (`get_data` kwarg'ı reddediyordu) kırılmıştı — 2.4 sonrası test_routes_build/test_fetch çalıştırılmamıştı. 16 test dosyasında 20 stub `get_data`'ya `**kwargs` eklendi (ileriye-uyumlu). Prod gerçek DataClient zaten cancel_token kabul ediyordu — yalnız test stub'ları. Tam scope suite 534 geçer.
+> - **Kalan (opsiyonel):** ek hook'lar (LLM request/response ham metni generate_patches içinde, build/table-produced, query-written) — `log_event` API hazır, tek-satır eklenebilir. DDL'i `queries/` altına .sql olarak da koymak istenirse.
 
 ### H1 — Sağlam audit log: kim, hangi prompt, hangi tablo, hangi query, LLM I/O, session bağlantısı 🟠
 - Durum: loglama minimal/dağınık; prompt/yanıt hiç saklanmıyor; korelasyon id yok (`session.py` user_id+presentation_id var ama node state'ine taşınmıyor).
