@@ -1331,6 +1331,98 @@ def _seed_concept_filters_at_build(manifest: dict) -> int:
     return added
 
 
+def _scope_lineage_steps(scope, alias: str, *, catalog=None, registry=None,
+                         bindings=None, _seen=None, _depth=0) -> list[dict]:
+    """C3 — '<alias>' node'unun nasıl üretildiğini adım adım (leaf→root) derle.
+
+    YAN ETKİSİZ: yalnız mevcut compile_* / compose_cached_sql emitter'larıyla SQL
+    string üretir; veri çalıştırmaz/çekmez. Çevrim/eksik-kaynak güvenli (visited
+    set + derinlik sınırı). Döner: bağımlılık sırasında ``[{alias, kind, sql,
+    sources}]`` — "Show steps" paneli (ara CTE/türetme zinciri) bunu gösterir.
+    """
+    from presentations.scope.fetch import (
+        compile_aggregate_sql, compile_calculated_sql, compile_filter_sql,
+        compile_join_sql, compile_union_sql, compose_cached_sql,
+    )
+    if _seen is None:
+        _seen = set()
+    if alias in _seen or _depth > 20:
+        return []
+    item = scope.basket_item(alias)
+    if item is None:
+        return []
+    _seen.add(alias)
+    d = item.derivation
+    if d is not None and d.kind in ("aggregate", "filter", "python"):
+        sources = [d.source_alias] if d.source_alias else []
+    elif d is not None:
+        sources = list(d.source_aliases or [])
+    else:
+        sources = []
+
+    steps: list[dict] = []
+    for s in sources:                      # leaf'ler önce
+        steps.extend(_scope_lineage_steps(
+            scope, s, catalog=catalog, registry=registry, bindings=bindings,
+            _seen=_seen, _depth=_depth + 1))
+
+    try:
+        if d is None and item.table_ref is not None:
+            sql, _ = compose_cached_sql(scope, item, catalog,
+                concept_registry=registry, binding_catalog=bindings)
+            kind = "table"
+        elif d is None and item.sql is not None:
+            sql, kind = item.sql, "sql"
+        elif d.kind == "filter":
+            sql, _ = compile_filter_sql(scope, item, catalog,
+                concept_registry=registry, binding_catalog=bindings)
+            kind = "filter"
+        elif d.kind == "aggregate":
+            sql, kind = compile_aggregate_sql(item), "aggregate"
+        elif d.kind == "calculated":
+            sql, kind = compile_calculated_sql(item), "calculated"
+        elif d.kind == "join":
+            sql, kind = compile_join_sql(item, [], []), "join"   # cols→* (özet adım)
+        elif d.kind == "union":
+            sql, kind = compile_union_sql(item), "union"
+        elif d.kind == "python":
+            sql, kind = (d.python_code or ""), "python"
+        else:
+            sql, kind = "", (d.kind if d else "?")
+    except Exception as exc:
+        sql = f"-- adım derlenemedi: {str(exc).splitlines()[0][:160]}"
+        kind = (d.kind if d else "?")
+
+    steps.append({"alias": alias, "kind": kind, "sql": sql,
+                  "sources": [s for s in sources if s]})
+    return steps
+
+
+@presentations_bp.route("/<pid>/scope/steps", methods=["GET"])
+@login_required
+def scope_steps(pid: str):
+    """C3 — bir türetilmiş node'un (``?alias=``) üretim adımlarını (lineage SQL)
+    döndür. READ-ONLY: hiç veri çalıştırmaz. 'Show steps' paneli bunu gösterir."""
+    alias = (request.args.get("alias") or "").strip()
+    if not alias:
+        return _json({"ok": False, "error": "alias param gerekli"}, status=400)
+    scope = _load_latest_scope_or_draft(pid)
+    if scope is None:
+        return _json({"ok": True, "alias": alias, "steps": []})
+    steps = _scope_lineage_steps(
+        scope, alias, catalog=_catalog(),
+        registry=current_app.config.get("CONCEPT_REGISTRY"),
+        bindings=current_app.config.get("CONCEPT_BINDING_CATALOG"))
+    try:
+        import sqlparse
+        for s in steps:
+            if s["kind"] != "python" and s["sql"] and not s["sql"].startswith("--"):
+                s["sql"] = sqlparse.format(s["sql"], reindent=True, keyword_case="upper")
+    except Exception:
+        pass
+    return _json({"ok": True, "alias": alias, "steps": steps})
+
+
 @presentations_bp.route("/<pid>/scope/build", methods=["POST"])
 @login_required
 def build_scope(pid: str):
