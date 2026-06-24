@@ -2291,9 +2291,14 @@ def scope_preview_python(pid: str):
         catalog = _catalog()
         registry = current_app.config.get("CONCEPT_REGISTRY")
         bindings = current_app.config.get("CONCEPT_BINDING_CATALOG")
-        conn = duck.connect_duckdb(":memory:")
+        sess = _registry().get_or_create(current_user.sicil, pid)
         registered: set[str] = set()
-        try:
+        # Kaynak örneği KALICI session sample DuckDB'sine materialize edilir
+        # (derivation preview ile aynı izole sample.duckdb; fingerprint ile
+        # restart/worker arası yeniden kullanılır) → Sunum→Hazırlık dönüşünde ve
+        # kod düzenlerken Oracle'a tekrar gidilmez (A4). Process-local pysample
+        # cache L1 fast-path olarak kalır.
+        with sess.sample_conn() as conn:
             try:
                 _preview_sample_into_duck(conn, scope, source_alias, dc, pid,
                     catalog=catalog, registry=registry, bindings=bindings, registered=registered)
@@ -2304,11 +2309,6 @@ def scope_preview_python(pid: str):
                 return _json({"ok": False, "phase": "oracle",
                               "errors": [f"{source_alias}: {msg}"]}, status=502)
             input_df = conn.execute(f'SELECT * FROM "{source_alias}"').fetchdf()
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
         _preview_cache_put(sample_key, input_df)
 
     result = run_python_transform(python_code, input_df)
