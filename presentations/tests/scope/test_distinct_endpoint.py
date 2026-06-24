@@ -44,7 +44,7 @@ class _DocStore:
 
 
 class _FakeDC:
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         return pd.DataFrame({"V": ["A", "B", "C"]})
 
 

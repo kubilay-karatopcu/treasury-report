@@ -46,7 +46,7 @@ class FakeDC:
         self.objects.pop(key, None)
 
     # Oracle surface used by fetch_cached_tables.
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         return pd.DataFrame({"AS_OF_DATE": ["2025-10-01"], "CCY": ["TRY"], "BRANCH_ID": ["402"]})
 
 

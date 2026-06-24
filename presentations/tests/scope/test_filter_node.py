@@ -23,7 +23,7 @@ class _StubDC:
         self.df = df
         self.calls = []
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.calls.append({"dataset": dataset, "query": query, "params": query_params})
         return self.df.copy()
 
