@@ -351,6 +351,25 @@ export async function fetchConceptFilterSuggestions() {
 
 
 /**
+ * C3 — "Show steps": a block's source derivation lineage (read-only SQL steps).
+ * Resolves the block's referenced scope alias(es) server-side and returns each
+ * build step (leaf→root) as {alias, kind, sql, sources}. Never runs data.
+ */
+export async function fetchBlockSteps(blockId) {
+  try {
+    const resp = await fetch(
+      `${API_BASE}/scope/steps?block=${encodeURIComponent(blockId)}`,
+      { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    if (!resp.ok) return [];
+    const body = await resp.json();
+    return Array.isArray(body.steps) ? body.steps : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+
+/**
  * List Phase 6.5 block templates from the BlockStore. Used by AddBlockPanel's
  * "Şablonlar" tab.
  */

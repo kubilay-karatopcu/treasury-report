@@ -1401,18 +1401,40 @@ def _scope_lineage_steps(scope, alias: str, *, catalog=None, registry=None,
 @presentations_bp.route("/<pid>/scope/steps", methods=["GET"])
 @login_required
 def scope_steps(pid: str):
-    """C3 — bir türetilmiş node'un (``?alias=``) üretim adımlarını (lineage SQL)
-    döndür. READ-ONLY: hiç veri çalıştırmaz. 'Show steps' paneli bunu gösterir."""
+    """C3 — bir node'un üretim adımlarını (lineage SQL) döndür. READ-ONLY.
+
+    İki giriş: ``?alias=`` doğrudan bir scope alias'ı, ya da ``?block=<id>`` bir
+    Sunum bloğu — bloğun query'sinin referans verdiği scope alias(lar)ı
+    ``find_view_refs`` ile bulunup hepsinin türetme zinciri (leaf→root) çıkarılır.
+    'Show steps' paneli (Sunum bloğunun altı) bunu gösterir."""
     alias = (request.args.get("alias") or "").strip()
-    if not alias:
-        return _json({"ok": False, "error": "alias param gerekli"}, status=400)
+    block_id = (request.args.get("block") or "").strip()
     scope = _load_latest_scope_or_draft(pid)
     if scope is None:
-        return _json({"ok": True, "alias": alias, "steps": []})
-    steps = _scope_lineage_steps(
-        scope, alias, catalog=_catalog(),
-        registry=current_app.config.get("CONCEPT_REGISTRY"),
-        bindings=current_app.config.get("CONCEPT_BINDING_CATALOG"))
+        return _json({"ok": True, "steps": []})
+    targets: list[str] = []
+    if alias:
+        targets = [alias]
+    elif block_id:
+        from presentations import duck
+        from presentations.manifest import iter_all_blocks
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        manifest = sess.get_manifest() or {}
+        blk = next((b for b in iter_all_blocks(manifest) if b.get("id") == block_id), None)
+        if blk is not None:
+            q = blk.get("query") or (blk.get("data_source") or {}).get("original_sql") or ""
+            targets = list(duck.find_view_refs(q, [b.alias for b in scope.basket]))
+    else:
+        return _json({"ok": False, "error": "alias ya da block param gerekli"}, status=400)
+
+    _cat = _catalog()
+    _reg = current_app.config.get("CONCEPT_REGISTRY")
+    _bind = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    seen: set[str] = set()
+    steps: list[dict] = []
+    for a in targets:                                  # birden çok alias → paylaşılan seen ile dedupe
+        steps.extend(_scope_lineage_steps(scope, a, catalog=_cat, registry=_reg,
+                                          bindings=_bind, _seen=seen))
     try:
         import sqlparse
         for s in steps:
@@ -1420,7 +1442,7 @@ def scope_steps(pid: str):
                 s["sql"] = sqlparse.format(s["sql"], reindent=True, keyword_case="upper")
     except Exception:
         pass
-    return _json({"ok": True, "alias": alias, "steps": steps})
+    return _json({"ok": True, "targets": targets, "steps": steps})
 
 
 @presentations_bp.route("/<pid>/scope/build", methods=["POST"])
