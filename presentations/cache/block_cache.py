@@ -111,6 +111,7 @@ class BlockCacheKey:
 
 def cache_key(
     block_id: str, version: int, resolved: dict[str, Any], sql: str = "",
+    concept_digest: str = "",
 ) -> BlockCacheKey:
     """Compute the canonical cache key.
 
@@ -121,17 +122,52 @@ def cache_key(
     version bump, so two different queries with the same id/version/vars must
     NOT collide on one key — otherwise a hit would serve the other query's
     stale rows.
+
+    ``concept_digest`` folds in the active dashboard concept-filter state
+    (Phase 7 / C2b): a block carrying the ``{{concept_filters}}`` sentinel +
+    variables would otherwise hit the variable-keyed cache and serve stale rows
+    after a concept filter changes. It is added to the payload ONLY when
+    non-empty, so a block with no active concept filter keeps a key byte-
+    identical to the pre-Phase-7 form (no cache-miss storm, no regression).
     """
     norm = normalize_for_cache_key(resolved)
+    payload_dict = {"block_id": block_id, "version": int(version), "resolved": norm,
+                    "sql": sql or ""}
+    if concept_digest:
+        payload_dict["concepts"] = concept_digest
     payload = json.dumps(
-        {"block_id": block_id, "version": int(version), "resolved": norm,
-         "sql": sql or ""},
-        sort_keys=True,
-        ensure_ascii=False,
-        separators=(",", ":"),
+        payload_dict, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
     )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return BlockCacheKey(block_id=block_id, version=int(version), digest=digest)
+
+
+def concept_filters_digest(filters: list) -> str:
+    """Deterministic 16-hex digest of active concept-filter state for the cache
+    key (C2b). ``filters`` = ``[{"concept","operator","values"}, ...]``.
+
+    Empty → ``""`` so a block with no active concept filter keeps its pre-
+    Phase-7 cache key. Values are sorted (enum order-independent) and dates
+    stringified so equivalent filter sets hash identically regardless of order.
+    """
+    if not filters:
+        return ""
+    norm = []
+    for f in filters:
+        vals = f.get("values")
+        if isinstance(vals, (list, tuple, set)):
+            try:
+                vals = sorted(vals, key=lambda x: str(x))
+            except Exception:
+                vals = list(vals)
+        norm.append({"c": f.get("concept") or "",
+                     "op": f.get("operator") or "",
+                     "v": vals})
+    norm.sort(key=lambda d: (d["c"], d["op"],
+                             json.dumps(d["v"], default=str, sort_keys=True)))
+    payload = json.dumps(norm, sort_keys=True, default=str, ensure_ascii=False,
+                         separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 # ── Subset detection ──────────────────────────────────────────────────────

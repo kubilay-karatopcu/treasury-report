@@ -1258,6 +1258,13 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
     # next Hazırlık load uses the build, not a now-stale draft. (Draft-first
     # priority in _load_latest_scope_or_draft relies on this clear.)
     manifest.pop("draft_scope", None)
+    # C1: Sunum'a geçişte scope'taki bağlı TÜM concept'leri otomatik dashboard
+    # filtresi olarak ekle (kullanıcı manuel eklemesin). Yalnız EKLER (mevcut/
+    # kullanıcı-düzenli filtreyi ezmez), idempotent.
+    try:
+        _seed_concept_filters_at_build(manifest)
+    except Exception:
+        log.warning("build: concept filtre seed başarısız", exc_info=True)
     session.set_manifest(manifest)
 
     return {
@@ -1269,6 +1276,59 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
         "refetched": sorted(loaded.keys()),
         "inherited": inherited_cached,
     }
+
+
+def _seed_concept_filters_at_build(manifest: dict) -> int:
+    """C1 — Sunum'a geçişte (build) scope'taki bağlı concept'leri dashboard
+    filtresi olarak otomatik ekle.
+
+    "Konseptler manuel değil otomatik filtre olarak eklensin; Sunum'a geçince
+    bağlı konseptler belli, hepsini koy." Toplanan kaynaklar (filter-suggestions
+    endpoint'iyle aynı, blok hariç — build anında blok henüz yok):
+      - manifest basket table_ref'lerinin human_verified concept binding'leri,
+      - Hazırlık'ta kolonlara bağlanan concept'ler (``column_concepts``).
+    Yalnız EKLER: zaten mevcut (concept_ref/semantic_tag) filtreye dokunmaz →
+    yeniden build idempotent, kullanıcı düzenlemesi korunur. Eklenen sayıyı döner.
+    """
+    _reg = current_app.config.get("CONCEPT_REGISTRY")
+    catalog = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    if _reg is None or catalog is None:
+        return 0
+    base = _reg.snapshot if hasattr(_reg, "snapshot") else _reg
+    from presentations.concepts.user_scope import build_effective_registry
+    # _filter_proposal_from_concept routes.py'de (all-codes default, time→date_range);
+    # lazy import → modül-yükleme döngüsü yok, öneri biçimi UI ile birebir.
+    from presentations.routes import _filter_proposal_from_concept
+
+    cat = catalog.snapshot if hasattr(catalog, "snapshot") else catalog
+    eff = build_effective_registry(base, manifest.get("user_concepts"))
+    filters = manifest.setdefault("filters", [])
+    existing = {(f.get("concept_ref") or f.get("semantic_tag")) for f in filters}
+    seen: set[str] = set()
+    added = 0
+
+    def _add(cid: str | None) -> None:
+        nonlocal added
+        if not cid or cid in existing or cid in seen:
+            return
+        concept = eff.get(cid)
+        if concept is None:
+            return
+        seen.add(cid)
+        filters.append(_filter_proposal_from_concept(concept))
+        added += 1
+
+    for item in (manifest.get("basket") or []):
+        ref = (item.get("table") or "").strip()
+        if ref and "." in ref:
+            schema, _, table = ref.partition(".")
+            for b in cat.get_bindings(schema.strip(), table.strip()):
+                _add(b.concept)
+        for _col, cid in (item.get("column_concepts") or {}).items():
+            _add(cid)
+    if added:
+        log.info("build: %d concept filtre otomatik seed edildi", added)
+    return added
 
 
 @presentations_bp.route("/<pid>/scope/build", methods=["POST"])
