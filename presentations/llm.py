@@ -58,6 +58,7 @@ class QwenClient:
         timeout: int = 60,
         verify_ssl: bool = True,
         force_json: bool = False,
+        gen_max_tokens: int = 8192,
     ):
         # `model` opsiyonel: Qwen GGUF endpoint'i kabul etmiyor → boş bırak.
         # OpenAI / Groq / OpenRouter gibi public provider'lar için zorunlu.
@@ -67,6 +68,10 @@ class QwenClient:
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.force_json = force_json
+        # G1 — manifest patch üretimi max_tokens. 2048, çok-karosel/çok-blok
+        # dashboard'larda JSON'u ortadan kesiyordu ("Expecting ',' delimiter…").
+        # 8192 tipik bir dashboard'u rahat kapsar; instantiation'dan ayarlanabilir.
+        self.gen_max_tokens = gen_max_tokens
 
     def generate_patches(
         self,
@@ -110,14 +115,14 @@ class QwenClient:
                 {"role": "user", "content": composed_user},
             ],
             "temperature": 0.2,
-            "max_tokens": 2048,
+            "max_tokens": self.gen_max_tokens,
             "stream": False,
         }
         if self.model:
             payload["model"] = self.model
         if self.force_json:
             payload["response_format"] = {"type": "json_object"}
- 
+
         resp = requests.post(
             self.endpoint,
             json=payload,
@@ -130,8 +135,21 @@ class QwenClient:
             raise RuntimeError(
                 f"LLM provider HTTP {resp.status_code}: {body}"
             )
-        content = resp.json()["choices"][0]["message"]["content"]
-        return _parse_llm_output(content)
+        result = resp.json()
+        choice = (result.get("choices") or [{}])[0]
+        content = (choice.get("message") or {}).get("content", "")
+        patches, explanation, suggestions = _parse_llm_output(content)
+        # G1 — truncation: yanıt max_tokens'a takılıp JSON ortadan kesildiyse
+        # yarım patch'i UYGULAMA (manifest'i bozar) — kriptik parse hatası yerine
+        # eyleme dönük mesaj. Boş-patch + açıklama: pipeline hata atmaz, kullanıcı
+        # isteği küçültür.
+        if choice.get("finish_reason") == "length" and not patches:
+            explanation = (
+                "Yanıt çok uzun olduğu için kesildi (max_tokens sınırı) → JSON "
+                "tamamlanamadı. İsteği parçala (ör. karoselleri/blokları tek tek "
+                "ekle) ya da daha az şey iste."
+            )
+        return patches, explanation, suggestions
 
     def complete(self, system: str, user: str, *, max_tokens: int = 1024,
                  temperature: float = 0.1) -> str:
