@@ -91,6 +91,45 @@ class TestCacheKey:
         b = cache_key("blk", 1, {"x": 1}, "SELECT b FROM t")
         assert a.digest != b.digest
 
+    # ── C2b: concept-filter state folded into the key ────────────────────────
+    def test_empty_concept_digest_is_byte_identical(self):
+        # No active concept filter → key MUST equal the pre-Phase-7 key (no
+        # cache-miss storm, no regression for variable-only blocks).
+        a = cache_key("blk", 1, {"x": 1}, "SELECT 1")
+        b = cache_key("blk", 1, {"x": 1}, "SELECT 1", concept_digest="")
+        assert a.digest == b.digest
+
+    def test_concept_digest_differentiates(self):
+        # Same id/version/vars/sql but a different active concept filter must
+        # NOT collide — else changing a filter serves stale rows (C2b bug).
+        a = cache_key("blk", 1, {"x": 1}, "SELECT 1", concept_digest="aaa")
+        b = cache_key("blk", 1, {"x": 1}, "SELECT 1", concept_digest="bbb")
+        assert a.digest != b.digest
+
+
+class TestConceptFiltersDigest:
+    def test_empty_is_empty_string(self):
+        from presentations.cache.block_cache import concept_filters_digest
+        assert concept_filters_digest([]) == ""
+
+    def test_order_and_value_order_independent(self):
+        from presentations.cache.block_cache import concept_filters_digest
+        a = concept_filters_digest([
+            {"concept": "currency", "operator": "in", "values": ["USD", "TRY"]},
+            {"concept": "segment", "operator": "in", "values": ["RETAIL"]},
+        ])
+        b = concept_filters_digest([
+            {"concept": "segment", "operator": "in", "values": ["RETAIL"]},
+            {"concept": "currency", "operator": "in", "values": ["TRY", "USD"]},
+        ])
+        assert a == b and a != ""
+
+    def test_value_change_changes_digest(self):
+        from presentations.cache.block_cache import concept_filters_digest
+        a = concept_filters_digest([{"concept": "currency", "operator": "in", "values": ["USD"]}])
+        b = concept_filters_digest([{"concept": "currency", "operator": "in", "values": ["EUR"]}])
+        assert a != b
+
 
 # ── Subset-safety gate (#11) ────────────────────────────────────────────────
 

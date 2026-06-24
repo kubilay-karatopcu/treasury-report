@@ -92,6 +92,11 @@ Tek kök: build, request thread'inde senkron + iptal yok.
 
 ## Oturum 3 — Concept filtreleri
 
+> **DURUM (2026-06-24, branch `feat/oturum-3-concept-filters`):**
+> - **3.1 ✅ (C2b)** — `block_cache.cache_key`'e `concept_digest` + `concept_filters_digest` helper; `routes.py apply-filters` aktif concept-filtre durumunun digest'ini anahtara katar → bir dashboard concept filtresi değişince sentinel+değişken taşıyan blok bayat cache yerine yeniden yürür. Boş digest → anahtar pre-Phase-7 ile birebir (regresyon yok). 40 cache + 250 concept/cache testi geçer.
+> - **Teşhis (Plan ajanı):** Kullanıcının `FROM block_b_verilen_combo_daily WHERE {{concept_filters}}` örneği türetilmiş view; base-tablo `human_verified` binding'i yok → derleyici ulaşamaz; tek çalışan yol `column_concepts` (Hazırlık kolon→concept binding). Sessizce `1=1`'e düşüyor. Base-tablo binding'lerinin aggregate/calculated türevlerine OTOMATİK taşınması büyük → ertelendi.
+> - **Kalan:** 3.3 (C1 build-time oto-seed), 3.2 (C2a/c — türetilmiş-view'da blind görünür + blok düşmesin + prompt dürüstlüğü), 3.4 (C3 show-steps panel — bundle).
+
 > **🔒 Karar C1:** Filtreler **Sunum'a geçişte (build)** otomatik yukarı eklenir — blok eklerken DEĞİL.
 > Build anında scope'taki tüm **human_verified bağlı** concept'ler bellidir; **hepsi** dashboard filtresi olarak seed edilir.
 >
