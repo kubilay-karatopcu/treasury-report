@@ -84,6 +84,7 @@ def run_python_transform(
     cpu_seconds: int = DEFAULT_CPU_SECONDS,
     mem_mb: int = DEFAULT_MEM_MB,
     wall_timeout: int = DEFAULT_WALL_TIMEOUT,
+    cancel_token=None,
 ) -> PythonRunResult:
     """``code``'u ``input_df`` üzerinde sandbox'ta çalıştır.
 
@@ -125,18 +126,49 @@ def run_python_transform(
         ]
         preexec = _preexec_limits(cpu_seconds, mem_bytes) if posix else None
 
+        # Oturum 2.3 — cancel-aware çalıştırma. subprocess.run(timeout) iptal-
+        # farkında değildi (build cancel 60s'lik python node'unu erken kesemiyordu).
+        # Popen + poll: wall_timeout VEYA build cancel → child'ı öldür. stdout PIPE
+        # yerine dosyaya → büyük çıktıda pipe-buffer kilidi yok.
+        import time as _time
+        out_log = tmp_path / "stdout.log"
+        cancelled = timed_out = False
         try:
-            proc = subprocess.run(
-                cmd, env=env, capture_output=True, text=True,
-                timeout=wall_timeout, preexec_fn=preexec,
-            )
-        except subprocess.TimeoutExpired:
+            with open(out_log, "w", encoding="utf-8") as _ol:
+                proc = subprocess.Popen(
+                    cmd, env=env, stdout=_ol, stderr=subprocess.STDOUT,
+                    text=True, preexec_fn=preexec,
+                )
+                deadline = _time.monotonic() + wall_timeout
+                while proc.poll() is None:
+                    if cancel_token is not None and cancel_token.cancelled:
+                        cancelled = True
+                        break
+                    if _time.monotonic() >= deadline:
+                        timed_out = True
+                        break
+                    _time.sleep(0.1)
+                if cancelled or timed_out:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=5)
+                    except Exception:
+                        pass
+        except Exception as exc:
+            return PythonRunResult(ok=False, error=f"Süreç çalıştırılamadı: {exc}")
+
+        if cancelled:
+            from presentations.scope.cancel import BuildCancelled
+            raise BuildCancelled()
+        if timed_out:
             return PythonRunResult(
-                ok=False,
-                error=f"Script zaman aşımına uğradı ({wall_timeout}s).",
+                ok=False, error=f"Script zaman aşımına uğradı ({wall_timeout}s).",
             )
 
-        stdout = (proc.stdout or "")[:_MAX_STDOUT_CHARS]
+        try:
+            stdout = out_log.read_text(encoding="utf-8", errors="replace")[:_MAX_STDOUT_CHARS]
+        except Exception:
+            stdout = ""
 
         if proc.returncode == 0 and out_path.exists():
             try:

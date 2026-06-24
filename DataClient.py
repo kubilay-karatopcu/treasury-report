@@ -833,8 +833,16 @@ class DataClient:
     
         return out
         
-    def get_data(self, dataset, query=None, query_params=None, chunk_rows=1_000_000, base_prefix="sdp"):
-
+    def get_data(self, dataset, query=None, query_params=None, chunk_rows=1_000_000,
+                 base_prefix="sdp", cancel_token=None):
+        """``cancel_token`` (opsiyonel, Oturum 2.4 — gerçek abort): verilirse açılan
+        Oracle bağlantısı token'a ``bind`` edilir → build iptalinde başka bir
+        thread'den ``token.cancel()`` ``conn.cancel()`` çağırıp BLOKLU sorguyu
+        keser. İptal kaynaklı oracledb hatası BuildCancelled olarak yükseltilir
+        (failed build değil). Token duck-typed (bind/unbind/check/cancelled) →
+        DataClient ``presentations``'ı import etmez. Tüm diğer çağıranlar için
+        davranış aynıdır (token None) — ek olarak artık her yolda ``conn.close()``
+        finally'de yapılır (önceki sürümde sızıyordu)."""
         if self.APP_ENV in ["DEV", "TEST"]:
             data = self.load_latest_parquet_to_pandas(dataset=dataset, base_prefix=base_prefix)
         else:
@@ -853,19 +861,37 @@ class DataClient:
                     query_string = query
 
                 conn = self.get_connection()
-                cur = conn.cursor()
-                cur.execute(query_string, query_params or {})
+                if cancel_token is not None:
+                    cancel_token.bind(conn)
+                try:
+                    cur = conn.cursor()
+                    cur.execute(query_string, query_params or {})
 
-                colnames = [d[0] for d in cur.description]
-                all_rows = []
+                    colnames = [d[0] for d in cur.description]
+                    all_rows = []
 
-                while True:
-                    rows = cur.fetchmany(chunk_rows)
-                    if not rows:
-                        break
-                    all_rows.extend(rows)
+                    while True:
+                        if cancel_token is not None:
+                            cancel_token.check()   # multi-chunk pull'da sınır iptali
+                        rows = cur.fetchmany(chunk_rows)
+                        if not rows:
+                            break
+                        all_rows.extend(rows)
 
-                data = pd.DataFrame.from_records(all_rows, columns=colnames)
+                    data = pd.DataFrame.from_records(all_rows, columns=colnames)
+                except Exception:
+                    # İptal conn.cancel() ile execute/fetch'i kestiyse oracledb
+                    # hatası fırlar → bunu CANCEL olarak yükselt (failed build değil).
+                    if cancel_token is not None and cancel_token.cancelled:
+                        cancel_token.check()       # raises BuildCancelled
+                    raise
+                finally:
+                    if cancel_token is not None:
+                        cancel_token.unbind(conn)
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
             else:
                 raise Exception("Query path is None or wrong!")
 
