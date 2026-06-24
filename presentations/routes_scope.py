@@ -1147,7 +1147,7 @@ def _prepare_build(pid: str):
 
 
 def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
-                    parent, diff, *, on_progress=None) -> dict[str, Any]:
+                    parent, diff, *, on_progress=None, cancel_token=None) -> dict[str, Any]:
     """Fetch → status → SCOPE_STORE.save → manifest güncellemesi.
 
     Sync build endpoint'i ile async build worker'ının ORTAK çekirdeği. Flask
@@ -1194,6 +1194,7 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
     # an ACTIVE derived node needs to materialise — it stays in the basket but is
     # listed in scope.inactive_aliases so _manifest_basket_from_scope hides it
     # from the Sunum sidebar (the fetch pass still materialises it for the node).
+    from presentations.scope.cancel import BuildCancelled
     try:
         with session.duck_conn() as conn:
             loaded = fetch_cached_tables(
@@ -1204,7 +1205,15 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
                 refetch_only=refetch_only,
                 drop_aliases=drop_aliases,
                 on_dataset=_on_dataset,
+                cancel_token=cancel_token,
             )
+    except BuildCancelled:
+        # İptal: yarım scope/manifest YAZMA — önceki build sürümü yetkili kalır
+        # ("iptal ettim, hiçbir şey değişmedi"). `with` çıkışı session._exec_lock'u
+        # serbest bırakır → kullanıcı ANINDA yeniden build/Sunum yapabilir (B2/B3).
+        # Worker bunu yakalayıp phase=cancelled der.
+        log.info("build: iptal edildi (cancel) — %s", pid)
+        raise
     except Exception as exc:
         scope.status.state = "failed"
         scope.status.errors = [str(exc)]
@@ -1496,11 +1505,13 @@ def build_scope_async(pid: str):
     scope, parent, diff = prep
 
     import uuid as _uuid
+    from presentations.scope.cancel import BuildCancelled, CancelToken
     job_id = "bj_" + _uuid.uuid4().hex[:12]
+    token = CancelToken()
     job: dict[str, Any] = {
         "phase": "fetch", "done": [], "error": None, "result": None,
         "redirect": url_for("presentations.editor", pid=pid),
-        "ts": time.time(),
+        "ts": time.time(), "token": token,
     }
     with _BUILD_JOBS_LOCK:
         _BUILD_JOBS[job_id] = job
@@ -1515,7 +1526,14 @@ def build_scope_async(pid: str):
                 payload = _run_build_core(
                     pid, scope, sicil, parent, diff,
                     on_progress=lambda alias: job["done"].append(alias),
+                    cancel_token=token,
                 )
+            except BuildCancelled:
+                # İptal: _run_build_core yarım scope/manifest yazmadan re-raise etti,
+                # session._exec_lock serbest → re-entry açık. Sadece işaretle.
+                job["phase"] = "cancelled"
+                job["error"] = "İptal edildi"
+                return
             except Exception as exc:   # beklenmedik — core kendi hatasını dict döner
                 log.exception("build-async worker crashed for %s", pid)
                 payload = {"ok": False, "errors": [str(exc)]}
@@ -1547,6 +1565,30 @@ def build_status(pid: str, job_id: str):
         res = job.get("result") or {}
         out["scope_version"] = res.get("scope_version")
     return _json(out)
+
+
+@presentations_bp.route("/<pid>/scope/build-cancel/<job_id>", methods=["POST"])
+@login_required
+def build_cancel(pid: str, job_id: str):
+    """İptal (Karar B): build job'unun CancelToken'ını tetikle → fetch döngüsü
+    bir sonraki sınırda BuildCancelled fırlatır, worker unwind olur, session._exec_
+    lock SERBEST kalır → kullanıcı anında yeniden build/Sunum yapabilir (B2/B3).
+    Yarım scope/manifest yazılmaz (önceki sürüm yetkili). Frontend F5/unmount'ta
+    da (sendBeacon) bunu çağırır → 'F5 sonrası arkada çekmeye devam' biter.
+    Süresi dolmuş/yok job → no-op (zaten durmuş)."""
+    with _BUILD_JOBS_LOCK:
+        job = _BUILD_JOBS.get(job_id)
+    if job is None:
+        return _json({"ok": True, "phase": "gone"})
+    tok = job.get("token")
+    if tok is not None:
+        tok.cancel()
+    # Yalnız hâlâ çalışıyorken işaretle — done/failed sonucu EZME (cancel-after-done
+    # yarışı). Worker da BuildCancelled'da phase=cancelled der; ikisi tutarlı.
+    if job.get("phase") == "fetch":
+        job["phase"] = "cancelled"
+        job["error"] = "İptal edildi"
+    return _json({"ok": True, "phase": job.get("phase")})
 
 
 @presentations_bp.route("/<pid>/scope/projection-update", methods=["POST"])

@@ -262,3 +262,57 @@ def test_fetch_cached_guard_raises_on_gross_underestimate():
             fetch_cached_tables(dc, conn, scope, catalog=_catalog())
     finally:
         fetch_mod.SCOPE_FETCH_ROW_CAP = orig
+
+
+# ── Oturum 2.2: cancel-token threaded through fetch_cached_tables ────────────
+
+def test_fetch_precancelled_token_raises_without_pulling():
+    """Pre-cancelled token → BuildCancelled at the boundary, BEFORE any Oracle pull."""
+    from presentations.scope.cancel import BuildCancelled, CancelToken
+    dc = StubDC(pd.DataFrame({"A": [1]}))
+    conn = duckdb.connect(":memory:")
+    scope = _scope([{
+        "table_ref": {"schema": "ODS_TREASURY", "name": "TRD_BRANCH_POSITION"},
+        "alias": "positions",
+        "projection": {"columns": ["A"], "include_all": False},
+        "routing": {"decision": "cached", "estimated_bytes": 0},
+    }])
+    tok = CancelToken()
+    tok.cancel()
+    with pytest.raises(BuildCancelled):
+        fetch_cached_tables(dc, conn, scope, catalog=_catalog(), cancel_token=tok)
+    assert dc.calls == []        # never reached Oracle
+
+
+def test_fetch_cancel_during_pass1_caught_at_pass2_boundary():
+    """A cancel that arrives during the Pass-1 source pull is caught at the
+    Pass-2 derivation boundary → the derived node never runs, BuildCancelled
+    unwinds (releasing the session lock in the real build)."""
+    from presentations.scope.cancel import BuildCancelled, CancelToken
+    tok = CancelToken()
+
+    class _SelfCancelDC:
+        def __init__(self):
+            self.calls = []
+        def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+            self.calls.append(dataset)
+            tok.cancel()                      # cancel arrives mid-build
+            return pd.DataFrame({"CCY": ["TRY"], "BAL": [10]})
+
+    dc = _SelfCancelDC()
+    conn = duckdb.connect(":memory:")
+    scope = _scope([
+        {"table_ref": {"schema": "ODS_TREASURY", "name": "TRD_BRANCH_POSITION"},
+         "alias": "positions",
+         "projection": {"columns": ["CCY", "BAL"], "include_all": False},
+         "routing": {"decision": "cached", "estimated_bytes": 0}},
+        {"derivation": {"kind": "aggregate", "source_alias": "positions",
+                        "group_by": ["CCY"],
+                        "measures": [{"column": "BAL", "fn": "sum", "as": "SUM_BAL"}]},
+         "alias": "pos_agg",
+         "projection": {"columns": ["CCY", "SUM_BAL"], "include_all": False},
+         "routing": {"decision": "cached", "estimated_bytes": 0}},
+    ])
+    with pytest.raises(BuildCancelled):
+        fetch_cached_tables(dc, conn, scope, catalog=_catalog(), cancel_token=tok)
+    assert dc.calls == ["scope::p_x/positions"]   # src pulled; agg never ran
