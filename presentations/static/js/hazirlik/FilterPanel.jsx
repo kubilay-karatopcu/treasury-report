@@ -36,6 +36,18 @@ function numOrStr(v) {
   const s = String(v).trim();
   return s !== '' && !Number.isNaN(Number(s)) ? Number(s) : s;
 }
+// F1 — binlik ayraç (virgül): aralık/değer alanlarında kullanıcı "1,000,000"
+// yazabilir/görebilir; spec'e giderken virgül sökülür. (IN-listesinde virgül
+// AYRAÇ olduğu için orada sökmeyiz — yalnız between/value.)
+function stripNum(v) { return String(v ?? '').replace(/,/g, ''); }
+function fmtNum(v) {
+  const s = stripNum(v).trim();
+  if (s === '' || Number.isNaN(Number(s))) return s;   // boş/geçersiz → dokunma
+  const neg = s.startsWith('-');
+  const [intp, decp] = s.replace('-', '').split('.');
+  const g = (intp || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-' : '') + g + (decp != null ? '.' + decp : '');
+}
 
 function relPreview(from, to) {
   const f = _resolveDateExpr(from);
@@ -139,12 +151,12 @@ export default function FilterPanel({ alias, columns = [], existing, onSave, onF
           if (!values.length) continue;
           spec = { op: 'in', values };
         } else if (op === 'between') {
-          const from = String(ed.from ?? '').trim();
-          const to = String(ed.to ?? '').trim();
+          const from = stripNum(ed.from).trim();
+          const to = stripNum(ed.to).trim();
           if (from === '' || to === '') continue;
           spec = { op: 'between', from: numOrStr(from), to: numOrStr(to) };
         } else {
-          const v = String(ed.value ?? '').trim();
+          const v = stripNum(ed.value).trim();
           if (v === '') continue;
           spec = { op, value: numOrStr(v) };
         }
@@ -185,6 +197,9 @@ export default function FilterPanel({ alias, columns = [], existing, onSave, onF
         {cols.map((c) => {
           const ed = edits[c.name] || {};
           const mode = ed.mode || 'abs';
+          // F2 — tarih: tekil gün mü aralık mı. Kaydedilmiş filtre (from==to ya da
+          // yalnız from) tekil olarak açılır; aksi aralık.
+          const dkind = ed.dkind || (ed.from && (!ed.to || ed.to === ed.from) ? 'single' : 'range');
           const dist = distinct[c.name];
           return (
             <div className="hz-fp-row" key={c.name}>
@@ -202,24 +217,44 @@ export default function FilterPanel({ alias, columns = [], existing, onSave, onF
                     <button type="button" className={mode === 'rel' ? 'on' : ''}
                             onClick={() => setEd(c.name, { mode: 'rel' })}>Göreli</button>
                   </div>
+                  <div className="hz-fp-modes">
+                    <button type="button" className={dkind === 'single' ? 'on' : ''}
+                            onClick={() => setEd(c.name, { dkind: 'single' })}>Tekil gün</button>
+                    <button type="button" className={dkind === 'range' ? 'on' : ''}
+                            onClick={() => setEd(c.name, { dkind: 'range' })}>Aralık</button>
+                  </div>
                   {mode === 'abs' ? (
-                    <div className="hz-fp-daterow">
-                      <input type="date" value={_resolveDateExpr(ed.from)}
-                             onChange={(e) => setEd(c.name, { from: e.target.value })} />
-                      <span className="hz-fp-sep">→</span>
-                      <input type="date" value={_resolveDateExpr(ed.to)}
-                             onChange={(e) => setEd(c.name, { to: e.target.value })} />
-                      <span className="hz-fp-hint">tek tarih için sadece soldaki</span>
-                    </div>
+                    dkind === 'single' ? (
+                      <div className="hz-fp-daterow">
+                        <input type="date" value={_resolveDateExpr(ed.from)}
+                               onChange={(e) => setEd(c.name, { from: e.target.value, to: e.target.value })} />
+                      </div>
+                    ) : (
+                      <div className="hz-fp-daterow">
+                        <input type="date" value={_resolveDateExpr(ed.from)}
+                               onChange={(e) => setEd(c.name, { from: e.target.value })} />
+                        <span className="hz-fp-sep">→</span>
+                        <input type="date" value={_resolveDateExpr(ed.to)}
+                               onChange={(e) => setEd(c.name, { to: e.target.value })} />
+                      </div>
+                    )
                   ) : (
-                    <div className="hz-fp-daterow">
-                      <input type="text" placeholder="today - 30d" value={ed.from || ''}
-                             onChange={(e) => setEd(c.name, { from: e.target.value })} />
-                      <span className="hz-fp-sep">→</span>
-                      <input type="text" placeholder="today" value={ed.to || ''}
-                             onChange={(e) => setEd(c.name, { to: e.target.value })} />
-                      <span className="hz-fp-hint">{relPreview(ed.from, ed.to)}</span>
-                    </div>
+                    dkind === 'single' ? (
+                      <div className="hz-fp-daterow">
+                        <input type="text" placeholder="today" value={ed.from || ''}
+                               onChange={(e) => setEd(c.name, { from: e.target.value, to: e.target.value })} />
+                        <span className="hz-fp-hint">{relPreview(ed.from, ed.from)}</span>
+                      </div>
+                    ) : (
+                      <div className="hz-fp-daterow">
+                        <input type="text" placeholder="today - 30d" value={ed.from || ''}
+                               onChange={(e) => setEd(c.name, { from: e.target.value })} />
+                        <span className="hz-fp-sep">→</span>
+                        <input type="text" placeholder="today" value={ed.to || ''}
+                               onChange={(e) => setEd(c.name, { to: e.target.value })} />
+                        <span className="hz-fp-hint">{relPreview(ed.from, ed.to)}</span>
+                      </div>
+                    )
                   )}
                 </div>
               )}
@@ -235,15 +270,18 @@ export default function FilterPanel({ alias, columns = [], existing, onSave, onF
                              onChange={(e) => setEd(c.name, { values: e.target.value })} />
                     ) : ed.op === 'between' ? (
                       <>
-                        <input type="number" placeholder="min" value={ed.from ?? ''}
-                               onChange={(e) => setEd(c.name, { from: e.target.value })} />
+                        <input type="text" inputMode="decimal" placeholder="min" value={ed.from ?? ''}
+                               onChange={(e) => setEd(c.name, { from: e.target.value })}
+                               onBlur={(e) => setEd(c.name, { from: fmtNum(e.target.value) })} />
                         <span className="hz-fp-sep">ve</span>
-                        <input type="number" placeholder="max" value={ed.to ?? ''}
-                               onChange={(e) => setEd(c.name, { to: e.target.value })} />
+                        <input type="text" inputMode="decimal" placeholder="max" value={ed.to ?? ''}
+                               onChange={(e) => setEd(c.name, { to: e.target.value })}
+                               onBlur={(e) => setEd(c.name, { to: fmtNum(e.target.value) })} />
                       </>
                     ) : (
-                      <input type="number" placeholder="değer" value={ed.value ?? ''}
-                             onChange={(e) => setEd(c.name, { value: e.target.value })} />
+                      <input type="text" inputMode="decimal" placeholder="değer" value={ed.value ?? ''}
+                             onChange={(e) => setEd(c.name, { value: e.target.value })}
+                             onBlur={(e) => setEd(c.name, { value: fmtNum(e.target.value) })} />
                     )}
                   </div>
                 </div>
