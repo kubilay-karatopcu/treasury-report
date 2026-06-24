@@ -367,3 +367,77 @@ class TestSqlNodeMaterialisation:
         assert {"sql_a", "sql_b", "joined"} <= set(loaded.keys())
         cols = [c[0] for c in conn.execute('SELECT * FROM "joined" LIMIT 0').description]
         assert "sql_b_BRANCH_CODE" in cols and "sql_b_BAL" in cols  # right collisions prefixed
+
+
+# ── A3: join-key pushdown — büyük lazy tarafı küçük tarafın anahtarlarıyla daralt ──
+
+class _RecDC:
+    def __init__(self, df):
+        self.df = df
+        self.calls: list[dict] = []
+
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+        self.calls.append({"dataset": dataset, "query": query or "", "params": query_params or {}})
+        return self.df.copy()
+
+
+def test_join_pushes_small_side_keys_into_lazy_source():
+    """Küçük (cached) tarafa join'lenen BÜYÜK lazy tablo, tüm tabloyu değil yalnız
+    eşleşen anahtarları çeker: küçük tarafın join-key'leri lazy pull'a parametreli
+    ``IN (...)`` olarak itilir."""
+    df = pd.DataFrame({"KEY": [1, 2, 3], "VAL": [10, 20, 30]})
+    dc = _RecDC(df)
+    conn = duckdb.connect(":memory:")
+    scope = load_scope_from_dict({
+        "presentation_id": "p_j", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-24T00:00:00Z",
+        "basket": [
+            {"alias": "small", "table_ref": {"schema": "EDW", "name": "SMALL"},
+             "projection": {"columns": ["KEY", "VAL"], "include_all": False},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}},
+            {"alias": "big", "table_ref": {"schema": "EDW", "name": "BIG"},
+             "projection": {"columns": ["KEY", "VAL"], "include_all": False},
+             "routing": {"decision": "lazy", "decided_by": "system", "estimated_bytes": 9_000_000_000}},
+            {"alias": "joined", "derivation": {
+                "kind": "join", "source_aliases": ["small", "big"], "join_type": "inner",
+                "join_keys": [{"left_alias": "small", "left_column": "KEY",
+                               "right_alias": "big", "right_column": "KEY"}]},
+             "projection": {"columns": [], "include_all": True},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}},
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []}, "joins": [],
+    })
+    fetch_cached_tables(dc, conn, scope)
+    big_calls = [c for c in dc.calls if (c["dataset"] or "").endswith("/big")]
+    assert big_calls, dc.calls
+    bq = big_calls[0]
+    assert "KEY IN (:_kpush_0, :_kpush_1, :_kpush_2)" in bq["query"], bq["query"]
+    assert set(bq["params"].values()) == {1, 2, 3}
+
+
+def test_join_no_pushdown_when_both_cached():
+    """İki taraf da cached (küçük) ise pushdown gerekmez — lazy yokken IN itilmez."""
+    df = pd.DataFrame({"KEY": [1, 2], "VAL": [10, 20]})
+    dc = _RecDC(df)
+    conn = duckdb.connect(":memory:")
+    scope = load_scope_from_dict({
+        "presentation_id": "p_j2", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-24T00:00:00Z",
+        "basket": [
+            {"alias": "tbl_a", "table_ref": {"schema": "EDW", "name": "A"},
+             "projection": {"columns": ["KEY", "VAL"], "include_all": False},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}},
+            {"alias": "tbl_b", "table_ref": {"schema": "EDW", "name": "B"},
+             "projection": {"columns": ["KEY", "VAL"], "include_all": False},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}},
+            {"alias": "joined", "derivation": {
+                "kind": "join", "source_aliases": ["tbl_a", "tbl_b"], "join_type": "inner",
+                "join_keys": [{"left_alias": "tbl_a", "left_column": "KEY",
+                               "right_alias": "tbl_b", "right_column": "KEY"}]},
+             "projection": {"columns": [], "include_all": True},
+             "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0}},
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []}, "joins": [],
+    })
+    fetch_cached_tables(dc, conn, scope)
+    assert not any("_kpush_" in c["query"] for c in dc.calls), dc.calls
