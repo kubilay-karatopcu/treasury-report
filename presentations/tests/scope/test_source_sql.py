@@ -29,7 +29,7 @@ class _RecordingDC:
         self._df = df
         self.queries: list[str] = []
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.queries.append(query or "")
         return self._df.copy()
 

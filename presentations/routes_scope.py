@@ -3209,6 +3209,19 @@ def scope_chat(pid: str):
         s2.setdefault("id", f"sg_{i+1}_{_rand_token(4)}")
         suggestions.append(s2)
 
+    # Audit (Oturum 8 / H1) — Hazırlık'ta kim ne prompt yazdı, LLM ne önerdi
+    # (ne tablo/türetme önerisi), hangi node bağlamında. Best-effort.
+    try:
+        from presentations import audit
+        audit.log_event(
+            "scope_chat", user_sicil=current_user.sicil, presentation_id=pid,
+            stage="hazirlik", prompt=user_message, table_ref=selected_alias,
+            llm_response=result.get("explanation", ""),
+            meta={"suggestions": [s.get("kind") for s in suggestions]},
+        )
+    except Exception:
+        pass
+
     return _json({
         "explanation": result.get("explanation", ""),
         "suggestions": suggestions,

@@ -29,7 +29,7 @@ class _FakeDC:
     def __init__(self, df):
         self._df = df
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         return self._df.copy()
 
 
@@ -203,7 +203,7 @@ def test_leaf_sample_cached_across_opens(tmp_path):
             self._df = df
             self.datasets: list[str] = []
 
-        def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+        def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
             self.datasets.append(dataset or "")
             return self._df.copy()
 

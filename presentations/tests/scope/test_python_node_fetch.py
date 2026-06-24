@@ -26,7 +26,7 @@ class StubDC:
         self.objects: dict[str, bytes] = {}
 
     # Oracle
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         return self.df.copy()
 
     # S3

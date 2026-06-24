@@ -13,7 +13,7 @@ from presentations.scope.validators import rule_derived_tables
 
 class StubDC:
     def __init__(self, df): self.df = df
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         return self.df.copy()
 
 

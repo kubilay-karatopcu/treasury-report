@@ -48,7 +48,7 @@ class _FakeDC:
             raise FileNotFoundError(key)
         return json.loads(self.objects[key].decode("utf-8"))
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         return self._df.copy()
 
 

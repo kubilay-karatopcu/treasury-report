@@ -18,7 +18,7 @@ class OracleStub:
     def __init__(self):
         self.calls = []
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.calls.append({"query": query, "params": query_params})
         return pd.DataFrame({"oracle_col": [1]})
 

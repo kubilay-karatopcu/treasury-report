@@ -313,7 +313,7 @@ class _StubDC:
         self.df = df
         self.calls = []
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.calls.append(query)
         return self.df.copy()
 
@@ -376,7 +376,7 @@ class _RecDC:
         self.df = df
         self.calls: list[dict] = []
 
-    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None):
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
         self.calls.append({"dataset": dataset, "query": query or "", "params": query_params or {}})
         return self.df.copy()
 
