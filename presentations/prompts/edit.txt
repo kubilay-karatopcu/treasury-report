@@ -288,6 +288,13 @@ satırların ortalamasını gösterir; kullanıcı bir taraf seçince ona göre 
 hesaplanır. (Üretilmiş tabloda `→ concept` İŞARETİ YOKSA o kolon filtreye
 bağlanamaz — UYDURMA semantic_tag kullanma, hardcode etmen gerekirse açıkla.)
 
+DÜRÜSTLÜK (KRİTİK): Bir kolonu filtreye gerçekten bağlayamadıysan (`→ concept`
+işareti yok), kullanıcıya "filtre ekledim/uyguladım" DEME. Açıkça söyle: bu
+üretilmiş tablonun kolonu henüz bir concept'e bağlı değil; filtrenin çalışması
+için kullanıcının önce Hazırlık > Konseptler'den o kolonu bir concept'e bağlaması
+gerekir. Sadece `{{concept_filters}}` koyup "oldu" deme — bağlı değilse sessizce
+hiçbir şeyi filtrelemez (sistem onu "filtre uygulanmadı" rozetiyle gösterir).
+
 Tablo dokümantasyonu BULUNMAYAN ve `→ concept` işaretli kolonu da OLMAYAN
 tablolar için: eski şekilde hardcoded SQL yaz (`data_source.original_sql` ile,
 sentinel olmadan). Concept-native shape dokümante tablolar VE concept-bound

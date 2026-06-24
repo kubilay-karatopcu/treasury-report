@@ -5,6 +5,7 @@ import {
   Eye, AlertTriangle, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import useStore, { findBlockPath } from '../lib/store.js';
+import { fetchBlockSteps } from '../lib/api.js';
 import SourceModal    from './SourceModal.jsx';
 import SectionHeader  from '../blocks/SectionHeader.jsx';
 import KpiBlock       from '../blocks/KpiBlock.jsx';
@@ -70,6 +71,57 @@ function TypeIcon({ type }) {
     case 'narrative':  return <FileText   {...iconProps} />;
     default:           return <FileText   {...iconProps} />;
   }
+}
+
+
+// C3 — "Adımlar": bloğun kaynak türetme zincirini (leaf→root, her adımın SQL'i)
+// blok altında aç-kapa panelde gösterir. Read-only; lazy fetch (ilk açılışta).
+function StepsPanel({ blockId }) {
+  const [open, setOpen] = useState(false);
+  const [steps, setSteps] = useState(null);   // null=yüklenmedi, []=ara adım yok
+  const [loading, setLoading] = useState(false);
+
+  async function toggle(e) {
+    e.stopPropagation();
+    const next = !open;
+    setOpen(next);
+    if (next && steps === null && !loading) {
+      setLoading(true);
+      try { setSteps(await fetchBlockSteps(blockId)); }
+      catch { setSteps([]); }
+      finally { setLoading(false); }
+    }
+  }
+
+  return (
+    <div className="block-steps" onClick={(e) => e.stopPropagation()}>
+      <button type="button" className="block-steps-toggle" onClick={toggle}>
+        {open ? <ChevronUp size={11} strokeWidth={2} /> : <ChevronDown size={11} strokeWidth={2} />}
+        Adımlar {open ? '(gizle)' : '(göster)'}
+      </button>
+      {open && (
+        <div className="block-steps-body">
+          {loading && <div className="block-steps-empty">Yükleniyor…</div>}
+          {!loading && steps && steps.length === 0 && (
+            <div className="block-steps-empty">Ara adım yok — doğrudan kaynak tablo.</div>
+          )}
+          {!loading && steps && steps.map((st, i) => (
+            <div key={`${st.alias}-${i}`} className="block-step">
+              <div className="block-step-head">
+                <span className="block-step-num">{i + 1}</span>
+                <span className="block-step-alias">{st.alias}</span>
+                <span className="block-step-kind">{st.kind}</span>
+                {st.sources && st.sources.length > 0 && (
+                  <span className="block-step-src">← {st.sources.join(', ')}</span>
+                )}
+              </div>
+              <pre className="block-step-sql">{st.sql}</pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 
@@ -337,6 +389,9 @@ export default function BlockCard({ block }) {
             </span>
           </button>
         )}
+
+        {/* C3 — bloğun kaynak türetme zinciri (ara adımlar) — aç-kapa, blok altı. */}
+        {hasDataSource && !isSnapshot && <StepsPanel blockId={block.id} />}
       </div>
 
       <SourceModal

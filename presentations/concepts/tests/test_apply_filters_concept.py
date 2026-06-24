@@ -297,3 +297,41 @@ def test_produced_view_blind_filter_reported():
     assert "currency" in (kpi.get("blind_filters") or []), kpi
     assert kpi.get("concept_injected") is False
     assert _kpi_value(app) == 200.0          # blind → not filtered → all rows
+
+
+def _cte_sentinel_manifest():
+    # Block whose FROM is a derived/CTE view name (not SCHEMA.TABLE, not a basket
+    # alias) carrying the {{concept_filters}} sentinel + NO variables. The concept
+    # compiler can't reach it (no base-table binding) and there is no basket alias
+    # to bind via column_concepts → before 3.2 it was silently DROPPED (no vars,
+    # not concept-eligible). It must now render + report the blind filter.
+    return {
+        "id": "p1", "version": 1,
+        "filters": [{"id": "f_segment", "semantic_tag": "segment",
+                     "type": "enum_multi", "label": "Segment",
+                     "allowed_values": ["RETAIL", "SME", "CORP", "PRIVATE"]}],
+        "blocks": [{"id": "sec", "type": "section_header", "title": "x", "children": [{
+            "id": "b_cte", "type": "bar_chart", "title": "Derived",
+            "query": "SELECT SEGMENT, TOTAL FROM block_b_verilen_combo_daily WHERE {{concept_filters}}",
+            "config": {"categories": [], "series": [{"name": "T", "values": []}]},
+        }]}],
+    }
+
+
+def test_sentinel_over_unbound_derived_view_is_visible_blind():
+    """C2a/c: a sentinel block over an unbound derived/CTE view is NOT silently
+    dropped and the sentinel does NOT silently become 1=1 — the block renders
+    (all rows) and the response flags the blind concept ('filtre uygulanmadı')."""
+    dc = _RecordingDC()
+    client = _make_app(_cte_sentinel_manifest(), dc).test_client()
+    resp = _post(client, "p1", {"f_segment": ["RETAIL"]})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert len(body["blocks"]) == 1, body            # was [] (dropped) before 3.2
+    blk = body["blocks"][0]
+    assert blk["id"] == "b_cte"
+    assert blk.get("concept_injected") is False
+    assert "segment" in (blk.get("blind_filters") or []), blk
+    assert blk["status"] in ("refetched", "cache_hit", "subset")
+    # Sentinel neutralised — no literal sentinel ever reaches the DataClient.
+    assert dc.calls and "{{concept_filters}}" not in dc.calls[-1]["query"]
