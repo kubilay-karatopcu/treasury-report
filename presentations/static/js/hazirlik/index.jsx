@@ -1927,8 +1927,8 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
         <MessageSquare size={11} strokeWidth={2} />
         <span>Asistan</span>
         {selectedAlias && (
-          <span className="chat-scope-chip" title="Bu node odakta — konuşma bu node'un kaynağını etkiler">
-            <Code2 size={10} /> {selectedSource ? `${selectedSource} → ${selectedAlias}` : selectedAlias}
+          <span className="chat-scope-chip" title="Bu tablo sohbet odağında — buradan yeni node türetebilirsin">
+            <Code2 size={10} /> {selectedAlias}
           </span>
         )}
       </div>
@@ -3044,24 +3044,36 @@ function App() {
   useEffect(() => { if (!preview) setConceptBrowser(null); }, [preview]);
   // MVP — konsept tarayıcı açılınca kolona göre öneri çek (deterministik backend).
   // Deps yalnız alias+column: seçim (current değişimi) yeniden çekmesin.
+  const conceptSuggestCacheRef = useRef({});
   useEffect(() => {
     if (!conceptBrowser) { setConceptSuggest(null); return; }
     const { alias, column } = conceptBrowser;
+    // E4: aynı (alias,column) tekrar açılınca anında cache'ten ver (Oracle'a gitme);
+    // ilk açılışta 8s AbortController timeout → spinner sonsuz dönmesin (alttaki
+    // tam liste zaten suggest'e bağlı değil, kullanılabilir kalır).
+    const ckey = `${alias}::${column}`;
+    const cached = conceptSuggestCacheRef.current[ckey];
+    if (cached) { setConceptSuggest({ ...cached, column }); return; }
     let alive = true;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     setConceptSuggest({ loading: true, ranked: [], draft: null, column });
     fetch(SUGGEST_CONCEPTS_URL, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scope, alias, column }),
+      body: JSON.stringify({ scope, alias, column }), signal: ctrl.signal,
     })
       .then((r) => r.json())
       .then((d) => {
         if (!alive) return;
-        setConceptSuggest(d && d.ok
-          ? { loading: false, ranked: d.ranked_existing || [], draft: d.draft_new || null, column }
-          : { loading: false, ranked: [], draft: null, column });
+        const res = d && d.ok
+          ? { loading: false, ranked: d.ranked_existing || [], draft: d.draft_new || null }
+          : { loading: false, ranked: [], draft: null };
+        conceptSuggestCacheRef.current[ckey] = res;
+        setConceptSuggest({ ...res, column });
       })
-      .catch(() => { if (alive) setConceptSuggest({ loading: false, ranked: [], draft: null, column }); });
-    return () => { alive = false; };
+      .catch(() => { if (alive) setConceptSuggest({ loading: false, ranked: [], draft: null, column }); })
+      .finally(() => clearTimeout(timer));
+    return () => { alive = false; clearTimeout(timer); ctrl.abort(); };
   }, [conceptBrowser?.alias, conceptBrowser?.column]);  // eslint-disable-line react-hooks/exhaustive-deps
   const [drawerH, setDrawerH] = useState(260);
   const [busy, setBusy] = useState(false);
@@ -3799,7 +3811,9 @@ function App() {
       if (outItem?.derivation?.kind === "python") {
         showPreviewRef.current && showPreviewRef.current(out, "script");
       } else if (edge.data.derivKind === "filter") {
-        showPreviewRef.current && showPreviewRef.current(edge.data.sourceAlias, "filter");
+        // E3: edge = "kaynak → bu türev"; çıktı (türev) node'unu aç → sohbet
+        // o node'u ÜRETEN script/query'yi düzenler (kaynağı değil).
+        showPreviewRef.current && showPreviewRef.current(out, "filter");
       } else {
         showPreviewRef.current && showPreviewRef.current(out);
       }
@@ -3839,11 +3853,16 @@ function App() {
   // Üretilen node'u KAYNAĞININ hemen sağına konumla (uzağa düşmesin). Aynı
   // kaynaktan türeyen mevcut node sayısına göre dikey kaydır → üst üste binmez.
   const posNearSource = (srcAlias) => {
-    const src = nodes.find((n) => n.id === srcAlias);
-    if (!src || !src.position) return nextNodePos();
+    // Önce CANLI node konumu (sürükleme yansır), yoksa basket layout'u; ikisi de
+    // yoksa grid. Eskiden yalnız `nodes`'a bakıp bulamayınca grid'e düşüyordu →
+    // üretilen node "saçma yere" gidiyordu (E1).
+    const live = nodes.find((n) => n.id === srcAlias);
+    const srcItem = (scope.basket || []).find((b) => b.alias === srcAlias);
+    const pos = (live && live.position) || (srcItem && srcItem.layout) || null;
+    if (!pos) return nextNodePos();
     const kids = (scope.basket || []).filter(
       (b) => b.derivation && derivSourceAliases(b.derivation).includes(srcAlias)).length;
-    return { x: src.position.x + 360, y: src.position.y + kids * 160 };
+    return { x: pos.x + 360, y: pos.y + kids * 160 };
   };
 
   const addTableFromCatalog = (t) => {
@@ -4010,7 +4029,7 @@ function App() {
     setScope((s) => ({ ...s, basket: [...(s.basket || []), item] }));
     setNodes((nds) => [...nds, {
       id: alias, type: "tableNode",
-      position: { x: 100 + (nds.length % 3) * 340, y: 100 + Math.floor(nds.length / 3) * 240 },
+      position: { x: upos.x, y: upos.y },   // E1: layout ile tutarlı (grid değil)
       data: enrichNodeData(item, scope),
     }]);
     setUnionModal(null);
