@@ -206,7 +206,12 @@ Tek kök: build, request thread'inde senkron + iptal yok.
 
 ---
 
-## Oturum 7 — LLM JSON dayanıklılığı
+## Oturum 7 — LLM JSON dayanıklılığı — ✅ TAMAM (2026-06-24, branch `feat/oturum-7-llm-json`)
+
+> Saf backend (`llm.py`) — ofis sadece **restart** (bundle yok).
+> - **G1 ✅** — `QwenClient.gen_max_tokens` (default **8192**, instantiation'dan ayarlanabilir); `generate_patches` `max_tokens` 2048→`self.gen_max_tokens` ("Oranlar Dashboard" çok-karosel truncation'ının doğrudan kökü). Ayrıca **finish_reason="length" tespiti**: yanıt kesildiyse yarım patch UYGULANMAZ (manifest bozulmaz) → kriptik parse hatası yerine "isteği parçala" mesajı. **Karar:** kesik JSON onarımı patch pipeline'da riskli (yarım patch) → onarım yerine tespit+net mesaj.
+> - **Bonus:** memory'deki pre-existing "test_llm parse ×4" fail'leri düzeltildi (_parse_llm_output 3-tuple, testler 2-unpack ediyordu). 13 llm testi geçer (3 yeni G1).
+> - Backlog'un "destekleyici" önerdiği truncation-retry/streaming/parçalı-üretim YAPILMADI (max_tokens↑ + tespit yeterli; parçalı üretim büyük iş, gerekirse ileride).
 
 ### G1 — Büyük çok-karosel çıktıda JSON parse hatası 🔴
 - Kök neden: `llm.py:113 generate_patches` **max_tokens=2048** → büyük dashboard (3 karosel × ~3 slide) bunu aşıp JSON ortadan kesiliyor (`char 7658` ≈ kesilme). `finish_reason` truncation kontrolü yok, JSON onarımı yok, retry yok (sadece discovery path'inde retry var).
