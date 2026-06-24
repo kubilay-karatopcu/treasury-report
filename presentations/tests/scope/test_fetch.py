@@ -211,9 +211,11 @@ def test_fetch_skips_inactive_lineage_only_main():
     assert all("positions" not in d for d in datasets)
 
 
-def test_fetch_keeps_inactive_main_needed_by_derived():
-    # Pasif main, aktif bir CACHED aggregate'in DuckDB kaynağı ise yine çekilir
-    # (node materialize olmalı) — pasiflik yalnız Sunum görünürlüğünü etkiler.
+def test_fetch_inactive_main_pulled_transiently_not_persisted():
+    # Karar (Oturum 1, A2): pasif (disable) main, aktif bir CACHED aggregate'in
+    # DuckDB kaynağıysa node'u materialize etmek için GEÇİCİ çekilir — ama dataset
+    # olarak persist EDİLMEZ (`loaded`'a girmez, parquet yazılmaz). "disable ise
+    # cache'lenmesin, sadece son tabloyu üretirken kullanılsın."
     df = pd.DataFrame({"CCY": ["TRY"], "BAL": [10]})
     dc = StubDC(df)
     conn = duckdb.connect(":memory:")
@@ -230,7 +232,13 @@ def test_fetch_keeps_inactive_main_needed_by_derived():
          "routing": {"decision": "cached", "estimated_bytes": 0}},
     ], inactive=["positions"])
     loaded = fetch_cached_tables(dc, conn, scope, catalog=_catalog())
-    assert "positions" in loaded and "pos_agg" in loaded
+    # Aktif türev persist edilir; pasif kaynak EDİLMEZ.
+    assert "pos_agg" in loaded
+    assert "positions" not in loaded
+    # Ama kaynak son tabloyu üretmek için GEÇİCİ çekildi → aggregate doğru.
+    assert any("positions" in c["dataset"] for c in dc.calls)
+    agg = conn.execute('SELECT * FROM "pos_agg"').fetchdf()
+    assert int(agg["SUM_BAL"].iloc[0]) == 10
 
 
 def test_fetch_cached_guard_raises_on_gross_underestimate():
