@@ -6783,3 +6783,35 @@ body.theme-dark .props-sql-helper__table td code {
   margin-bottom: 6px;
   padding: 4px 8px;
 }
+
+/* ── C3: blok kaynak türetme adımları ("Adımlar" — blok altı aç-kapa) ──────── */
+.block-steps { margin-top: 6px; border-top: 1px dashed #e2e8f0; padding-top: 6px; }
+.block-steps-toggle {
+  display: inline-flex; align-items: center; gap: 4px; background: transparent;
+  border: none; cursor: pointer; font-size: 11px; font-family: inherit;
+  color: #64748b; padding: 2px 0;
+}
+.block-steps-toggle:hover { color: #2563eb; }
+.block-steps-body { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.block-steps-empty { font-size: 11px; color: #94a3b8; padding: 4px 0; }
+.block-step { border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+.block-step-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 4px 8px; background: #f8fafc; font-size: 11px;
+}
+.block-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%; background: #2563eb; color: #fff;
+  font-size: 10px; font-weight: 600; flex: none;
+}
+.block-step-alias { font-weight: 600; color: #1e293b; }
+.block-step-kind {
+  background: #e0e7ff; color: #3730a3; border-radius: 8px; padding: 0 6px; font-size: 10px;
+}
+.block-step-src { color: #64748b; }
+.block-step-sql {
+  margin: 0; padding: 6px 8px; font-size: 11px; line-height: 1.4;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre-wrap; word-break: break-word; color: #334155; background: #ffffff;
+  max-height: 220px; overflow: auto;
+}

@@ -1706,7 +1706,12 @@ def apply_dashboard_filters(pid: str):
         query = block.get("query") or (block.get("data_source") or {}).get("original_sql") or ""
         variables_raw = block.get("variables") or []
         concept_eligible = bool(resolved_concept_filters) and bool(_derive_st(block))
-        if not query or (not variables_raw and not concept_eligible):
+        # C2a/c: bir blok {{concept_filters}} sentinel'i taşıyor ve aktif concept
+        # filtresi varsa, değişkeni/source_tables'ı olmasa bile (ör. türetilmiş bir
+        # view ya da kendi CTE'si üstünde sorgu) DÜŞÜRME — aşağıda sentinel 1=1'e
+        # inip blok render olur ve blind raporlanır (sessiz kaybolma değil görünür).
+        sentinel_present = bool(resolved_concept_filters) and ("{{concept_filters}}" in query)
+        if not query or (not variables_raw and not concept_eligible and not sentinel_present):
             continue
 
         # Hydrate Pydantic Block stand-in for resolver / binder / cache.
@@ -1886,6 +1891,17 @@ def apply_dashboard_filters(pid: str):
         # ── Cache lookup ─────────────────────────────────────────────────
         # SQL is folded into the key so an in-place SQL edit (same id/version)
         # can't serve the previous query's stale rows.
+        # C2a/c: bu satıra gelen sentinel'li blok path 2/3 enjeksiyonuna girmedi
+        # (onlar `continue` eder) → sentinel aşağıda 1=1'e inecek. Aktif filtreleri
+        # "blind" işaretle ki post-loop merge sonuca taşısın ve UI "filtre
+        # uygulanmadı" göstersin (türetilmiş/CTE view'da base-tablo binding'i yok;
+        # base→türev otomatik taşıma backlog). Sessiz no-op yerine görünür.
+        if sentinel_present:
+            concept_info.setdefault(block["id"], {
+                "blind_filters": [f["concept"] for f in _concept_filter_dicts],
+                "applied_predicates": [],
+                "concept_injected": False,
+            })
         ck = _cache_key(stand_in.id, stand_in.version, resolved, stand_in.query,
                         concept_digest=_concept_digest)
         with session.duck_conn() as conn:

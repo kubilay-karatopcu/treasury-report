@@ -1331,6 +1331,120 @@ def _seed_concept_filters_at_build(manifest: dict) -> int:
     return added
 
 
+def _scope_lineage_steps(scope, alias: str, *, catalog=None, registry=None,
+                         bindings=None, _seen=None, _depth=0) -> list[dict]:
+    """C3 — '<alias>' node'unun nasıl üretildiğini adım adım (leaf→root) derle.
+
+    YAN ETKİSİZ: yalnız mevcut compile_* / compose_cached_sql emitter'larıyla SQL
+    string üretir; veri çalıştırmaz/çekmez. Çevrim/eksik-kaynak güvenli (visited
+    set + derinlik sınırı). Döner: bağımlılık sırasında ``[{alias, kind, sql,
+    sources}]`` — "Show steps" paneli (ara CTE/türetme zinciri) bunu gösterir.
+    """
+    from presentations.scope.fetch import (
+        compile_aggregate_sql, compile_calculated_sql, compile_filter_sql,
+        compile_join_sql, compile_union_sql, compose_cached_sql,
+    )
+    if _seen is None:
+        _seen = set()
+    if alias in _seen or _depth > 20:
+        return []
+    item = scope.basket_item(alias)
+    if item is None:
+        return []
+    _seen.add(alias)
+    d = item.derivation
+    if d is not None and d.kind in ("aggregate", "filter", "python"):
+        sources = [d.source_alias] if d.source_alias else []
+    elif d is not None:
+        sources = list(d.source_aliases or [])
+    else:
+        sources = []
+
+    steps: list[dict] = []
+    for s in sources:                      # leaf'ler önce
+        steps.extend(_scope_lineage_steps(
+            scope, s, catalog=catalog, registry=registry, bindings=bindings,
+            _seen=_seen, _depth=_depth + 1))
+
+    try:
+        if d is None and item.table_ref is not None:
+            sql, _ = compose_cached_sql(scope, item, catalog,
+                concept_registry=registry, binding_catalog=bindings)
+            kind = "table"
+        elif d is None and item.sql is not None:
+            sql, kind = item.sql, "sql"
+        elif d.kind == "filter":
+            sql, _ = compile_filter_sql(scope, item, catalog,
+                concept_registry=registry, binding_catalog=bindings)
+            kind = "filter"
+        elif d.kind == "aggregate":
+            sql, kind = compile_aggregate_sql(item), "aggregate"
+        elif d.kind == "calculated":
+            sql, kind = compile_calculated_sql(item), "calculated"
+        elif d.kind == "join":
+            sql, kind = compile_join_sql(item, [], []), "join"   # cols→* (özet adım)
+        elif d.kind == "union":
+            sql, kind = compile_union_sql(item), "union"
+        elif d.kind == "python":
+            sql, kind = (d.python_code or ""), "python"
+        else:
+            sql, kind = "", (d.kind if d else "?")
+    except Exception as exc:
+        sql = f"-- adım derlenemedi: {str(exc).splitlines()[0][:160]}"
+        kind = (d.kind if d else "?")
+
+    steps.append({"alias": alias, "kind": kind, "sql": sql,
+                  "sources": [s for s in sources if s]})
+    return steps
+
+
+@presentations_bp.route("/<pid>/scope/steps", methods=["GET"])
+@login_required
+def scope_steps(pid: str):
+    """C3 — bir node'un üretim adımlarını (lineage SQL) döndür. READ-ONLY.
+
+    İki giriş: ``?alias=`` doğrudan bir scope alias'ı, ya da ``?block=<id>`` bir
+    Sunum bloğu — bloğun query'sinin referans verdiği scope alias(lar)ı
+    ``find_view_refs`` ile bulunup hepsinin türetme zinciri (leaf→root) çıkarılır.
+    'Show steps' paneli (Sunum bloğunun altı) bunu gösterir."""
+    alias = (request.args.get("alias") or "").strip()
+    block_id = (request.args.get("block") or "").strip()
+    scope = _load_latest_scope_or_draft(pid)
+    if scope is None:
+        return _json({"ok": True, "steps": []})
+    targets: list[str] = []
+    if alias:
+        targets = [alias]
+    elif block_id:
+        from presentations import duck
+        from presentations.manifest import iter_all_blocks
+        sess = _registry().get_or_create(current_user.sicil, pid)
+        manifest = sess.get_manifest() or {}
+        blk = next((b for b in iter_all_blocks(manifest) if b.get("id") == block_id), None)
+        if blk is not None:
+            q = blk.get("query") or (blk.get("data_source") or {}).get("original_sql") or ""
+            targets = list(duck.find_view_refs(q, [b.alias for b in scope.basket]))
+    else:
+        return _json({"ok": False, "error": "alias ya da block param gerekli"}, status=400)
+
+    _cat = _catalog()
+    _reg = current_app.config.get("CONCEPT_REGISTRY")
+    _bind = current_app.config.get("CONCEPT_BINDING_CATALOG")
+    seen: set[str] = set()
+    steps: list[dict] = []
+    for a in targets:                                  # birden çok alias → paylaşılan seen ile dedupe
+        steps.extend(_scope_lineage_steps(scope, a, catalog=_cat, registry=_reg,
+                                          bindings=_bind, _seen=seen))
+    try:
+        import sqlparse
+        for s in steps:
+            if s["kind"] != "python" and s["sql"] and not s["sql"].startswith("--"):
+                s["sql"] = sqlparse.format(s["sql"], reindent=True, keyword_case="upper")
+    except Exception:
+        pass
+    return _json({"ok": True, "targets": targets, "steps": steps})
+
+
 @presentations_bp.route("/<pid>/scope/build", methods=["POST"])
 @login_required
 def build_scope(pid: str):
