@@ -155,6 +155,20 @@ class TestPreviewView:
         with pytest.raises(ValueError):
             duck.preview_view(conn, "demo; DROP TABLE foo")
 
+    def test_preview_nan_is_json_null_not_literal_nan(self, conn):
+        """NaN'lı float kolon önizlemesi geçerli JSON üretmeli: ham `NaN` değil null.
+        Client'ta 'Unexpected token N ... is not valid JSON' bunun regresyonuydu."""
+        import json
+        duck.register_dataframe(
+            conn, "demo", pd.DataFrame({"a": [1.0, float("nan"), 3.0], "b": ["x", "y", "z"]})
+        )
+        p = duck.preview_view(conn, "demo")
+        assert p["rows"][1][0] is None
+        # Asıl bozulma: json.dumps ham NaN'da geçersiz JSON yazıyordu.
+        dumped = json.dumps(p)
+        assert "NaN" not in dumped
+        assert json.loads(dumped)["rows"][1][0] is None
+
 
 # ── D3: materialize_table — gerçek tablo, bağlantı kapansa da yaşar ──────────
 
