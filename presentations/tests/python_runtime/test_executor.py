@@ -152,3 +152,23 @@ def test_wall_timeout(df):
     r = run_python_transform(code, df, cpu_seconds=60, wall_timeout=2)
     assert not r.ok
     assert "zaman aşımı" in (r.error or "") or "CPU" in (r.error or "")
+
+
+def test_cancel_kills_running_script_early(df):
+    """Oturum 2.3 — build cancel, koşan python node'unu wall_timeout'u beklemeden
+    erken öldürür ve BuildCancelled yükseltir."""
+    import threading
+    import time as _t
+    from presentations.scope.cancel import BuildCancelled, CancelToken
+    code = (
+        "x = 0\n"
+        "while x < 10**12:\n"
+        "    x += 1\n"
+        "output_node_df = input_node_df\n"
+    )
+    tok = CancelToken()
+    threading.Timer(0.4, tok.cancel).start()      # build mid-run iptal edilir
+    t0 = _t.monotonic()
+    with pytest.raises(BuildCancelled):
+        run_python_transform(code, df, cpu_seconds=60, wall_timeout=30, cancel_token=tok)
+    assert _t.monotonic() - t0 < 10               # 30s wall'ı beklemeden öldü

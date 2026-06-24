@@ -577,6 +577,7 @@ def _pull_source_into_duck(
     catalog: Catalog | None,
     concept_registry, binding_catalog,
     key_pushdown: tuple[str, list] | None = None,
+    cancel_token=None,
 ) -> bool:
     """Pull a non-derived source dataset (a ``table_ref`` main or a ``sql``
     dataset) straight into ``conn`` as a view so that a **cached** derivation
@@ -625,6 +626,7 @@ def _pull_source_into_duck(
         base_prefix=None,
         dataset=f"scope::{scope.presentation_id}/{src.alias}",
         query=sql, query_params=binds,
+        cancel_token=cancel_token,
     )
     if df is None or len(df.columns) == 0:
         return False
@@ -799,6 +801,7 @@ def fetch_cached_tables(
             base_prefix=None,
             dataset=f"scope::{scope.presentation_id}/{job['item'].alias}",
             query=job["sql"], query_params=job["binds"],
+            cancel_token=cancel_token,
         )
 
     if cancel_token is not None:
@@ -910,7 +913,7 @@ def fetch_cached_tables(
                 if _pull_source_into_duck(
                     dc, conn, scope, src, catalog=catalog,
                     concept_registry=concept_registry, binding_catalog=binding_catalog,
-                    key_pushdown=pushdown,
+                    key_pushdown=pushdown, cancel_token=cancel_token,
                 ):
                     registered.add(alias)
             if not (duck_source_aliases(scope, item) <= registered):
@@ -927,6 +930,7 @@ def fetch_cached_tables(
                         base_prefix=None,
                         dataset=f"scope::{scope.presentation_id}/{item.alias}",
                         query=sql, query_params=binds,
+                        cancel_token=cancel_token,
                     )
                     df = df if df is not None else pd.DataFrame()
                 else:
@@ -937,7 +941,7 @@ def fetch_cached_tables(
                 # Faz P — source view'ini DataFrame olarak çek, sandbox'ta çalıştır.
                 from presentations.python_runtime import run_python_transform
                 src_df = conn.execute(f'SELECT * FROM "{d.source_alias}"').fetchdf()
-                result = run_python_transform(d.python_code, src_df)
+                result = run_python_transform(d.python_code, src_df, cancel_token=cancel_token)
                 if not result.ok:
                     raise RuntimeError(
                         f"python node '{item.alias}' çalıştırması başarısız: {result.error}"
