@@ -1497,7 +1497,10 @@ def apply_dashboard_filters(pid: str):
     from .dashboards.schema import VariableBinding, DashboardFilter
     from .dashboards.binding import build_binding_resolver
     from .variables.resolver import resolve_variables, ResolutionError
-    from .cache.block_cache import BlockCache, cache_key as _cache_key
+    from .cache.block_cache import (
+        BlockCache, cache_key as _cache_key,
+        concept_filters_digest as _concept_filters_digest,
+    )
     from .sql.binder import EmptySelectionError, expand_binds
     from .concepts.integration import (
         dashboard_filters_to_resolved,
@@ -1591,6 +1594,10 @@ def apply_dashboard_filters(pid: str):
         {"concept": f.concept, "operator": f.operator, "values": list(f.values)}
         for f in resolved_concept_filters
     ]
+    # C2b: aktif concept-filtre durumunu cache anahtarına kat → bir filtre
+    # değişince sentinel+değişken taşıyan bloklar bayat cache yerine yeniden
+    # yürür. Boşken digest "" → anahtar pre-Phase-7 ile birebir (regresyon yok).
+    _concept_digest = _concept_filters_digest(_concept_filter_dicts)
     _alias_column_concepts = {
         item.get("alias"): (item.get("column_concepts") or {})
         for item in (manifest.get("basket") or [])
@@ -1879,7 +1886,8 @@ def apply_dashboard_filters(pid: str):
         # ── Cache lookup ─────────────────────────────────────────────────
         # SQL is folded into the key so an in-place SQL edit (same id/version)
         # can't serve the previous query's stale rows.
-        ck = _cache_key(stand_in.id, stand_in.version, resolved, stand_in.query)
+        ck = _cache_key(stand_in.id, stand_in.version, resolved, stand_in.query,
+                        concept_digest=_concept_digest)
         with session.duck_conn() as conn:
             hit = cache.find_exact(ck)
         if hit is not None:
