@@ -1152,6 +1152,90 @@ body.prisma .filter-enum-multi__option:hover {
   background: var(--editor-surface-2) !important;
 }
 
+/* ── AddFilter modal + öneri listesi + enum-multi trigger — dark (D1) ──────
+   editor.css bu bileşenleri hardcoded #ffffff/#1e293b veriyordu: "filtre ekleme
+   UI'ı beyaz" + "eklenmiş filtrelerde koyu font" (enum-multi trigger/satır). */
+body.prisma .filter-modal {
+  background: var(--editor-surface-1) !important;
+  border: 1px solid var(--editor-border) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;
+}
+body.prisma .filter-modal__head,
+body.prisma .filter-modal__foot { border-color: var(--editor-border) !important; }
+body.prisma .filter-modal__head h3 { color: var(--editor-ink) !important; }
+body.prisma .filter-modal__head button { color: var(--editor-ink-mute) !important; }
+body.prisma .filter-modal__body label { color: var(--editor-ink-mute) !important; }
+body.prisma .filter-modal__body input,
+body.prisma .filter-modal__body select {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .filter-modal__err {
+  background: rgba(220, 38, 38, 0.12) !important;
+  color: #f87171 !important;
+}
+body.prisma .filter-modal__cancel {
+  background: transparent !important;
+  color: var(--editor-ink-soft) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .filter-modal__cancel:hover { background: var(--editor-surface-2) !important; }
+body.prisma .filter-modal__save {
+  background: var(--editor-accent) !important;
+  color: var(--editor-surface) !important;
+  border-color: var(--editor-accent) !important;
+}
+body.prisma .filter-modal__save:hover {
+  background: var(--gold-soft) !important;
+  border-color: var(--gold-soft) !important;
+}
+
+body.prisma .filter-suggest-intro { color: var(--editor-ink-mute) !important; }
+body.prisma .filter-suggest-intro code {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .filter-suggest-empty {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink-mute) !important;
+}
+body.prisma .filter-suggest-row {
+  background: var(--editor-surface-2) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .filter-suggest-row:hover {
+  border-color: var(--editor-accent) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+body.prisma .filter-suggest-row__tag { color: var(--editor-ink) !important; }
+body.prisma .filter-suggest-row__params { color: var(--editor-accent) !important; }
+body.prisma .filter-suggest-row__detail { color: var(--editor-ink-mute) !important; }
+body.prisma .filter-suggest-row__chip {
+  background: var(--editor-surface-1) !important;
+  color: var(--editor-ink-soft) !important;
+}
+body.prisma .filter-suggest-row__cta { color: var(--editor-accent) !important; }
+
+body.prisma .filter-enum-multi__trigger {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-border) !important;
+}
+body.prisma .filter-enum-multi__trigger:hover { border-color: var(--editor-ink-faint) !important; }
+body.prisma .filter-enum-multi__caret { color: var(--editor-ink-mute) !important; }
+body.prisma .filter-enum-multi__actions { border-color: var(--editor-border) !important; }
+body.prisma .filter-enum-multi__actions button:hover { background: var(--editor-surface-1) !important; }
+body.prisma .filter-enum-multi__row { color: var(--editor-ink-soft) !important; }
+body.prisma .filter-enum-multi__row:hover { background: var(--editor-surface-2) !important; }
+
+/* Sunum başlık düzenleme input'u — editor.css hardcoded #ffffff veriyordu (D2). */
+body.prisma .report-title-input {
+  background: var(--editor-surface-2) !important;
+  color: var(--editor-ink) !important;
+  border-color: var(--editor-accent) !important;
+}
+
 /* Sunum sabit tarih filtresi (FixedDateFilter) — dark */
 body.prisma .fdf-pill {
   background: var(--editor-surface-1) !important;
