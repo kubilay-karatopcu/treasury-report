@@ -677,19 +677,18 @@ def fetch_cached_tables(
         drop_relation(conn, alias)
         log.info("scope.fetch_cached_tables: dropped stale relation '%s'", alias)
 
-    # Pasif alias'lar basket'te yalnız LINEAGE için durur (örn. manuel-SQL
-    # node'unun "Çözümle" kaynak main'leri — SQL Oracle'a kendisi gider, main'in
-    # view'ına ihtiyacı yoktur). Bir cached derivation'ın DuckDB kaynağı
-    # OLMAYAN pasifler Oracle'dan hiç çekilmez — "Sunum'a geç" bu yüzden
-    # gereksiz full-table pull yapıyordu.
+    # Karar (Oturum 1, A2): yalnız AKTİF (seçili) tablolar Sunum'da gerekli kabul
+    # edilir → cache'lenir (full fetch + parquet + `loaded`). DISABLE (pasif)
+    # edilen tablolar ASLA dataset olarak persist edilmez; bir cached türetmenin
+    # DuckDB kaynağıysalar Pass 2 onları `_pull_source_into_duck` ile GEÇİCİ çeker
+    # (parquet yok, `loaded`'a girmez) — "disable ise cache'lenmesin, sadece son
+    # tabloyu üretirken kullanılsın". Bu yüzden Pass 1 TÜM inactive item'ları atlar
+    # (eskiden bir cached derivation'ın kaynağı olan pasif main yine persist
+    # ediliyordu; artık yalnız geçici materialize edilir, Sunum'a dataset olmaz).
     inactive = set(scope.inactive_aliases or [])
-    needed_views: set[str] = set()
-    for b in scope.basket:
-        if b.derivation is not None and b.routing.decision == "cached":
-            needed_views |= duck_source_aliases(scope, b)
 
     def _lineage_only(item: BasketItem) -> bool:
-        return item.alias in inactive and item.alias not in needed_views
+        return item.alias in inactive
 
     # Pass 1 + 1b — raw cached tablolar ve manuel-SQL dataset'leri. Oracle
     # pull'ları birbirinden bağımsızdır → thread havuzunda PARALEL çekilir
