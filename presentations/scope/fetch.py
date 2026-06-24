@@ -684,6 +684,7 @@ def fetch_cached_tables(
     refetch_only: set[str] | None = None,
     drop_aliases: set[str] | None = None,
     on_dataset=None,
+    cancel_token=None,
 ) -> dict[str, dict[str, Any]]:
     """Materialise the scope into DuckDB views named by alias.
 
@@ -714,7 +715,7 @@ def fetch_cached_tables(
     (does not include aliases that were left intact across re-entry).
     """
     import pandas as pd
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from presentations.duck import drop_relation, materialize_table
 
@@ -800,13 +801,35 @@ def fetch_cached_tables(
             query=job["sql"], query_params=job["binds"],
         )
 
+    if cancel_token is not None:
+        cancel_token.check()
     if len(jobs) <= 1:
         results = [(job, _pull(job)) for job in jobs]
     else:
-        with ThreadPoolExecutor(max_workers=min(4, len(jobs)),
-                                thread_name_prefix="scope-fetch") as ex:
-            futures = [(job, ex.submit(_pull, job)) for job in jobs]
-            results = [(job, fut.result()) for job, fut in futures]
+        # NOT a `with` block: on cancel we must NOT block the worker on
+        # shutdown(wait=True) — that would keep session._exec_lock held until the
+        # in-flight Oracle pulls finish (the B2/B3 freeze). Gather via as_completed,
+        # check the token between results; on ANY exception (cancel or pull error)
+        # shut the pool down WITHOUT waiting so the worker unwinds and releases the
+        # lock at once (running pulls finish in the background; their threads exit —
+        # connection-level abort of the in-flight query is 2.4).
+        ex = ThreadPoolExecutor(max_workers=min(4, len(jobs)),
+                                thread_name_prefix="scope-fetch")
+        fut_to_job = {ex.submit(_pull, job): job for job in jobs}
+        results = []
+        try:
+            for fut in as_completed(fut_to_job):
+                if cancel_token is not None:
+                    cancel_token.check()
+                results.append((fut_to_job[fut], fut.result()))
+        except Exception:
+            try:
+                ex.shutdown(wait=False, cancel_futures=True)
+            except TypeError:                 # cancel_futures: py3.9+
+                ex.shutdown(wait=False)
+            raise
+        else:
+            ex.shutdown(wait=True)
 
     for job, df in results:
         item = job["item"]
@@ -857,6 +880,8 @@ def fetch_cached_tables(
         progressed = False
         still = []
         for item in pending:
+            if cancel_token is not None:
+                cancel_token.check()    # iptal: Pass 2 sınırında erken çık (lock serbest)
             d = item.derivation
             all_srcs = ({d.source_alias} if d.kind in ("aggregate", "filter", "python") and d.source_alias
                         else set(d.source_aliases))
