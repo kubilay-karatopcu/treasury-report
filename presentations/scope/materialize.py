@@ -636,6 +636,52 @@ def _ensure_state_table(conn) -> None:
     )
 
 
+# ── Sample/full fidelity ledger (Oturum 1, A5) ────────────────────────────────
+# Kept SEPARATE from __dataset_meta so that table's (alias, refreshed_at)
+# contract and its positional `VALUES (?, ?)` inserts stay untouched. Tracks,
+# per alias, whether the session DuckDB relation is a design-time SAMPLE or the
+# build-time FULL data, plus the composed-SQL fingerprint so a sample is
+# re-materialised when a scope edit changes its SQL. Lives in session.duckdb →
+# survives across requests, wiped on pod restart (re-materialised lazily on the
+# next preview).
+
+def _ensure_fidelity_table(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS __dataset_fidelity "
+        "(alias VARCHAR PRIMARY KEY, fidelity VARCHAR, fingerprint VARCHAR, "
+        "row_count BIGINT, refreshed_at VARCHAR)"
+    )
+
+
+def record_fidelity(conn, alias: str, fidelity: str, *,
+                    fingerprint: Optional[str] = None,
+                    row_count: Optional[int] = None) -> None:
+    """Record that the session relation ``alias`` holds a 'sample' or 'full'
+    dataset (with the composed-SQL ``fingerprint`` for sample staleness)."""
+    _ensure_fidelity_table(conn)
+    conn.execute(
+        "INSERT OR REPLACE INTO __dataset_fidelity "
+        "(alias, fidelity, fingerprint, row_count, refreshed_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [alias, fidelity, fingerprint,
+         int(row_count) if row_count is not None else None, _now_iso()],
+    )
+
+
+def dataset_fidelity(conn, alias: str) -> Optional[dict]:
+    """Return ``{fidelity, fingerprint, row_count, refreshed_at}`` for ``alias``
+    or ``None`` when no fidelity has been recorded (treat as absent)."""
+    _ensure_fidelity_table(conn)
+    row = conn.execute(
+        "SELECT fidelity, fingerprint, row_count, refreshed_at "
+        "FROM __dataset_fidelity WHERE alias = ?", [alias],
+    ).fetchone()
+    if row is None:
+        return None
+    return {"fidelity": row[0], "fingerprint": row[1],
+            "row_count": row[2], "refreshed_at": row[3]}
+
+
 def load_into_duck(dc, conn, scope: ScopeContract) -> dict[str, dict[str, Any]]:
     """Materialise every cached dataset of ``scope`` into the session DuckDB
     (real tables) so Sunum charts can project columns locally with NO Oracle
