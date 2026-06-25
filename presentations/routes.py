@@ -853,6 +853,7 @@ def chat_stream(pid: str, token: str):
     def generate():
         # Captured for the inner closure to append at the end.
         assistant_msgs: list[dict] = []
+        all_patches: list = []          # B1 (N3) — audit: LLM'in ürettiği patch'ler (kod)
 
         with app.app_context():
             try:
@@ -881,6 +882,9 @@ def chat_stream(pid: str, token: str):
                             "ts":   datetime.now(timezone.utc).isoformat(),
                             "status": "error",
                         })
+
+                    if event["event"] == "patch" and isinstance(data.get("patches"), list):
+                        all_patches.extend(data["patches"])   # B1 — üretilen kod (audit)
 
                     yield f"event: {event['event']}\ndata: {payload}\n\n"
 
@@ -925,7 +929,10 @@ def chat_stream(pid: str, token: str):
                         "llm_chat", user_sicil=sicil, presentation_id=pid,
                         request_id=token, stage="sunum", prompt=user_msg,
                         llm_response=" | ".join(a.get("text", "") for a in assistant_msgs),
-                        meta={"assistant_msgs": len(assistant_msgs)},
+                        sql_text=(json.dumps(all_patches, ensure_ascii=False, default=str)
+                                  if all_patches else None),   # B1 — üretilen kod (patch'ler)
+                        meta={"assistant_msgs": len(assistant_msgs),
+                              "patch_count": len(all_patches)},
                     )
                 except Exception:
                     pass
