@@ -1267,13 +1267,9 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
     # next Hazırlık load uses the build, not a now-stale draft. (Draft-first
     # priority in _load_latest_scope_or_draft relies on this clear.)
     manifest.pop("draft_scope", None)
-    # C1: Sunum'a geçişte scope'taki bağlı TÜM concept'leri otomatik dashboard
-    # filtresi olarak ekle (kullanıcı manuel eklemesin). Yalnız EKLER (mevcut/
-    # kullanıcı-düzenli filtreyi ezmez), idempotent.
-    try:
-        _seed_concept_filters_at_build(manifest)
-    except Exception:
-        log.warning("build: concept filtre seed başarısız", exc_info=True)
+    # A4 (N1): concept filtreleri build'de DEĞİL, İLK CHAT PROMPT'undan sonra
+    # seed edilir (Sunum açılır açılmaz sağ alta gelmesin). Seed artık chat_stream
+    # içinde (`_seed_concept_filters_at_build`, `_filters_seeded` flag'iyle bir kez).
     session.set_manifest(manifest)
 
     return {
