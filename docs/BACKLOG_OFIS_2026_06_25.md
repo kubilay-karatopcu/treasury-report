@@ -54,7 +54,12 @@
 
 ---
 
-## Oturum N3 — Audit log tamamla (B1)
+## Oturum N3 — Audit log tamamla (B1) — ✅ TAMAM (branch `feat/oturum-n3-audit-tamamla`, N1+N2 üstüne)
+
+> **DURUM:** Saf backend (audit hook'ları) → ofis restart. 18 audit/concept testi geçer.
+> - **B1 ✅** — Hook'lar artık LLM'in **ürettiği kodu** da yazıyor: Sunum chat → stream'lenen patch'ler toplanıp `SQL_TEXT`'e (JSON) + `META_JSON`'a `patch_count`; Hazırlık scope-chat → öneriler `SQL_TEXT`'e. `LLM_RESPONSE` zaten açıklamayı yazıyordu. Böylece "yazdığı kod yok" çözülür.
+> - **CLOB okuma notu:** veri tabloda VAR; bazı SQL client'ları CLOB'u kısaltıp boş gösterir → `SELECT DBMS_LOB.SUBSTR(SQL_TEXT,4000,1) FROM PRISMA_AUDIT_LOG` ile bakılır.
+> - **KALAN (opsiyonel):** `LLM_REQUEST` (LLM'e giden TAM composed prompt) hâlâ boş — `generate_patches`/`suggest_scope_refinements`'ten composed metni dışarı vermek gerekir (daha derin plumbing). `PROMPT` zaten kullanıcının yazdığını tutuyor.
 
 ### B1 — audit log'da LLM response/kod boş ("dümenden yazıyor") 🟠
 - Açıklama: `PRISMA_AUDIT_LOG`'ta response açıklama vermiyor, yazdığı kod yok ("CLOB'dan dolayı mı?").

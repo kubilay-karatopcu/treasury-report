@@ -3268,6 +3268,8 @@ def scope_chat(pid: str):
             "scope_chat", user_sicil=current_user.sicil, presentation_id=pid,
             stage="hazirlik", prompt=user_message, table_ref=selected_alias,
             llm_response=result.get("explanation", ""),
+            sql_text=(json.dumps(suggestions, ensure_ascii=False, default=str)
+                      if suggestions else None),   # B1 — LLM'in ürettiği öneriler (kod)
             meta={"suggestions": [s.get("kind") for s in suggestions]},
         )
     except Exception:
