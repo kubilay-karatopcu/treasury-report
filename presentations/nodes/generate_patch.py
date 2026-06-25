@@ -555,7 +555,7 @@ def _generate_sql_for_block(llm, user_message: str, block: dict, catalog: dict |
             json=payload,
             headers={"Authorization": f"Bearer {llm.token}"},
             verify=getattr(llm, "verify_ssl", True),
-            timeout=getattr(llm, "timeout", 60),
+            timeout=getattr(llm, "timeout", 300),
         )
         if not resp.ok:
             log.warning("SQL fallback: provider HTTP %s: %s", resp.status_code, resp.text[:200])
