@@ -1403,6 +1403,50 @@ def _scope_lineage_steps(scope, alias: str, *, catalog=None, registry=None,
     return steps
 
 
+def _extract_cte_steps(sql: str) -> list[dict]:
+    """C3 — bloğun KENDİ SQL'indeki ``WITH <ad> AS (...)`` CTE'lerini adım olarak
+    çıkar (string/parantez-farkında). Scope-basket türetmeleri `_scope_lineage_
+    steps`'te; bu, bloğun içindeki ara tabloları ("ara adım yok" sandığımız ama
+    aslında kullanılan) görünür kılar. Yan etkisiz."""
+    import re
+    m = re.match(r"(?is)^\s*WITH\s+(.*)", sql or "")
+    if not m:
+        return []
+    rest = m.group(1)
+    n = len(rest)
+    steps: list[dict] = []
+    i = 0
+    while i < n:
+        nm = re.match(r"(?is)\s*([A-Za-z_][\w$#]*)\s+AS\s*\(", rest[i:])
+        if not nm:
+            break
+        name = nm.group(1)
+        j = i + nm.end()          # '(' den hemen sonra
+        depth, in_str = 1, False
+        while j < n and depth > 0:
+            ch = rest[j]
+            if in_str:
+                if ch == "'":
+                    in_str = False
+            elif ch == "'":
+                in_str = True
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            j += 1
+        body = rest[i + nm.end():j - 1].strip()   # kapanış ')' hariç
+        steps.append({"alias": name, "kind": "cte", "sql": body, "sources": []})
+        k = j
+        while k < n and rest[k] in " \t\r\n":
+            k += 1
+        if k < n and rest[k] == ",":              # sıradaki CTE
+            i = k + 1
+            continue
+        break                                     # CTE listesi bitti → ana SELECT
+    return steps
+
+
 @presentations_bp.route("/<pid>/scope/steps", methods=["GET"])
 @login_required
 def scope_steps(pid: str):
@@ -1418,6 +1462,7 @@ def scope_steps(pid: str):
     if scope is None:
         return _json({"ok": True, "steps": []})
     targets: list[str] = []
+    cte_steps: list[dict] = []
     if alias:
         targets = [alias]
     elif block_id:
@@ -1429,6 +1474,7 @@ def scope_steps(pid: str):
         if blk is not None:
             q = blk.get("query") or (blk.get("data_source") or {}).get("original_sql") or ""
             targets = list(duck.find_view_refs(q, [b.alias for b in scope.basket]))
+            cte_steps = _extract_cte_steps(q)          # C3 — bloğun KENDİ CTE'leri
     else:
         return _json({"ok": False, "error": "alias ya da block param gerekli"}, status=400)
 
@@ -1440,6 +1486,7 @@ def scope_steps(pid: str):
     for a in targets:                                  # birden çok alias → paylaşılan seen ile dedupe
         steps.extend(_scope_lineage_steps(scope, a, catalog=_cat, registry=_reg,
                                           bindings=_bind, _seen=seen))
+    steps.extend(cte_steps)                            # scope-view adımlarından sonra blok-içi CTE'ler
     try:
         import sqlparse
         for s in steps:
@@ -2700,10 +2747,21 @@ def scope_suggest_concepts(pid: str):
     if reg is None or dc is None:
         return _json({"ok": False, "errors": ["yapılandırma eksik"]}, status=500)
 
+    # A3 (N2) — sonuç memo'su: aynı (pid, alias, column, scope) için tekrar açılış
+    # anında döner (client cache + bu server memo birlikte). scope değişince geçersiz.
+    scope_hash = json.dumps(scope_in, sort_keys=True, default=str)
+    cache_key = _preview_cache_key("suggest", pid, alias, column, scope_hash)
+    cached = _preview_cache_get(cache_key)
+    if cached is not None:
+        return _json({**cached, "cached": True})
+
     from presentations import duck
-    conn = duck.connect_duckdb(":memory:")
+    sess = _registry().get_or_create(current_user.sicil, pid)
     registered: set[str] = set()
-    try:
+    # A3 — KALICI session sample DuckDB (ephemeral :memory: DEĞİL): kaynak örneği
+    # fingerprint ile yeniden kullanılır → her concept-suggest'te Oracle'a gidilmez
+    # ("konsept seçince tarama çok yavaş"ın asıl kökü buydu; 1.3 ile aynı düzeltme).
+    with sess.sample_conn() as conn:
         try:
             _preview_sample_into_duck(conn, scope, alias, dc, pid,
                 catalog=_catalog(), registry=reg,
@@ -2719,11 +2777,6 @@ def scope_suggest_concepts(pid: str):
         except Exception as exc:
             return _json({"ok": False, "errors": [f"kolon okunamadı: {str(exc).splitlines()[0][:160]}"]},
                          status=400)
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 
     distinct = [r[0] for r in rows]
     sample = [duck._jsonable(v) for v in distinct]
@@ -2749,9 +2802,11 @@ def scope_suggest_concepts(pid: str):
     # (b) Yeni konsept taslağı (kolon veri şeklinden).
     draft = _draft_concept_from_column(column, distinct, dtype)
 
-    return _json({"ok": True, "column": column, "dtype": dtype,
-                  "distinct_count": len(distinct), "sample": sample[:25],
-                  "ranked_existing": ranked[:5], "draft_new": draft})
+    payload = {"ok": True, "column": column, "dtype": dtype,
+               "distinct_count": len(distinct), "sample": sample[:25],
+               "ranked_existing": ranked[:5], "draft_new": draft}
+    _preview_cache_put(cache_key, payload)
+    return _json(payload)
 
 
 @presentations_bp.route("/<pid>/scope/validate-concept", methods=["POST"])
