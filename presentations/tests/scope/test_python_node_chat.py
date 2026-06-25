@@ -183,6 +183,18 @@ def test_apply_rejects_missing_output():
         _mutate_scope_with_suggestion(_scope(), _sugg(python_code="x = input_node_df"))
 
 
+def test_apply_allows_python_on_lazy_source():
+    # C2 (Oturum N5) — lazy/main kaynakta python ARTIK reddedilmez: tasarım
+    # önizlemesi kaynağı örnekler, build talep anında çeker (fetch.py — test'li).
+    # Eski "_ApplyError: cache'li değil" denetimi kalktı.
+    s = _scope()
+    s["basket"][0]["routing"] = {"decision": "lazy", "decided_by": "system"}
+    out = _mutate_scope_with_suggestion(s, _sugg())
+    py = next(b for b in out["basket"] if b["alias"] == "deposits_py")
+    assert py["derivation"]["kind"] == "python"
+    assert py["derivation"]["source_alias"] == "deposits"
+
+
 def _scope_with_python(code="output_node_df = input_node_df"):
     s = _scope()
     s["basket"].append({

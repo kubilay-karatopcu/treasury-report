@@ -3342,6 +3342,18 @@ def apply_scope_suggestion(pid: str):
         except Exception:
             log.warning("apply_scope_suggestion: validator/routing failed", exc_info=True)
 
+    # C2 — lazy/main kaynaklı python node'u apply EDİLEBİLİR (artık bloklanmıyor);
+    # ama build'de kaynak tam çekilir → büyük tabloda yavaş olabilir. Soft uyar.
+    if kind == "create_python_node" and not errors:
+        src_alias = sugg.get("source_alias")
+        src = next((b for b in (scope_in.get("basket") or [])
+                    if b.get("alias") == src_alias), None)
+        if src is not None and not src.get("derivation") and not src.get("sql") \
+                and (src.get("routing") or {}).get("decision") != "cached":
+            warnings = [*warnings,
+                f"'{src_alias}' cache'li değil (lazy): tasarım önizlemesi örneklem "
+                "üzerinde çalışır; build'de tam veri çekilir (büyük tabloda yavaş olabilir)."]
+
     return _json({
         "ok": not errors,
         "scope": mutated,
@@ -3614,15 +3626,12 @@ def _apply_create_python_node(s: dict, sugg: dict) -> dict:
     if source_alias not in aliases_in_basket:
         raise _ApplyError(f"create_python_node: source_alias '{source_alias}' basket'te yok")
 
-    # #1 — Python YALNIZ cache'li (materialised) veride çalışır. Lazy/main kaynakta
-    # veri cache'lenmediğinden örnekleyip python koşamayız → reddet. Uygun: türetilmiş
-    # node (zaten materialised) + SQL dataset + cache'li main. (SQL → Tablo lazy yolu.)
-    src_item = next((b for b in s["basket"] if b.get("alias") == source_alias), None)
-    if src_item is not None and not src_item.get("derivation") and not src_item.get("sql") \
-            and (src_item.get("routing") or {}).get("decision") != "cached":
-        raise _ApplyError(
-            f"create_python_node: '{source_alias}' cache'li değil (lazy/main). "
-            "Python yalnız materialised veride çalışır — tabloyu önce cache'le.")
+    # C2 (Oturum N5) — Python cache'siz (lazy/main) kaynakta DA üretilebilir.
+    # Eski "reddet" varsayımı ("örnekleyip koşamayız") Oturum 1 sonrası geçersiz:
+    # tasarım önizlemesi kaynağı sample.duckdb'ye ÖRNEKLER (scope_preview_python),
+    # build ise lazy kaynağı talep anında çeker (fetch.py — test'li:
+    # test_build_pass_runs_python_node_over_lazy_source). Apply artık BLOKLAMAZ;
+    # büyük lazy tabloda build yavaşlığı uyarısı apply_scope_suggestion'da eklenir.
 
     new_alias = sugg.get("new_alias") or f"{source_alias}_py"
     # Çakışıyorsa benzersizleştir (_2, _3 …) — Apply'ı bloklamak yerine.

@@ -10,7 +10,7 @@
 | N2 | Concept çevre | A3, C3 | 🟠 | Oturum 3.4, 5 (E4) |
 | N3 | Audit log tamamla | B1 | 🟠 | Oturum 8 |
 | N4 | Chat/LLM hızlı küme | B3, B4, B5 | ✅ TAMAM | Oturum 7 |
-| N5 | Hazırlık UX | C1, C2, C4 | 🟠 | Oturum 5 (E3) |
+| N5 | Hazırlık UX | C1, C2, C4 | ✅ TAMAM | Oturum 5 (E3) |
 | N6 | Veri/build | D1, D2 | 🔴 | Oturum 1 |
 
 > **DÜŞÜLEN:** B2 (chat history per-context) — kullanıcı vazgeçti.
@@ -93,21 +93,37 @@ tek backend satırı; bundle yeniden derlendi (build.sh).
 
 ---
 
-## Oturum N5 — Hazırlık editör UX
+## Oturum N5 — Hazırlık editör UX — ✅ TAMAM
 
 > **🔒 Karar C1 (E3 düzeltmesi — 2026-06-24'teki E3'ün tersi/rafine):**
 > - **Edge tıklama** → **KAYNAK** node'u açılır + chat context **"source → target"** (edge'deyken kaynağı/üreten query'yi editliyoruz).
 > - **Node tıklama** → **Veri** sekmesi + **sadece o tablo** context'i (node'dayken yeni node üretiyoruz).
 
-### C1 — edge/node tıklama context'i 🟠 ⚠️
-- Durum: Oturum 5 (E3) filter edge'i çıktı(türev) node'unu açacak + chip'i sade-alias yaptı. Kullanıcı şimdi tersini netleştirdi (yukarı karar).
-- Plan: (a) edge-click → `showPreview(sourceAlias)` (kaynağı aç); (b) chip'te **edge bağlamında** "source → target" geri gelsin (node bağlamında sade-alias kalsın) → `selectedSource` yalnız edge-click'te set edilir. E3'teki filter-edge `out` değişikliği ve chip sade-alias geri alınır/koşullanır.
+### C1 — edge/node tıklama context'i 🟠 ✅
+- [index.jsx](presentations/static/js/hazirlik/index.jsx): yeni `edgeCtx` state `{source,target}`.
+  `onEdgeClick` derivation dalı → `showPreview(edge.data.sourceAlias)` (KAYNAĞI açar) +
+  `setEdgeCtx({source, target})`. `onNodeClick`/`onPaneClick` + reactive effect (preview
+  kaynaktan ayrılınca) edgeCtx'i temizler. `sendChat` edge bağlamında `selected_alias =
+  edgeCtx.target` (üreten query). ChatPanel chip: edgeCtx varsa "source → target" (mor
+  `--edge`), yoksa sade alias. **Canlı doğrulandı:** edge → drawer=kaynak + chip
+  "deposits_hist → deposits_hist_f"; node → sade "deposits_hist_f".
 
-### C2 — cachelenmemiş tabloya python: uyarı güzel ama "apply deny" kalıyor 🟠
-- Uyarı çıkıyor ama kod uygulanamıyor (apply butonu kilitli). Plan: cachelenmemiş kaynakta python apply-deny state'inin neden kaldığını bul; uyarı sonrası apply yolu açılmalı (ya da net "önce cache/sample" akışı).
+### C2 — cachelenmemiş tabloya python: uyarı güzel ama "apply deny" kalıyor 🟠 ✅
+- Kök neden: `_apply_create_python_node` (routes_scope.py) lazy/main kaynağı `_ApplyError`
+  ile **reddediyordu**; premise ("örnekleyip koşamayız") Oturum 1 sonrası geçersiz
+  (preview kaynağı sample.duckdb'ye örnekler, build fetch.py ile talep anında çeker — test'li).
+  **Fix:** deny kaldırıldı; apply EDİLEBİLİR. Büyük lazy tabloda build yavaşlık uyarısı
+  `apply_scope_suggestion` warnings'e eklendi. Frontend `canPy` gate açıldı → Python butonu
+  kilitli değil, lazy'de "örneklem" soft notu (`.hz-py-note`; ölü `.hz-py-blocked` silindi).
+  Test: `test_apply_allows_python_on_lazy_source`. **Canlı doğrulandı:** lazy `deposits_hist`
+  drawer'ında "Python örneklem" görünüyor (buton aktif).
 
-### C4 — soldaki liste kapandıkça hareket etmesin 🟢
-- Hazırlık'ta sol liste collapse olunca layout shift oluyor. CSS sabit genişlik/transform.
+### C4 — soldaki liste kapandıkça hareket etmesin 🟢 ✅
+- [hazirlik.css](presentations/static/css/hazirlik.css): `.hz-sidebar .hz-basket-list` +
+  `.sidebar-section--sources` → `scrollbar-gutter: stable` (scrollbar gelip giderken yatay
+  kayma yok). **Canlı doğrulandı:** computed `scrollbar-gutter: stable`.
+
+**Deploy:** `hazirlik.bundle.js?v=42→43`, `css/hazirlik.css?v=25→26`. Bundle yeniden derlendi.
 
 ---
 
