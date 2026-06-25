@@ -9,7 +9,7 @@
 | N1 | Concept routing | A1, A2, A4 | 🔴 çapa | Oturum 3 (C1/C2) |
 | N2 | Concept çevre | A3, C3 | 🟠 | Oturum 3.4, 5 (E4) |
 | N3 | Audit log tamamla | B1 | 🟠 | Oturum 8 |
-| N4 | Chat/LLM hızlı küme | B3, B4, B5 | 🟢 | Oturum 7 |
+| N4 | Chat/LLM hızlı küme | B3, B4, B5 | ✅ TAMAM | Oturum 7 |
 | N5 | Hazırlık UX | C1, C2, C4 | 🟠 | Oturum 5 (E3) |
 | N6 | Veri/build | D1, D2 | 🔴 | Oturum 1 |
 
@@ -68,16 +68,28 @@
 
 ---
 
-## Oturum N4 — Chat/LLM hızlı küme
+## Oturum N4 — Chat/LLM hızlı küme — ✅ TAMAM
 
-### B3 — QwenClient timeout 300 🟢 **tek satır**
+### B3 — QwenClient timeout 300 🟢 ✅
 - [llm.py](presentations/llm.py) `QwenClient.__init__` `timeout: int = 60` → **300**.
+  Prod (app.py:339) ve DEV instantiation timeout geçmiyor → ikisi de default'u
+  kullanıyor. `generate_patch.py:558` SQL-fallback fallback'i de 60→300.
+  Birim test: `test_default_timeout_is_300`.
 
-### B4 — Sunum açılışta hata → promptu temizle 🟢
-- Sunum chat hata alırsa prompt input'u temizlensin (frontend, editor ChatBox).
+### B4 — Sunum chat hata → promptu temizle 🟢 ✅
+- [ChatBox.jsx](presentations/static/js/editor/components/ChatBox.jsx) `send()`:
+  optimistik `setInput('')` kaldırıldı; prompt **tur bitince** temizleniyor —
+  `onDone` (başarı), `onError` (stream hatası) ve `catch` (istek hatası). 300s
+  timeout'la (B3) komutu görünür tutmak daha iyi. Canlı doğrulandı: uçuş sırasında
+  metin duruyor, tur bitince `""`. (Hazırlık scope-chat ayrı bileşen — etkilenmez.)
 
-### B5 — chat kısmı biraz büyüsün 🟢
-- Chat paneli yüksekliği/genişliği artır (CSS).
+### B5 — Sunum chat'i biraz büyüt 🟢 ✅
+- [editor.css](presentations/static/css/editor.css): `.editor-root .sidebar-section--chat`
+  scope'unda `.chat-messages max-height 180→300px`, input `min-height 76px`.
+  Keşif/Hazırlık kendi `max-height:none` override'ıyla etkilenmiyor.
+
+**Deploy:** `bundle.js?v=37→38`, `editor.css?v=44→45` (editor.html). Saf frontend+
+tek backend satırı; bundle yeniden derlendi (build.sh).
 
 ---
 
