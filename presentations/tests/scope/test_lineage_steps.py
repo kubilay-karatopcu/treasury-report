@@ -49,3 +49,26 @@ def test_lineage_base_table_single_step():
 
 def test_lineage_missing_alias_is_empty():
     assert _scope_lineage_steps(_scope(), "nope") == []
+
+
+# ── C3 (N2) — bloğun kendi SQL'indeki CTE'leri adım olarak çıkar ──────────────
+
+def test_extract_cte_steps_basic():
+    from presentations.routes_scope import _extract_cte_steps
+    sql = (
+        "WITH daily AS (SELECT CREATE_TM, SUM(N) AS cnt FROM reservations GROUP BY CREATE_TM),\n"
+        "     cum AS (SELECT CREATE_TM, SUM(cnt) OVER (ORDER BY CREATE_TM) AS c FROM daily)\n"
+        "SELECT * FROM cum"
+    )
+    steps = _extract_cte_steps(sql)
+    assert [s["alias"] for s in steps] == ["daily", "cum"]       # iki ara adım görünür
+    assert all(s["kind"] == "cte" for s in steps)
+    assert "GROUP BY" in steps[0]["sql"].upper()
+    assert "OVER" in steps[1]["sql"].upper()                     # iç içe parantez doğru tarandı
+
+
+def test_extract_cte_steps_none_without_with():
+    from presentations.routes_scope import _extract_cte_steps
+    assert _extract_cte_steps("SELECT * FROM t") == []
+    assert _extract_cte_steps("") == []
+    assert _extract_cte_steps("   with_table AS x") == []        # 'WITH ' değil

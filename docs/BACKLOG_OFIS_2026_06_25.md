@@ -40,7 +40,11 @@
 
 ---
 
-## Oturum N2 — Concept çevre cilası
+## Oturum N2 — Concept çevre cilası — ✅ TAMAM (branch `feat/oturum-n2-concept-cevre`, N1 üstüne)
+
+> **DURUM:** A3+C3, saf backend (bundle yok → ofis restart). 509 scope testi geçer (tek pre-existing scope_banner fail).
+> - **A3 ✅** — `scope_suggest_concepts` hâlâ ephemeral `:memory:` kullanıyordu (1.3'te derivation preview düzeltilmişti ama bu endpoint kalmış) → her concept-suggest'te Oracle'dan sample çekiyordu. Fix: `sess.sample_conn()` (kalıcı, fingerprint-reuse) + `(pid,alias,column,scope)` sonuç memo'su. Client cache (Oturum 5) + bu server memo birlikte → tekrar açılış anında.
+> - **C3 ✅** — `_extract_cte_steps`: bloğun KENDİ SQL'indeki `WITH <ad> AS (...)` CTE'lerini (string/parantez-farkında) adım olarak çıkarır; `scope_steps` bunları scope-view lineage'ından sonra ekler → "ara adım yok" sandığımız CTE'li bloklar artık ara adımları gösterir. Frontend "Adımlar" paneli adımları generic render ediyor → bundle gerekmez. 2 test.
 
 ### A3 — konsept seçince tarama çok yavaş 🟠
 - Oturum 5'te client cache + 8s timeout eklendi ama **ilk-dokunuş Oracle sample pull'u** yavaş. Plan: E4 backend memo (suggest sonucu `(pid,alias,column,fingerprint)` ile process-cache) + basket-add eager warm (Oturum 1 1.2). Önce ofiste `bash build.sh` ile client cache devrede mi teyit.
