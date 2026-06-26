@@ -11,7 +11,7 @@
 | N3 | Audit log tamamla | B1 | 🟠 | Oturum 8 |
 | N4 | Chat/LLM hızlı küme | B3, B4, B5 | ✅ TAMAM | Oturum 7 |
 | N5 | Hazırlık UX | C1, C2, C4 | ✅ TAMAM | Oturum 5 (E3) |
-| N6 | Veri/build | D1, D2 | 🔴 | Oturum 1 |
+| N6 | Veri/build | D1, D2 | ✅ TAMAM | Oturum 1 |
 
 > **DÜŞÜLEN:** B2 (chat history per-context) — kullanıcı vazgeçti.
 
@@ -127,15 +127,30 @@ tek backend satırı; bundle yeniden derlendi (build.sh).
 
 ---
 
-## Oturum N6 — Veri / build (🔴)
+## Oturum N6 — Veri / build (🔴) — ✅ TAMAM
 
-### D1 — projection-node-arkası büyük tablo join'de build patlak/yavaş 🔴
-- Repro (kullanıcı): ufak üretilmiş tablo var; büyük bir tablodan bazı kolonları seçip kaydediyorum (projection node), sonra ufak tabloya join'liyorum. **Hazırlık'ta sorun yok, doğru gösteriyor; ama build'de o kolonları seçtiğim ana (büyük) tabloyu çekemiyor — bitmiyor, çok yavaş.**
-- Kök neden (hipotez): projection node'un arkasındaki büyük kaynak tablo build'de **tam/cap'siz** çekiliyor (lazy source). A3 join-pushdown (Oturum 1.5) yalnız doğrudan join derivation'ında devrede; araya **projection node** girince pushdown ulaşmıyor → büyük tablo full pull → yavaş/asılı.
-- Plan: projection (column-select) node'un lazy büyük kaynağı için de sample/pushdown ya da build-time daraltma; join lineage'ında projection'ı geçişli ele al.
+### D1 — projection-node-arkası büyük tablo join'de build patlak/yavaş 🔴 ✅
+- Kök neden DOĞRULANDI: `saveAsTable` bir `calculated` (identity projeksiyon) node üretir;
+  bu projection node bir join'i besleyince A3 join-pushdown (`kind=="join"` şartı) projection'ı
+  **geçemiyordu** → büyük lazy kaynak tam/cap'siz çekiliyor → build asılır.
+- **Fix** [scope/fetch.py](presentations/scope/fetch.py): `_join_key_pushdown` artık iki yollu —
+  `_direct_join_pushdown` (A3) + `_transitive_join_pushdown` (item=identity-projection,
+  downstream join'i besliyor → join anahtarını item kolonundan src kolonuna geri haritala).
+  `_join_narrow_target`: yön güvenliği (INNER her iki taraf / LEFT yalnız `source_aliases[1]`;
+  latent A3 LEFT-doğruluk açığını da kapatır). Pass-2 sıralaması: lazy-tablo pull GEREKTİRMEYEN
+  türevler önce → join'in küçük tarafı registered olsun, sonra büyük projection daraltılsın.
+  8 yeni test (transitif/direct, join-type güvenliği, identity-olmayan anahtar, uçtan uca + sıralama).
 
-### D2 — tahmini kullanım düzgün çalışmıyor 🟠
-- Boyut/kullanım tahmini (EXPLAIN-plan / `size_estimate` / routing estimate) hatalı. İncele: `routing.estimate_post_scope_size` + `scope/size_estimate.py` (partition_column/estimated_daily_rows önkoşulları).
+### D2 — tahmini kullanım düzgün çalışmıyor 🟠 ✅
+- Kök neden: kataloglanmamış / satır-istatistiksiz tablonun `estimated_bytes`'i `threshold+1`
+  **sentinel**'i (= "boyutlanamaz → lazy"), UI'da **gerçek "500 MB" gibi** gösteriliyordu →
+  her bilinmeyen tablo sahte 500 MB. **Fix:** `RoutingDecision.estimate_source` ("catalog" |
+  "unknown"); sentinel hâllerde "unknown" set edilir ([routing.py](presentations/scope/routing.py)),
+  `_refresh_routing` + override sentinel'i routing'e taşır ([routes_scope.py](presentations/routes_scope.py)).
+  Frontend "unknown" → rozet **"lazy · ?"** + dürüst tooltip (sahte sayı değil). **Canlı doğrulandı:**
+  gap_analysis/account/... "lazy · ?", gerçek tablolar "lazy · 6.4 GB / 290 GB". 4 test (estimate_source).
+
+**Deploy:** `hazirlik.bundle.js?v=43→44` (D2 frontend). D1 saf backend. Bundle yeniden derlendi.
 
 ---
 

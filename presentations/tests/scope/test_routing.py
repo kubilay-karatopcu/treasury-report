@@ -51,6 +51,7 @@ def test_30_day_projection_is_cached():
     assert d.decision == "cached"
     assert d.estimated_bytes == 72_000_000
     assert d.decided_by == "system"
+    assert d.estimate_source == "catalog"   # D2 — gerçek katalog tahmini
 
 
 def test_5_year_projection_is_lazy():
@@ -113,6 +114,8 @@ def test_unknown_table_routes_lazy():
     d = decide_routing(tref, _proj(), [], catalog=cat)
     assert d.decision == "lazy"
     assert d.estimated_bytes > d.threshold_bytes
+    # D2 — kataloglanmamış → boyut sentinel'i; UI sahte "500 MB" değil "?" göstersin.
+    assert d.estimate_source == "unknown"
 
 
 def test_default_hard_ceiling_is_10gb():
@@ -135,6 +138,16 @@ def test_documented_but_unsized_table_routes_lazy():
     d = decide_routing(tref, Projection(columns=["A"]), [], catalog=cat)
     assert d.decision == "lazy"
     assert d.estimated_bytes > d.threshold_bytes
+    assert d.estimate_source == "unknown"   # D2 — satır istatistiği yok → sentinel
+
+
+def test_override_preserves_unknown_estimate_source():
+    # D2 — kullanıcı lazy→cached zorlasa bile altta yatan "unknown" sentinel'i
+    # korunur (UI override'lı node'da da "?" gösterir, sahte sayı değil).
+    dec = RoutingDecision(decision="lazy", estimated_bytes=600_000_000,
+                          estimate_source="unknown")
+    out = apply_user_override(dec, "cached")
+    assert out.estimate_source == "unknown" and out.decided_by == "user"
 
 
 def test_app_catalog_reads_estimated_total_rows_from_doc():

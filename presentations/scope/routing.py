@@ -56,6 +56,11 @@ class RoutingDecision:
     estimated_bytes: int
     decided_by: Literal["system", "user"] = "system"
     threshold_bytes: int = DEFAULT_THRESHOLD_BYTES
+    # D2 (Oturum N6) — `estimated_bytes` GERÇEK bir tahmin mi, yoksa "boyut
+    # bilinmiyor → güvenli tarafta lazy" sentinel'i (threshold+1) mi? "catalog" =
+    # gerçek katalog tahmini; "unknown" = tablo kataloglanmamış / satır istatistiği
+    # yok → sentinel. UI sentinel'i "?" gösterir, sahte "500 MB" yerine.
+    estimate_source: str = "catalog"
 
 
 # ── Byte / row estimators ──────────────────────────────────────────────────
@@ -182,16 +187,19 @@ def decide_routing(
     pinned_list = list(pinned_filters)
     table_meta = catalog.table_meta(table_ref.schema_name, table_ref.name)
     if table_meta is None:
-        estimated = threshold_bytes + 1
+        # Kataloglanmamış → boyutlanamaz, güvenli tarafta lazy. Sentinel: gerçek
+        # tahmin DEĞİL → "unknown" (UI "?" gösterir, sahte "500 MB" değil).
+        estimated, source = threshold_bytes + 1, "unknown"
     elif (table_meta.estimated_total_rows is None
           and table_meta.estimated_daily_rows is None):
         # Documented but unsized — cannot estimate, so estimate high (lazy).
-        estimated = threshold_bytes + 1
+        estimated, source = threshold_bytes + 1, "unknown"
     else:
         estimated = estimate_post_scope_size(
             table_meta, projection, pinned_list,
             default_horizon_days=default_horizon_days,
         )
+        source = "catalog"
 
     decision: Literal["cached", "lazy"] = (
         "cached" if estimated <= threshold_bytes else "lazy"
@@ -201,6 +209,7 @@ def decide_routing(
         estimated_bytes=estimated,
         decided_by="system",
         threshold_bytes=threshold_bytes,
+        estimate_source=source,
     )
 
 
@@ -222,4 +231,5 @@ def apply_user_override(
         estimated_bytes=decision.estimated_bytes,
         decided_by="user",
         threshold_bytes=decision.threshold_bytes,
+        estimate_source=decision.estimate_source,
     )
