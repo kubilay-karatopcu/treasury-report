@@ -316,3 +316,166 @@ def test_fetch_cancel_during_pass1_caught_at_pass2_boundary():
     with pytest.raises(BuildCancelled):
         fetch_cached_tables(dc, conn, scope, catalog=_catalog(), cancel_token=tok)
     assert dc.calls == ["scope::p_x/positions"]   # src pulled; agg never ran
+
+
+# ── D1 (Oturum N6) — projection-node-over-big-table join-key pushdown ──────────
+
+from presentations.scope.fetch import _join_key_pushdown
+
+
+class _MultiDC:
+    """Tablo adına göre farklı df dönen stub — D1 entegrasyon testleri için."""
+    def __init__(self, frames):
+        self.frames = frames
+        self.calls = []
+
+    def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kwargs):
+        self.calls.append({"dataset": dataset, "query": query, "params": query_params})
+        for key, df in self.frames.items():
+            if key in (query or ""):
+                return df.copy()
+        return pd.DataFrame()
+
+
+def _d1_scope(join_type="inner", secili_right=True, identity=True):
+    """big (lazy) → big_secili (calculated identity projection) ⋈ small (cached)."""
+    big = {"table_ref": {"schema": "EDW", "name": "BIG"}, "alias": "big",
+           "projection": {"columns": ["BRANCH_ID", "AMT"], "include_all": False},
+           "routing": {"decision": "lazy", "estimated_bytes": 9_000_000_000}}
+    expr = '"BRANCH_ID"' if identity else 'UPPER("BRANCH_ID")'
+    big_secili = {"alias": "big_secili",
+        "derivation": {"kind": "calculated", "source_aliases": ["big"], "join_keys": [],
+                       "columns": [{"name": "BRANCH_ID", "expr": expr},
+                                   {"name": "AMT", "expr": '"AMT"'}]},
+        "projection": {"columns": ["BRANCH_ID", "AMT"], "include_all": False},
+        "routing": {"decision": "cached", "estimated_bytes": 0}}
+    small = {"table_ref": {"schema": "EDW", "name": "SMALL"}, "alias": "small",
+             "projection": {"columns": ["BRANCH_ID"], "include_all": False},
+             "routing": {"decision": "cached", "estimated_bytes": 0}}
+    srcs = ["small", "big_secili"] if secili_right else ["big_secili", "small"]
+    join = {"alias": "joined",
+        "derivation": {"kind": "join", "source_aliases": srcs, "join_type": join_type,
+                       "join_keys": [{"left_alias": "small", "left_column": "BRANCH_ID",
+                                      "right_alias": "big_secili", "right_column": "BRANCH_ID"}]},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "estimated_bytes": 0}}
+    return _scope([big, big_secili, small, join])
+
+
+def _conn_with_small(values=("B1", "B2", "B2", None)):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE small(BRANCH_ID VARCHAR)")
+    conn.executemany("INSERT INTO small VALUES (?)", [(v,) for v in values])
+    return conn
+
+
+def test_d1_transitive_pushdown_inner_identity():
+    scope = _d1_scope()
+    conn = _conn_with_small()
+    res = _join_key_pushdown(conn, scope, scope.basket_item("big_secili"),
+                             scope.basket_item("big"), {"small"})
+    assert res is not None
+    col, vals = res
+    assert col == "BRANCH_ID" and sorted(vals) == ["B1", "B2"]
+
+
+def test_d1_transitive_pushdown_left_join_secili_right_is_safe():
+    # LEFT join, big_secili = source_aliases[1] (korunmayan sağ taraf) → güvenli.
+    scope = _d1_scope(join_type="left", secili_right=True)
+    res = _join_key_pushdown(_conn_with_small(), scope, scope.basket_item("big_secili"),
+                             scope.basket_item("big"), {"small"})
+    assert res is not None and res[0] == "BRANCH_ID"
+
+
+def test_d1_no_pushdown_when_secili_is_left_preserved_side():
+    # LEFT join, big_secili = source_aliases[0] (korunan sol) → daraltma eşleşmeyen
+    # satırları düşürür → GÜVENSİZ → tam pull (None).
+    scope = _d1_scope(join_type="left", secili_right=False)
+    res = _join_key_pushdown(_conn_with_small(), scope, scope.basket_item("big_secili"),
+                             scope.basket_item("big"), {"small"})
+    assert res is None
+
+
+def test_d1_no_pushdown_for_computed_join_key():
+    # join anahtarı identity DEĞİL (UPPER(...)) → kaynak kolonuna maplenemez → None.
+    scope = _d1_scope(identity=False)
+    res = _join_key_pushdown(_conn_with_small(), scope, scope.basket_item("big_secili"),
+                             scope.basket_item("big"), {"small"})
+    assert res is None
+
+
+def test_d1_no_pushdown_when_partner_not_registered():
+    scope = _d1_scope()
+    res = _join_key_pushdown(_conn_with_small(), scope, scope.basket_item("big_secili"),
+                             scope.basket_item("big"), set())
+    assert res is None
+
+
+def test_d1_direct_join_pushdown_still_works():
+    # big doğrudan bir join'in lazy tarafı (araya projection node yok) — A3 korunur.
+    big = {"table_ref": {"schema": "EDW", "name": "BIG"}, "alias": "big",
+           "projection": {"columns": ["BRANCH_ID"], "include_all": False},
+           "routing": {"decision": "lazy", "estimated_bytes": 9_000_000_000}}
+    small = {"table_ref": {"schema": "EDW", "name": "SMALL"}, "alias": "small",
+             "projection": {"columns": ["BRANCH_ID"], "include_all": False},
+             "routing": {"decision": "cached", "estimated_bytes": 0}}
+    join = {"alias": "joined",
+        "derivation": {"kind": "join", "source_aliases": ["small", "big"], "join_type": "inner",
+                       "join_keys": [{"left_alias": "small", "left_column": "BRANCH_ID",
+                                      "right_alias": "big", "right_column": "BRANCH_ID"}]},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "estimated_bytes": 0}}
+    scope = _scope([big, small, join])
+    res = _join_key_pushdown(_conn_with_small(), scope, scope.basket_item("joined"),
+                             scope.basket_item("big"), {"small"})
+    assert res is not None and res[0] == "BRANCH_ID" and sorted(res[1]) == ["B1", "B2"]
+
+
+def test_d1_fetch_narrows_big_projection_source_end_to_end():
+    # Tam akış: build BIG'i big_secili için çekerken transitif pushdown'la daraltır.
+    scope = _d1_scope()
+    dc = _MultiDC({"EDW.SMALL": pd.DataFrame({"BRANCH_ID": ["B1", "B2"]}),
+                   "EDW.BIG": pd.DataFrame({"BRANCH_ID": ["B1", "B2", "B3"], "AMT": [1, 2, 3]})})
+    conn = duckdb.connect(":memory:")
+    fetch_cached_tables(dc, conn, scope, catalog=None)
+    big_calls = [c for c in dc.calls if "EDW.BIG" in (c["query"] or "")]
+    assert big_calls, "BIG hiç çekilmedi"
+    assert "BRANCH_ID IN (" in big_calls[0]["query"]
+    assert set((big_calls[0]["params"] or {}).values()) == {"B1", "B2"}
+
+
+def test_d1_ordering_registers_derived_partner_before_big_projection():
+    # Adversaryal basket sırası: big_secili, küçük partner'dan (Pass-2 derived) ÖNCE
+    # listeli. Sıralama düzeltmesi olmadan big_secili BIG'i partner registered olmadan
+    # çeker → tam pull. Sıralama, lazy-pull GEREKTİRMEYEN türevleri önce işler.
+    big = {"table_ref": {"schema": "EDW", "name": "BIG"}, "alias": "big",
+           "projection": {"columns": ["BRANCH_ID", "AMT"], "include_all": False},
+           "routing": {"decision": "lazy", "estimated_bytes": 9_000_000_000}}
+    big_secili = {"alias": "big_secili",
+        "derivation": {"kind": "calculated", "source_aliases": ["big"], "join_keys": [],
+                       "columns": [{"name": "BRANCH_ID", "expr": '"BRANCH_ID"'},
+                                   {"name": "AMT", "expr": '"AMT"'}]},
+        "projection": {"columns": ["BRANCH_ID", "AMT"], "include_all": False},
+        "routing": {"decision": "cached", "estimated_bytes": 0}}
+    small_src = {"table_ref": {"schema": "EDW", "name": "SMALL"}, "alias": "small_src",
+        "projection": {"columns": ["BRANCH_ID"], "include_all": False},
+        "routing": {"decision": "cached", "estimated_bytes": 0}}
+    small_proj = {"alias": "small_proj",
+        "derivation": {"kind": "calculated", "source_aliases": ["small_src"], "join_keys": [],
+                       "columns": [{"name": "BRANCH_ID", "expr": '"BRANCH_ID"'}]},
+        "projection": {"columns": ["BRANCH_ID"], "include_all": False},
+        "routing": {"decision": "cached", "estimated_bytes": 0}}
+    join = {"alias": "joined",
+        "derivation": {"kind": "join", "source_aliases": ["small_proj", "big_secili"], "join_type": "inner",
+                       "join_keys": [{"left_alias": "small_proj", "left_column": "BRANCH_ID",
+                                      "right_alias": "big_secili", "right_column": "BRANCH_ID"}]},
+        "projection": {"columns": [], "include_all": True},
+        "routing": {"decision": "cached", "estimated_bytes": 0}}
+    scope = _scope([big, big_secili, small_src, small_proj, join])  # big_secili before small_proj
+    dc = _MultiDC({"EDW.SMALL": pd.DataFrame({"BRANCH_ID": ["B1", "B2"]}),
+                   "EDW.BIG": pd.DataFrame({"BRANCH_ID": ["B1", "B2", "B3"], "AMT": [1, 2, 3]})})
+    conn = duckdb.connect(":memory:")
+    fetch_cached_tables(dc, conn, scope, catalog=None)
+    big_calls = [c for c in dc.calls if "EDW.BIG" in (c["query"] or "")]
+    assert big_calls and "BRANCH_ID IN (" in big_calls[0]["query"]
+    assert set((big_calls[0]["params"] or {}).values()) == {"B1", "B2"}

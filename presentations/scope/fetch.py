@@ -24,6 +24,7 @@ catalog entry.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from typing import Any
 
@@ -641,29 +642,47 @@ def _pull_source_into_duck(
 JOIN_PUSHDOWN_MAX_KEYS = 1000
 
 
-def _join_key_pushdown(conn, scope: ScopeContract, item: BasketItem,
-                       src: BasketItem, registered: set[str]) -> tuple[str, list] | None:
-    """A3: ``item`` bir join ise ve ``src`` onun BÜYÜK/lazy tarafıysa, join'in
-    KÜÇÜK (zaten registered) tarafının ayrık anahtar değerlerini döndür →
-    ``src`` Oracle'dan ``WHERE <src_col> IN (...)`` ile çekilir (tüm tablo yerine
-    yalnız eşleşenler). Şu hâllerde ``None`` (= tam pull, mevcut davranış):
-    join değil / tek anahtar değil / src lazy değil / partner registered değil /
-    anahtar sayısı limiti aşıyor / partner'da anahtar yok.
+# calculated identity projeksiyonu — `"KOL"` (saveAsTable) → kaynak kolonu KOL.
+# Hesaplanmış expr (`a + b`, `SUM(x)` …) → None (pushdown'a maplenemez).
+_IDENT_COL_RE = re.compile(r'^\s*"([^"]+)"\s*$')
+
+
+def _identity_src_column(expr: str | None) -> str | None:
+    m = _IDENT_COL_RE.match(expr or "")
+    return m.group(1) if m else None
+
+
+def _src_has_column(src: BasketItem, col: str) -> bool:
+    proj = src.projection
+    if proj is None or proj.include_all or not proj.columns:
+        return True  # tüm kaynak kolonları çekiliyor → kolon mevcut kabul
+    return col in proj.columns
+
+
+def _join_narrow_target(d_join, narrow_alias: str) -> tuple[str, str, str] | None:
+    """Tek-anahtarlı bir join derivation'ında ``narrow_alias`` tarafını (yalnız
+    partner anahtarlarıyla eşleşen satırları tutarak) DARALTMAK SEMANTİK OLARAK
+    GÜVENLİYSE ``(partner_alias, partner_col, narrow_col)`` döner, değilse ``None``.
+
+    Güvenli: INNER join (her iki taraf) ya da LEFT join + ``narrow_alias`` SAĞ
+    (korunmayan, ``source_aliases[1]``) taraf. LEFT join'in korunan (sol) tarafını
+    daraltmak, eşleşmeyip NULL'la kalması gereken satırları düşürür → güvensiz.
     """
-    d = item.derivation
-    if d is None or d.kind != "join" or len(d.join_keys) != 1:
+    if len(d_join.join_keys) != 1:
         return None
-    if src.routing.decision != "lazy" or src.table_ref is None:
-        return None
-    jk = d.join_keys[0]
-    if src.alias == jk.right_alias:
-        partner, partner_col, src_col = jk.left_alias, jk.left_column, jk.right_column
-    elif src.alias == jk.left_alias:
-        partner, partner_col, src_col = jk.right_alias, jk.right_column, jk.left_column
+    jk = d_join.join_keys[0]
+    if narrow_alias == jk.left_alias:
+        partner, partner_col, narrow_col = jk.right_alias, jk.right_column, jk.left_column
+    elif narrow_alias == jk.right_alias:
+        partner, partner_col, narrow_col = jk.left_alias, jk.left_column, jk.right_column
     else:
         return None
-    if partner not in registered:
-        return None  # küçük taraf henüz DuckDB'de değil → anahtar çıkarılamaz
+    if d_join.join_type == "left" and narrow_alias != d_join.source_aliases[1]:
+        return None
+    return (partner, partner_col, narrow_col)
+
+
+def _distinct_keys(conn, partner: str, partner_col: str) -> list | None:
     try:
         rows = conn.execute(
             f'SELECT DISTINCT "{partner_col}" FROM "{partner}" '
@@ -676,7 +695,71 @@ def _join_key_pushdown(conn, scope: ScopeContract, item: BasketItem,
     values = [r[0] for r in rows]
     if not values or len(values) > JOIN_PUSHDOWN_MAX_KEYS:
         return None
-    return (src_col, values)
+    return values
+
+
+def _direct_join_pushdown(conn, scope: ScopeContract, item: BasketItem,
+                          src: BasketItem, registered: set[str]) -> tuple[str, list] | None:
+    """A3: ``item`` bir join ve ``src`` onun BÜYÜK/lazy tarafı → küçük (registered)
+    tarafın anahtarlarıyla ``src``'i daralt."""
+    d = item.derivation
+    if d is None or d.kind != "join":
+        return None
+    nt = _join_narrow_target(d, src.alias)
+    if nt is None:
+        return None
+    partner, partner_col, src_col = nt
+    if partner not in registered:
+        return None  # küçük taraf henüz DuckDB'de değil → anahtar çıkarılamaz
+    vals = _distinct_keys(conn, partner, partner_col)
+    return (src_col, vals) if vals is not None else None
+
+
+def _transitive_join_pushdown(conn, scope: ScopeContract, item: BasketItem,
+                              src: BasketItem, registered: set[str]) -> tuple[str, list] | None:
+    """D1: ``item`` BÜYÜK/lazy ``src`` üzerinde identity-projeksiyon (calculated,
+    saveAsTable) ve AŞAĞI AKIŞTA bir join'i besliyor. Join anahtarını ``item``
+    kolonundan ``src`` kolonuna geri haritalayarak büyük Oracle taramasını daralt
+    (aksi hâlde projection node'un büyük kaynağı tam çekilir → D1 build hang).
+    Yalnız identity projeksiyon + güvenli join yönünde uygulanır; aksi → tam pull."""
+    d = item.derivation
+    if d is None or d.kind != "calculated" or list(d.source_aliases) != [src.alias]:
+        return None
+    ident = {}
+    for c in d.columns:
+        sc = _identity_src_column(c.expr)
+        if sc is not None:
+            ident[c.name] = sc
+    if not ident:
+        return None
+    for cand in scope.basket:
+        cd = cand.derivation
+        if cd is None or cd.kind != "join" or item.alias not in cd.source_aliases:
+            continue
+        nt = _join_narrow_target(cd, item.alias)
+        if nt is None:
+            continue
+        partner, partner_col, item_col = nt
+        if partner not in registered:
+            continue
+        src_col = ident.get(item_col)
+        if src_col is None or not _src_has_column(src, src_col):
+            continue
+        vals = _distinct_keys(conn, partner, partner_col)
+        if vals is not None:
+            return (src_col, vals)
+    return None
+
+
+def _join_key_pushdown(conn, scope: ScopeContract, item: BasketItem,
+                       src: BasketItem, registered: set[str]) -> tuple[str, list] | None:
+    """Büyük/lazy ``src`` Oracle pull'unu join anahtarlarıyla daralt. ``None`` →
+    tam pull (mevcut davranış). İki yol: doğrudan (``item`` join'in kendisi, A3) ve
+    transitif (``item`` join'i besleyen identity-projeksiyon, D1)."""
+    if src.routing.decision != "lazy" or src.table_ref is None:
+        return None
+    return (_direct_join_pushdown(conn, scope, item, src, registered)
+            or _transitive_join_pushdown(conn, scope, item, src, registered))
 
 
 def fetch_cached_tables(
@@ -878,11 +961,23 @@ def fetch_cached_tables(
             registered |= set(list_views(conn))
         except Exception:
             log.warning("fetch_cached_tables: list_views seed failed", exc_info=True)
+    # D1 — pass içi sıralama: önce BÜYÜK/lazy tablo PULL'u gerektirmeyen türevleri
+    # işle (bir join'in küçük tarafı önce registered olsun), sonra büyük projection/
+    # lazy-pull gerektirenleri → transitif join-key pushdown büyük Oracle taramasını
+    # daraltabilsin (aksi hâlde tam pull = D1 build hang). Fixpoint SONUCU değişmez
+    # (her item hâlâ kaynakları hazır olunca işlenir), yalnız sıra iyileşir.
+    def _needs_lazy_table_pull(it: BasketItem) -> bool:
+        for a in (duck_source_aliases(scope, it) - registered):
+            s = scope.basket_item(a)
+            if s is not None and s.derivation is None and s.table_ref is not None \
+                    and s.routing.decision == "lazy":
+                return True
+        return False
     progressed = True
     while pending and progressed:
         progressed = False
         still = []
-        for item in pending:
+        for item in sorted(pending, key=_needs_lazy_table_pull):
             if cancel_token is not None:
                 cancel_token.check()    # iptal: Pass 2 sınırında erken çık (lock serbest)
             d = item.derivation
