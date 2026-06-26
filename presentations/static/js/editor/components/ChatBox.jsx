@@ -35,7 +35,9 @@ export default function ChatBox({ compact = false }) {
     const msg = input.trim();
     if (!msg || loading || isLocked) return;
 
-    setInput('');
+    // B4 — prompt'u GÖNDERİRKEN değil, tur BİTİNCE temizle. Timeout 300s'e
+    // çıktığı için (B3) komutu görünür tutmak iyi; başarı VE hata yollarının
+    // ikisinde de temizlenir (kullanıcı "hata alırsa promptu temizlesin" dedi).
     addChatMessage({ role: 'user', text: msg });
     setLoading(true);
 
@@ -69,9 +71,11 @@ export default function ChatBox({ compact = false }) {
             text: data.message || 'Bilinmeyen hata.',
             status: 'error',
           });
+          setInput('');        // B4 — hata → prompt temizlensin
           setLoading(false);
         },
         onDone: () => {
+          setInput('');        // başarıyla bitince prompt temizlensin
           setLoading(false);
           // Seed the new filter's default into filterState + apply once, so
           // the freshly-authored block shows filtered data immediately.
@@ -83,6 +87,7 @@ export default function ChatBox({ compact = false }) {
       });
     } catch (err) {
       addChatMessage({ role: 'assistant', text: err.message, status: 'error' });
+      setInput('');            // B4 — istek hatası → prompt temizlensin
       setLoading(false);
     }
   }

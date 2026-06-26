@@ -1926,11 +1926,16 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
       <div className="chat-box-header">
         <MessageSquare size={11} strokeWidth={2} />
         <span>Asistan</span>
-        {selectedAlias && (
+        {selectedSource ? (
+          <span className="chat-scope-chip chat-scope-chip--edge"
+                title="Bu dönüşüm sohbet odağında — kaynağı görüyorsun, çıktıyı üreten query'yi düzenle">
+            <Code2 size={10} /> {selectedSource.source} → {selectedSource.target}
+          </span>
+        ) : selectedAlias ? (
           <span className="chat-scope-chip" title="Bu tablo sohbet odağında — buradan yeni node türetebilirsin">
             <Code2 size={10} /> {selectedAlias}
           </span>
-        )}
+        ) : null}
       </div>
       <div className="chat-messages ts-scroll" ref={listRef}>
         {history.length === 0 && !busy && (
@@ -1952,7 +1957,9 @@ function ChatPanel({ history, busy, error, draft, onDraftChange, onSend, onApply
         value={draft || ""}
         onChange={(e) => onDraftChange(e.target.value)}
         onKeyDown={onKey}
-        placeholder={selectedAlias
+        placeholder={selectedSource
+          ? `'${selectedSource.source} → ${selectedSource.target}' dönüşümünü düzenle — örn. "şu kolonu da getir", "filtreyi gevşet"…`
+          : selectedAlias
           ? `'${selectedAlias}' üzerinde Python ile işlem iste — örn. "kümülatif topla", "şu oranı hesapla"…`
           : "Scope hakkında soru sor…"}
         disabled={busy}
@@ -2756,21 +2763,28 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
             </button>
           )}
           {tab === "data" && (() => {
-            // #1 — Python YALNIZ cache'li (materialised) veride çalışır: lazy/main
-            // tabloda veri cache'lenmediğinden örnekleyip python koşamayız. Uygun:
-            // türetilmiş node'lar (zaten materialised) + cache'li main + SQL dataset.
-            const canPy = !!item && (item.derivation != null || item.sql != null || item.routing?.decision === "cached");
-            return canPy ? (
-              <button className="ts-btn ts-btn--sm hz-py-create" disabled={!preview || preview.error}
-                      onClick={() => onCreatePython && onCreatePython(preview.alias)}
-                      title="Bu tablodan Python ile yeni bir node üret (input_node_df → output_node_df)">
-                <Code2 size={13} /> <ArrowRight size={12} /> <Table2 size={13} /> Python
-              </button>
-            ) : (
-              <span className="hz-py-blocked"
-                    title="Bu main tablo cache'li değil (lazy) — veriyi cache'lemediğimiz için python çalıştıramayız. Node'u cached yap, sonra Python üret. (Lazy tablo için SQL → Tablo kullanılabilir.)">
-                <Lock size={12} /> Python: tablo cache'li değil
-              </span>
+            // C2 (Oturum N5) — Python artık cache'siz (lazy/main) kaynakta DA
+            // üretilebilir: tasarım önizlemesi kaynağı ÖRNEKLER (sample.duckdb),
+            // build kaynağı talep anında çeker (fetch.py — test'li). Buton kilitli
+            // DEĞİL; yalnız lazy büyük tabloda build yavaş olabilir → soft uyarı.
+            const isLazyMain = !!item && item.derivation == null && item.sql == null
+              && item.routing?.decision !== "cached";
+            return (
+              <>
+                <button className="ts-btn ts-btn--sm hz-py-create" disabled={!preview || preview.error}
+                        onClick={() => onCreatePython && onCreatePython(preview.alias)}
+                        title={isLazyMain
+                          ? "Kaynak cache'li değil (lazy): önizleme ÖRNEKLEM üzerinde çalışır; build'de tam veri çekilir (büyük tabloda yavaş olabilir)."
+                          : "Bu tablodan Python ile yeni bir node üret (input_node_df → output_node_df)"}>
+                  <Code2 size={13} /> <ArrowRight size={12} /> <Table2 size={13} /> Python
+                </button>
+                {isLazyMain && (
+                  <span className="hz-py-note"
+                        title="Kaynak cache'li değil: önizleme örneklem üzerinde; build tam veri çeker (büyük tabloda yavaş).">
+                    <Info size={11} /> örneklem
+                  </span>
+                )}
+              </>
             );
           })()}
           {tab === "data" && (
@@ -3031,6 +3045,11 @@ function App() {
   const [sqlModalOpen, setSqlModalOpen] = useState(false); // Faz C — Manuel SQL Tablo
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  // C1 (Oturum N5) — edge tıklama bağlamı: { source, target }. Bir derivation
+  // edge'ine tıklanınca KAYNAK drawer'ı açılır ama sohbet "source → target"
+  // bağlamında çalışır (üreten query'yi düzenliyoruz). Node tıklamada null →
+  // sade tek-tablo bağlamı. Aşağıdaki effect, başka bir node'a geçilince temizler.
+  const [edgeCtx, setEdgeCtx] = useState(null);
   // Faz P — python node "Çalıştır" durumu: { alias, running, error, summary, columns }.
   const [pythonRun, setPythonRun] = useState(null);
   // Konsept tarayıcı side panel ("Detaylı ara") + yeni-konsept modal.
@@ -3289,7 +3308,10 @@ function App() {
       const r = await fetch(CHAT_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
         // Faz P — açık node varsa node-scope: LLM o node'dan create_python_node önerebilir.
-        body: JSON.stringify({ scope, message, history: historyPayload, selected_alias: preview?.alias || null }),
+        // C1 — edge bağlamında drawer KAYNAĞI gösterir ama sohbet odağı, türevi
+        // ÜRETEN query (target) olur; node bağlamında açık node (preview).
+        body: JSON.stringify({ scope, message, history: historyPayload,
+          selected_alias: (edgeCtx?.target || preview?.alias) || null }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
@@ -3304,7 +3326,7 @@ function App() {
     } finally {
       setChatBusy(false);
     }
-  }, [scope, chatHistory, preview]);
+  }, [scope, chatHistory, preview, edgeCtx]);
 
   const dismissSuggestion = useCallback((turnId, suggestionId) => {
     setChatHistory((h) => h.map((t) => {
@@ -3798,25 +3820,16 @@ function App() {
   // showPreview aşağıda tanımlı (TDZ) → onEdgeClick içinde ref ile çağır.
   const showPreviewRef = useRef(null);
   const onEdgeClick = useCallback((_e, edge) => {
-    // Faz R1/F3 — derivation lineage edge (main → türetilmiş): filter ise
-    // türetilmiş node'un drawer'ını aç (Kaynak Query görünür) + kaynağı
-    // Filtreleme'den düzenle ipucu. agg/calc ise türetilmiş önizlemeyi aç.
+    // C1 (Oturum N5) — derivation lineage edge (kaynak → türetilmiş).
     if (edge.data?.derivation) {
-      // Edge'e tıkla → ÇIKTI (türetilmiş) node'u aç; böylece sohbet o node'a
-      // (source → output) kapsanır ve yalnız o node'un kaynağını etkiler (#2).
-      // python → "Kaynak Script" (düzenle), filter → kaynağı "Filtreleme",
-      // agg/calc/join/union → çıktı node'unun önizlemesi.
+      // Edge'e tıkla → KAYNAĞI (Veri sekmesi) aç + sohbet bağlamını
+      // "source → target" yap: edge'deyken kaynağı görüp o türevi ÜRETEN
+      // query'yi düzenliyoruz (node'dayken ise yeni node üretiyoruz). E3'teki
+      // "çıktı node'unu aç + sade-alias" davranışı bu kullanıcı isteğiyle geri alındı.
+      const src = edge.data.sourceAlias;
       const out = edge.data.derivedAlias;
-      const outItem = scope.basket.find((b) => b.alias === out);
-      if (outItem?.derivation?.kind === "python") {
-        showPreviewRef.current && showPreviewRef.current(out, "script");
-      } else if (edge.data.derivKind === "filter") {
-        // E3: edge = "kaynak → bu türev"; çıktı (türev) node'unu aç → sohbet
-        // o node'u ÜRETEN script/query'yi düzenler (kaynağı değil).
-        showPreviewRef.current && showPreviewRef.current(out, "filter");
-      } else {
-        showPreviewRef.current && showPreviewRef.current(out);
-      }
+      setEdgeCtx({ source: src, target: out });
+      showPreviewRef.current && showPreviewRef.current(src);
       return;
     }
     if (edge.data?.suggested) {
@@ -4179,6 +4192,7 @@ function App() {
   // collapse the drawer (toggle behavior). Click anywhere on the empty
   // canvas (onPaneClick below) also closes the drawer.
   const onNodeClick = useCallback((_e, node) => {
+    setEdgeCtx(null);   // C1 — node → sade tek-tablo bağlamı (edge değil)
     if (preview && preview.alias === node.id) {
       setPreview(null);
       return;
@@ -4186,8 +4200,17 @@ function App() {
     showPreview(node.id);
   }, [preview, showPreview]);
   const onPaneClick = useCallback(() => {
+    setEdgeCtx(null);
     if (preview) setPreview(null);
   }, [preview]);
+
+  // C1 — edge bağlamı yalnız KAYNAK drawer'ı açıkken geçerli; başka bir node'a
+  // (ya da kapanışa) geçilince düş. onNodeClick/onPaneClick zaten temizler; bu
+  // effect, diğer setPreview çağrıları (sol liste seçimi, öneri uygula, vb.)
+  // için güvenlik ağı.
+  useEffect(() => {
+    setEdgeCtx((ec) => (ec && preview && ec.source === preview.alias ? ec : null));
+  }, [preview?.alias]);
 
   // "Görünümü kaydet" — captures the current AG Grid state in one shot:
   //   - filter model     → scope.filters (pinned if column has concept, else raw)
@@ -4800,10 +4823,9 @@ function App() {
             draft: chatDraft, onDraftChange: setChatDraft,
             onSend: sendChat, onApply: applySuggestion, onDismiss: dismissSuggestion,
             applyingId, selectedAlias: preview?.alias || null,
-            selectedSource: (() => {
-              const it = preview ? scope.basket.find((b) => b.alias === preview.alias) : null;
-              return it?.derivation ? (derivSourceAliases(it.derivation)[0] || null) : null;
-            })(),
+            // C1 — edge bağlamı: { source, target }. Chip "source → target" gösterir;
+            // node bağlamında null → sade alias chip.
+            selectedSource: edgeCtx,
           }}
         />
         {docsTable && (

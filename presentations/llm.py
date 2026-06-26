@@ -55,7 +55,7 @@ class QwenClient:
         endpoint: str,
         token: str,
         model: str | None = None,
-        timeout: int = 60,
+        timeout: int = 300,
         verify_ssl: bool = True,
         force_json: bool = False,
         gen_max_tokens: int = 8192,

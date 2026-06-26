@@ -288,7 +288,12 @@
   flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;
 }
 .hz-sidebar .sidebar-section--chat .chat-messages { flex: 1 1 auto; min-height: 0; }
-.hz-sidebar .hz-basket-list { max-height: 30vh; overflow-y: auto; }
+/* C4 (Oturum N5) — liste büyüyüp küçüldükçe (tablo ekle/çıkar/filtrele, node
+   üret) scrollbar gelip gidince yatay kayma oluyordu ("soldaki liste kapandıkça
+   hareket etmesin"). `scrollbar-gutter: stable` gutter'ı HEP rezerve eder →
+   scrollbar görünse de görünmese de içerik genişliği sabit, kayma yok. */
+.hz-sidebar .hz-basket-list { max-height: 30vh; overflow-y: auto; scrollbar-gutter: stable; }
+.hz-sidebar .sidebar-section--sources { scrollbar-gutter: stable; }
 /* #D — sohbet mesaj alanı yukarı doğru büyüsün: editor.css'teki 180px tavanı
    kaldır. Böylece input chat kutusunun en altına oturur (CTA ile birleşik
    görünür, aradaki boşluk kaybolur) ve mesaj alanı tüm yüksekliği kullanır. */
@@ -667,13 +672,15 @@
 
 /* "Python → Tablo" üret butonu (drawer aksiyonları) */
 .hz-py-create { display: inline-flex; align-items: center; gap: 3px; }
-/* #1 — lazy/main node'da python yapılamaz: buton yerine uyarı notu. */
-.hz-py-blocked {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; color: #94a3b8; font-style: italic;
-  padding: 4px 8px; border: 1px dashed #cbd5e1; border-radius: 6px; cursor: help;
+/* C2 — lazy/main kaynakta python ARTIK üretilebilir; buton kilitli değil, yanında
+   "örneklem" soft uyarı notu (önizleme örneklem üzerinde; build tam veri çeker). */
+.hz-py-note {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10.5px; color: #92551a; font-style: italic;
+  padding: 3px 7px; background: #fff8e7; border: 1px solid rgba(245,159,0,0.25);
+  border-radius: 6px; cursor: help; margin-left: 4px;
 }
-.hz-py-blocked svg { color: #94a3b8; }
+.hz-py-note svg { color: #b45309; }
 
 /* Kaynak Script sekmesi */
 .hz-py-tab { padding: 10px; height: 100%; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
@@ -707,6 +714,9 @@
   padding: 1px 6px; border-radius: 10px;
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
+/* C1 (Oturum N5) — edge bağlam chip'i ("source → target"): node chip'inden
+   ayrışsın diye mor tonu (dönüşüm/üreten-query odağı). */
+.chat-scope-chip--edge { background: #7c3aed; }
 .hz-sugg-code { margin: 4px 0; border: 1px solid #334155; border-radius: 5px; overflow: hidden; max-height: 180px; }
 .hz-sugg-code .hz-cm, .hz-sugg-code .cm-editor { max-height: 180px; height: auto; font-size: 11.5px; }
 

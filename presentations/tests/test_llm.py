@@ -114,6 +114,11 @@ class TestGenMaxTokensAndTruncation:
         from presentations.llm import QwenClient
         assert QwenClient(endpoint="http://x", token="t").gen_max_tokens == 8192
 
+    def test_default_timeout_is_300(self):
+        # B3 (Oturum N4) — ofis prod'da 60s timeout uzun üretimleri kesiyordu.
+        from presentations.llm import QwenClient
+        assert QwenClient(endpoint="http://x", token="t").timeout == 300
+
     def test_gen_max_tokens_reaches_payload(self, monkeypatch):
         from presentations import llm as llm_mod
         from presentations.llm import QwenClient

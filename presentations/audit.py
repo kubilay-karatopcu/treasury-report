@@ -216,6 +216,15 @@ def get_logger():
                 from flask import current_app
                 dc = current_app.config.get("DATA_CLIENT")
                 enabled = bool(current_app.config.get("AUDIT_ENABLED", True))
+                # İlk audit olayında tabloyu bir kez OTOMATİK oluştur (idempotent —
+                # "zaten var" yutulur, best-effort). DBA elle DDL'i tercih ederse
+                # AUDIT_ENSURE_TABLE=False ile kapatılır.
+                if enabled and dc is not None \
+                        and bool(current_app.config.get("AUDIT_ENSURE_TABLE", True)):
+                    try:
+                        ensure_table(dc)
+                    except Exception:
+                        log.warning("audit: otomatik ensure_table başarısız", exc_info=True)
                 _LOGGER = AuditLogger(dc, enabled=enabled)
     return _LOGGER
 
