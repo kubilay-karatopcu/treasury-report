@@ -315,9 +315,11 @@ def _refresh_routing(scope: ScopeContract, catalog: AppCatalog) -> None:
         item.routing.decided_by = "system"
         item.routing.estimated_bytes = decision.estimated_bytes
         item.routing.threshold_bytes = decision.threshold_bytes
-        # Recompute reverts to the catalog/partition estimate → drop any stale
-        # "explain_plan" marker; refine-sizes re-sets it after EXPLAIN PLAN.
-        item.routing.estimate_source = None
+        # Recompute reverts to the catalog/partition estimate. D2: carry the
+        # "unknown" sentinel marker (kataloglanmamış/satır-istatistiksiz → UI "?")
+        # but DROP a stale "explain_plan"; refine-sizes re-sets that after EXPLAIN.
+        item.routing.estimate_source = (
+            decision.estimate_source if decision.estimate_source == "unknown" else None)
 
 
 @presentations_bp.route("/<pid>/scope", methods=["POST"])
@@ -2191,6 +2193,10 @@ def scope_routing_override(pid: str):
     item.routing.decided_by = "user"
     item.routing.estimated_bytes = overridden.estimated_bytes
     item.routing.threshold_bytes = overridden.threshold_bytes
+    # D2 — kullanıcı override etse de altta yatan tahmin sentinel ise "unknown"
+    # kalsın (UI override'lı lazy'de bile sahte "500 MB" yerine "?" göstersin).
+    item.routing.estimate_source = (
+        "unknown" if overridden.estimate_source == "unknown" else None)
 
     out = scope_to_dict(scope)["scope"]
     return _json({"ok": True, "scope": out})

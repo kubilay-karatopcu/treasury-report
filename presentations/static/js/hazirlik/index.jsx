@@ -290,7 +290,11 @@ function TableNode({ data }) {
   const headStyle = !derived && color ? { background: color } : undefined;
   const estimatedBytes = item.routing?.estimated_bytes;
   const decidedBy = item.routing?.decided_by || "system";
-  const sizeText = sized ? formatBytes(estimatedBytes) : null;
+  // D2 (Oturum N6) — "unknown" = boyut bilinmiyor sentinel'i (tablo kataloglanmamış
+  // ya da satır istatistiği yok → güvenli tarafta lazy). Sahte threshold sayısını
+  // ("500 MB") gösterme; dürüst "?" göster.
+  const unknownSize = item.routing?.estimate_source === "unknown";
+  const sizeText = sized ? (unknownSize ? "?" : formatBytes(estimatedBytes)) : null;
   // Madde 4 — flag whether the size came from the optimizer (filter-aware) or
   // the catalog-only partition estimate, so the tooltip is honest about it.
   const measured = item.routing?.estimate_source === "explain_plan";
@@ -299,6 +303,8 @@ function TableNode({ data }) {
     : " (katalog tahmini — sadece partition filtresini hesaba katar)";
   const decisionTitle = (derived && !isFilter)
     ? "Türetilmiş tablo — DuckDB'de hesaplanır."
+    : unknownSize
+    ? "Boyut bilinmiyor — tablo kataloglanmamış ya da satır istatistiği yok → güvenli tarafta lazy. (Katalog dokümanına satır istatistiği girilince ölçülür.)"
     : `Tahmini boyut: ${formatBytes(estimatedBytes)}${sourceNote}. Karar: sistem (boyuta göre).`;
   return (
     <div className={`hz-node${derived ? " hz-node--derived" : ""}${isPython ? " hz-node--python" : ""}${inactive ? " is-inactive" : ""}`}>
