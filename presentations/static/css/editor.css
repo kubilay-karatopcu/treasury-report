@@ -838,6 +838,17 @@
   cursor: not-allowed;
 }
 
+/* B5 (Oturum N4) — Sunum sol-panel chat'i biraz daha büyük: daha çok geçmiş
+   + daha yüksek giriş alanı. Keşif (.kesif-chat) ve Hazırlık (.hz-sidebar)
+   kendi `max-height: none` override'larıyla zaten esnek; bu kural yalnızca
+   Sunum editörünü (.editor-root) etkiler. */
+.editor-root .sidebar-section--chat .chat-messages {
+  max-height: 300px;
+}
+.editor-root .sidebar-section--chat .chat-box > .chat-input {
+  min-height: 76px;
+}
+
 .chat-footer {
   display: flex;
   align-items: center;

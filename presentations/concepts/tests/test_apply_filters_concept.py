@@ -335,3 +335,39 @@ def test_sentinel_over_unbound_derived_view_is_visible_blind():
     assert blk["status"] in ("refetched", "cache_hit", "subset")
     # Sentinel neutralised — no literal sentinel ever reaches the DataClient.
     assert dc.calls and "{{concept_filters}}" not in dc.calls[-1]["query"]
+
+
+def _derived_view_with_source_tables_manifest():
+    # Blok türetilmiş view `deps_py`'yi okuyor AMA source_tables bir Oracle
+    # tablosu gösteriyor (LLM concept-native shape) ve sentinel YOK. Eski kod
+    # path 3'e (Oracle) düşüp `SELECT ... FROM deps_py` çalıştırıyor → deps_py
+    # Oracle'da yok → ORA-00942. N1 fix: view referansı → DuckDB.
+    return {
+        "id": "p1", "version": 1,
+        "basket": [{"table": "deps_py", "alias": "deps_py", "columns": [],
+                    "source": "derived", "column_concepts": {}}],
+        "filters": [{"id": "f_segment", "semantic_tag": "segment", "type": "enum_multi",
+                     "label": "Segment", "allowed_values": ["RETAIL", "SME"]}],
+        "blocks": [{"id": "sec", "type": "section_header", "title": "x", "children": [{
+            "id": "b_cum", "type": "kpi", "title": "Toplam",
+            "source_tables": [{"schema": "EDW", "table": "DEPOSITS_DAILY"}],
+            "data_source": {"original_sql": "SELECT SUM(AMT) AS value FROM deps_py"},
+            "config": {"value": 0, "unit": "", "delta": 0, "delta_label": "", "period": ""},
+        }]}],
+    }
+
+
+def test_derived_view_block_runs_in_duckdb_not_oracle():
+    """N1/A1: SQL'i bir türetilmiş/scope view referans eden blok, sentinel olmasa
+    ve source_tables Oracle tablosu gösterse bile DuckDB'de koşar — Oracle'a
+    GİTMEZ (eskiden ORA-00942 alıyordu)."""
+    dc = _RecordingDC()
+    app = _make_app(_derived_view_with_source_tables_manifest(), dc)
+    _register_produced_view(app)
+    resp = _post(app.test_client(), "p1", {"f_segment": ["RETAIL"]})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    blk = {b["id"]: b for b in resp.get_json()["blocks"]}["b_cum"]
+    assert blk["status"] == "dataset_sql", blk      # DuckDB, Oracle değil
+    assert dc.calls == []                            # Oracle'a HİÇ gidilmedi (ORA-00942 yok)
+    assert blk.get("concept_injected") is False      # sentinel yok → filtre blind
+    assert "segment" in (blk.get("blind_filters") or [])

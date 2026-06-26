@@ -853,6 +853,7 @@ def chat_stream(pid: str, token: str):
     def generate():
         # Captured for the inner closure to append at the end.
         assistant_msgs: list[dict] = []
+        all_patches: list = []          # B1 (N3) — audit: LLM'in ürettiği patch'ler (kod)
 
         with app.app_context():
             try:
@@ -882,6 +883,9 @@ def chat_stream(pid: str, token: str):
                             "status": "error",
                         })
 
+                    if event["event"] == "patch" and isinstance(data.get("patches"), list):
+                        all_patches.extend(data["patches"])   # B1 — üretilen kod (audit)
+
                     yield f"event: {event['event']}\ndata: {payload}\n\n"
 
                 # Persist chat history. Re-read the manifest fresh because
@@ -901,6 +905,17 @@ def chat_stream(pid: str, token: str):
                     if len(chat_history) > MAX_CHAT_MSGS:
                         chat_history = chat_history[-MAX_CHAT_MSGS:]
                     m["chat_history"] = chat_history
+                    # A4 (N1) — concept filtrelerini İLK chat'ten sonra bir kez seed
+                    # et (build'de değil → Sunum açılır açılmaz sağ alta gelmesin).
+                    # Flag ile tek sefer; kullanıcı bir filtreyi silerse geri gelmez.
+                    if not m.get("_filters_seeded"):
+                        try:
+                            from .routes_scope import _seed_concept_filters_at_build
+                            _seed_concept_filters_at_build(m)
+                        except Exception:
+                            app.logger.warning("chat: concept filtre seed başarısız",
+                                               exc_info=True)
+                        m["_filters_seeded"] = True
                     m["version"] = m.get("version", 0) + 1
                     sess2.set_manifest(m)
                 except Exception:
@@ -914,7 +929,10 @@ def chat_stream(pid: str, token: str):
                         "llm_chat", user_sicil=sicil, presentation_id=pid,
                         request_id=token, stage="sunum", prompt=user_msg,
                         llm_response=" | ".join(a.get("text", "") for a in assistant_msgs),
-                        meta={"assistant_msgs": len(assistant_msgs)},
+                        sql_text=(json.dumps(all_patches, ensure_ascii=False, default=str)
+                                  if all_patches else None),   # B1 — üretilen kod (patch'ler)
+                        meta={"assistant_msgs": len(assistant_msgs),
+                              "patch_count": len(all_patches)},
                     )
                 except Exception:
                     pass
@@ -1664,50 +1682,68 @@ def apply_dashboard_filters(pid: str):
         # those column_concepts + the active filters — the aggregation counterpart
         # of the projection-only dataset_binding path. This is what makes an
         # AVG/SUM KPI on a produced table interactively filterable.
+        # N1/A1 — Bir bloğun SQL'i bir Hazırlık/scope VIEW'ını (üretilmiş türetme ya
+        # da cached dataset) referans ediyorsa o blok SESSION DuckDB'de koşar, ASLA
+        # Oracle'a gitmez. Eskiden bu yola yalnız {{concept_filters}} sentinel'i VE
+        # column_concepts olan bloklar giriyordu; sentinelsiz/binding'siz bir
+        # türetilmiş-view bloğu aşağıdaki Oracle concept-injection yoluna düşüp
+        # `ORA-00942: table or view does not exist` alıyordu (view Oracle'da yok).
+        # Artık SQL herhangi bir basket alias'ı referans ettiği anda (find_view_refs
+        # — FROM/JOIN-farkında) DuckDB'de koşar. Değişken (:bind) blokları hariç
+        # tutulur (onlar Phase 6.5 cache/bind yoluna gider).
         _sa_sql = block.get("query") or (block.get("data_source") or {}).get("original_sql") or ""
-        if "{{concept_filters}}" in _sa_sql and _alias_column_concepts:
-            _refs = duck.find_view_refs(_sa_sql, list(_alias_column_concepts.keys()))
-            if _refs:
-                from .scope.materialize import inject_dataset_concepts
-                from .routes_scope import hydrate_block_datasets, load_scope_for_manifest
-                from .aggregation_gate import validate_and_wrap
-                merged_cc: dict = {}
-                for _a in _refs:
-                    merged_cc.update(_alias_column_concepts.get(_a) or {})
+        _all_basket_aliases = [it.get("alias") for it in (manifest.get("basket") or [])
+                               if it.get("alias")]
+        _refs = (duck.find_view_refs(_sa_sql, _all_basket_aliases)
+                 if (_sa_sql and not block.get("variables")) else [])
+        if _refs:
+            from .scope.materialize import inject_dataset_concepts
+            from .routes_scope import hydrate_block_datasets, load_scope_for_manifest
+            from .aggregation_gate import validate_and_wrap
+            from .concepts.integration import strip_concept_sentinel
+            merged_cc: dict = {}
+            for _a in _refs:
+                merged_cc.update(_alias_column_concepts.get(_a) or {})
+            _has_sentinel = "{{concept_filters}}" in _sa_sql
+            if _has_sentinel and _concept_filter_dicts:
                 inj_sql, inj_params = inject_dataset_concepts(
                     _sa_sql, merged_cc, _concept_filter_dicts)
-                # An active filter whose concept is bound to NO referenced column
-                # is "blind" on this block (e.g. an as_of_time filter while the
-                # produced view's date column is bound to trade_time). Surface it
-                # like the catalog-table path so the UI shows "filtre uygulanmadı"
-                # instead of the filter silently doing nothing.
+                # Aktif bir filtrenin concept'i referans edilen HİÇBİR kolona bağlı
+                # değilse o filtre bu blokta "blind" (UI "filtre uygulanmadı" der).
                 _bound = set(merged_cc.values())
                 _applied = [{"concept": f["concept"]} for f in _concept_filter_dicts
                             if f.get("concept") in _bound]
                 _blind = [f["concept"] for f in _concept_filter_dicts
                           if f.get("concept") not in _bound]
-                try:
-                    with session.duck_conn() as conn:
-                        _sc = load_scope_for_manifest(manifest)
-                        if _sc is not None:
-                            hydrate_block_datasets(dc, conn, _sc, _sa_sql)
-                        gate = validate_and_wrap(inj_sql, dialect="duckdb")
-                        df = (conn.execute(gate.sql, inj_params).fetchdf()
-                              if inj_params else conn.execute(gate.sql).fetchdf())
-                    _apply_df_to_block(block, df, engine="dataset_sql", query=_sa_sql)
-                    results.append({
-                        "id": block["id"], "status": "dataset_sql",
-                        "row_count": int(len(df)), "aliases": _refs,
-                        "applied_predicates": _applied,
-                        "blind_filters": _blind,
-                        "concept_injected": bool(_applied),
-                    })
-                    touched += 1
-                except Exception as exc:
-                    msg = str(exc).strip().splitlines()[0][:240]
-                    results.append({"id": block["id"], "status": "error",
-                                     "kind": "duckdb", "error": msg})
-                continue
+            else:
+                # Sentinel yok ya da aktif filtre yok → filtre uygulanmaz; SQL'i
+                # olduğu gibi DuckDB'de koş (sentinel varsa 1=1'e indir). Aktif
+                # filtreler blind raporlanır (sessiz değil görünür).
+                inj_sql, inj_params = strip_concept_sentinel(_sa_sql), {}
+                _applied = []
+                _blind = [f["concept"] for f in _concept_filter_dicts]
+            try:
+                with session.duck_conn() as conn:
+                    _sc = load_scope_for_manifest(manifest)
+                    if _sc is not None:
+                        hydrate_block_datasets(dc, conn, _sc, _sa_sql)
+                    gate = validate_and_wrap(inj_sql, dialect="duckdb")
+                    df = (conn.execute(gate.sql, inj_params).fetchdf()
+                          if inj_params else conn.execute(gate.sql).fetchdf())
+                _apply_df_to_block(block, df, engine="dataset_sql", query=_sa_sql)
+                results.append({
+                    "id": block["id"], "status": "dataset_sql",
+                    "row_count": int(len(df)), "aliases": _refs,
+                    "applied_predicates": _applied,
+                    "blind_filters": _blind,
+                    "concept_injected": bool(_applied),
+                })
+                touched += 1
+            except Exception as exc:
+                msg = str(exc).strip().splitlines()[0][:240]
+                results.append({"id": block["id"], "status": "error",
+                                 "kind": "duckdb", "error": msg})
+            continue
 
         # Data-bound blocks participate if they EITHER declare variables
         # (Phase 6.5) OR are concept-native (source_tables + active concept

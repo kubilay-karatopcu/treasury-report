@@ -117,3 +117,16 @@ def test_log_event_never_raises_without_app_context():
     from presentations import audit
     audit._reset_for_test(None)
     audit.log_event("evt", prompt="y")        # current_app yok → yutulur, raise yok
+
+
+def test_sql_text_logged_for_generated_code():
+    """B1 (N3) — LLM'in ürettiği kod (patch'ler/öneriler) sql_text'e yazılır."""
+    dc = _DC()
+    lg = _logger(dc)
+    lg.log("llm_chat", user_sicil="A1", prompt="grafik ekle",
+           llm_response="2 blok eklendi",
+           sql_text='[{"op":"add","path":"/blocks/-","value":{}}]')
+    lg.flush()
+    row = dc.cur.rows[0]
+    assert row["sql_text"] == '[{"op":"add","path":"/blocks/-","value":{}}]'
+    assert row["llm_response"] == "2 blok eklendi"
