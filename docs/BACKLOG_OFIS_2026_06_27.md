@@ -12,7 +12,7 @@ kararları sonrası 7 oturuma bölündü. İlgili: [[office-backlog-2026-06-24]]
 | # | Oturum | Maddeler | Tip | Risk | Durum |
 |---|---|---|---|---|---|
 | M1 | Hazırlık sol panel sadeleştirme | 1 | frontend/bundle | 🟠 | ✅ TAMAM |
-| M2 | Audit kapsama (keşif + build) | 2 | backend | 🟢 | beklemede |
+| M2 | Audit kapsama (keşif + build) | 2 | backend | 🟢 | ✅ TAMAM |
 | M3 | LLM dürüstlüğü: Sunum "sor" + Hazırlık kolon-eşleme | 5, 9 | prompt + context | 🟠 | beklemede |
 | M4 | Konsept menü perf (validate yalnız detaylı-ara) | 4 | front+back | 🟠 | beklemede |
 | M5 | Sunum filtre UX: özel-filtre kaldır + her-geçişte seed | 6, 7 | front+back | 🟠 | beklemede |
@@ -69,11 +69,18 @@ artık önemini yitirdi; chat sıkışık.
 
 ---
 
-## Oturum M2 — Audit kapsama (madde 2)
+## Oturum M2 — Audit kapsama (madde 2) — ✅ TAMAM
+
+**Yapıldı:** Keşif chat hook'u ([routes_kesif.py](presentations/routes_kesif.py) `kesif_chat_send`)
+— 3 dönüş yolunda da (başarı/DiscoveryError/LLM-yok) `audit.log_event("kesif_chat", stage="kesif",
+prompt, llm_response, sql_text=öneriler, meta)`. Hazırlık **build** event hook'u
+([routes_scope.py](presentations/routes_scope.py) `_run_build_core`): başarıda `audit.log_event(
+"scope_build", stage="hazirlik", table_ref="N cached / M lazy", meta={version, cached, lazy})`,
+hatada `error_text`. Test: `test_chat_logs_audit_event` (catalog). Saf backend (restart).
 
 **Kök neden:** `audit.log_event` Sunum chat (routes.py:928) + Hazırlık scope-chat
-(routes_scope.py:3273) **var**; **Keşif** chat ([routes_kesif.py](presentations/routes_kesif.py):1106
-`kesif_chat_send`) + Hazırlık **build** olayları audit'siz.
+(routes_scope.py:3273) **var**; **Keşif** chat (`kesif_chat_send`) + Hazırlık **build**
+olayları audit'siz.
 
 **Plan:**
 - Keşif chat hook'u: `kesif_chat_send` LLM dönüşü sonrası `audit.log_event("kesif_chat",
