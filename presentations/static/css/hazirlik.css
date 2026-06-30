@@ -206,6 +206,19 @@
 .hz-node-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #206bc4; color: #fff; font-weight: 600; }
 .hz-node-alias { display: flex; align-items: center; gap: 5px; }
 .hz-node-head .hz-badge { font-size: 10px; padding: 1px 7px; background: rgba(255,255,255,.22); color: #fff; cursor: help; }
+/* M1 — node başlığı içi aksiyon ikonları (göz/docs/sil/sql-edit). Alias büyür,
+   aksiyonlar + rozet sağa yaslanır. nodrag class'ı JSX'te (sürükleme/drawer'ı engeller). */
+.hz-node-head .hz-node-alias { flex: 1 1 auto; min-width: 0; }
+.hz-node-acts { display: inline-flex; align-items: center; gap: 1px; flex: 0 0 auto; margin: 0 4px; }
+.hz-node-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: none; border-radius: 4px;
+  background: transparent; color: rgba(255,255,255,.78); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.hz-node-act:hover { background: rgba(255,255,255,.22); color: #fff; }
+.hz-node-act--del { color: #fecaca; }
+.hz-node-act--del:hover { background: rgba(220,38,38,.4); color: #fff; }
 .hz-badge-user-mark { font-size: 9px; opacity: 0.85; margin-left: 2px; }
 
 /* Join modal: concept badges next to each selected column + match hint */
@@ -282,7 +295,9 @@
 
 /* #5 — sohbeti büyüt: sohbet alanı yukarı doğru genişler; tablo listesi sınırlı + scroll. */
 .hz-sidebar .sidebar-section--chat {
-  flex: 1 1 auto; min-height: 320px; display: flex; flex-direction: column;
+  /* M1 — sol "Tablolar" listesi kaldırıldı → chat boşalan alanı doldurup yukarı
+     uzar; min-height artırıldı (320→440) ki kısa ekranda bile belirgin büyük olsun. */
+  flex: 1 1 auto; min-height: 440px; display: flex; flex-direction: column;
 }
 .hz-sidebar .sidebar-section--chat .chat-box {
   flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;
@@ -293,7 +308,11 @@
    hareket etmesin"). `scrollbar-gutter: stable` gutter'ı HEP rezerve eder →
    scrollbar görünse de görünmese de içerik genişliği sabit, kayma yok. */
 .hz-sidebar .hz-basket-list { max-height: 30vh; overflow-y: auto; scrollbar-gutter: stable; }
-.hz-sidebar .sidebar-section--sources { scrollbar-gutter: stable; }
+/* M1 — Tablolar listesi kaldırıldı → kaynaklar bölümü artık küçük (başlık +
+   Keşife Dön + ekle butonları). editor.css'teki `flex: 1 1 auto`'i ez: içerik
+   boyu kadar yer kaplasın (chat'le yarışıp 32px'e ezilmesin), çok büyürse (Bloklar)
+   45vh'da scroll'lansın. Chat (flex:1) boşalan alanı alır. */
+.hz-sidebar .sidebar-section--sources { scrollbar-gutter: stable; flex: 0 0 auto; max-height: 45vh; }
 /* #D — sohbet mesaj alanı yukarı doğru büyüsün: editor.css'teki 180px tavanı
    kaldır. Böylece input chat kutusunun en altına oturur (CTA ile birleşik
    görünür, aradaki boşluk kaybolur) ve mesaj alanı tüm yüksekliği kullanır. */
@@ -488,32 +507,8 @@
 .hz-basket-row__main:hover { background: #f8fafc; }
 .hz-basket-row--block .hz-basket-row__main { cursor: default; }
 .hz-basket-row--block .hz-basket-row__main:hover { background: transparent; }
-/* Visibility toggle icon (eye / eye-off) — Phase 11.polish-2 replaces the
-   old trash button. Hidden rows fade so the user can see at a glance
-   which tables are on the canvas. */
-.hz-basket-row__viz {
-  flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; color: #94a3b8;
-}
-.hz-basket-row.is-hidden .hz-basket-row__main { opacity: 0.45; }
-.hz-basket-row.is-hidden .hz-basket-row__viz { color: #d1d5db; }
-.hz-basket-row.is-derived .hz-basket-row__main { font-style: italic; }
-
-/* Sol aksiyon slotu — artık tıklanabilir buton: aktifte göz (pasifleştir),
-   pasifte kırmızı çöp (sil). İki kademeli: sadece pasif node silinebilir. */
-.hz-basket-row__viz-btn {
-  flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; padding: 0;
-  background: transparent; border: none; cursor: pointer;
-  color: #94a3b8; border-right: 1px solid transparent;
-}
-.hz-basket-row__viz-btn:hover { background: #f1f5f9; color: #475569; border-right-color: #e2e8f0; }
-.hz-basket-row.is-hidden .hz-basket-row__viz-btn { color: #cbd5e1; }
-.hz-basket-row__viz-btn.is-delete { color: #dc2626; }
-.hz-basket-row.is-hidden .hz-basket-row__viz-btn.is-delete { color: #dc2626; }
-.hz-basket-row__viz-btn.is-delete:hover { background: #fef2f2; color: #b91c1c; border-right-color: #fecaca; }
+/* M1 — sol-liste göz/sil (.hz-basket-row__viz*, is-hidden/is-derived) KALDIRILDI
+   (VizSlot + Tablolar listesi silindi; aksiyonlar node başlığında). */
 
 /* Docs paneli — "Kaynak Tablolar" köprüleri (üretilmiş/SQL node'ları). */
 .hz-docs-sources { display: flex; flex-direction: column; gap: 4px; }
@@ -1048,17 +1043,7 @@
 .hz-docs-pill--key { background: #ddd6fe; color: #5b21b6; }
 .hz-docs-pill--computed { background: #e2e8f0; color: #475569; font-style: italic; }
 
-/* Sol panel bütçe göstergesi (cached tahmini boyut / session limiti). */
-.hz-budget { margin: 4px 0 6px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; }
-.hz-budget-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; }
-.hz-budget-label { color: #64748b; }
-.hz-budget-val { font-variant-numeric: tabular-nums; color: #334155; font-weight: 600; }
-.hz-budget-bar { margin-top: 5px; height: 5px; border-radius: 3px; background: #eef0f3; overflow: hidden; }
-.hz-budget-fill { height: 100%; background: #16a34a; transition: width .25s ease; }
-.hz-budget--warn .hz-budget-fill { background: #f59e0b; }
-.hz-budget--over .hz-budget-fill { background: #dc2626; }
-.hz-budget--over { border-color: #fecaca; background: #fef2f2; }
-.hz-budget-note { margin-top: 4px; font-size: 10.5px; color: #b91c1c; }
+/* M1 — Sol panel bütçe göstergesi (.hz-budget*) KALDIRILDI (BudgetPanel silindi). */
 
 /* Union modalı kolon eşleşme tablosu. */
 .hz-union-table { width: 100%; margin: 8px 0; }

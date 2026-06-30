@@ -236,7 +236,12 @@ function summarizeFilter(f) {
 // Singleton holder for node-data handlers — App registers once, every
 // enrichNodeData() call reads from here. Avoids threading callbacks through
 // every node-creating site (initialNodes / addTable / saveAsTable / chat-apply).
-const NODE_HANDLERS = { onOverrideRouting: null, onEditRefresh: null };
+const NODE_HANDLERS = {
+  onOverrideRouting: null, onEditRefresh: null,
+  // M1 — sol "Tablolar" listesi kaldırıldı; göz(aktive/deaktive) + docs + sil +
+  // sql-edit aksiyonları artık canvas node'unun başlığında.
+  onToggleVisibility: null, onOpenDocs: null, onRemoveAlias: null, onEditSql: null,
+};
 
 function enrichNodeData(item, scope) {
   return {
@@ -312,8 +317,34 @@ function TableNode({ data }) {
         {/* Başlık-seviyesi handle = union ("tırnak"). Başlıktan başlığa
             sürükle → iki tabloyu unionla (kolon sayısı + tip kontrolü modalda). */}
         <Handle type="target" position={Position.Left} id="__table__" className="hz-handle hz-handle--table" />
-        {inactive && <span className="hz-node-inactive-tag" title="Pasif — Sunum'a alınmaz (sol menüden tıklayıp aktif et)">pasif</span>}
+        {inactive && <span className="hz-node-inactive-tag" title="Pasif — Sunum'a alınmaz (göz ikonuna tıkla: aktif et)">pasif</span>}
         <span className="hz-node-alias">{isPython ? <Code2 size={12} /> : <Database size={12} />} {item.table_ref ? `${item.table_ref.schema}.${item.table_ref.name}` : item.alias}{item.sql && <span className="hz-sql-tag">SQL</span>}{isPython && <span className="hz-sql-tag hz-py-tag">PY</span>}</span>
+        {/* M1 — node-içi aksiyonlar (eski sol-liste VizSlot'unun yerine). nodrag:
+            React Flow node'u sürüklenmesin; stopPropagation: drawer açılmasın. */}
+        <div className="hz-node-acts nodrag">
+          <button type="button" className="hz-node-act nodrag"
+                  title={inactive ? "Pasif — tıkla: aktif et (Sunum'a al)" : "Aktif — tıkla: pasif yap (Sunum'a alma)"}
+                  onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onToggleVisibility?.(item.alias); }}>
+            {inactive ? <EyeOff size={12} /> : <Eye size={12} />}
+          </button>
+          <button type="button" className="hz-node-act nodrag" title="Tablo dökümanını göster"
+                  onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onOpenDocs?.(item.alias); }}>
+            <Info size={12} />
+          </button>
+          {item.sql && (
+            <button type="button" className="hz-node-act nodrag" title="SQL kaynağını düzenle"
+                    onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onEditSql?.(item.alias); }}>
+              <Pencil size={12} />
+            </button>
+          )}
+          {inactive && (
+            <button type="button" className="hz-node-act hz-node-act--del nodrag"
+                    title="Bu tabloyu scope'tan kaldır (yalnız pasifken)"
+                    onClick={(e) => { e.stopPropagation(); NODE_HANDLERS.onRemoveAlias?.(item.alias); }}>
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
         <span
           className={`hz-badge hz-badge--${sized ? (cached ? "cached" : "lazy") : (isPython ? "python" : "derived")}`}
           title={isPython ? "Python dönüşüm node'u — script DuckDB/parquet üzerinde sandbox'ta koşar." : decisionTitle}
@@ -1499,63 +1530,8 @@ function _enrichCols(cols, srcColMap) {
   });
 }
 
-// Sol panel bütçe göstergesi: cached (materialise edilen) tabloların tahmini
-// boyut toplamı / session limiti. Lazy tablolar sayılmaz (materialise olmaz);
-// türetilmiş node'lar boyutsuz (DuckDB) → 0 ekler. ≥%70 amber, >%100 kırmızı.
-function BudgetPanel({ scope }) {
-  // Pasif (Sunum'a gitmeyecek) alias'lar materialise edilmez → bütçeye sayma.
-  // (#1: pasif büyük tablolar toplamı şişiriyordu.)
-  const inactive = new Set(scope.inactive_aliases || []);
-  const used = (scope.basket || []).reduce(
-    (s, b) => s + (b.routing?.decision === "cached" && !inactive.has(b.alias)
-      ? (b.routing?.estimated_bytes || 0) : 0),
-    0,
-  );
-  const pct = SESSION_BUDGET_BYTES > 0 ? (used / SESSION_BUDGET_BYTES) * 100 : 0;
-  const over = used > SESSION_BUDGET_BYTES;
-  const level = over ? "over" : pct >= 70 ? "warn" : "ok";
-  return (
-    <div className={`hz-budget hz-budget--${level}`}
-      title="Cached (materialise edilen) tabloların tahmini toplam boyutu. Lazy + türetilmiş node'lar sayılmaz.">
-      <div className="hz-budget-row">
-        <span className="hz-budget-label">Tahmini kullanım</span>
-        {/* used=0 → "0 MB" (formatBytes 0'ı "—" döndürüyor; burada rakam isteniyor).
-            Boyut tahminleri EXPLAIN PLAN ile arka planda dolar → değer yükselir. */}
-        <span className="hz-budget-val">{used > 0 ? formatBytes(used) : "0 MB"} / {formatBytes(SESSION_BUDGET_BYTES)}</span>
-      </div>
-      <div className="hz-budget-bar">
-        <div className="hz-budget-fill" style={{ width: `${Math.min(100, pct)}%` }} />
-      </div>
-      {over && <div className="hz-budget-note">⚠ Limit aşıldı — bazı tabloları lazy yap ya da filtrele.</div>}
-    </div>
-  );
-}
-
-// Sol aksiyon slotu: aktifken göz (→ pasifleştir), pasifken — silinebilir
-// node'larda kırmızı çöp (→ sil), değilse eye-off (→ tekrar aktif et). İki
-// kademeli güvenlik: bir node ancak PASİF iken silinebilir; aktif node'da
-// çöp ikonu hiç görünmez.
-function VizSlot({ hidden, canDelete, onToggle, onDelete }) {
-  const isDelete = hidden && canDelete;
-  return (
-    <button
-      type="button"
-      className={`hz-basket-row__viz-btn${isDelete ? " is-delete" : ""}`}
-      onClick={(e) => { e.stopPropagation(); (isDelete ? onDelete : onToggle)(); }}
-      title={isDelete
-        ? "Sil — bu tabloyu scope'tan tamamen kaldır"
-        : hidden
-          ? "Pasif — tıkla: tekrar aktif et"
-          : "Aktif — tıkla: pasif yap (Sunum'a alma)"}
-    >
-      {isDelete
-        ? <Trash2 size={12} strokeWidth={2} />
-        : hidden
-          ? <EyeOff size={12} strokeWidth={1.8} />
-          : <Eye size={12} strokeWidth={1.8} />}
-    </button>
-  );
-}
+// M1 — BudgetPanel ("Tahmini kullanım") ve VizSlot (sol-liste göz/sil) kaldırıldı.
+// Tablolar listesi gitti; aktive/deaktive + sil aksiyonları node başlığında (TableNode).
 
 // Minimal SQL pretty-printer for the read-only "Kaynak Query" tab — the
 // backend emits the query on a single line; break before major clauses and put
@@ -1580,14 +1556,13 @@ function formatSql(sql) {
 }
 
 function SourcesSidebar({
-  scope, onOpenDocs, libraryBlocks, chat,
-  hiddenAliases, onToggleVisibility, onRemove,
-  goingToSunum, onGoToSunum, onUpload, onAddSql, onEditSql,
+  scope, libraryBlocks, chat,
+  hiddenAliases,
+  goingToSunum, onGoToSunum, onUpload, onAddSql,
 }) {
   // Phase 11.hazirlik-polish: sidebar shows ONLY what's in MY basket
   // (no longer the full DOMAINS tree). Split into Tablolar + Bloklar
   // with per-group search inputs, mirroring the Keşif Sepet pattern.
-  const [tableSearch, setTableSearch] = useState("");
   const [blockSearch, setBlockSearch] = useState("");
   // Sürüklenebilir sidebar genişliği (Sunum'la aynı hook + .resize-handle).
   const [sidebarW, startSidebarDrag] = useResizable("hz-sidebar", 320, "right", { min: 260, max: 680 });
@@ -1636,15 +1611,6 @@ function SourcesSidebar({
     [scope.basket, sinkInactive],
   );
 
-  const tablesFiltered = useMemo(() => {
-    const q = tableSearch.trim().toLowerCase();
-    const base = q
-      ? tableItems.filter((it) =>
-          it.tid.toLowerCase().includes(q)
-          || (it.alias || "").toLowerCase().includes(q))
-      : tableItems;
-    return sinkInactive(base, (it) => it.alias);
-  }, [tableItems, tableSearch, sinkInactive]);
   const blocksFiltered = useMemo(() => {
     const q = blockSearch.trim().toLowerCase();
     const all = libraryBlocks || [];
@@ -1719,129 +1685,9 @@ function SourcesSidebar({
             </div>
           )}
 
-          {/* ── Tablolar ─────────────────────────────────────────── */}
-          {(tableItems.length > 0 || derivedItems.length > 0) && (
-            <div className="hz-basket-group">
-              <div className="hz-basket-group__title">
-                <Table2 size={11} strokeWidth={2} />
-                <span>Tablolar</span>
-                <span className="hz-basket-group__count">
-                  {tableItems.length + derivedItems.length}
-                </span>
-              </div>
-              <BudgetPanel scope={scope} />
-              <input
-                type="text"
-                className="hz-basket-search"
-                placeholder="Tablo ara…"
-                value={tableSearch}
-                onChange={(e) => setTableSearch(e.target.value)}
-              />
-              <div className="hz-basket-list">
-                {tablesFiltered.map((it) => {
-                  const hidden = hiddenAliases?.has(it.alias) || false;
-                  // Katalog tabloları Keşif'ten gelir → silme burada değil
-                  // (Keşife Dön). Yalnızca burada doğan manuel-SQL silinebilir.
-                  const canDelete = it.isSql;
-                  return (
-                    <div
-                      key={it.alias}
-                      className={`hz-basket-row sources-table-wrap is-active${hidden ? " is-hidden" : ""}`}
-                    >
-                      <VizSlot
-                        hidden={hidden}
-                        canDelete={canDelete}
-                        onToggle={() => onToggleVisibility && onToggleVisibility(it.alias)}
-                        onDelete={() => onRemove && onRemove(it.alias)}
-                      />
-                      <button
-                        type="button"
-                        className="hz-basket-row__main sources-table"
-                        onClick={() => onToggleVisibility && onToggleVisibility(it.alias)}
-                        title={hidden ? "Pasif — tıkla: tekrar aktif et (Sunum'a al)" : "Aktif — tıkla: pasif yap (Sunum'a alma, node kararır)"}
-                      >
-                        <div className="sources-table-info">
-                          <div className="sources-table-name">{it.name}</div>
-                          <div className="sources-table-desc" title={it.catalog?.desc || ""}>
-                            {it.schema}{it.catalog?.desc
-                              ? ` · ${it.catalog.desc.length > 200 ? it.catalog.desc.slice(0, 200) + "…" : it.catalog.desc}`
-                              : ""}
-                          </div>
-                        </div>
-                      </button>
-                      {it.isSql && (
-                        <button
-                          type="button"
-                          className="sources-table-eye"
-                          onClick={(e) => { e.stopPropagation(); onEditSql && onEditSql(it.alias); }}
-                          title="SQL kaynağını düzenle"
-                        >
-                          <Code2 size={12} strokeWidth={1.8} />
-                        </button>
-                      )}
-                      {/* Tablo dökümanı butonu HER ZAMAN en sağda. */}
-                      <button
-                        type="button"
-                        className="sources-table-eye"
-                        onClick={(e) => { e.stopPropagation(); onOpenDocs && onOpenDocs(it.alias); }}
-                        title="Tablo dökümanını göster"
-                      >
-                        <Info size={12} strokeWidth={1.8} />
-                      </button>
-                    </div>
-                  );
-                })}
-                {derivedItems.map((b) => {
-                  const hidden = hiddenAliases?.has(b.alias) || false;
-                  const dk = b.derivation?.kind;
-                  const kindLabel = dk === "aggregate" ? "agregat"
-                    : dk === "filter" ? "filtre"
-                    : dk === "join" ? "join"
-                    : dk === "union" ? "union" : "hesaplama";
-                  return (
-                    <div
-                      key={b.alias}
-                      className={`hz-basket-row sources-table-wrap is-active is-derived${hidden ? " is-hidden" : ""}`}
-                    >
-                      <VizSlot
-                        hidden={hidden}
-                        canDelete
-                        onToggle={() => onToggleVisibility && onToggleVisibility(b.alias)}
-                        onDelete={() => onRemove && onRemove(b.alias)}
-                      />
-                      <button
-                        type="button"
-                        className="hz-basket-row__main sources-table"
-                        onClick={() => onToggleVisibility && onToggleVisibility(b.alias)}
-                        title={hidden ? "Pasif — tıkla: tekrar aktif et (Sunum'a al)" : "Aktif — tıkla: pasif yap (Sunum'a alma, node kararır)"}
-                      >
-                        <div className="sources-table-info">
-                          <div className="sources-table-name">{b.alias}</div>
-                          <div className="sources-table-desc">
-                            {kindLabel}
-                            {b.derivation?.source_alias ? ` · ${b.derivation.source_alias}` : ""}
-                          </div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        className="sources-table-eye"
-                        onClick={(e) => { e.stopPropagation(); onOpenDocs && onOpenDocs(b.alias); }}
-                        title="Tablo dökümanını göster (kaynak tablo + çıktı kolonları)"
-                      >
-                        <Info size={12} strokeWidth={1.8} />
-                      </button>
-                    </div>
-                  );
-                })}
-                {tablesFiltered.length === 0 && derivedItems.length === 0 && tableSearch && (
-                  <div className="hz-basket-empty hz-basket-empty--mini">
-                    "{tableSearch}" ile eşleşen tablo yok.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {/* M1 — "Tablolar" listesi + Tahmini kullanım + Tablo ara KALDIRILDI.
+              Tablolar artık yalnız canvas'ta; aktive/deaktive göz + docs + sil +
+              sql-edit aksiyonları node başlığında (TableNode). */}
 
           {/* ── Bloklar ──────────────────────────────────────────── */}
           {(libraryBlocks || []).length > 0 && (
@@ -3694,6 +3540,22 @@ function App() {
     }).catch(() => { /* best effort — çıktı kolonları yine de gösterildi */ });
   }, [scope, docForAlias]);
 
+  // M1 — node başlığındaki göz/docs/sil/sql-edit aksiyonları için handler'ları
+  // singleton'a kaydet (eski sol-liste yerine; tüm handler'lar yukarıda tanımlı).
+  // setEditSqlAlias stabil setState → dep'e gerek yok.
+  useEffect(() => {
+    NODE_HANDLERS.onToggleVisibility = toggleAliasVisibility;
+    NODE_HANDLERS.onOpenDocs = openDocsForAlias;
+    NODE_HANDLERS.onRemoveAlias = removeAlias;
+    NODE_HANDLERS.onEditSql = setEditSqlAlias;
+    return () => {
+      NODE_HANDLERS.onToggleVisibility = null;
+      NODE_HANDLERS.onOpenDocs = null;
+      NODE_HANDLERS.onRemoveAlias = null;
+      NODE_HANDLERS.onEditSql = null;
+    };
+  }, [toggleAliasVisibility, openDocsForAlias, removeAlias]);
+
 
   const applySuggestion = useCallback(async (turnId, suggestion) => {
     setApplyingId(suggestion.id);
@@ -4816,14 +4678,10 @@ function App() {
           scope={scope}
           libraryBlocks={DATA.library_blocks || []}
           hiddenAliases={inactiveAliases}
-          onToggleVisibility={toggleAliasVisibility}
-          onRemove={removeAlias}
-          onOpenDocs={openDocsForAlias}
           goingToSunum={busy}
           onGoToSunum={goToSunum}
           onUpload={() => setUploadOpen(true)}
           onAddSql={() => setSqlModalOpen(true)}
-          onEditSql={(alias) => setEditSqlAlias(alias)}
           chat={{
             history: chatHistory, busy: chatBusy, error: chatError,
             draft: chatDraft, onDraftChange: setChatDraft,
