@@ -77,6 +77,25 @@ def test_chat_persists_across_calls(chat_client):
     assert "ikinci mesaj" in user_texts
 
 
+def test_chat_logs_audit_event(chat_client, monkeypatch):
+    """M2 — Keşif chat prompt'u + LLM önerileri audit'e (stage='kesif') yazılır."""
+    import presentations.audit as audit
+    calls = []
+    monkeypatch.setattr(audit, "log_event", lambda et, **kw: calls.append((et, kw)))
+    r = chat_client.post(
+        "/presentations/atolye/kesif/chat",
+        json={"message": "mevduat tabloları lazım"},
+    )
+    assert r.status_code == 200
+    kesif = [(et, kw) for (et, kw) in calls if et == "kesif_chat"]
+    assert kesif, "kesif_chat audit event eksik"
+    _et, kw = kesif[0]
+    assert kw["stage"] == "kesif"
+    assert kw["prompt"] == "mevduat tabloları lazım"
+    assert kw.get("presentation_id")          # draft pid bağlı
+    assert kw.get("sql_text")                 # önerilen tablolar (kod) yazıldı
+
+
 def test_chat_clear_wipes_history(chat_client):
     chat_client.post(
         "/presentations/atolye/kesif/chat",

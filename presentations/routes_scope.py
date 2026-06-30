@@ -1223,6 +1223,13 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
             current_app.config["SCOPE_STORE"].save(scope)
         except Exception:
             log.warning("build: persist of failed scope failed", exc_info=True)
+        # Audit (M2) — build hatası da loglanır (hangi sunum, hangi hata).
+        try:
+            from presentations import audit
+            audit.log_event("scope_build", user_sicil=user_sicil, presentation_id=pid,
+                            stage="hazirlik", error_text=str(exc))
+        except Exception:
+            pass
         return {"ok": False, "phase": "fetch", "errors": [str(exc)]}
 
     scope.status.state = "ready"
@@ -1240,6 +1247,19 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
     scope.status.fetched_at = datetime.now(timezone.utc)
 
     version = current_app.config["SCOPE_STORE"].save(scope)
+
+    # Audit (M2) — Hazırlık build olayı: hangi tablolar üretildi/cache'lendi,
+    # hangi sürüm. table_ref'e kısa özet; detay meta'da. Best-effort.
+    try:
+        from presentations import audit
+        _cached = sorted(loaded.keys())
+        audit.log_event(
+            "scope_build", user_sicil=user_sicil, presentation_id=pid,
+            stage="hazirlik", table_ref=f"{len(_cached)} cached / {len(lazy)} lazy",
+            meta={"scope_version": version, "cached": _cached, "lazy": list(lazy)},
+        )
+    except Exception:
+        pass
 
     manifest = session.get_manifest() or {
         "id": pid, "version": 0, "owner_id": user_sicil,

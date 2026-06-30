@@ -1171,6 +1171,13 @@ def kesif_chat_send():
         }
         history.append(assistant_turn)
         _persist_chat_history(sicil, draft.pid, history)
+        try:
+            from presentations import audit
+            audit.log_event("kesif_chat", user_sicil=sicil, presentation_id=draft.pid,
+                            stage="kesif", prompt=message,
+                            error_text="LLM_CLIENT yok")
+        except Exception:
+            pass
         return _json({
             "user_message": user_turn,
             "assistant_message": assistant_turn,
@@ -1198,6 +1205,12 @@ def kesif_chat_send():
         }
         history.append(assistant_turn)
         _persist_chat_history(sicil, draft.pid, history)
+        try:
+            from presentations import audit
+            audit.log_event("kesif_chat", user_sicil=sicil, presentation_id=draft.pid,
+                            stage="kesif", prompt=message, error_text=str(exc))
+        except Exception:
+            pass
         return _json({
             "user_message": user_turn,
             "assistant_message": assistant_turn,
@@ -1214,6 +1227,22 @@ def kesif_chat_send():
     }
     history.append(assistant_turn)
     _persist_chat_history(sicil, draft.pid, history)
+
+    # Audit (M2) — Keşif aşamasında kim ne prompt yazdı, LLM ne tablo önerdi.
+    # Best-effort (audit.log_event hata yutar). stage="kesif".
+    try:
+        from presentations import audit
+        audit.log_event(
+            "kesif_chat", user_sicil=sicil, presentation_id=draft.pid,
+            stage="kesif", prompt=message,
+            llm_response=result.explanation or "",
+            sql_text=(json.dumps(assistant_turn["proposals"], ensure_ascii=False, default=str)
+                      if assistant_turn["proposals"] else None),   # LLM'in önerdiği tablolar
+            meta={"proposal_count": len(assistant_turn["proposals"]),
+                  "highlights": len(assistant_turn["highlights"])},
+        )
+    except Exception:
+        pass
 
     return _json({
         "user_message": user_turn,
