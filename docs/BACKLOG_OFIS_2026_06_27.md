@@ -14,7 +14,7 @@ kararları sonrası 7 oturuma bölündü. İlgili: [[office-backlog-2026-06-24]]
 | M1 | Hazırlık sol panel sadeleştirme | 1 | frontend/bundle | 🟠 | ✅ TAMAM |
 | M2 | Audit kapsama (keşif + build) | 2 | backend | 🟢 | ✅ TAMAM |
 | M3 | LLM dürüstlüğü: Sunum "sor" + Hazırlık kolon-eşleme | 5, 9 | prompt + context | 🟠 | ✅ TAMAM |
-| M4 | Konsept menü perf (validate yalnız detaylı-ara) | 4 | front+back | 🟠 | beklemede |
+| M4 | Konsept menü perf (validate yalnız detaylı-ara) | 4 | front+back | 🟠 | ✅ TAMAM |
 | M5 | Sunum filtre UX: özel-filtre kaldır + her-geçişte seed | 6, 7 | front+back | 🟠 | beklemede |
 | M6 | Sunum concept-filter motoru: tek DuckDB query, ara-tablo yok, ORA-00942 | 8 | backend | 🔴 | beklemede |
 | M7 | Join yeniden tasarım (lazy↔lazy Oracle / cached↔cached) | 3 | full-stack | 🔴 | beklemede |
@@ -125,10 +125,20 @@ backend+prompt (restart; bundle YOK — noop UI zaten var).
 
 ---
 
-## Oturum M4 — Konsept menü perf (madde 4)
+## Oturum M4 — Konsept menü perf (madde 4) — ✅ TAMAM
 
-**Şu an:** `/validate-concept` (routes_scope.py:2818) her seçimde ephemeral DuckDB + 500 DISTINCT,
-**memo YOK** → 2-4 sn. `/suggest-concepts` zaten N2/A3 memo'lu, yalnız "Detaylı ara"da.
+**Yapıldı (K4):** Concept SEÇİMİNDE otomatik "uyumlu mu" doğrulaması TAMAMEN kaldırıldı
+(yavaştı: her seçimde ephemeral DuckDB örnekleme + 500 DISTINCT, memo'suz → UI donuyordu).
+Frontend: `ConceptsTab` validation makinesi (valid state/runValidate/lastValidated/effect/
+status rozetleri), `validateConcept` handler, `VALIDATE_CONCEPT_URL`, prop zinciri silindi.
+Backend: `/scope/validate-concept` route + `test_validate_concept.py` silindi (paylaşılan
+`_preview_sample_into_duck` vb. helper'lar kaldı). Ölü CSS (`.hz-concept-warn/-ok/-msg`) temizlendi.
+Uygunluk artık YALNIZ "Detaylı ara" panelindeki sıralı öneri (suggest — N2/A3 memo'lu) üzerinden.
+Canlı doğrulandı: validate-concept 404, Konseptler tab 0 rozet, 0 console error. bundle v45→46,
+hazirlik.css v27→28.
+
+**Şu an:** `/validate-concept` her seçimde ephemeral DuckDB + 500 DISTINCT, **memo YOK** → 2-4 sn.
+`/suggest-concepts` zaten N2/A3 memo'lu, yalnız "Detaylı ara"da.
 
 **Plan (K4):**
 - Otomatik selection-validation'ı kaldır (ConceptsTab effect, ~2288) → konsept seçilince "?" durumu.
