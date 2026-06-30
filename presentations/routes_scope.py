@@ -698,6 +698,9 @@ def _columns_for(schema: str, name: str) -> list[dict[str, Any]]:
             "name": col,
             "type": getattr(cd, "type", None),
             "concept": bind_concept.get(col) or getattr(cd, "suggested_semantic_tag", None),
+            # M3 (madde 9) — kolon açıklaması: LLM yanlış/açıklayıcı yazılan kolonu
+            # gerçek kolona eşlemek için kullanır.
+            "description": getattr(cd, "description", None) or "",
             "filter_role": fr,
             "join_key": join_key,
             "lookup": ({"table": lk.table, "key": lk.key, "display": lk.display} if lk else None),
@@ -3240,10 +3243,12 @@ def scope_chat(pid: str):
     # node'lar cols_by_alias'ta olmayabilir (yalnız raw main'ler dolduruldu); o
     # zaman projection.columns'a düş.
     selected_columns: list[str] | None = None
+    selected_columns_meta: list[dict] | None = None   # M3 — ad+tip+concept+açıklama
     if selected_alias:
         meta = cols_by_alias.get(selected_alias)
         if meta:
             selected_columns = [c.get("name") for c in meta if c.get("name")]
+            selected_columns_meta = meta
         else:
             sel = next((b for b in (scope_in.get("basket") or [])
                         if b.get("alias") == selected_alias), None)
@@ -3272,6 +3277,7 @@ def scope_chat(pid: str):
             selected_alias=selected_alias,
             selected_columns=selected_columns,
             selected_profile=selected_profile,
+            selected_columns_meta=selected_columns_meta,
         )
     except Exception as exc:
         log.exception("scope_chat: LLM call failed")
