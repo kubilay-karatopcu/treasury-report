@@ -193,6 +193,7 @@ class QwenClient:
         selected_alias: str | None = None,
         selected_columns: list[str] | None = None,
         selected_profile: dict | None = None,
+        selected_columns_meta: list[dict] | None = None,
     ) -> dict:
         """Phase 8.f Hazırlık chat: scope refinement suggestions.
 
@@ -212,6 +213,7 @@ class QwenClient:
             selected_alias=selected_alias,
             selected_columns=selected_columns,
             selected_profile=selected_profile,
+            selected_columns_meta=selected_columns_meta,
         )
         result = self._call_scope(system, composed)
         if result.get("_invalid"):
@@ -646,6 +648,7 @@ def compose_scope_user_message(
     selected_alias: str | None = None,
     selected_columns: list[str] | None = None,
     selected_profile: dict | None = None,
+    selected_columns_meta: list[dict] | None = None,
 ) -> str:
     """Render the user-side payload for `suggest_scope_refinements`.
 
@@ -724,6 +727,24 @@ def compose_scope_user_message(
                 parts.append(f"  - `{nm}` : {dt}" + (f" — {ex}" if ex else ""))
         elif selected_columns:
             parts.append("- kolonlar: " + ", ".join(f"`{c}`" for c in selected_columns[:40]))
+        # M3 (madde 9) — kolon DOKÜMANI (ad + concept + açıklama): kullanıcı kolon
+        # adını yanlış / açıklayıcı / Türkçe yazsa bile GERÇEK kolona eşleyebilsin
+        # (profil dtype+örnek verir; bu, anlam/semantik eşlemesi içindir).
+        if selected_columns_meta:
+            documented = [c for c in selected_columns_meta
+                          if c.get("concept") or (c.get("description") or "").strip()]
+            if documented:
+                parts.append("- kolon dokümanı (yanlış/açıklayıcı yazılan kolonu BURADAN gerçek ada eşle):")
+                for c in documented[:40]:
+                    nm = c.get("name", "?")
+                    cn = c.get("concept")
+                    ds = (c.get("description") or "").strip()
+                    bits = [f"  - `{nm}`"]
+                    if cn:
+                        bits.append(f"[{cn}]")
+                    if ds:
+                        bits.append("— " + ds[:160])
+                    parts.append(" ".join(bits))
         if sel_kind == "python":
             # ODAK zaten bir python node → MEVCUT script'i DÜZENLE (yeni node yaratma).
             cur_code = (sel.get("derivation") or {}).get("python_code") or ""
@@ -1050,6 +1071,7 @@ class FakeLLM:
         selected_alias: str | None = None,
         selected_columns: list[str] | None = None,
         selected_profile: dict | None = None,
+        selected_columns_meta: list[dict] | None = None,
     ) -> dict:
         """Offline canned responses keyed on user intent.
 

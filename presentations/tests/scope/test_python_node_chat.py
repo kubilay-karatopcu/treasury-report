@@ -48,6 +48,24 @@ def test_compose_without_selection_has_no_focus_block():
     assert "Seçili node (ODAK)" not in msg
 
 
+def test_compose_renders_column_docs_for_mapping():
+    # M3 (madde 9) — selected_columns_meta → "kolon dokümanı" (concept + açıklama)
+    # render edilir ki LLM yanlış/açıklayıcı yazılan kolon adını gerçek kolona eşlesin.
+    meta = [
+        {"name": "BALANCE_TRY", "type": "NUMBER", "concept": "balance",
+         "description": "TL cinsinden mevduat bakiyesi"},
+        {"name": "BRANCH_CODE", "type": "VARCHAR", "concept": None, "description": ""},
+    ]
+    msg = compose_scope_user_message(
+        _scope(), "tl bakiyesini kümülatif topla", selected_alias="deposits",
+        selected_columns_meta=meta,
+    )
+    assert "kolon dokümanı" in msg
+    assert "BALANCE_TRY" in msg
+    assert "TL cinsinden mevduat bakiyesi" in msg   # açıklama eşleme için
+    assert "balance" in msg                          # concept etiketi
+
+
 # ── Öneri 1: ODAK node data profili (dtype + örnek) ──────────────────────────
 
 def test_compose_renders_profile_dtypes_over_names():
