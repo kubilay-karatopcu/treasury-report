@@ -13,7 +13,7 @@ kararları sonrası 7 oturuma bölündü. İlgili: [[office-backlog-2026-06-24]]
 |---|---|---|---|---|---|
 | M1 | Hazırlık sol panel sadeleştirme | 1 | frontend/bundle | 🟠 | ✅ TAMAM |
 | M2 | Audit kapsama (keşif + build) | 2 | backend | 🟢 | ✅ TAMAM |
-| M3 | LLM dürüstlüğü: Sunum "sor" + Hazırlık kolon-eşleme | 5, 9 | prompt + context | 🟠 | beklemede |
+| M3 | LLM dürüstlüğü: Sunum "sor" + Hazırlık kolon-eşleme | 5, 9 | prompt + context | 🟠 | ✅ TAMAM |
 | M4 | Konsept menü perf (validate yalnız detaylı-ara) | 4 | front+back | 🟠 | beklemede |
 | M5 | Sunum filtre UX: özel-filtre kaldır + her-geçişte seed | 6, 7 | front+back | 🟠 | beklemede |
 | M6 | Sunum concept-filter motoru: tek DuckDB query, ara-tablo yok, ORA-00942 | 8 | backend | 🔴 | beklemede |
@@ -93,7 +93,17 @@ olayları audit'siz.
 
 ---
 
-## Oturum M3 — LLM dürüstlüğü (madde 5 + 9)
+## Oturum M3 — LLM dürüstlüğü (madde 5 + 9) — ✅ TAMAM
+
+**Yapıldı:** **Madde 5** — [edit.txt](presentations/prompts/edit.txt)'e "EMİN DEĞİLSEN SOR" kuralı:
+talep tabloyu/kolonu katalogdan kesin çözemezse `"patches": []` + `explanation`'a soru →
+mevcut noop yolu (graph.py:136 → ChatBox `onStatus phase:'noop'`) soruyu gösterir, SQL üretmez.
+**Madde 9** — `_columns_for`'a `description` eklendi; `compose_scope_user_message`'a
+`selected_columns_meta` param + ODAK bloğunda "kolon dokümanı (ad+concept+açıklama)" render
+(QwenClient+FakeLLM `suggest_scope_refinements` + scope_chat plumb'landı); [scope_refine.txt](presentations/prompts/scope_refine.txt)'e
+"KOLON ADI SADAKATİ" kuralı: kullanıcının yazdığı kolonu ad/açıklama/semantik/yazımdan gerçek
+kolona EŞLE, birebir kopyalama. Test: `test_compose_renders_column_docs_for_mapping`. Saf
+backend+prompt (restart; bundle YOK — noop UI zaten var).
 
 **Madde 5 — Sunum belirsizse SOR:**
 - Kök neden: `edit.txt` "uydurma" diyor ama "emin değilsen sor" yok; hata-retry döngüsü tahmin ediyor.

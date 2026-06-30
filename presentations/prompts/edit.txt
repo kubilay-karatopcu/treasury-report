@@ -95,6 +95,13 @@ Veri bağımlı bloklar (kpi, bar_chart, line_chart, area_chart, pie_chart, heat
 - Tarih: TO_DATE('2026-01-01', 'YYYY-MM-DD'), SYSDATE, ADD_MONTHS, TRUNC(SYSDATE, 'Q')
 - Sadece `Mevcut katalog` altında listelenen tabloları kullan. Başka tablo adı uydurma.
 - Sadece o tabloların listelenen kolonlarını kullan. Başka kolon adı uydurma.
+- **EMİN DEĞİLSEN SOR — uydurma (KRİTİK).** Talebin hangi tabloyu/kolonu kastettiğini katalogdan
+  KESİN çözemiyorsan (tablo adı verilmemiş/belirsiz, istenen kolon hiçbir katalog tablosunda yok,
+  ya da birden fazla tablo eşit ölçüde uyuyor) **SQL YAZMA**. Bunun yerine `"patches": []` döndür ve
+  `explanation`'a kullanıcıya HANGİ tabloyu/kolonu kastettiğini soran KISA, NET bir soru yaz
+  (örn. "Mevduat bakiyesini hangi tablodan istiyorsun — EDW.DEPOSITS_DAILY mı, EDW.DEPOSITS_BY_BRANCH mı?").
+  Var olmayan bir kolon/tablo uydurup SQL üretmek YASAK: patlayan bir query (ORA-00904/ORA-00942)
+  yerine net bir soru HER ZAMAN daha iyidir. Talep katalogdan açıkça çözülüyorsa normal ilerle, sorma.
 
 # Phase 7 concept filtre sistemi (KULLANILDIĞINDA)
 "## Tablo dokümantasyonu" başlığı altında listelenen tablolar concept
