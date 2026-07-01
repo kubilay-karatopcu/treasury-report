@@ -1,8 +1,18 @@
 import json
 import logging
+import re
 import secrets
 
 log = logging.getLogger(__name__)
+
+# M6 (madde 8) — Oracle ':name' bind'lerini DuckDB '$name'e çevir (DuckDB ':name'
+# kabul etmez, '$name' + dict ile bind eder). ':' string/'::' cast'ı bozmamak için
+# yalnız kelime-başı bind'i hedefler; param dict anahtarları (':'siz) aynı kalır.
+_ORACLE_BIND_RE = re.compile(r'(?<![:\w]):([A-Za-z_]\w*)')
+
+
+def _oracle_binds_to_duckdb(sql: str) -> str:
+    return _ORACLE_BIND_RE.sub(r'$\1', sql or "")
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1579,6 +1589,29 @@ def apply_dashboard_filters(pid: str):
             current_app.logger.warning(
                 "apply-filters: load_into_duck failed", exc_info=True)
 
+    # M6/K8 — Bir bloğun (resolve+inject edilmiş) SQL'i bir Hazırlık basket VIEW'ını
+    # referans ediyorsa ASLA Oracle'a gitme (view yalnız DuckDB'de → ORA-00942):
+    # SESSION DuckDB'de koş. Değişkenli (Phase 6.5) bloklar bind çözümünü Phase 6.5
+    # yolunda yaptıktan sonra buraya gelir; Oracle ':name' → DuckDB '$name' çevrilir.
+    # View referansı yoksa (saf katalog-tablosu bloğu) Oracle'da kalır.
+    _all_basket_aliases = [it.get("alias") for it in (manifest.get("basket") or [])
+                           if it.get("alias")]
+
+    def _run_block_query(sql, params, block_id):
+        refs = duck.find_view_refs(sql, _all_basket_aliases) if sql else []
+        if not refs:
+            return dc.get_data(base_prefix=None, dataset=f"block::{block_id}",
+                               query=sql, query_params=params)
+        from .routes_scope import hydrate_block_datasets
+        from .aggregation_gate import validate_and_wrap
+        duck_sql = _oracle_binds_to_duckdb(sql)
+        with session.duck_conn() as conn:
+            if _scope is not None:
+                hydrate_block_datasets(dc, conn, _scope, sql)
+            gate = validate_and_wrap(duck_sql, dialect="duckdb")
+            return (conn.execute(gate.sql, params).fetchdf()
+                    if params else conn.execute(gate.sql).fetchdf())
+
     # ── Phase 7.b — concept filter compilation (additive) ────────────────
     # Bridge the dashboard's filters into concept-level ResolvedFilters once,
     # up front. Per-block injection happens inside the loop. When the registry
@@ -1892,12 +1925,8 @@ def apply_dashboard_filters(pid: str):
                         df = _pd.DataFrame()
                         engine = "empty"
                     else:
-                        df = dc.get_data(
-                            base_prefix=None,
-                            dataset=f"block::{block['id']}",
-                            query=inj.sql,
-                            query_params=inj.params,
-                        )
+                        # M6/K8 — Hazırlık-view referanslıysa DuckDB, değilse Oracle.
+                        df = _run_block_query(inj.sql, inj.params, block["id"])
                         if df is None:
                             import pandas as _pd
                             df = _pd.DataFrame()
@@ -1987,12 +2016,9 @@ def apply_dashboard_filters(pid: str):
             bound = expand_binds(stand_in, resolved)
             # This block carries the sentinel but reached the non-concept path
             # (no source_tables or no active concept filter) — neutralize it.
-            df = dc.get_data(
-                base_prefix=None,
-                dataset=f"block::{block['id']}",
-                query=strip_concept_sentinel(bound.sql),
-                query_params=bound.params,
-            )
+            # M6/K8 — Hazırlık-view referanslıysa DuckDB, değilse Oracle.
+            df = _run_block_query(
+                strip_concept_sentinel(bound.sql), bound.params, block["id"])
             if df is None:
                 import pandas as _pd
                 df = _pd.DataFrame()
