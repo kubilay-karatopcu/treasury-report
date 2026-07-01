@@ -124,6 +124,13 @@ sistemine bağlı. Bu tabloları SQL'inde kullandığında **concept-native** ya
 5. Hiç dashboard filtresi aktif değilse sentinel otomatik `1 = 1` olur
    (no-op) — sorgu tüm veriyi döner (sistem ilk 5000 satıra sınırlar). Tarih
    sınırı istiyorsan dashboard'a bir tarih filtresi eklenmesini öner.
+6. **Hazırlık'ta üretilen tablolar (basket alias'ları) DOĞRUDAN kullanılır.** Bir
+   Hazırlık node'una (alias) referans veren blokta: TEK bir SELECT yaz — uzun ya da
+   çok-adımlı mantık için `WITH cte AS (...) SELECT ...` kullan; ASLA ara/geçici tablo
+   ÜRETME, kaynak view'ı `FROM <alias>` ile doğrudan sorgula. Bu bloklar Oracle'a
+   GİTMEZ — sistem cache'lenmiş veriyi DuckDB'de tek sorguda koşar. `{{concept_filters}}`'i
+   yine WHERE'e koy (filtreler DuckDB'de de çalışır). Var olmayan bir Hazırlık alias'ı
+   uydurma; yalnız bağlamdaki basket'te listelenenleri kullan.
 
 Başka tablodaki kolona göre filtre gerekiyorsa (örn. işlem tablosunu müşteri
 segmentine göre), JOIN yazmana gerek yok — o kolon kaynak tablonun FK'si
