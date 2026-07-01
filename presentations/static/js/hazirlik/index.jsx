@@ -3828,6 +3828,22 @@ function App() {
   // cron/cache normal türetilmiş node gibi. (Eski scope.joins metadata yolu
   // yalnız LLM önerili edge onayında kaldı.)
   const addJoinNode = ({ left, right, keys, joinType }) => {
+    // M7/K3 — lazy↔lazy / cached↔cached kuralı: karışık (lazy + cached) join büyük
+    // lazy tabloyu RAM'e çekmeye çalışıp patlıyordu → CREATION'da engelle (build'de
+    // de validator reddeder). lazy main = türetilmemiş + table_ref + routing.lazy;
+    // türetilmiş node'lar ve cached main'ler DuckDB'de → "lazy değil".
+    const _lazyMain = (a) => {
+      const b = (scope.basket || []).find((x) => x.alias === a);
+      return !!(b && !b.derivation && b.table_ref && b.routing?.decision === "lazy");
+    };
+    if (_lazyMain(left) !== _lazyMain(right)) {
+      const lt = _lazyMain(left) ? "lazy" : "cached/türetilmiş";
+      const rt = _lazyMain(right) ? "lazy" : "cached/türetilmiş";
+      setToast(`Joinlenemez: '${left}' (${lt}) ile '${right}' (${rt}) — lazy yalnız lazy, `
+        + `cached/türetilmiş yalnız cached/türetilmiş ile joinlenir (karışık join RAM'e sığmaz).`);
+      setJoinModal(null);
+      return;
+    }
     // Kaynak adlarını kırp ki `_join` suffix'i daima sığsın + sonradan filtre
     // (`_f`) eklenince 40 sınırını taşmasın.
     const alias = makeAlias(`${left}_${right}`.slice(0, 32) + "_join", scope.basket.map((b) => b.alias));

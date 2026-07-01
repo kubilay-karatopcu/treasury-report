@@ -479,3 +479,39 @@ def test_d1_ordering_registers_derived_partner_before_big_projection():
     big_calls = [c for c in dc.calls if "EDW.BIG" in (c["query"] or "")]
     assert big_calls and "BRANCH_ID IN (" in big_calls[0]["query"]
     assert set((big_calls[0]["params"] or {}).values()) == {"B1", "B2"}
+
+
+# ── M7/K3 — lazy↔lazy join → tek Oracle sorgusu (RAM'e çekmeden) ──────────────
+
+def test_lazy_lazy_join_runs_as_single_oracle_query():
+    big = {"table_ref": {"schema": "EDW", "name": "BIG"}, "alias": "big",
+           "projection": {"columns": ["K", "AMT"], "include_all": False},
+           "routing": {"decision": "lazy", "estimated_bytes": 9_000_000_000}}
+    sml = {"table_ref": {"schema": "EDW", "name": "SML"}, "alias": "sml",
+           "projection": {"columns": ["K", "NAME"], "include_all": False},
+           "routing": {"decision": "lazy", "estimated_bytes": 9_000_000_000}}
+    join = {"alias": "joined", "derivation": {"kind": "join",
+            "source_aliases": ["big", "sml"], "join_type": "inner",
+            "join_keys": [{"left_alias": "big", "left_column": "K",
+                           "right_alias": "sml", "right_column": "K"}]},
+            "projection": {"columns": [], "include_all": True},
+            "routing": {"decision": "cached", "estimated_bytes": 0}}
+    scope = _scope([big, sml, join])
+
+    class _JoinDC:
+        def __init__(self):
+            self.queries = []
+        def get_data(self, base_prefix=None, dataset=None, query=None, query_params=None, **kw):
+            self.queries.append(query)
+            return pd.DataFrame({"K": [1], "AMT": [10.0], "sml_K": [1], "NAME": ["X"]})
+
+    dc = _JoinDC()
+    conn = duckdb.connect(":memory:")
+    fetch_cached_tables(dc, conn, scope, catalog=None)
+
+    # İki lazy kaynak AYRI AYRI full-pull edilmedi → TEK Oracle JOIN sorgusu.
+    assert len(dc.queries) == 1, dc.queries
+    q = dc.queries[0]
+    assert "INNER JOIN" in q and "EDW.BIG" in q and "EDW.SML" in q
+    # Sonuç DuckDB'ye materialise edildi (cache'lenir).
+    assert conn.execute('SELECT COUNT(*) FROM joined').fetchone()[0] == 1
