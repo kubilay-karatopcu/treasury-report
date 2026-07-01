@@ -91,7 +91,6 @@ const LIST_URL = _path.slice(0, _path.indexOf("/hazirlik")) + "/";
 
 const COLS_BY_ALIAS = DATA.columns_by_alias || {};
 const CONCEPTS = DATA.concepts || [];   // #4 — {id,label,type,canonical_values}
-const VALIDATE_CONCEPT_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/validate-concept`);
 // MVP — kolona göre konsept önerisi (sıralı mevcut + yeni taslak), deterministik backend.
 const SUGGEST_CONCEPTS_URL = _path.replace(`/hazirlik/${PID}`, `/${PID}/scope/suggest-concepts`);
 // Yeni konsept oluşturma — Kütüphane ile AYNI endpoint (registry'ye yazar, ~2s'de reload).
@@ -2111,44 +2110,20 @@ function ConceptPicker({ value, onChange, onBrowse }) {
 
 // #4 — "Konseptler" sekmesi: her kolon | bağlı concept (kaynaktan izlenen ya da
 // kullanıcı seçimi). Seçimden sonra distinct değerlerle uygunluk test edilir.
-function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidate, onBrowse }) {
-  const [valid, setValid] = useState({});   // col -> {level,message,loading}
+function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onBrowse }) {
   const tracked = (col) => columnConcepts[col] || colMeta[col]?.concept || null;
   const fromSource = (col) => !columnConcepts[col] && !!colMeta[col]?.concept;
-  const lastValidated = useRef(null);  // null = henüz tohumlanmadı (mount)
-  // Bir kolonun concept'ini doğrula (distinct vs tanım). Hem dropdown hem panel
-  // "Seç" aşağıdaki effect üzerinden buraya düşer → #2: panel seçimi de test edilir.
-  const runValidate = (col, conceptId) => {
-    lastValidated.current[col] = conceptId || null;
-    if (!conceptId) { setValid((v) => ({ ...v, [col]: null })); return; }
-    setValid((v) => ({ ...v, [col]: { loading: true } }));
-    Promise.resolve(onValidate(col, conceptId))
-      .then((res) => setValid((v) => ({ ...v, [col]: res })))
-      .catch((e) => setValid((v) => ({ ...v, [col]: { level: "warn", message: String(e.message || e) } })));
-  };
   const setConcept = (col, conceptId) => { onSetConcept(col, conceptId); };
-  // SADECE kullanıcı bir concept SEÇİNCE (dropdown VEYA panel "Seç" → columnConcepts)
-  // doğrula. Mount'ta ya da kaynaktan-izlenen (colMeta) concept'lerde OTOMATİK
-  // tetikleme YOK → Konseptler açılınca validate-concept seli/donması olmaz: mevcut
-  // (persist) seçimler "doğrulandı" diye tohumlanır, çalıştırılmaz.
-  useEffect(() => {
-    if (lastValidated.current === null) {
-      lastValidated.current = {};
-      (columns || []).forEach((col) => { lastValidated.current[col] = columnConcepts[col] || null; });
-      return;
-    }
-    (columns || []).forEach((col) => {
-      const c = columnConcepts[col] || null;
-      if (lastValidated.current[col] !== c) runValidate(col, c);
-    });
-  }, [columnConcepts]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // M4 (madde 4) — concept SEÇİMİNDE otomatik "uyumlu mu" doğrulaması KALDIRILDI
+  // (yavaştı: her seçimde Oracle örnekleme + 500 distinct + memo'suz). Uygunluk
+  // artık YALNIZ "Detaylı ara" panelindeki sıralı öneri (suggest) üzerinden görülür.
   return (
     <div className="hz-concepts-tab ts-scroll">
       <table className="hz-concepts-table">
         <thead><tr><th>Kolon</th><th>Konsept</th></tr></thead>
         <tbody>
           {(columns || []).map((col) => {
-            const t = tracked(col); const v = valid[col];
+            const t = tracked(col);
             return (
               <tr key={col}>
                 <td className="hz-concepts-col" title={col}>{col}</td>
@@ -2157,13 +2132,7 @@ function ConceptsTab({ columns, colMeta, columnConcepts, onSetConcept, onValidat
                     <ConceptPicker value={t} onChange={(cid) => setConcept(col, cid)}
                       onBrowse={onBrowse ? () => onBrowse(col, t) : undefined} />
                     {fromSource(col) && <span className="hz-concept-src" title="Kaynak tablonun dökümanından geldi">kaynak</span>}
-                    {v?.loading && <Loader2 size={12} className="ts-spin" />}
-                    {v && !v.loading && v.level === "warn" && <span className="hz-concept-warn">⚠</span>}
-                    {v && !v.loading && v.level === "ok" && !v.message && <span className="hz-concept-ok">✓</span>}
                   </div>
-                  {v && !v.loading && v.message && (
-                    <div className={`hz-concept-msg${v.level === "warn" ? " is-warn" : ""}`}>{v.message}</div>
-                  )}
                 </td>
               </tr>
             );
@@ -2477,7 +2446,7 @@ function PythonScriptTab({ item, sourceAlias, onRun, onSave, run }) {
   );
 }
 
-function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename, onCreatePython, onRunPython, onSavePython, pythonRun, onSetConcept, onValidateConcept, onOpenConceptBrowser }) {
+function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSaveFilters, onSaveAsTable, onGridReady, savedGridState, previewLabel, onSaveFilterPanel, onFetchDistinct, existingFilters, item, onSaveRefresh, onDelete, onRename, onCreatePython, onRunPython, onSavePython, pythonRun, onSetConcept, onOpenConceptBrowser }) {
   const apiRef = useRef(null);
   const filterSaveRef = useRef(null);
   const [tab, setTab] = useState("data");
@@ -2757,7 +2726,6 @@ function PreviewDrawer({ preview, loading, height, onResizeStart, onClose, onSav
                   colMeta={Object.fromEntries((COLS_BY_ALIAS[preview.alias] || []).map((c) => [c.name, c]))}
                   columnConcepts={(item && item.column_concepts) || {}}
                   onSetConcept={(col, cid) => onSetConcept && onSetConcept(preview.alias, col, cid)}
-                  onValidate={(col, cid) => onValidateConcept(preview.alias, col, cid)}
                   onBrowse={(col, cur) => onOpenConceptBrowser && onOpenConceptBrowser(preview.alias, col, cur)}
                 />
               ) : isPython && tab === "script" ? (
@@ -4402,16 +4370,9 @@ function App() {
     }));
   }, []);
 
-  // #4 — seçilen concept'in kolona uygunluğunu sunucuda test et (distinct vs tanım).
-  const validateConcept = useCallback(async (alias, column, concept) => {
-    const r = await fetch(VALIDATE_CONCEPT_URL, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scope, alias, column, concept }),
-    });
-    const d = await r.json();
-    if (!d.ok) return { level: "warn", message: (d.errors || ["doğrulanamadı"]).join("; ") };
-    return { level: d.level, message: d.message };
-  }, [scope]);
+  // M4 — validateConcept (concept SEÇİMİNDE "uyumlu mu" sunucu testi) KALDIRILDI:
+  // yavaştı (her seçimde örnekleme + 500 distinct, memo'suz). Uygunluk yalnız
+  // "Detaylı ara" suggest'inde (sıralı öneri) görülür.
 
   // Drawer resize (drag the top edge up/down).
   const startResize = (e) => {
@@ -4755,7 +4716,6 @@ function App() {
               onSavePython={savePythonNode}
               pythonRun={pythonRun}
               onSetConcept={setColumnConcept}
-              onValidateConcept={validateConcept}
               onOpenConceptBrowser={(alias, col, cur) => setConceptBrowser({ alias, column: col, current: cur || null })}
             />
           )}
