@@ -905,17 +905,9 @@ def chat_stream(pid: str, token: str):
                     if len(chat_history) > MAX_CHAT_MSGS:
                         chat_history = chat_history[-MAX_CHAT_MSGS:]
                     m["chat_history"] = chat_history
-                    # A4 (N1) — concept filtrelerini İLK chat'ten sonra bir kez seed
-                    # et (build'de değil → Sunum açılır açılmaz sağ alta gelmesin).
-                    # Flag ile tek sefer; kullanıcı bir filtreyi silerse geri gelmez.
-                    if not m.get("_filters_seeded"):
-                        try:
-                            from .routes_scope import _seed_concept_filters_at_build
-                            _seed_concept_filters_at_build(m)
-                        except Exception:
-                            app.logger.warning("chat: concept filtre seed başarısız",
-                                               exc_info=True)
-                        m["_filters_seeded"] = True
+                    # M5 (madde 7) — concept filtre seed'i BUILD'e taşındı
+                    # (_run_build_core: her Hazırlık→Sunum geçişinde cross-check).
+                    # Chat-stream-only seed KALDIRILDI (ilk promptta yüklenmiyordu).
                     m["version"] = m.get("version", 0) + 1
                     sess2.set_manifest(m)
                 except Exception:

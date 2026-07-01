@@ -15,7 +15,7 @@ kararları sonrası 7 oturuma bölündü. İlgili: [[office-backlog-2026-06-24]]
 | M2 | Audit kapsama (keşif + build) | 2 | backend | 🟢 | ✅ TAMAM |
 | M3 | LLM dürüstlüğü: Sunum "sor" + Hazırlık kolon-eşleme | 5, 9 | prompt + context | 🟠 | ✅ TAMAM |
 | M4 | Konsept menü perf (validate yalnız detaylı-ara) | 4 | front+back | 🟠 | ✅ TAMAM |
-| M5 | Sunum filtre UX: özel-filtre kaldır + her-geçişte seed | 6, 7 | front+back | 🟠 | beklemede |
+| M5 | Sunum filtre UX: özel-filtre kaldır + her-geçişte seed | 6, 7 | front+back | 🟠 | ✅ TAMAM |
 | M6 | Sunum concept-filter motoru: tek DuckDB query, ara-tablo yok, ORA-00942 | 8 | backend | 🔴 | beklemede |
 | M7 | Join yeniden tasarım (lazy↔lazy Oracle / cached↔cached) | 3 | full-stack | 🔴 | beklemede |
 
@@ -149,7 +149,16 @@ hazirlik.css v27→28.
 
 ---
 
-## Oturum M5 — Sunum filtre UX (madde 6 + 7)
+## Oturum M5 — Sunum filtre UX (madde 6 + 7) — ✅ TAMAM
+
+**Yapıldı:** **Madde 6** — [FilterBar.jsx](presentations/static/js/editor/components/FilterBar.jsx):
+"Özel filtre ekle…" butonu + `ManualFilterForm` (103 satır) + AddFilterModal 'manual' dalı +
+`view` state kaldırıldı; modal artık yalnız önerilen filtreler (SuggestionList). Canlı doğrulandı:
+modal "Filtre Ekle", özel-filtre butonu YOK. **Madde 7** — concept filtre seed'i chat_stream'den
+(A4, ilk-promptta yüklenmiyordu → bug) BUILD'e taşındı (`_run_build_core` her Hazırlık→Sunum
+geçişinde `_seed_concept_filters_at_build`; idempotent cross-check). UI: [App.jsx](presentations/static/js/editor/App.jsx)
+FilterBar `sections.length > 0` ile gate'lendi → chat ORTADAYKEN (empty-start) gizli, chat SOL
+panele geçince (blok var) render. `bundle v38→39`. 32 build/seed testi geçer.
 
 **Madde 6 — Özel filtre butonu kaldır:**
 - [FilterBar.jsx](presentations/static/js/editor/components/FilterBar.jsx): "Özel filtre ekle…"

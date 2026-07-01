@@ -460,7 +460,6 @@ function AddFilterModal({ onClose }) {
   const manifest  = useStore((s) => s.manifest);
   const addFilter = useStore((s) => s.addDashboardFilter);
 
-  const [view, setView] = useState('suggest');   // 'suggest' | 'manual'
   const [err, setErr]   = useState(null);
   const [conceptProps, setConceptProps] = useState([]);
 
@@ -507,62 +506,41 @@ function AddFilterModal({ onClose }) {
     <div className="filter-modal-backdrop" onClick={onClose}>
       <div className="filter-modal" onClick={(e) => e.stopPropagation()}>
         <header className="filter-modal__head">
-          <h3>{view === 'suggest' ? 'Filtre Ekle' : 'Özel Filtre'}</h3>
+          <h3>Filtre Ekle</h3>
           <button type="button" onClick={onClose}><X size={16} /></button>
         </header>
-
-        {view === 'suggest' ? (
-          <SuggestionList
-            proposals={proposals}
-            onAdd={addProposal}
-            onSwitchManual={() => setView('manual')}
-            err={err}
-          />
-        ) : (
-          <ManualFilterForm
-            onSave={(def) => { try { addFilter(def); onClose(); } catch (e) { setErr(e.message); }}}
-            onBack={() => setView('suggest')}
-            err={err}
-          />
-        )}
+        {/* M5 (madde 6) — "Özel filtre" (ManualFilterForm) KALDIRILDI; yalnız
+            block variable'ları / concept'lerinden ÖNERİLEN filtreler eklenir. */}
+        <SuggestionList proposals={proposals} onAdd={addProposal} err={err} />
       </div>
     </div>
   );
 }
 
 
-function SuggestionList({ proposals, onAdd, onSwitchManual, err }) {
+function SuggestionList({ proposals, onAdd, err }) {
   return (
-    <>
-      <div className="filter-modal__body">
-        {proposals.length === 0 ? (
-          <div className="filter-suggest-empty">
-            Filtreye bağlanabilecek değişken yok — ya bütün block variable'ları
-            zaten filtre olarak ekli, ya da hiç değişkenli block yok.
-            <br/><br/>
-            Yine de özel filtre eklemek istiyorsan aşağıdan.
+    <div className="filter-modal__body">
+      {proposals.length === 0 ? (
+        <div className="filter-suggest-empty">
+          Filtreye bağlanabilecek değişken/concept yok — ya bütün block
+          variable'ları zaten filtre olarak ekli, ya da hiç filtrelenebilir block yok.
+        </div>
+      ) : (
+        <>
+          <p className="filter-suggest-intro">
+            Block'larındaki <code>:param</code>'lara / concept'lere göre önerilen
+            filtreler. Tıkla, otomatik eklensin.
+          </p>
+          <div className="filter-suggest-list">
+            {proposals.map((p) => (
+              <SuggestionRow key={p.semantic_tag} prop={p} onAdd={() => onAdd(p)} />
+            ))}
           </div>
-        ) : (
-          <>
-            <p className="filter-suggest-intro">
-              Block'larındaki <code>:param</code>'lara göre önerilen filtreler.
-              Tıkla, otomatik eklensin.
-            </p>
-            <div className="filter-suggest-list">
-              {proposals.map((p) => (
-                <SuggestionRow key={p.semantic_tag} prop={p} onAdd={() => onAdd(p)} />
-              ))}
-            </div>
-          </>
-        )}
-        {err && <div className="filter-modal__err">{err}</div>}
-      </div>
-      <footer className="filter-modal__foot">
-        <button type="button" className="filter-modal__cancel" onClick={onSwitchManual}>
-          Özel filtre ekle…
-        </button>
-      </footer>
-    </>
+        </>
+      )}
+      {err && <div className="filter-modal__err">{err}</div>}
+    </div>
   );
 }
 
@@ -605,110 +583,5 @@ function SuggestionRow({ prop, onAdd }) {
       </div>
       <div className="filter-suggest-row__cta">+ Ekle</div>
     </button>
-  );
-}
-
-
-function ManualFilterForm({ onSave, onBack, err }) {
-  const [id, setId]                       = useState('f_');
-  const [semanticTag, setSemanticTag]     = useState('as_of_time');
-  const [type, setType]                   = useState('date_range');
-  const [label, setLabel]                 = useState('');
-  const [allowedValues, setAllowedValues] = useState('');
-  const [defaultFromExpr, setDefaultFrom] = useState('today - 30d');
-  const [defaultToExpr, setDefaultTo]     = useState('today');
-  const [defaultSingleVal, setDefaultSingleVal] = useState('');
-  const [defaultSingleDate, setDefaultSingleDate] = useState('today');
-  const [localErr, setLocalErr]           = useState(null);
-
-  function handleSave() {
-    setLocalErr(null);
-    if (!id.trim() || !label.trim()) {
-      setLocalErr('id ve etiket zorunlu');
-      return;
-    }
-    const cleanId = id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-    const isSingleDate = type === 'date_single';
-    const def = {
-      id: cleanId, semantic_tag: semanticTag,
-      type: isSingleDate ? 'date_range' : type, label: label.trim(),
-    };
-    if (isSingleDate) {
-      const d = (defaultSingleDate || 'today').trim();
-      def.single = true;
-      def.default = { from: d, to: d };
-    } else if (type === 'date_range') {
-      def.default = { from: defaultFromExpr.trim(), to: defaultToExpr.trim() };
-    } else if (type === 'enum_multi' || type === 'enum_single') {
-      const parsed = allowedValues.split(',').map((s) => s.trim()).filter(Boolean);
-      if (!parsed.length) { setLocalErr('allowed_values gerekli'); return; }
-      def.allowed_values = parsed;
-      if (type === 'enum_multi') def.default = parsed;
-      else if (defaultSingleVal.trim()) def.default = defaultSingleVal.trim();
-    } else if (type === 'number_range') {
-      def.default = { min: 0, max: 100 };
-    }
-    onSave(def);
-  }
-
-  const shownErr = localErr || err;
-
-  return (
-    <>
-      <div className="filter-modal__body">
-        <label><span>ID</span>
-          <input type="text" value={id} onChange={(e) => setId(e.target.value)} placeholder="f_period"/>
-        </label>
-        <label><span>Etiket</span>
-          <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Tarih Aralığı"/>
-        </label>
-        <label><span>Anlam</span>
-          <select value={semanticTag} onChange={(e) => setSemanticTag(e.target.value)}>
-            {SEMANTIC_TAGS.map((t) => (
-              <option key={t} value={t}>{t} — {SEMANTIC_TAG_LABELS[t] || t}</option>
-            ))}
-          </select>
-        </label>
-        <label><span>Tip</span>
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="date_single">Tarih (tek)</option>
-            <option value="date_range">Tarih aralığı</option>
-            <option value="enum_multi">Enum (çoklu)</option>
-            <option value="enum_single">Enum (tek)</option>
-            <option value="number_range">Sayı aralığı</option>
-          </select>
-        </label>
-        {type === 'date_single' && (
-          <label><span>Varsayılan tarih</span>
-            <input type="text" value={defaultSingleDate} onChange={(e) => setDefaultSingleDate(e.target.value)} placeholder="today"/>
-          </label>
-        )}
-        {type === 'date_range' && (
-          <>
-            <label><span>Varsayılan: from</span>
-              <input type="text" value={defaultFromExpr} onChange={(e) => setDefaultFrom(e.target.value)} placeholder="today - 30d"/>
-            </label>
-            <label><span>Varsayılan: to</span>
-              <input type="text" value={defaultToExpr} onChange={(e) => setDefaultTo(e.target.value)} placeholder="today"/>
-            </label>
-          </>
-        )}
-        {(type === 'enum_multi' || type === 'enum_single') && (
-          <label><span>Olası değerler (virgülle)</span>
-            <input type="text" value={allowedValues} onChange={(e) => setAllowedValues(e.target.value)} placeholder="TRY, USD, EUR"/>
-          </label>
-        )}
-        {type === 'enum_single' && (
-          <label><span>Varsayılan tek değer</span>
-            <input type="text" value={defaultSingleVal} onChange={(e) => setDefaultSingleVal(e.target.value)} placeholder="TRY"/>
-          </label>
-        )}
-        {shownErr && <div className="filter-modal__err">{shownErr}</div>}
-      </div>
-      <footer className="filter-modal__foot">
-        <button type="button" className="filter-modal__cancel" onClick={onBack}>← Önerilere dön</button>
-        <button type="button" className="filter-modal__save" onClick={handleSave}>Kaydet</button>
-      </footer>
-    </>
   );
 }
