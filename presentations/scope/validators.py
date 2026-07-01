@@ -343,6 +343,39 @@ def rule_derivation_dag(scope: ScopeContract, catalog: Catalog | None = None):
     return [], []
 
 
+# ── Rule 11 (M7/K3): join routing compatibility ─────────────────────────────
+
+def _is_lazy_main(scope: ScopeContract, alias: str) -> bool:
+    """Bir alias LAZY MAIN tablo mu (RAM'e sığmayan, Oracle'da kalan). Türetilmiş
+    node'lar ve cached main'ler DuckDB'de materialise olur → LAZY DEĞİL."""
+    it = scope.basket_item(alias)
+    return bool(it is not None and it.derivation is None and it.table_ref is not None
+                and it.routing.decision == "lazy")
+
+
+def rule_join_routing_compatibility(scope: ScopeContract, catalog: Catalog | None = None):
+    """M7/K3 — Bir join'in iki tarafı AYNI yürütme sınıfında olmalı: lazy main
+    yalnız lazy main ile (Oracle-side join), cached/türetilmiş yalnız cached/
+    türetilmiş ile (DuckDB join). Karışık (lazy + cached) join, büyük lazy tabloyu
+    RAM'e çekmeye çalışıp patlıyordu → BUILD'i açık hatayla durdur."""
+    errors: list[str] = []
+    for item in scope.derived_items():
+        d = item.derivation
+        if d.kind != "join" or len(d.source_aliases) != 2:
+            continue
+        left, right = d.source_aliases
+        ll, rl = _is_lazy_main(scope, left), _is_lazy_main(scope, right)
+        if ll != rl:
+            lt = "lazy" if ll else "cached/türetilmiş"
+            rt = "lazy" if rl else "cached/türetilmiş"
+            errors.append(
+                f"Join '{item.alias}': '{left}' ({lt}) ile '{right}' ({rt}) joinlenemez — "
+                "lazy tablo yalnız lazy, cached/türetilmiş yalnız cached/türetilmiş ile "
+                "joinlenebilir (karışık join büyük tabloyu RAM'e çeker)."
+            )
+    return errors, []
+
+
 # ── Aggregate ───────────────────────────────────────────────────────────────
 
 # Ordered so the result reads predictably; §2.2 numbering (+ §6R raw/derived).
@@ -357,6 +390,7 @@ RULES = [
     rule_raw_filters,
     rule_derived_tables,
     rule_derivation_dag,
+    rule_join_routing_compatibility,
 ]
 
 

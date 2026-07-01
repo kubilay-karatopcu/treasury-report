@@ -554,6 +554,74 @@ def compile_join_sql(item: BasketItem, left_cols, right_cols) -> str:
     return f'SELECT {select_list} FROM "{left}" {jtype} "{right}" ON {cond}'
 
 
+def _prefix_binds(sql: str, binds: dict, prefix: str) -> tuple[str, dict]:
+    """Her ``:name`` bind'ini ``:{prefix}name`` yap (sql + dict) → iki alt-sorgu tek
+    Oracle deyimine birleşince bind çakışması olmaz. Uzun isim önce (kısa öneki
+    olan bir ismi yanlış eşlememek için)."""
+    out: dict = {}
+    for k in sorted(binds, key=len, reverse=True):
+        out[prefix + k] = binds[k]
+        sql = re.sub(rf'(?<![:\w]):{re.escape(k)}\b', f':{prefix}{k}', sql)
+    return sql, out
+
+
+def _source_columns_for_join(item: BasketItem, catalog: Catalog | None) -> list[str]:
+    proj = item.projection
+    if proj is not None and proj.columns and not proj.include_all:
+        return list(proj.columns)
+    if item.table_ref is not None and catalog is not None:
+        tm = catalog.table_meta(item.table_ref.schema_name, item.table_ref.name)
+        if tm is not None and tm.columns:
+            return list(tm.columns.keys())
+    return []
+
+
+def compile_lazy_join_sql(
+    scope: ScopeContract, item: BasketItem, catalog: Catalog | None = None, *,
+    concept_registry=None, binding_catalog=None,
+) -> tuple[str, dict[str, Any]]:
+    """M7/K3 — İki LAZY main tabloyu ORACLE'da joinle (RAM'e çekmeden). Her kaynak
+    ``compose_cached_sql`` ile projeksiyon + pushdown-filtreli bir ALT-SORGU olur;
+    Oracle join'i yapar, sonuç (kullanıcının seçtiği kolonlar) küçük → DuckDB'ye
+    materialise edilip cache'lenir. Kolon adı çakışması compile_join_sql ile aynı
+    kuralda çözülür (sağ taraf ``<alias>_<col>`` prefiksli)."""
+    d = item.derivation
+    left_alias, right_alias = d.source_aliases[0], d.source_aliases[1]
+    left_item, right_item = scope.basket_item(left_alias), scope.basket_item(right_alias)
+    if left_item is None or right_item is None:
+        raise RuntimeError(f"lazy join '{item.alias}': kaynak node bulunamadı")
+    ls, lb = compose_cached_sql(scope, left_item, catalog,
+                                concept_registry=concept_registry, binding_catalog=binding_catalog)
+    rs, rb = compose_cached_sql(scope, right_item, catalog,
+                                concept_registry=concept_registry, binding_catalog=binding_catalog)
+    ls, lb = _prefix_binds(ls, lb, "lj_")
+    rs, rb = _prefix_binds(rs, rb, "rj_")
+    jtype = "LEFT JOIN" if d.join_type == "left" else "INNER JOIN"
+    used: set[str] = set()
+    sel: list[str] = []
+    for c in _source_columns_for_join(left_item, catalog):
+        used.add(c)
+        sel.append(f'"{left_alias}"."{c}" AS "{c}"')
+    for c in _source_columns_for_join(right_item, catalog):
+        out = c
+        if out in used:
+            base, i = f"{right_alias}_{c}", 2
+            out = base
+            while out in used:
+                out = f"{base}_{i}"
+                i += 1
+        used.add(out)
+        sel.append(f'"{right_alias}"."{c}" AS "{out}"')
+    select_list = ", ".join(sel) if sel else "*"
+    cond = " AND ".join(
+        f'"{jk.left_alias}"."{jk.left_column}" = "{jk.right_alias}"."{jk.right_column}"'
+        for jk in d.join_keys
+    )
+    sql = (f'SELECT {select_list} FROM ({ls}) "{left_alias}" '
+           f'{jtype} ({rs}) "{right_alias}" ON {cond}')
+    return sql, {**lb, **rb}
+
+
 def compile_union_sql(item: BasketItem) -> str:
     """UNION [ALL] of the source aliases, aligned BY NAME.
 
@@ -991,6 +1059,35 @@ def fetch_cached_tables(
                 registered.add(item.alias)   # treated as up-to-date (inherited view)
                 progressed = True
                 continue
+            # M7/K3 — lazy↔lazy join: iki taraf da LAZY main ise ORACLE'da joinle
+            # (kaynakları RAM'e/DuckDB'ye ÇEKMEDEN). Tek Oracle sorgusuyla projeksiyon
+            # + pushdown-filtreli join çek, küçük sonucu materialise et. Karışık
+            # (lazy+cached) join validator'da reddedilir; cached↔cached / türetilmiş
+            # join aşağıdaki DuckDB yolunda koşar.
+            if d.kind == "join" and len(d.source_aliases) == 2:
+                _lj = [scope.basket_item(a) for a in d.source_aliases]
+                if all(x is not None and x.derivation is None and x.table_ref is not None
+                       and x.routing.decision == "lazy" for x in _lj):
+                    if cancel_token is not None:
+                        cancel_token.check()
+                    sql, binds = compile_lazy_join_sql(
+                        scope, item, catalog,
+                        concept_registry=concept_registry, binding_catalog=binding_catalog)
+                    df = dc.get_data(
+                        base_prefix=None,
+                        dataset=f"scope::{scope.presentation_id}/{item.alias}",
+                        query=sql, query_params=binds, cancel_token=cancel_token)
+                    df = df if df is not None else pd.DataFrame()
+                    if len(df.columns) > 0:
+                        materialize_table(conn, item.alias, df)
+                    loaded[item.alias] = {"derived_from": list(d.source_aliases),
+                                          "rows": int(len(df))}
+                    registered.add(item.alias)
+                    progressed = True
+                    _notify(item.alias, df, sql)
+                    log.info("scope.fetch: lazy↔lazy join '%s' Oracle'da koştu "
+                             "(RAM'e çekmeden, %d satır)", item.alias, len(df))
+                    continue
             # A cached derivation can sit on a LAZY main (or lazy SQL dataset) that
             # Pass 1 skipped — lazy tables aren't pre-fetched. Pull those *table*
             # sources on demand and register them as views so the derivation can
