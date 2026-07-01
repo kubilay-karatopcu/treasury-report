@@ -16,7 +16,7 @@ kararları sonrası 7 oturuma bölündü. İlgili: [[office-backlog-2026-06-24]]
 | M3 | LLM dürüstlüğü: Sunum "sor" + Hazırlık kolon-eşleme | 5, 9 | prompt + context | 🟠 | ✅ TAMAM |
 | M4 | Konsept menü perf (validate yalnız detaylı-ara) | 4 | front+back | 🟠 | ✅ TAMAM |
 | M5 | Sunum filtre UX: özel-filtre kaldır + her-geçişte seed | 6, 7 | front+back | 🟠 | ✅ TAMAM |
-| M6 | Sunum concept-filter motoru: tek DuckDB query, ara-tablo yok, ORA-00942 | 8 | backend | 🔴 | beklemede |
+| M6 | Sunum concept-filter motoru: tek DuckDB query, ara-tablo yok, ORA-00942 | 8 | backend | 🔴 | ✅ TAMAM |
 | M7 | Join yeniden tasarım (lazy↔lazy Oracle / cached↔cached) | 3 | full-stack | 🔴 | beklemede |
 
 > Sıra: M1→M5 (kolay + dürüstlük), sonra M6 (concept-motoru) → M7 (join). M6, M7'nin
@@ -175,7 +175,19 @@ panele geçince (blok var) render. `bundle v38→39`. 32 build/seed testi geçer
 
 ---
 
-## Oturum M6 — Sunum concept-filter motoru (madde 8) 🔴
+## Oturum M6 — Sunum concept-filter motoru (madde 8) 🔴 — ✅ TAMAM
+
+**Yapıldı (K8):** Kök neden = `variables`'lı bir blok Hazırlık türev-view'una referans verse
+bile apply-filters Phase 6.5 yolunda `dc.get_data` (Oracle) ile koşuyordu → view Oracle'da yok →
+**ORA-00942**. **Fix** [routes.py](presentations/routes.py): yeni `_run_block_query(sql, params,
+block_id)` — SQL bir Hazırlık basket alias'ı referans ediyorsa (`find_view_refs`) SESSION
+DuckDB'de koşar (hydrate + Oracle `:name`→DuckDB `$name` çeviri: `_oracle_binds_to_duckdb`),
+aksi halde Oracle. Phase 6.5'in iki Oracle exec noktası (concept-injected + fallback) bu helper'a
+bağlandı → değişkenli Hazırlık-view blokları artık DuckDB'de, Oracle YOK. Prompt: [edit.txt](presentations/prompts/edit.txt)'e
+"Hazırlık alias'ları doğrudan, tek SELECT (WITH), ara tablo YOK, Oracle'a gitmez" kuralı (madde 6).
+"Ara adım" özelliği zaten yoktu (doğrulandı). Test: `test_variable_block_on_hazirlik_view_runs_in_duckdb_not_oracle`
+(Oracle çağrılmıyor) + `test_bind_converter_colon_to_dollar`. 530 scope testi geçer. Saf backend+prompt
+(restart; bundle YOK).
 
 **Kök neden:** Hazırlık-türev-view'una referanslı AMA `variables`'lı blok → apply-filters kapı-2
 (`not block.get("variables")`) atlanıyor → Oracle kapısı → view Oracle'da yok → **ORA-00942**

@@ -151,6 +151,78 @@ def test_dataset_blocks_render_from_parquet_no_oracle(app):
     assert kpi["config"]["value"] == 100.0  # first numeric of the projection
 
 
+def test_bind_converter_colon_to_dollar():
+    # M6 — Oracle ':name' → DuckDB '$name'; '::' cast + kelime-içi ':' bozulmaz.
+    from presentations.routes import _oracle_binds_to_duckdb
+    assert _oracle_binds_to_duckdb(
+        "SELECT x::INT FROM v WHERE a = :a AND b IN (:b_0, :b_1)"
+    ) == "SELECT x::INT FROM v WHERE a = $a AND b IN ($b_0, $b_1)"
+
+
+def test_variable_block_on_hazirlik_view_runs_in_duckdb_not_oracle(tmp_path):
+    """M6/K8 — Bir blok Hazırlık view'ını (my_sql — materialise edilmiş SQL node)
+    referans edip AYRICA variables (:bind) taşıyorsa: eskiden `not variables`
+    guard'ı onu Oracle'a düşürüp ORA-00942 veriyordu (view Oracle'da yok). Artık
+    Phase 6.5 yolunda resolve edilip SESSION DuckDB'de koşar — Oracle ÇAĞRILMAZ.
+    :ccy → $ccy çevrilir; filtreye göre satır süzülür."""
+    dc = _FakeDC()
+    scope_store = LocalScopeStore(tmp_path / "scopes")
+    scope_store.save(load_scope_from_dict({
+        "presentation_id": "pv", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [{
+            "alias": "my_sql", "sql": "SELECT CCY, TOTAL FROM ODS_TREASURY.TRD_BRANCH_POSITION",
+            "projection": {"columns": ["CCY", "TOTAL"], "include_all": False},
+            "routing": {"decision": "cached", "decided_by": "user", "estimated_bytes": 0},
+        }],
+        "filters": {"pinned": [], "interactive": []},
+    }))
+    write_dataset(dc, "pv", "my_sql",
+                  pd.DataFrame({"CCY": ["TRY", "USD"], "TOTAL": [100.0, 50.0]}),
+                  sql="SELECT CCY, TOTAL FROM ODS_TREASURY.TRD_BRANCH_POSITION")
+
+    app = Flask(__name__)
+    app.config.update(
+        SECRET_KEY="t", TESTING=True, LOGIN_DISABLED=True,
+        DATA_CLIENT=dc, SCOPE_STORE=scope_store,
+        SESSION_REGISTRY=SessionRegistry(dc=dc, duck_base_dir=tmp_path / "duck"),
+    )
+    lm = LoginManager(app)
+
+    @lm.user_loader
+    def _load(_id):
+        return _FakeUser()
+
+    @app.before_request
+    def _force_login():
+        from flask_login import current_user
+        if not getattr(current_user, "is_authenticated", False):
+            login_user(_FakeUser())
+
+    app.register_blueprint(presentations_bp, url_prefix="/presentations")
+    with app.app_context():
+        app.config["SESSION_REGISTRY"].get_or_create("A16438", "pv").set_manifest({
+            "id": "pv", "version": 1,
+            "scope_ref": {"presentation_id": "pv", "scope_version": 1},
+            "basket": [{"table": "my_sql", "alias": "my_sql", "columns": [], "source": "sql"}],
+            "filters": [],
+            "blocks": [{"id": "sec", "type": "section_header", "title": "B", "children": [{
+                "id": "b_var", "type": "data_table", "title": "Filtreli",
+                "query": "SELECT CCY, TOTAL FROM my_sql WHERE CCY = :ccy",
+                "variables": [{"name": "ccy", "type": "enum_single", "semantic_tag": "currency",
+                               "default": "TRY", "allowed_values": ["TRY", "USD"]}],
+                "config": {"columns": [], "rows": []},
+            }]}],
+        })
+
+    resp = app.test_client().post("/presentations/pv/apply-filters", json={"filter_state": {}})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    blocks = {b["id"]: b for b in resp.get_json()["blocks"]}
+    assert blocks["b_var"]["status"] != "error", blocks["b_var"]
+    # KRİTİK: Oracle'a GİTMEDİ (view yalnız DuckDB'de → aksi halde ORA-00942).
+    assert dc.get_data_calls == []
+
+
 def test_unmaterialised_dataset_block_renders_empty_not_oracle(tmp_path):
     # Dataset NOT materialised (cron hasn't run) → block reports empty, no Oracle.
     dc = _FakeDC()
