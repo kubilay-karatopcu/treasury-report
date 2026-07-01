@@ -355,3 +355,41 @@ def test_rule10_chain_without_cycle_passes():
     })
     errors, _ = V.rule_derivation_dag(scope, None)
     assert errors == []
+
+
+# ── Rule 11 (M7/K3): join routing compatibility ─────────────────────────────
+
+def _join_scope(left_routing, right_routing):
+    from presentations.scope.schema import load_scope_from_dict
+    return load_scope_from_dict({
+        "presentation_id": "p", "version": 1, "created_by": "A16438",
+        "created_at": "2026-06-15T10:00:00Z",
+        "basket": [
+            {"table_ref": {"schema": "EDW", "name": "BIG"}, "alias": "big",
+             "projection": {"columns": ["K"], "include_all": False},
+             "routing": {"decision": left_routing, "estimated_bytes": 0}},
+            {"table_ref": {"schema": "EDW", "name": "SML"}, "alias": "sml",
+             "projection": {"columns": ["K"], "include_all": False},
+             "routing": {"decision": right_routing, "estimated_bytes": 0}},
+            {"alias": "joined", "derivation": {"kind": "join",
+             "source_aliases": ["big", "sml"], "join_type": "inner",
+             "join_keys": [{"left_alias": "big", "left_column": "K",
+                            "right_alias": "sml", "right_column": "K"}]},
+             "projection": {"columns": [], "include_all": True},
+             "routing": {"decision": "cached", "estimated_bytes": 0}},
+        ],
+        "filters": {"pinned": [], "interactive": [], "raw": []}, "joins": [],
+    })
+
+
+def test_join_routing_rejects_lazy_plus_cached():
+    e, _ = V.rule_join_routing_compatibility(_join_scope("lazy", "cached"), None)
+    assert e and "joinlenemez" in e[0]
+
+
+def test_join_routing_allows_lazy_plus_lazy():
+    assert V.rule_join_routing_compatibility(_join_scope("lazy", "lazy"), None)[0] == []
+
+
+def test_join_routing_allows_cached_plus_cached():
+    assert V.rule_join_routing_compatibility(_join_scope("cached", "cached"), None)[0] == []

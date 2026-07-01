@@ -17,7 +17,7 @@ kararları sonrası 7 oturuma bölündü. İlgili: [[office-backlog-2026-06-24]]
 | M4 | Konsept menü perf (validate yalnız detaylı-ara) | 4 | front+back | 🟠 | ✅ TAMAM |
 | M5 | Sunum filtre UX: özel-filtre kaldır + her-geçişte seed | 6, 7 | front+back | 🟠 | ✅ TAMAM |
 | M6 | Sunum concept-filter motoru: tek DuckDB query, ara-tablo yok, ORA-00942 | 8 | backend | 🔴 | ✅ TAMAM |
-| M7 | Join yeniden tasarım (lazy↔lazy Oracle / cached↔cached) | 3 | full-stack | 🔴 | beklemede |
+| M7 | Join yeniden tasarım (lazy↔lazy Oracle / cached↔cached) | 3 | full-stack | 🔴 | ✅ ÇEKİRDEK (node-rozet follow-up) |
 
 > Sıra: M1→M5 (kolay + dürüstlük), sonra M6 (concept-motoru) → M7 (join). M6, M7'nin
 > veri-katmanını temizler → önce M6.
@@ -206,7 +206,26 @@ bağlandı → değişkenli Hazırlık-view blokları artık DuckDB'de, Oracle Y
 
 ---
 
-## Oturum M7 — Join yeniden tasarım (madde 3) 🔴
+## Oturum M7 — Join yeniden tasarım (madde 3) 🔴 — ✅ ÇEKİRDEK TAMAM
+
+**Yapıldı (K3 basit sürüm):**
+- **Kural** ([validators.py](presentations/scope/validators.py)): yeni `rule_join_routing_compatibility` —
+  lazy main yalnız lazy main ile, cached/türetilmiş yalnız cached/türetilmiş ile joinlenir; karışık →
+  build validation hatası (routes_scope.py:1141 → 400 "phase: validation", node adını içerir).
+- **Lazy↔lazy Oracle join** ([fetch.py](presentations/scope/fetch.py) `compile_lazy_join_sql` +
+  build loop): iki lazy main tabloyu **ORACLE'da** joinler (her kaynak `compose_cached_sql` alt-sorgusu,
+  bind'ler `lj_`/`rj_` prefiksli, kolon dedup `<alias>_<col>`); sonucu DuckDB'ye materialise eder
+  (cache). Kaynaklar RAM'e ÇEKİLMEZ → OOM/hang biter. Karışık/derived join eski DuckDB yolunda.
+- **Frontend pre-check** ([index.jsx](presentations/static/js/hazirlik/index.jsx) `addJoinNode`):
+  karışık join çizilince toast + iptal (build hatasından önce).
+- **Sıralı re-run:** zaten mevcut (build fetch_cached_tables + re-entry downstream'i yeniden koşar).
+- Test: `test_join_routing_{rejects_lazy_plus_cached,allows_lazy_plus_lazy,allows_cached_plus_cached}`,
+  `test_lazy_lazy_join_runs_as_single_oracle_query`. 520 scope testi geçer. bundle v46→47.
+
+**FOLLOW-UP (sonraki tur):** (1) dedicated **per-node error rozeti** (şu an build hatası node adını
+mesajda veriyor ama canvas'ta node-başı rozet yok); (2) **streaming edge-edge re-run** + is-pending/
+is-error node UI (kullanıcı zaten "sonraki tur" dedi). Lazy join kaynağı DERIVED ise (lazy türev)
+Oracle-join yolu yalnız lazy MAIN'leri kapsar — o hâl DuckDB'ye düşer (nadir).
 
 **Kök neden:** Tüm join'ler DuckDB; lazy kaynak join'e girince **tüm tablo uncapped DuckDB'ye
 çekiliyor** (RAM'e sığmazsa patlar). Lazy↔cached engeli yok. Build ilk hatada tümden patlar.
