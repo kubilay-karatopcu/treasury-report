@@ -138,7 +138,10 @@ export default function App({ initialManifest, mode = 'editor' }) {
         >
           <div className={`canvas-content${sections.length === 0 && !isSnapshot ? ' canvas-content--empty' : ''}`}>
             {sections.length > 0 && <ReportTitle meta={manifest.meta || {}} />}
-            {!isSnapshot && <FilterBar />}
+            {/* M5 (madde 7) — FilterBar yalnız blok VARKEN (chat sol panelde) görünür.
+                İlk promptta chat ORTADA (empty-start) → filtreler gizli; build'de
+                seed edilmiş filtreler ilk blok oluşunca (chat sola geçince) render olur. */}
+            {!isSnapshot && sections.length > 0 && <FilterBar />}
             {isEdit && sections.length > 0 && <Hint hasSelection={!!selectedBlockId} />}
             <div className="sections-list">
               {sections.map((section) => (

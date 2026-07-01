@@ -1292,9 +1292,17 @@ def _run_build_core(pid: str, scope: ScopeContract, user_sicil: str,
     # next Hazırlık load uses the build, not a now-stale draft. (Draft-first
     # priority in _load_latest_scope_or_draft relies on this clear.)
     manifest.pop("draft_scope", None)
-    # A4 (N1): concept filtreleri build'de DEĞİL, İLK CHAT PROMPT'undan sonra
-    # seed edilir (Sunum açılır açılmaz sağ alta gelmesin). Seed artık chat_stream
-    # içinde (`_seed_concept_filters_at_build`, `_filters_seeded` flag'iyle bir kez).
+    # M5 (madde 7): concept filtreleri HER Hazırlık→Sunum geçişinde (build) seed
+    # edilir — tablolara bağlı concept'ler ↔ dashboard `filters` cross-check, YENİ
+    # olan eklenir (idempotent; kullanıcı düzenlemesi korunur). "İlk prompta kadar
+    # sağ altta gözükmesin" isteği artık yalnız UI'da: chat ORTADAYKEN (blok yok)
+    # FilterBar gizli, chat SOL panele geçince (blok var) render olur. (A4'ün
+    # chat_stream-only seed'i kaldırıldı: ilk promptta yüklenmiyordu, yalnız
+    # Hazırlık'a geri-gel-git sonrası geliyordu — madde 7 bug'ı.)
+    try:
+        _seed_concept_filters_at_build(manifest)
+    except Exception:
+        log.warning("build: concept filter seed başarısız (non-fatal)", exc_info=True)
     session.set_manifest(manifest)
 
     return {
