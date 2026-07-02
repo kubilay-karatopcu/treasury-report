@@ -272,7 +272,9 @@ def direct_patch(pid: str):
     Body: {"patches": [{op, path, value?}, ...]}
     """
     from presentations.patch import apply_patches, SUPPORTED_OPS
-    from presentations.manifest import _validate_chart_length, ALLOWED_PATCH_PREFIXES
+    from presentations.manifest import (
+        _validate_chart_length, ALLOWED_PATCH_PREFIXES, iter_all_blocks,
+    )
 
     body = request.get_json(silent=True) or {}
     patches = body.get("patches")
@@ -313,9 +315,12 @@ def direct_patch(pid: str):
         )
 
     # Chart invariants still apply (width change shouldn't break charts; lock
-    # toggle doesn't touch chart data — but be safe).
+    # toggle doesn't touch chart data — but be safe). NESTED gez: manifest
+    # yapısı section_header.children (+ carousel/canvas) — düz blocks[]
+    # taraması leaf chart'ları atlıyordu, bozuk seri/kategori uzunlukları
+    # sessizce kabul ediliyordu.
     invariant_errors = []
-    for block in new_manifest.get("blocks", []):
+    for block in iter_all_blocks(new_manifest):
         invariant_errors.extend(_validate_chart_length(block))
     if invariant_errors:
         return Response(
@@ -1052,6 +1057,42 @@ def refresh_block_data(pid: str, bid: str):
             status=400, mimetype="application/json",
         )
 
+    # ── Parametreli (Phase 6.5 run-manual) blok ───────────────────────────
+    # Kayıtlı query :bind'ler içerir; çıplak koşmak DEV'de parser error,
+    # Oracle'da ORA-01008 (not all variables bound) demektir. run-manual ile
+    # AYNI çekirdekten geç: değişken default'ları (+ body.variable_overrides)
+    # çözülür, bind'ler positional expand edilir, gate + routing uygulanır.
+    variables_raw = block.get("variables") or []
+    if variables_raw:
+        from .blocks.schema import Variable
+        try:
+            var_models = [Variable.model_validate(v) for v in variables_raw]
+        except Exception as exc:
+            return Response(
+                json.dumps({"error": f"Blok değişkenleri okunamadı: {exc}",
+                            "kind": "block_schema"}, ensure_ascii=False),
+                status=400, mimetype="application/json",
+            )
+        overrides = body.get("variable_overrides") or {}
+        # Query: body.sql (UI düzenlemesi) > kayıtlı block.query > data_source.
+        query = new_sql or block.get("query") or sql
+        new_ds, err = _execute_manual_block_sql(
+            session, manifest, bid, block, query, var_models, overrides)
+        if err is not None:
+            return err
+        block["query"] = query
+        block["data_source"] = new_ds
+        block.pop("data_stale", None)
+        from .nodes.execute_block_sqls import apply_data_to_config
+        apply_data_to_config(block, new_ds)
+        manifest["version"] = manifest.get("version", 0) + 1
+        session.set_manifest(manifest)
+        return Response(
+            json.dumps({"ok": True, "version": manifest["version"], "block": block},
+                       ensure_ascii=False, default=str),
+            mimetype="application/json",
+        )
+
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None:
         return Response(
@@ -1151,6 +1192,125 @@ def _standin_viz_type(manifest_type: str | None) -> str:
     return _STANDIN_VIZ_TYPE.get(manifest_type or "", "table")
 
 
+def _execute_manual_block_sql(session, manifest, bid: str, block: dict,
+                              query: str, var_models: list, overrides: dict):
+    """Phase 6.5 manuel-SQL yürütme ÇEKİRDEĞİ — run-manual ve refresh paylaşır.
+
+    Standin Block → resolve_variables (default + overrides) → expand_binds
+    (değerler ASLA SQL'e gömülmez, positional :bind'ler) → concept sentinel
+    nötralize → scope dataset'leri hydrate → aggregation gate → DuckDB/Oracle
+    routing. Başarıda ``(new_ds, None)``, hatada ``(None, <Flask Response>)``
+    döner. (refresh eskiden ham query'yi bind'siz koşuyordu → :var'lı blokta
+    DEV parser error / Oracle ORA-01008; tek çekirdek bu drift'i kapatır.)
+    """
+    from .blocks.schema import Block
+    from .variables.resolver import resolve_variables, ResolutionError
+    from .sql.binder import expand_binds
+    from .concepts.integration import strip_concept_sentinel
+
+    def _err(payload: dict, status: int):
+        return None, Response(json.dumps(payload, ensure_ascii=False),
+                              status=status, mimetype="application/json")
+
+    try:
+        stand_in = Block.model_validate({
+            "id": bid if len(bid) >= 3 else f"blk_{bid}",
+            "version": 1,
+            "title": block.get("title") or "block",
+            "team": "in_presentation",
+            "owner": current_user.sicil,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "query": query,
+            "variables": [v.model_dump() for v in var_models],
+            "visualization": {"type": _standin_viz_type(block.get("type")), "config": {}},
+        })
+    except Exception as exc:
+        return _err({"error": str(exc), "kind": "block_schema"}, 400)
+
+    try:
+        resolved = resolve_variables(stand_in, overrides)
+    except ResolutionError as exc:
+        return _err({"error": "; ".join(exc.errors), "kind": "resolution"}, 400)
+
+    try:
+        bound = expand_binds(stand_in, resolved)
+    except ValueError as exc:
+        return _err({"error": str(exc), "kind": "bind"}, 400)
+
+    dc = current_app.config.get("DATA_CLIENT")
+    if dc is None:
+        return _err({"error": "DATA_CLIENT yapılandırılmamış.", "kind": "config"}, 500)
+
+    # Bind params are routed through DataClient.get_data (DEV stub passes them
+    # to DuckDB; prod oracledb honours :name binds natively).
+    # Neutralize an un-injected {{concept_filters}} sentinel — a manual run has
+    # no dashboard concept filters, so the sentinel becomes a no-op 1 = 1.
+    exec_sql = strip_concept_sentinel(bound.sql)
+    gate = None
+    try:
+        # Route to DuckDB when the SQL references scope datasets (Hazırlık-
+        # produced manual-SQL / filter / aggregate nodes are session DuckDB
+        # views, not Oracle tables) or uploads; else Oracle. Without this a
+        # block sourced from such a node hits ORA-00942 (table or view).
+        upload_lookup = duck.build_upload_lookup(manifest)
+        s3_get = current_app.config.get("S3_GET")
+        from .routes_scope import hydrate_block_datasets, load_scope_for_manifest
+        _scope = load_scope_for_manifest(manifest)
+        scope_aliases = [b.alias for b in _scope.basket] if _scope is not None else []
+        with session.duck_conn() as conn:
+            if _scope is not None:
+                hydrate_block_datasets(dc, conn, _scope, exec_sql)
+            from .aggregation_gate import validate_and_wrap
+            _names = [v for v in duck.list_views(conn) if not v.startswith("block_preview_")]
+            _will_duck = bool(duck.find_upload_refs(exec_sql)) or bool(
+                duck.find_view_refs(exec_sql, list({*_names, *scope_aliases})))
+            gate = validate_and_wrap(exec_sql, dialect="duckdb" if _will_duck else None)
+            df, _engine = duck.run_block_sql_routed(
+                dc, conn, bid, gate.sql, bound.params,
+                upload_lookup=upload_lookup, s3_get=s3_get,
+                extra_view_names=scope_aliases,
+            )
+    except GateError as exc:
+        return _err({"error": str(exc), "kind": "gate"}, 400)
+    except Exception as exc:
+        current_app.logger.exception("manual block SQL execution failed (%s)", bid)
+        msg = str(exc).strip().splitlines()[0][:240]
+        return _err({"error": msg, "kind": "oracle"}, 500)
+
+    if df is None:
+        import pandas as _pd
+        df = _pd.DataFrame()
+
+    df = df.reset_index(drop=True) if hasattr(df, "reset_index") else df
+    columns = [str(c) for c in df.columns]
+    total_rows = int(len(df))
+
+    all_rows = []
+    if total_rows > 0:
+        for row in df.itertuples(index=False, name=None):
+            all_rows.append([duck._jsonable(v) for v in row])
+
+    new_ds = {
+        "sql":           gate.sql if gate is not None else exec_sql,
+        "original_sql":  query,
+        "rewritten":     bool(gate.rewritten) if gate is not None else False,
+        "truncated":     bool(gate.truncated) if gate is not None else False,
+        "cap":           gate.cap if gate is not None else total_rows,
+        "reason":        gate.reason if gate is not None else "manual_sql",
+        "executed_at":   datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "row_count":     total_rows,
+        "columns":       columns,
+        "column_types":  duck.infer_column_kinds(df),
+        "preview_rows":  all_rows[:5],
+        "rows":          all_rows,
+        "view_name":     f"v_{bid}",
+        "engine":        "manual_sql",
+        "bind_params":   {k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                          for k, v in bound.params.items()},
+    }
+    return new_ds, None
+
+
 @presentations_bp.route("/<pid>/block/<bid>/run-manual", methods=["POST"])
 @login_required
 def run_block_manual(pid: str, bid: str):
@@ -1173,12 +1333,9 @@ def run_block_manual(pid: str, bid: str):
     Returns the same shape as /block/<bid>/refresh: {ok, version, block}.
     """
     from .manifest import find_block_by_id
-    from .blocks.schema import Block, Variable
+    from .blocks.schema import Variable
     from .sql.validator import validate_sql
-    from .sql.binder import expand_binds
-    from .variables.resolver import resolve_variables, ResolutionError
     from .nodes.execute_block_sqls import apply_data_to_config
-    from .concepts.integration import strip_concept_sentinel
 
     session = _get_session(pid)
     manifest = session.get_manifest()
@@ -1326,137 +1483,12 @@ def run_block_manual(pid: str, bid: str):
             mimetype="application/json",
         )
 
-    # Synthesize a stand-in Block for the resolver / binder. We don't write it
-    # back — it's purely for type-driven coercion.
-    try:
-        stand_in = Block.model_validate({
-            "id": bid if len(bid) >= 3 else f"blk_{bid}",
-            "version": 1,
-            "title": block.get("title") or "block",
-            "team": "in_presentation",
-            "owner": current_user.sicil,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "query": query,
-            "variables": [v.model_dump() for v in var_models],
-            "visualization": {"type": _standin_viz_type(block.get("type")), "config": {}},
-        })
-    except Exception as exc:
-        return Response(
-            json.dumps({"error": str(exc), "kind": "block_schema"}, ensure_ascii=False),
-            status=400, mimetype="application/json",
-        )
-
-    try:
-        resolved = resolve_variables(stand_in, overrides)
-    except ResolutionError as exc:
-        return Response(
-            json.dumps({
-                "error": "; ".join(exc.errors),
-                "kind": "resolution",
-            }, ensure_ascii=False),
-            status=400, mimetype="application/json",
-        )
-
-    try:
-        bound = expand_binds(stand_in, resolved)
-    except ValueError as exc:
-        return Response(
-            json.dumps({"error": str(exc), "kind": "bind"}, ensure_ascii=False),
-            status=400, mimetype="application/json",
-        )
-
-    dc = current_app.config.get("DATA_CLIENT")
-    if dc is None:
-        return Response(
-            json.dumps({"error": "DATA_CLIENT yapılandırılmamış.", "kind": "config"},
-                       ensure_ascii=False),
-            status=500, mimetype="application/json",
-        )
-
-    # Bind params are routed through DataClient.get_data (DEV stub passes them
-    # to DuckDB; prod oracledb honours :name binds natively). We mirror the
-    # query_params signature the rest of the code uses.
-    # Neutralize an un-injected {{concept_filters}} sentinel — a manual run has
-    # no dashboard concept filters, so the sentinel becomes a no-op 1 = 1.
-    exec_sql = strip_concept_sentinel(bound.sql)
-    gate = None
-    try:
-        # Route to DuckDB when the SQL references scope datasets (Hazırlık-
-        # produced manual-SQL / filter / aggregate nodes are session DuckDB
-        # views, not Oracle tables) or uploads; else Oracle. Without this a
-        # block sourced from such a node hits ORA-00942 (table or view).
-        upload_lookup = duck.build_upload_lookup(manifest)
-        s3_get = current_app.config.get("S3_GET")
-        # Collect the scope's basket aliases so routing sends alias refs to
-        # DuckDB even when a dataset isn't materialised yet (clear DuckDB
-        # "table does not exist" vs a misleading Oracle ORA-00942).
-        from .routes_scope import hydrate_block_datasets, load_scope_for_manifest
-        _scope = load_scope_for_manifest(manifest)
-        scope_aliases = [b.alias for b in _scope.basket] if _scope is not None else []
-        with session.duck_conn() as conn:
-            # Ensure the scope datasets the block references are registered as
-            # DuckDB views (parquet fast-path + on-demand Oracle fetch fallback);
-            # build-time in-memory views vanish on pod restart / idle eviction.
-            if _scope is not None:
-                hydrate_block_datasets(dc, conn, _scope, exec_sql)
-            # Manuel run da chart yolundaki aggregation gate'ten geçer: sınırsız
-            # `SELECT *` 5000 satırda kesilir (dialect, hedef motora göre seçilir
-            # — yanlış dialect'le sarmak execute'ta patlar). Önceden gate YOKTU →
-            # kullanıcı tüm tabloyu çekip manifest'i şişirebiliyordu.
-            from .aggregation_gate import validate_and_wrap
-            _names = [v for v in duck.list_views(conn) if not v.startswith("block_preview_")]
-            _will_duck = bool(duck.find_upload_refs(exec_sql)) or bool(
-                duck.find_view_refs(exec_sql, list({*_names, *scope_aliases})))
-            gate = validate_and_wrap(exec_sql, dialect="duckdb" if _will_duck else None)
-            df, _engine = duck.run_block_sql_routed(
-                dc, conn, bid, gate.sql, bound.params,
-                upload_lookup=upload_lookup, s3_get=s3_get,
-                extra_view_names=scope_aliases,
-            )
-    except GateError as exc:
-        return Response(
-            json.dumps({"error": str(exc), "kind": "gate"}, ensure_ascii=False),
-            status=400, mimetype="application/json",
-        )
-    except Exception as exc:
-        current_app.logger.exception("run_block_manual failed")
-        msg = str(exc).strip().splitlines()[0][:240]
-        return Response(
-            json.dumps({"error": msg, "kind": "oracle"}, ensure_ascii=False),
-            status=500, mimetype="application/json",
-        )
-
-    if df is None:
-        import pandas as _pd
-        df = _pd.DataFrame()
-
-    df = df.reset_index(drop=True) if hasattr(df, "reset_index") else df
-    columns = [str(c) for c in df.columns]
-    total_rows = int(len(df))
-
-    all_rows = []
-    if total_rows > 0:
-        for row in df.itertuples(index=False, name=None):
-            all_rows.append([duck._jsonable(v) for v in row])
-
-    new_ds = {
-        "sql":           gate.sql if gate is not None else exec_sql,
-        "original_sql":  query,
-        "rewritten":     bool(gate.rewritten) if gate is not None else False,
-        "truncated":     bool(gate.truncated) if gate is not None else False,
-        "cap":           gate.cap if gate is not None else total_rows,
-        "reason":        gate.reason if gate is not None else "manual_sql",
-        "executed_at":   datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-        "row_count":     total_rows,
-        "columns":       columns,
-        "column_types":  duck.infer_column_kinds(df),
-        "preview_rows":  all_rows[:5],
-        "rows":          all_rows,
-        "view_name":     f"v_{bid}",
-        "engine":        "manual_sql",
-        "bind_params":   {k: (v.isoformat() if hasattr(v, "isoformat") else v)
-                          for k, v in bound.params.items()},
-    }
+    # Ortak yürütme çekirdeği (standin → resolve → bind → gate → routing).
+    # refresh_block_data parametreli bloklarda AYNI çekirdeği kullanır.
+    new_ds, err = _execute_manual_block_sql(
+        session, manifest, bid, block, query, var_models, overrides)
+    if err is not None:
+        return err
 
     # Persist Phase 6.5 fields alongside the executed data. The renderer
     # then reads block.config (which apply_data_to_config fills below) so
@@ -1653,6 +1685,15 @@ def apply_dashboard_filters(pid: str):
         if item.get("alias")
     }
 
+    # Auto-binding fallback'i için dashboard filtre modelleri (bozuk kayıt
+    # tek tek atlanır — bir filtre şeması bütün apply'ı düşürmesin).
+    _dash_filter_models: list[DashboardFilter] = []
+    for _f in (manifest.get("filters") or []):
+        try:
+            _dash_filter_models.append(DashboardFilter.model_validate(_f))
+        except Exception:
+            continue
+
     results: list[dict] = []
     touched = 0
 
@@ -1811,6 +1852,24 @@ def apply_dashboard_filters(pid: str):
             results.append({"id": block["id"], "status": "error",
                              "kind": "binding_schema", "error": str(exc)})
             continue
+
+        # Spec §3.5 fallback — explicit binding'i OLMAYAN değişkenler için
+        # TEK eşleşmeli semantic_tag auto-binding'i uygula. Aksi hâlde blok
+        # "refetched" görünür ama DEFAULT değerleriyle koşar: filtre bar'daki
+        # seçim sessizce YOK SAYILIR (run-manual ile üretilen bloklarda
+        # variable_bindings hiç yazılmıyor — tam bu yüzden). Explicit binding
+        # her zaman kazanır (setdefault); çok-eşleşme/tip-uyumsuzluğu
+        # propose_auto_bindings zaten bağlamaz.
+        if _dash_filter_models:
+            try:
+                from .dashboards.binding import propose_auto_bindings
+                for name, vb in propose_auto_bindings(
+                        var_models, _dash_filter_models).items():
+                    bindings.setdefault(name, vb)
+            except Exception:
+                current_app.logger.warning(
+                    "apply-filters: auto-binding fallback failed (%s)",
+                    block.get("id"), exc_info=True)
 
         # Resolve.
         try:
