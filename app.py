@@ -144,6 +144,13 @@ if DEV_MODE:
             s, flags=_re.IGNORECASE,
         )
 
+        # Hazırlık derivation preview'ı Oracle proportional örnekleme kullanır:
+        # `FROM tbl SAMPLE(10)` (scope/sample.py::compose_sample_sql). DuckDB bu
+        # sözdizimini bilmez → parser error, DEV'de TÜM derivation preview'ları
+        # patlar. Dev tabloları zaten küçük (fake_db CSV'leri) ve ceiling
+        # FETCH FIRST ile kapaklı — clause'u düşürmek yeterli.
+        s = _re.sub(r"\bSAMPLE\s*\(\s*[\d.]+\s*\)", "", s, flags=_re.IGNORECASE)
+
         # Aggregation gate Oracle'a göre WHERE ROWNUM <= N ekliyor — DuckDB
         # ROWNUM bilmiyor, LIMIT'e çevir. (WHERE ROWNUM clause'u tek koşul ise.)
         s = _re.sub(
