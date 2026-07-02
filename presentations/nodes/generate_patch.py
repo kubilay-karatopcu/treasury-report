@@ -242,7 +242,9 @@ def _fill_missing_sqls(state, patches, llm, catalog):
                 sql_touched_blocks.add(value.get("id") or "")
             else:
                 # SQL boş → mini-call ile üret, value içine MUTATE ET
-                produced = _generate_sql_for_block(llm, state.user_message, value, catalog)
+                produced = _generate_sql_for_block(
+                    llm, state.user_message, value, catalog,
+                    views_ctx=_scope_views_context(state))
                 if produced:
                     value.setdefault("data_source", {})["original_sql"] = produced
                     sql_touched_blocks.add(value.get("id") or "")
@@ -281,6 +283,15 @@ def _fill_missing_sqls(state, patches, llm, catalog):
     missing = {bid: bptr for bid, bptr in config_only_blocks.items()
                if bid not in sql_touched_blocks}
 
+    # Statik (data_source'suz) MEVCUT bloklar: title/config düzenlemesi SQL
+    # sentezi TETİKLEMEZ — executor'daki statik-blok istisnasının simetriği.
+    # Aksi hâlde elle doldurulmuş bir KPI'da başlık değişimi bile mini-call
+    # koşturup bloğa istenmeyen bir SQL iliştirir.
+    for bid in list(missing):
+        blk, _ = find_block_by_id(state.manifest, bid)
+        if blk is not None and not isinstance(blk.get("data_source"), dict):
+            missing.pop(bid)
+
     if not missing:
         return patches
 
@@ -297,7 +308,8 @@ def _fill_missing_sqls(state, patches, llm, catalog):
         if target_block is None:
             continue
 
-        sql = _generate_sql_for_block(llm, state.user_message, target_block, catalog)
+        sql = _generate_sql_for_block(llm, state.user_message, target_block, catalog,
+                                      views_ctx=_scope_views_context(state))
         if not sql:
             continue
         has_existing_ds = bool(target_block.get("data_source"))
@@ -439,6 +451,7 @@ def _rewrite_unchanged_sqls(state, patches, llm, catalog):
         new_sql = _generate_sql_for_block(
             llm, state.user_message, block_for_call, catalog,
             existing_sql=existing or None,
+            views_ctx=_scope_views_context(state),
         )
         if not new_sql or new_sql.strip() == existing:
             continue
@@ -472,14 +485,36 @@ def _rewrite_unchanged_sqls(state, patches, llm, catalog):
     return patches + added
 
 
-def _generate_sql_for_block(llm, user_message: str, block: dict, catalog: dict | None,
-                            existing_sql: str | None = None) -> str | None:
-    """Focused LLM çağrısı — sadece SQL üret. Tek satır JSON yanıt:
-    {"sql": "SELECT ..."}.
+def _scope_views_context(state) -> str:
+    """Hazırlık dataset view'larının kompakt listesi (alias + kolonlar).
 
-    `existing_sql` verilirse: kullanıcı mevcut SQL'i modifiye etmek istiyor
-    (örn. ORDER BY ekle, WHERE değiştir). Mevcut SQL bağlam olarak gönderilir.
+    Fallback SQL üreticisi bu view'ları bilmiyordu → LLM Hazırlık node'undan
+    beslenen bloklarda Oracle şema-önekli / FETCH FIRST'lü SQL üretip
+    çalışma anında patlıyordu (ana prompt'taki M6 kuralının fallback'te
+    karşılığı yoktu). Kaynak: state.scope_contract (DB round-trip yok).
     """
+    sc = getattr(state, "scope_contract", None)
+    if sc is None:
+        return ""
+    lines: list[str] = []
+    for b in getattr(sc, "basket", []) or []:
+        cols = list(getattr(getattr(b, "projection", None), "columns", None) or [])
+        if not cols and getattr(b, "derivation", None) is not None:
+            cols = list(getattr(b.derivation, "output_columns", None) or [])
+        line = f"- {b.alias}"
+        if cols:
+            line += ": " + ", ".join(cols[:30])
+            if len(cols) > 30:
+                line += f" … (+{len(cols) - 30} kolon)"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _build_sql_fallback_prompts(user_message: str, block: dict, catalog: dict | None,
+                                existing_sql: str | None = None,
+                                views_ctx: str = "") -> tuple[str, str]:
+    """Fallback SQL mini-call'unun (system, user) prompt çifti — saf fonksiyon
+    (test edilebilir; ağ çağrısı _generate_sql_for_block'ta)."""
     btype = block.get("type")
     btitle = block.get("title", "")
 
@@ -498,6 +533,17 @@ def _generate_sql_for_block(llm, user_message: str, block: dict, catalog: dict |
         " sıra için ORDER BY CASE kullan, alfabetik bırakma."
         " Sayısal yuvarlama: 'N haneye yuvarla' / 'N ondalık' / 'round' istenirse"
         " SELECT'te ROUND(<expr>, N) kullan. Oracle ve DuckDB ikisinde de ROUND vardır."
+        # Ana prompt'un (edit.txt) iki KRİTİK kuralının fallback karşılığı —
+        # bunlar eksikti ve fallback SQL'i filtre-körü / yanlış lehçeli üretiyordu:
+        " KURAL 1 — Hazırlık view'ları: aşağıda '# Hazırlık view'ları' listelenmişse"
+        " ve sorgu onlardan birini kullanıyorsa SQL DuckDB lehçesinde olmalı:"
+        " şema öneki YOK (FROM alias_adi), FETCH FIRST yerine LIMIT,"
+        " SYSDATE yerine CURRENT_DATE. Bu view'lar Oracle'da YOKTUR."
+        " KURAL 2 — {{concept_filters}}: SCHEMA.TABLO biçiminde bir katalog"
+        " tablosundan sorguluyorsan WHERE'e {{concept_filters}} sentinel'ini"
+        " ekle (örn. WHERE {{concept_filters}} AND <diğer koşullar> — tek başına"
+        " ise WHERE {{concept_filters}}); dashboard filtreleri oraya enjekte"
+        " edilir, filtre yoksa otomatik 1=1 olur. Sentinel'i TIRNAKSIZ yaz."
     )
 
     # Block tipine göre SQL şekil tavsiyesi
@@ -522,14 +568,36 @@ def _generate_sql_for_block(llm, user_message: str, block: dict, catalog: dict |
     else:
         task_block = "# Görev\nBu bloğun veri kaynağı SQL'ini üret.\n\n"
 
+    views_block = ""
+    if views_ctx:
+        views_block = (
+            f"# Hazırlık view'ları (session DuckDB — bunlardan sorgularken KURAL 1)\n"
+            f"{views_ctx}\n\n"
+        )
+
     user = (
         f"{task_block}"
         f"# Block\nTip: {btype}\nBaşlık: {btitle}\n"
         f"Beklenen SQL şekli: {shape}\n\n"
         f"# Kullanıcının talebi\n{user_message}\n\n"
+        f"{views_block}"
         f"# Mevcut katalog\n{catalog_str or '(katalog yok)'}\n\n"
         f"# Çıktı\n{{\"sql\":\"<SELECT ...>\"}}"
     )
+    return sys, user
+
+
+def _generate_sql_for_block(llm, user_message: str, block: dict, catalog: dict | None,
+                            existing_sql: str | None = None,
+                            views_ctx: str = "") -> str | None:
+    """Focused LLM çağrısı — sadece SQL üret. Tek satır JSON yanıt:
+    {"sql": "SELECT ..."}.
+
+    `existing_sql` verilirse: kullanıcı mevcut SQL'i modifiye etmek istiyor
+    (örn. ORDER BY ekle, WHERE değiştir). Mevcut SQL bağlam olarak gönderilir.
+    """
+    sys, user = _build_sql_fallback_prompts(
+        user_message, block, catalog, existing_sql=existing_sql, views_ctx=views_ctx)
 
     try:
         # llm.generate_patches'ı yeniden kullanmak yerine raw chat call yap

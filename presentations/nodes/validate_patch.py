@@ -24,8 +24,10 @@ def validate_patch(state):
     contract_errors = _check_scope_contract(
         state.manifest, state.pending_patches, _resolve_scope_contract(state),
     )
+    sql_ref_errors = _check_sql_source_refs(state)
     state.validation_errors = (
         locked_errors + schema_errors + scope_sel_errors + contract_errors
+        + sql_ref_errors
     )
     return state
 
@@ -257,3 +259,109 @@ def _check_scope_contract(manifest, patches, scope):
             )
 
     return errors
+
+
+# ── Üretilen SQL'in tablo referansı doğrulaması ─────────────────────────────
+# LLM'in halüsine ettiği SCHEMA.TABLO adları eskiden apply'a kadar geçip
+# çalışma anında ORA-00942 ile patlıyor ve retry döngüsü aynı hayali tabloyu
+# tekrar üretiyordu. Burada validate aşamasında yakalanır → hata mesajı
+# LLM'e "mevcut tablolar şunlar" diye geri beslenir (retry düzeltebilir).
+
+
+def _iter_patch_sqls(patches):
+    """Pending patch'lerdeki her aday SQL'i (patch_idx, sql) olarak üret.
+
+    Kapsanan şekiller:
+      - whole-block value (data_source.original_sql / .sql) + container
+        çocukları (herhangi derinlik)
+      - path .../data_source (dict value) ve .../original_sql | .../sql
+        (string value)
+    """
+    def _walk_block(idx, node):
+        if not isinstance(node, dict):
+            return
+        ds = node.get("data_source")
+        if isinstance(ds, dict):
+            sql = ds.get("original_sql") or ds.get("sql")
+            if isinstance(sql, str) and sql.strip():
+                yield idx, sql
+        for child in node.get("children") or []:
+            yield from _walk_block(idx, child)
+
+    for i, p in enumerate(patches or []):
+        if p.get("op") not in ("add", "replace"):
+            continue
+        path = p.get("path", "") or ""
+        value = p.get("value")
+        if isinstance(value, dict) and ("type" in value or "children" in value):
+            yield from _walk_block(i, value)
+        elif path.endswith("/data_source") and isinstance(value, dict):
+            sql = value.get("original_sql") or value.get("sql")
+            if isinstance(sql, str) and sql.strip():
+                yield i, sql
+        elif (path.endswith("/original_sql") or path.endswith("/data_source/sql")) \
+                and isinstance(value, str) and value.strip():
+            yield i, value
+
+
+def _known_table_universe(state):
+    """Bilinen SCHEMA.TABLO evreni (set[str]) ya da bilinemiyorsa None.
+
+    Kaynaklar: TABLE_DOC_STORE (tek kaynak) + scope contract'ın table_ref'leri.
+    Evren BOŞ/erişilemezse None döner — hiçbir şey bilmiyorken asla bloklama
+    (test app'leri / store'suz ortamlar).
+    """
+    universe: set[str] = set()
+    try:
+        from flask import current_app
+        store = current_app.config.get("TABLE_DOC_STORE")
+        if store is not None:
+            for schema, table in (store.list_tables() or []):
+                universe.add(f"{str(schema).upper()}.{str(table).upper()}")
+    except Exception:
+        pass
+    sc = getattr(state, "scope_contract", None)
+    if sc is not None:
+        for b in getattr(sc, "basket", []) or []:
+            ref = getattr(b, "table_ref", None)
+            if ref is not None and getattr(ref, "schema_name", None) and getattr(ref, "name", None):
+                universe.add(f"{ref.schema_name.upper()}.{ref.name.upper()}")
+    return universe or None
+
+
+def _check_sql_source_refs(state):
+    """Patch'lerdeki şema-nitelikli tablo referanslarını evrene karşı doğrula.
+
+    Yalnız ``SCHEMA.TABLO`` biçimindeki referanslar denetlenir — alias-only
+    FROM'lar (Hazırlık view'ları, CTE'ler, ``upload__*``) DuckDB routing'inde
+    zaten net hatayla çözülür ve burada yanlış-pozitif üretmemeli. Best-effort:
+    her istisna sessizce boş liste (chat'i asla bu kontrol kırmaz).
+    """
+    try:
+        patches = state.pending_patches or []
+        sqls = list(_iter_patch_sqls(patches))
+        if not sqls:
+            return []
+        universe = _known_table_universe(state)
+        if not universe:
+            return []
+
+        from presentations.concepts.integration import derive_source_tables
+
+        errors = []
+        shown_universe = ", ".join(sorted(universe)[:15]) + (
+            f" … (+{len(universe) - 15})" if len(universe) > 15 else "")
+        for idx, sql in sqls:
+            for schema, table in derive_source_tables(
+                    {"data_source": {"original_sql": sql}}):
+                ref = f"{schema}.{table}"
+                if ref not in universe:
+                    errors.append(
+                        f"patch[{idx}]: SQL '{ref}' diye bir tabloya başvuruyor — "
+                        f"bu tablo katalogda YOK (uydurma). Yalnız şu tabloları "
+                        f"kullan: {shown_universe}. Hazırlık view'ları için "
+                        f"şema öneki KULLANMA (FROM alias_adi)."
+                    )
+        return errors
+    except Exception:
+        return []
