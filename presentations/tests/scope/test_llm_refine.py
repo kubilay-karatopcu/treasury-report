@@ -110,16 +110,19 @@ class TestFakeLLMContract:
         assert f["concept"] == "currency"
         assert f["values"] == ["TRY"]
 
-    def test_aggregate_intent(self, draft_scope, bound_concepts):
+    def test_aggregate_intent_emits_python_node(self, draft_scope, bound_concepts):
+        """Politika: tek-kaynak agregasyon HER ZAMAN Python — stub da
+        create_aggregate DEĞİL create_python_node üretmeli (apply reddediyor)."""
         r = FakeLLM().suggest_scope_refinements(
             draft_scope, "şube bazında topla", bound_concepts, [])
-        assert any(s["kind"] == "create_aggregate" for s in r["suggestions"])
-        s = next(s for s in r["suggestions"] if s["kind"] == "create_aggregate")
+        assert any(s["kind"] == "create_python_node" for s in r["suggestions"])
+        assert not any(s["kind"] == "create_aggregate" for s in r["suggestions"])
+        s = next(s for s in r["suggestions"] if s["kind"] == "create_python_node")
         assert s["source_alias"] == "deposits_daily"
-        assert s["group_by"] == ["BRANCH_CODE"]
+        assert "groupby('BRANCH_CODE'" in s["python_code"]
+        assert "output_node_df" in s["python_code"]
         # Alias regex requires ASCII (no Turkish chars).
         assert re.fullmatch(r"[a-z][a-z0-9_]*", s["new_alias"])
-        assert s["measures"][0]["fn"] == "sum"
 
     def test_new_table_intent_is_rejected(self, draft_scope, bound_concepts):
         """Stage 2 LLM never proposes new tables — that's Stage 1's job."""
@@ -280,49 +283,16 @@ class TestMutators:
                 "right_alias": "deposits_daily", "right_column": "DAT",
             })
 
-    def test_create_aggregate(self, draft_scope):
-        out = _mutate_scope_with_suggestion(draft_scope, {
-            "kind": "create_aggregate",
-            "source_alias": "deposits_daily",
-            "new_alias": "deposits_by_branch",
-            "group_by": ["BRANCH_CODE"],
-            "measures": [{"column": "BALANCE_TRY", "fn": "sum", "as": "SUM_BAL"}],
-        })
-        new = next(b for b in out["basket"] if b.get("alias") == "deposits_by_branch")
-        assert new["derivation"]["kind"] == "aggregate"
-        assert new["derivation"]["source_alias"] == "deposits_daily"
-        assert new["derivation"]["group_by"] == ["BRANCH_CODE"]
-        assert new["derivation"]["measures"][0]["as"] == "SUM_BAL"
-        # Projection mirrors the derivation output.
-        assert new["projection"]["columns"] == ["BRANCH_CODE", "SUM_BAL"]
-        assert new["projection"]["include_all"] is False
-
-    def test_create_aggregate_from_derived_rejected(self, draft_scope):
-        s = _mutate_scope_with_suggestion(draft_scope, {
-            "kind": "create_aggregate",
-            "source_alias": "deposits_daily",
-            "new_alias": "deposits_by_branch",
-            "group_by": ["BRANCH_CODE"],
-            "measures": [{"column": "BALANCE_TRY", "fn": "sum", "as": "SUM_BAL"}],
-        })
-        # Chaining: aggregate of an aggregate is rejected — must be from raw.
-        with pytest.raises(_ApplyError, match="türetilmiş tablo olamaz"):
-            _mutate_scope_with_suggestion(s, {
-                "kind": "create_aggregate",
-                "source_alias": "deposits_by_branch",
-                "new_alias": "second_agg",
-                "group_by": ["BRANCH_CODE"],
-                "measures": [{"column": "SUM_BAL", "fn": "max", "as": "MAX"}],
-            })
-
-    def test_create_aggregate_alias_clash_rejected(self, draft_scope):
-        with pytest.raises(_ApplyError, match="zaten mevcut"):
+    def test_create_aggregate_rejected(self, draft_scope):
+        """Politika: create_aggregate kaldırıldı — apply net redle Python'a
+        yönlendirir (sessizce SQL agregasyon uygulamak yasak)."""
+        with pytest.raises(_ApplyError, match="create_python_node"):
             _mutate_scope_with_suggestion(draft_scope, {
                 "kind": "create_aggregate",
                 "source_alias": "deposits_daily",
-                "new_alias": "branch_dim",   # already in basket
+                "new_alias": "deposits_by_branch",
                 "group_by": ["BRANCH_CODE"],
-                "measures": [],
+                "measures": [{"column": "BALANCE_TRY", "fn": "sum", "as": "SUM_BAL"}],
             })
 
     def test_unknown_kind_rejected(self, draft_scope):
@@ -337,3 +307,139 @@ class TestMutators:
             "concept": "currency", "op": "in", "values": ["TRY"],
         })
         assert json.dumps(draft_scope, sort_keys=True, default=str) == snapshot
+
+
+# ── Kolon kanonikleştirme + LLM bağlam kolon-hint'i (M3 "kolon yok" fix'i) ──
+
+DOC_COLS = [{"name": n} for n in
+            ["DAT", "SEGMENT", "BALANCE_TRY", "BRANCH_CODE", "CCY_CODE"]]
+
+
+@pytest.fixture
+def patched_columns_for(monkeypatch):
+    """_columns_for'u app-context'siz, sabit doc kolonlarıyla stub'la."""
+    import presentations.routes_scope as rs
+    monkeypatch.setattr(rs, "_columns_for", lambda schema, name: list(DOC_COLS))
+
+
+class TestColumnCanonicalization:
+    """LLM'in verdiği kolon adları apply'da doc'a göre kanonikleşir: case
+    farkı düzelir, gerçekten olmayan kolon actionable hatayla reddedilir,
+    evren BİLİNEMİYORSA asla false-block yapılmaz (kullanıcının 'kolon
+    vardı ama yok dedi' semptomunun apply ayağı)."""
+
+    def test_projection_column_case_is_canonicalized(self, draft_scope, patched_columns_for):
+        out = _mutate_scope_with_suggestion(draft_scope, {
+            "kind": "add_projection_column",
+            "alias": "deposits_daily",
+            "column": "branch_code",       # LLM küçük harf yazdı
+        })
+        cols = next(b for b in out["basket"]
+                    if b["alias"] == "deposits_daily")["projection"]["columns"]
+        assert "BRANCH_CODE" in cols and "branch_code" not in cols
+
+    def test_projection_column_beyond_projection_is_allowed(self, draft_scope, patched_columns_for):
+        """Projection'da OLMAYAN ama doc'ta OLAN kolon eklenebilmeli —
+        projection alt kümesi validasyon evreni DEĞİLDİR."""
+        out = _mutate_scope_with_suggestion(draft_scope, {
+            "kind": "add_projection_column",
+            "alias": "deposits_daily",
+            "column": "CCY_CODE",          # projection'da yok, doc'ta var
+        })
+        cols = next(b for b in out["basket"]
+                    if b["alias"] == "deposits_daily")["projection"]["columns"]
+        assert "CCY_CODE" in cols
+
+    def test_truly_unknown_column_rejected_with_available_list(self, draft_scope, patched_columns_for):
+        with pytest.raises(_ApplyError, match="Mevcut kolonlar.*BRANCH_CODE"):
+            _mutate_scope_with_suggestion(draft_scope, {
+                "kind": "add_projection_column",
+                "alias": "deposits_daily",
+                "column": "GHOST_COL",
+            })
+
+    def test_unknown_universe_passes_through(self, draft_scope, monkeypatch):
+        """Doc yok / app context yok → evren bilinemez → dokunma (false-red yok)."""
+        import presentations.routes_scope as rs
+        monkeypatch.setattr(rs, "_columns_for",
+                            lambda schema, name: (_ for _ in ()).throw(RuntimeError()))
+        out = _mutate_scope_with_suggestion(draft_scope, {
+            "kind": "add_projection_column",
+            "alias": "deposits_daily",
+            "column": "WHATEVER_COL",
+        })
+        cols = next(b for b in out["basket"]
+                    if b["alias"] == "deposits_daily")["projection"]["columns"]
+        assert "WHATEVER_COL" in cols
+
+    def test_confirm_join_canonicalizes_both_sides(self, draft_scope, patched_columns_for):
+        out = _mutate_scope_with_suggestion(draft_scope, {
+            "kind": "confirm_join",
+            "left_alias": "deposits_daily", "left_column": "branch_code",
+            "right_alias": "branch_dim", "right_column": " BRANCH_CODE ",
+            "kind_of_join": "lookup",
+        })
+        j = out["joins"][0]
+        assert j["left"]["column"] == "BRANCH_CODE"
+        assert j["right"]["column"] == "BRANCH_CODE"
+
+    def test_confirm_join_unknown_column_rejected(self, draft_scope, patched_columns_for):
+        with pytest.raises(_ApplyError, match="confirm_join\\(left\\)"):
+            _mutate_scope_with_suggestion(draft_scope, {
+                "kind": "confirm_join",
+                "left_alias": "deposits_daily", "left_column": "NOPE",
+                "right_alias": "branch_dim", "right_column": "BRANCH_CODE",
+            })
+
+
+class TestColumnsHintForAlias:
+    """scope_chat ODAK bağlamı: türetilmiş node'ların kolonları LLM'e gitsin
+    ('kolon yok' semptomunun bağlam ayağı)."""
+
+    def _basket(self):
+        return [
+            {"alias": "daily",
+             "table_ref": {"schema": "EDW", "name": "MYU_DAILY_RES"},
+             "projection": {"columns": ["RES_ID"], "include_all": False}},
+            {"alias": "py_node",
+             "derivation": {"kind": "python", "source_alias": "daily",
+                            "python_code": "output_node_df = input_node_df",
+                            "output_columns": ["CCY_CODE", "TOTAL", "PAY_PCT"]},
+             "projection": {"columns": [], "include_all": True}},
+            {"alias": "agg_node",
+             "derivation": {"kind": "aggregate", "source_alias": "daily",
+                            "group_by": ["CCY_CODE"],
+                            "measures": [{"column": "AMT", "fn": "sum", "as": "TOTAL_AMT"}]},
+             "projection": {"columns": [], "include_all": True}},
+            {"alias": "f_node",
+             "derivation": {"kind": "filter", "source_alias": "py_node",
+                            "filters": {"raw": [{"id": "rf_1", "alias": "py_node",
+                                                 "column": "CCY_CODE", "op": "eq",
+                                                 "value": "TRY"}]}},
+             "projection": {"columns": [], "include_all": True}},
+        ]
+
+    def test_python_node_uses_output_columns(self):
+        from presentations.routes_scope import _columns_hint_for_alias
+        assert _columns_hint_for_alias(self._basket(), "py_node") == \
+            ["CCY_CODE", "TOTAL", "PAY_PCT"]
+
+    def test_aggregate_node_derives_from_definition(self):
+        from presentations.routes_scope import _columns_hint_for_alias
+        assert _columns_hint_for_alias(self._basket(), "agg_node") == \
+            ["CCY_CODE", "TOTAL_AMT"]
+
+    def test_filter_node_recurses_to_source(self):
+        from presentations.routes_scope import _columns_hint_for_alias
+        assert _columns_hint_for_alias(self._basket(), "f_node") == \
+            ["CCY_CODE", "TOTAL", "PAY_PCT"]
+
+    def test_unrun_python_node_is_unknown_in_strict_mode(self):
+        from presentations.routes_scope import _columns_hint_for_alias
+        basket = self._basket()
+        basket[1]["derivation"]["output_columns"] = []
+        basket[1]["projection"] = {"columns": ["STALE"], "include_all": False}
+        # strict (validasyon): bilinemez → None (asla projection'ı evren sayma)
+        assert _columns_hint_for_alias(basket, "py_node", strict=True) is None
+        # hint (chat): projection'a düşebilir
+        assert _columns_hint_for_alias(basket, "py_node") == ["STALE"]

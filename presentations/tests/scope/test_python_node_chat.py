@@ -276,3 +276,35 @@ def test_apply_uniquifies_alias_collision():
     out = _mutate_scope_with_suggestion(s, _sugg())
     aliases = [b["alias"] for b in out["basket"]]
     assert "deposits_py_2" in aliases
+
+
+def test_compose_wide_table_lists_all_column_names():
+    """M3 'kolon yok' fix'i: 30+ kolonlu tabloda kalan kolon ADLARI da prompt'a
+    girmeli (sessiz [:30] kesmesi LLM'e var olan kolonu 'yok' dedirtiyordu)."""
+    wide_cols = [{"name": f"COL_{i:02d}", "type": "VARCHAR2"} for i in range(45)]
+    msg = compose_scope_user_message(
+        {"basket": [{"alias": "t", "table_ref": {"schema": "EDW", "name": "WIDE"},
+                     "projection": {"columns": [], "include_all": True}}],
+         "filters": {}},
+        "COL_44 kolonunu ekle",
+        catalog_excerpt=[{"id": "EDW.WIDE", "desc": "geniş tablo", "columns": wide_cols}],
+    )
+    assert "`COL_29`" in msg           # detaylı ilk 30 içinde
+    assert "`COL_44`" in msg           # 30+ → "diğer kolonlar" satırında
+    assert "diğer kolonlar (MEVCUT)" in msg
+
+
+def test_compose_profile_extra_columns_rendered():
+    """Profil 40 kolonda detay keser ama kalan adlar 'diğer kolonlar' olarak
+    LLM'e gitmeli (geniş tabloda ODAK kolonu görünmez olmasın)."""
+    prof = {"row_count": 10,
+            "columns": [{"name": f"C{i}", "dtype": "int64", "sample": ""} for i in range(40)],
+            "extra_columns": ["EXTRA_A", "EXTRA_B"]}
+    msg = compose_scope_user_message(
+        {"basket": [{"alias": "t", "table_ref": {"schema": "EDW", "name": "W"},
+                     "projection": {"columns": [], "include_all": True}}],
+         "filters": {}},
+        "EXTRA_B'yi kullan", selected_alias="t", selected_profile=prof,
+    )
+    assert "`EXTRA_A`" in msg and "`EXTRA_B`" in msg
+    assert "diğer kolonlar (detaysız, ama MEVCUTLAR)" in msg
