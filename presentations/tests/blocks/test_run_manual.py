@@ -253,3 +253,61 @@ class TestRunManual:
         last = client.application.config["DATA_CLIENT"].last_call
         assert last["query_params"]["products_0"] == "FX"
         assert last["query_params"]["products_1"] == "DD"
+
+
+class TestRefreshParametrizedBlock:
+    """/block/<bid>/refresh, :bind değişkenli (run-manual ile kaydedilmiş)
+    bloklarda ham query'yi ÇIPLAK koşmamalı — değişkenler default'larıyla
+    çözülüp bind'ler expand edilmeli. Eski davranış: raw ':ccy' Oracle'a/
+    DuckDB'ye gidiyordu → DEV parser error / ORA-01008 (500)."""
+
+    def _seed_and_run(self, client) -> str:
+        pid = _seed_manual_block(client)
+        body = {
+            "query": ("SELECT SEGMENT, SUM(BALANCE) AS TOTAL FROM EDW.DEPOSITS "
+                      "WHERE CCY IN (:ccy) GROUP BY SEGMENT"),
+            "variables": [{
+                "name": "ccy", "semantic_tag": "currency", "type": "enum_multi",
+                "required": True, "default": ["TRY", "USD"],
+                "allowed_values": ["TRY", "USD", "EUR"],
+            }],
+        }
+        r = client.post(
+            f"/presentations/{pid}/block/b_test/run-manual",
+            data=json.dumps(body), content_type="application/json",
+        )
+        assert r.status_code == 200, r.data
+        return pid
+
+    def test_refresh_resolves_binds_with_defaults(self, client):
+        pid = self._seed_and_run(client)
+        dc = client.application.config["DATA_CLIENT"]
+        dc.last_call = None
+        r = client.post(
+            f"/presentations/{pid}/block/b_test/refresh",
+            data="{}", content_type="application/json",
+        )
+        assert r.status_code == 200, r.data
+        j = r.get_json()
+        assert j["ok"] is True
+        # Bind'ler positional expand edildi ve raw ':ccy' SQL'de kalmadı.
+        last = dc.last_call
+        assert last is not None
+        assert ":ccy_0" in last["query"] and ":ccy)" not in last["query"]
+        assert last["query_params"]["ccy_0"] == "TRY"
+        assert last["query_params"]["ccy_1"] == "USD"
+        # Config yeniden dolduruldu (bar_chart: kategoriler stub'ın SEGMENT'leri).
+        cats = (j["block"].get("config") or {}).get("categories") or []
+        assert cats == ["RETAIL", "CORPORATE", "SME"]
+
+    def test_refresh_honors_variable_overrides(self, client):
+        pid = self._seed_and_run(client)
+        dc = client.application.config["DATA_CLIENT"]
+        dc.last_call = None
+        r = client.post(
+            f"/presentations/{pid}/block/b_test/refresh",
+            data=json.dumps({"variable_overrides": {"ccy": ["EUR"]}}),
+            content_type="application/json",
+        )
+        assert r.status_code == 200, r.data
+        assert dc.last_call["query_params"] == {"ccy_0": "EUR"}

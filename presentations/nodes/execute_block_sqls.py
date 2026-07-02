@@ -482,6 +482,16 @@ def execute_block_sqls(state):
             bid = target_block.get("id")
             btype = target_block.get("type")
             if btype in DATA_SOURCE_TYPES:
+                # STATİK blok istisnası: data_source'u OLMAYAN bir data-bound
+                # blokta (değeri elle girilmiş KPI, properties panelinden
+                # eklenmiş blok) veri-dışı bir alt-path'e (title / width /
+                # config metni) dokunmak SQL GEREKTİRMEZ. Eskiden bu yol
+                # "`original_sql` zorunlu" hatası üretip chat'i retry
+                # döngüsüne sokuyordu — başlık değişimi bile reddediliyordu.
+                # data_source'a dokunan patch'ler (SQL ekleme) execute'a girer.
+                _touches_ds = "/data_source" in (patch.get("path") or "")
+                if not isinstance(target_block.get("data_source"), dict) and not _touches_ds:
+                    continue
                 # Simulate the patch on a shallow copy so we get the updated SQL
                 # *before* apply_patch runs.
                 simulated = _simulate_subpath_patch(target_block, patch)
