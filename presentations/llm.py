@@ -883,14 +883,14 @@ class FakeLLM:
         # FakeLLM ignores data_summary/library/table_docs — pure pattern matching.
         # Signature matches QwenClient for drop-in replacement.
         msg = user_message.strip()
-        idx, block = _find_block(manifest, selected_block_id)
+        bpath, block = _find_block(manifest, selected_block_id)
 
         # Title change
         m = re.search(r"(?:başlık|title)\s*[:=]\s*[\"']?(.+?)[\"']?\s*$", msg, re.IGNORECASE)
         if m and block is not None:
             new_title = m.group(1).strip()
             return (
-                [{"op": "replace", "path": f"/blocks/{idx}/title", "value": new_title}],
+                [{"op": "replace", "path": f"{bpath}/title", "value": new_title}],
                 f"(yerel stub) Başlık '{block.get('title', '')}' → '{new_title}'.",
                 [],
             )
@@ -900,7 +900,7 @@ class FakeLLM:
         if m and block is not None and block.get("type") == "narrative":
             new_text = m.group(1).strip()
             return (
-                [{"op": "replace", "path": f"/blocks/{idx}/config/text", "value": new_text}],
+                [{"op": "replace", "path": f"{bpath}/config/text", "value": new_text}],
                 f"(yerel stub) Narrative metni güncellendi.",
                 [],
             )
@@ -910,7 +910,7 @@ class FakeLLM:
             if block.get("type") == "section_header":
                 return [], "(yerel stub) Section header bloğu silinemez.", []
             return (
-                [{"op": "remove", "path": f"/blocks/{idx}"}],
+                [{"op": "remove", "path": bpath}],
                 f"(yerel stub) '{block.get('title', '')}' bloğu kaldırıldı.",
                 [],
             )
@@ -922,7 +922,7 @@ class FakeLLM:
                 new_value = float(num_match.group(1).replace(",", "."))
                 old_value = block.get("config", {}).get("value")
                 return (
-                    [{"op": "replace", "path": f"/blocks/{idx}/config/value", "value": new_value}],
+                    [{"op": "replace", "path": f"{bpath}/config/value", "value": new_value}],
                     f"(yerel stub) KPI değeri {old_value} → {new_value}.",
                     [],
                 )
@@ -1323,9 +1323,17 @@ class FakeLLM:
 
 
 def _find_block(manifest: dict, block_id: str | None):
+    """Seçili bloğu HERHANGİ bir derinlikte bul → (json_pointer_path, block).
+
+    Manifest yapısı nested (section_header.children, carousel/canvas): düz
+    ``blocks[i]`` taraması top-level dışındaki blokları bulamıyordu → FakeLLM
+    seçili leaf'i 'yok' sanıp her mesajı noop'a düşürüyordu. manifest.py'nin
+    kanonik gezgini path'i patch-hazır döndürür (örn. '/blocks/0/children/2').
+    """
     if not block_id:
         return None, None
-    for i, b in enumerate(manifest.get("blocks", [])):
-        if b.get("id") == block_id:
-            return i, b
+    from presentations.manifest import find_block_by_id
+    block, path = find_block_by_id(manifest, block_id)
+    if block is not None:
+        return path, block
     return None, None
