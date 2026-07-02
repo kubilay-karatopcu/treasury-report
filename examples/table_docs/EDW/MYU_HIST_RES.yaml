@@ -1,0 +1,412 @@
+table: MYU_HIST_RES
+schema: EDW
+description: |
+  Mevduat faiz rezervasyon (MYU) tarihsel ekstraktı. MYU_DAILY_RES'in
+  geriye dönük birikimli hali; ek olarak MBF fiyatlama bloğunu
+  (MBF_LOG_DT..MBF_RATE), pipe formatında rakip banka oranlarını
+  (COMPETITOR_BANK_RTS: "42.5|43") ve strateji kolonlarını taşır.
+  Bir satır = bir rezervasyon revizyonu; UNIQUE_ID satır bazında tekildir.
+  Lokal geliştirmede mock veri examples/generate_myu_hist_res.py ile üretilir.
+partition_column: CREATE_DT
+estimated_daily_rows: 3000
+
+columns:
+  RES_ID:
+    type: NUMBER(19)
+    description: "Rezervasyon kimliği"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: res_id
+    suggested_semantic_tag: deal_id
+
+  TALEP_REVIZE_NO:
+    type: NUMBER(4)
+    description: "Talep revizyon sırası (1 = ilk giriş, 5'e kadar)"
+    filterable: false
+
+  RESERVATION_NO:
+    type: NUMBER(10)
+    description: "Kullanıcıya görünen rezervasyon numarası"
+    filterable: false
+
+  CREATE_DT:
+    type: DATE
+    description: "Rezervasyon giriş tarihi (partisyon kolonu)"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: create_date
+    suggested_semantic_tag: as_of_time
+
+  CREATE_TM:
+    type: NUMBER(6)
+    description: "Giriş saati, HHMMSS tamsayı (84411 = 08:44:11)"
+    filterable: false
+
+  RESERVATION_ID_RCL:
+    type: NUMBER(19)
+    description: "RCL tablosundaki rezervasyon referansı (RES_ID ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  CUST_ID:
+    type: NUMBER(12)
+    description: "Müşteri numarası (MYU_DAILY_RES.CUST_ID ile join edilebilir)"
+    filterable: false
+
+  CURRENCY_CODE:
+    type: VARCHAR2(3)
+    description: "Rezervasyon para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+    get_distinct: true
+    distinct_values_sample: [TRY, USD, EUR]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  CURRENTAMOUNT:
+    type: NUMBER(18,2)
+    description: "Müşterinin mevcut bakiyesi"
+    filterable: false
+    aggregatable: true
+
+  INCOMING_AMT:
+    type: NUMBER(18,2)
+    description: "Gelen (yeni para) tutar"
+    filterable: false
+    aggregatable: true
+
+  PORTFOLIO_AMT:
+    type: NUMBER(18,2)
+    description: "Müşterinin toplam portföy büyüklüğü"
+    filterable: false
+    aggregatable: true
+
+  RESERVATION_AMT:
+    type: NUMBER(18,2)
+    description: "Rezervasyona konu tutar"
+    filterable: false
+    aggregatable: true
+
+  CUST_REL:
+    type: VARCHAR2(20)
+    description: "Müşteri ilişki kategorisi (AILE_PORTFOYU, KORPORATIF, BIREYSEL)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: cust_rels
+    suggested_semantic_tag: segment
+    get_distinct: true
+    distinct_values_sample: [AILE_PORTFOYU, KORPORATIF, BIREYSEL]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  RELATED_CUST_ID:
+    type: NUMBER(12)
+    description: "İlişkili müşteri numarası"
+    filterable: false
+    visible_in_ui: false
+
+  RSI_ID:
+    type: NUMBER(19)
+    description: "Rezervasyon-öneri (suggestion item) kimliği"
+    filterable: false
+    visible_in_ui: false
+
+  RESERVATION_ID_RIL:
+    type: NUMBER(19)
+    description: "RIL tablosundaki rezervasyon referansı (RES_ID ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  MIN_TERM:
+    type: NUMBER(4)
+    description: "Talep edilen minimum vade (ay)"
+    filterable: false
+
+  MAX_TERM:
+    type: NUMBER(4)
+    description: "Talep edilen maksimum vade (ay)"
+    filterable: false
+
+  VADE:
+    type: VARCHAR2(10)
+    description: "Vade aralığı etiketi (MIN_TERM-MAX_TERM, ör. 3-24)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: tenor_buckets
+    suggested_semantic_tag: tenor_bucket
+
+  AIRATE:
+    type: NUMBER(10,2)
+    description: "Ek faiz oranı (AI rate, %)"
+    filterable: false
+    aggregatable: true
+
+  AIRATETYPE:
+    type: VARCHAR2(20)
+    description: "Ek faiz oranı tipi (NO SERVICE, ANALYTICAL, FIXED, FLOATING)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: airate_types
+    suggested_semantic_tag: instrument_type
+    get_distinct: true
+    distinct_values_sample: ["NO SERVICE", ANALYTICAL, FIXED, FLOATING]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  ENTRYUSER_ORG_CD:
+    type: VARCHAR2(5)
+    description: "Girişi yapan kullanıcının şube/organizasyon kodu"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: entry_org_codes
+    suggested_semantic_tag: branch
+
+  ENTRY_USERCODE:
+    type: VARCHAR2(8)
+    description: "Girişi yapan kullanıcı sicili (A#####)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: entry_users
+    suggested_semantic_tag: user_id
+
+  RESERVATION_ID_ENTRY:
+    type: NUMBER(19)
+    description: "Giriş kaydındaki rezervasyon referansı (RES_ID ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  FIYATLAYAN_USERCODE:
+    type: VARCHAR2(8)
+    description: "Fiyatlamayı yapan hazine kullanıcısı"
+    filterable: false
+
+  RESERVATION_ID_PRCTRANSACTION:
+    type: NUMBER(19)
+    description: "Fiyatlama işlem referansı"
+    filterable: false
+    visible_in_ui: false
+
+  INTRST_ID:
+    type: NUMBER(19)
+    description: "Faiz kaydı kimliği"
+    filterable: false
+    visible_in_ui: false
+
+  COMPETITOR_BANK_RTS:
+    type: VARCHAR2(40)
+    description: "Rakip banka oranları, pipe ile ayrık (ör. 42.5|43; NULL = beyan yok)"
+    filterable: false
+
+  CUST_ID_OUTCOME:
+    type: NUMBER(12)
+    description: "Sonuç kaydındaki müşteri referansı"
+    filterable: false
+    visible_in_ui: false
+
+  ACCOUNT_COUNT:
+    type: NUMBER(6)
+    description: "Müşterinin açılan hesap adedi"
+    filterable: false
+    aggregatable: true
+
+  ORIG_TERM:
+    type: NUMBER(4)
+    description: "Gerçekleşen orijinal vade (ay)"
+    filterable: false
+
+  CCY_CODE:
+    type: VARCHAR2(3)
+    description: "Hesap açılış para birimi (CURRENCY_CODE ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  ACCT_OPEN_RATE:
+    type: NUMBER(10,2)
+    description: "Hesap açılış oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  INTRST_ID_RIRL:
+    type: NUMBER(19)
+    description: "RIRL faiz kaydı referansı"
+    filterable: false
+    visible_in_ui: false
+
+  SUGGESTION_STATE_CODE:
+    type: VARCHAR2(2)
+    description: "Öneri durum kodu (1-10)"
+    filterable: false
+
+  DEMANDED_RATE:
+    type: NUMBER(10,2)
+    description: "Müşterinin talep ettiği faiz oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  OFFERED_RATE:
+    type: NUMBER(10,2)
+    description: "Hazinenin teklif ettiği faiz oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  OFFER_DATE:
+    type: DATE
+    description: "Teklif tarihi"
+    filterable: false
+
+  OFFER_TIME:
+    type: NUMBER(6)
+    description: "Teklif saati, HHMMSS tamsayı"
+    filterable: false
+
+  ROLL_CUST_ID:
+    type: NUMBER(12)
+    description: "Yenileme (roll) yapan müşteri (NULL = yeni para)"
+    filterable: false
+
+  ROLL_AMOUNT:
+    type: NUMBER(18,2)
+    description: "Yenilenen tutar"
+    filterable: false
+    aggregatable: true
+
+  MBF_LOG_DT:
+    type: DATE
+    description: "MBF fiyatlama log tarihi (NULL = MBF bloğu yok)"
+    filterable: false
+
+  MBF_LOG_TIME:
+    type: NUMBER(6)
+    description: "MBF fiyatlama log saati, HHMMSS tamsayı"
+    filterable: false
+
+  MBF_ACCT_ID:
+    type: NUMBER(12)
+    description: "MBF hesap kimliği"
+    filterable: false
+    visible_in_ui: false
+
+  MBF_TERM:
+    type: NUMBER(4)
+    description: "MBF vade (ay)"
+    filterable: false
+
+  MBF_SOURCE:
+    type: VARCHAR2(10)
+    description: "MBF fiyatlama kanalı (MMSG0017, MMSG0020, WEB, MOBILE)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: mbf_sources
+    suggested_semantic_tag: other
+    get_distinct: true
+    distinct_values_sample: [MMSG0017, MMSG0020, WEB, MOBILE]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  MBF_ACCT_OPN_RT:
+    type: NUMBER(10,2)
+    description: "MBF hesap açılış oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  BRANCHMAX:
+    type: NUMBER(10,2)
+    description: "Şube maksimum oran limiti (%)"
+    filterable: false
+    aggregatable: true
+
+  MBF_COEFF:
+    type: NUMBER(6,2)
+    description: "MBF katsayısı"
+    filterable: false
+
+  MBF_RATE:
+    type: NUMBER(10,2)
+    description: "MBF hesaplanan oran (%)"
+    filterable: false
+    aggregatable: true
+
+  ACCT_CUST_ID:
+    type: NUMBER(12)
+    description: "Hesap sahibi müşteri referansı"
+    filterable: false
+    visible_in_ui: false
+
+  DAT:
+    type: DATE
+    description: "ETL yükleme tarihi"
+    filterable: false
+    visible_in_ui: false
+
+  DOVIZ:
+    type: VARCHAR2(3)
+    description: "Yetki bloğu para birimi (CURRENCY_CODE ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  VADE_BASLANGIC:
+    type: NUMBER(4)
+    description: "Yetki vade başlangıcı (ay)"
+    filterable: false
+
+  VADE_BITIS:
+    type: NUMBER(4)
+    description: "Yetki vade bitişi (ay)"
+    filterable: false
+
+  EKSTREM:
+    type: NUMBER(10,2)
+    description: "Ekstrem oran limiti (%)"
+    filterable: false
+    aggregatable: true
+
+  ZARAR_YETKISI:
+    type: NUMBER(10,2)
+    description: "Zarar yetkisi limiti (%)"
+    filterable: false
+    aggregatable: true
+
+  EKSTREM_YETKI:
+    type: NUMBER(10,2)
+    description: "Ekstrem yetki oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  OUTCOME:
+    type: NUMBER(1)
+    description: "Sonuç: 0 = kazanılmadı, 1 = kazanıldı"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: outcomes
+    suggested_semantic_tag: other
+    get_distinct: true
+    distinct_values_sample: [0, 1]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  INDICATIVE:
+    type: VARCHAR2(100)
+    description: "Gösterge fiyatlama (kaynakta hep NULL)"
+    filterable: false
+    visible_in_ui: false
+
+  SELECTED_POINTS:
+    type: VARCHAR2(100)
+    description: "Seçilen eğri noktaları (kaynakta hep NULL)"
+    filterable: false
+    visible_in_ui: false
+
+  SENSITIVTY_CURVE:
+    type: VARCHAR2(100)
+    description: "Duyarlılık eğrisi (kaynakta hep NULL; kolon adı kaynaktaki gibi)"
+    filterable: false
+    visible_in_ui: false
+
+  STRATEGY_PRICES:
+    type: VARCHAR2(100)
+    description: "Strateji fiyatları (kaynakta hep NULL)"
+    filterable: false
+    visible_in_ui: false
+
+  UNIQUE_ID:
+    type: VARCHAR2(36)
+    description: "Satır bazında tekil UUID"
+    filterable: false
+    visible_in_ui: false
