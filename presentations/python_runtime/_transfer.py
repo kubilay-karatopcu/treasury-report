@@ -31,9 +31,17 @@ def write_table(df, path) -> None:
 
     d = df.copy() if df is not None else pd.DataFrame()
     # Anlamlı (RangeIndex olmayan) index'i kolona çevir → groupby keys kaybolmaz
-    # + table orient'in tekrarlı-index hatası önlenir.
+    # + table orient'in tekrarlı-index hatası önlenir. İSTİSNA: adsız düz
+    # integer index (sort_values / filtre / dropna artığı — pandas contiguous
+    # olmayınca RangeIndex'i Int64Index'e düşürür) KONUMSALDIR, veri taşımaz;
+    # kolona çevirmek downstream'e hayalet bir "index" kolonu sızdırır. Adlı /
+    # Multi / datetime index'ler anlamlı kabul edilip korunur.
     if not isinstance(d.index, pd.RangeIndex):
-        d = d.reset_index()
+        if (d.index.name is None and d.index.nlevels == 1
+                and pd.api.types.is_integer_dtype(d.index.dtype)):
+            d = d.reset_index(drop=True)
+        else:
+            d = d.reset_index()
 
     # Kolon etiketlerini string'e çevir. JSON Table Schema (orient='table') şema
     # ADINI etiketin tipiyle yazar (int etiket → şema "name": 0) ama veri
