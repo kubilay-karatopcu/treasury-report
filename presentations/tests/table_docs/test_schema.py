@@ -17,7 +17,7 @@ from presentations.table_docs.schema import (
 
 
 REPO = Path(__file__).resolve().parents[3]
-TABLE_DOCS_DIR = REPO / "examples" / "table_docs"
+TABLE_DOCS_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "table_docs"
 
 
 @pytest.fixture(scope="module")
