@@ -1,8 +1,9 @@
 """generate_myu_hist_res.py — EDW.MYU_HIST_RES için mock veri üretici.
 
 Ofisteki mevduat faiz rezervasyon TARİHSEL (MYU hist) ekstraktının kolon
-düzenini taklit eder ve FakeDataClient'ın okuyabileceği temiz bir CSV üretir:
-``examples/sample_data/MYU_HIST_RES.csv``.
+düzenini taklit eder ve fake_db'nin (DEV_MODE'da app.py'nin kullandığı sahte
+tablo deposu) okuyabileceği temiz bir CSV üretir:
+``dev_data/sample_data/MYU_HIST_RES.csv``.
 
 MYU_DAILY_RES'ten farklı olarak bu ekstrakt MBF fiyatlama bloğunu
 (MBF_LOG_DT..MBF_RATE), rakip banka oranlarını pipe formatında
@@ -22,10 +23,9 @@ Ofis ekstraktından bilinçli farklar (uygulamada kullanılabilir olsun diye):
 - ``CUST_ID`` MYU_DAILY_RES ile aynı aralıktan (9 haneli) üretilir ki
   iki tablo arasında join denemeleri anlamlı olsun.
 
-Kullanım:
-    cd examples
-    python generate_myu_hist_res.py                     # 1000 satır, son 730 gün
-    python generate_myu_hist_res.py --rows 5000 --days 365 --seed 42
+Kullanım (repo kökünden):
+    python dev_data/generate_myu_hist_res.py                     # 1000 satır, son 730 gün
+    python dev_data/generate_myu_hist_res.py --rows 5000 --days 365 --seed 42
 """
 from __future__ import annotations
 

@@ -20,7 +20,13 @@ import logging
 import time
 import numpy as np
 import calendar
-from DataClient import DataClient
+try:
+    from DataClient import DataClient
+except Exception as _dc_import_exc:  # oracledb/pyaim/boto vb. lokal PC'de yok
+    DataClient = None
+    _DC_IMPORT_ERROR = _dc_import_exc
+else:
+    _DC_IMPORT_ERROR = None
 from deposit import deposit_bp
 import re
 from presentations import presentations_bp
@@ -45,10 +51,23 @@ import tempfile
 requests.packages.urllib3.disable_warnings()
 
 # ── Dev / Prod modu ───────────────────────────────────────────────────────────
-# DEV_MODE=True  → Oracle/S3/LLM bağlantıları devre dışı, fake user inject edilir.
-# DEV_MODE=False (varsayılan) → production davranışı, hiçbir şey değişmez.
-# Geçiş: ortam değişkenini set et/kaldır.  İş bilgisayarında set etme = prod modu.
-DEV_MODE = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
+# DEV_MODE=True  → Oracle/S3/LLM bağlantıları devre dışı, dev_data/ mock tabloları
+#                  + fake user kullanılır.
+# DEV_MODE=False → production (ofis): gerçek Oracle/S3 DataClient.
+#
+# Seçim:
+#   DEV_MODE=1  → zorla dev.   DEV_MODE=0 → zorla prod.
+#   (set edilmemişse) → OTOMATİK: gerçek DataClient kurulabiliyorsa prod,
+#   kurulamıyorsa (ofis dışı lokal PC: oracledb/AWS yok) dev'e düşülür.
+# Böylece lokalde düz `python app.py` mock'larla çalışır; ofiste yine prod'dur.
+_DEV_ENV = os.environ.get("DEV_MODE", "").strip().lower()
+if _DEV_ENV in ("1", "true", "yes"):
+    DEV_MODE = True
+elif _DEV_ENV in ("0", "false", "no"):
+    DEV_MODE = False
+else:
+    # Otomatik: prod DataClient kurulamıyorsa lokal kabul et.
+    DEV_MODE = DataClient is None
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%H:%M:%S')
 
@@ -257,6 +276,12 @@ if DEV_MODE:
     dc = _StubDataClient()
     logging.info("DEV_MODE: fake_db hazır — %s", ", ".join(fake_db.known_tables()))
 else:
+    if DataClient is None:
+        raise RuntimeError(
+            "DEV_MODE=0 (prod) zorlandı ama DataClient import edilemedi "
+            f"({_DC_IMPORT_ERROR!r}). Ofis dışında `DEV_MODE=1` ile veya hiç "
+            "set etmeden (otomatik dev) çalıştırın."
+        )
     dc = DataClient()
 
 
@@ -329,11 +354,9 @@ if DEV_MODE:
     app.config["BLOCK_STORE"]     = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
     app.config["SCOPE_STORE"]     = LocalScopeStore(base_dir=_DUCK_BASE_DIR / "scopes")
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
-        LocalTableDocStore(base_dir=Path(__file__).parent / "examples" / "table_docs")
+        LocalTableDocStore(base_dir=Path(__file__).parent / "dev_data" / "table_docs")
     )
     app.config["DEV_MODE"]        = True  # presentations/directory.py için bayrak
-    # DEV catalog → fake_db ile aynı tablolar (examples/sample_catalog.json).
-    app.config["CATALOG_PATH"] = str(Path(__file__).parent / "examples" / "sample_catalog.json")
 else:
     # Production: Qwen GGUF — model field gönderme (endpoint reddediyor).
     app.config["LLM_CLIENT"] = QwenClient(
@@ -396,7 +419,7 @@ app.config["DATASET_REFRESH_SCHEDULER"].start()
 #          yazılır (pod restart'ta kalıcı; bloklar/snapshot'larla aynı parite).
 #          PROD BOŞ başlar; uzmanlar /atolye/uzmanlar üzerinden oluşturulur.
 if DEV_MODE:
-    _EXPERTS_DIR = Path(__file__).parent / "examples" / "phase_10" / "experts"
+    _EXPERTS_DIR = Path(__file__).parent / "dev_data" / "experts"
     app.config["EXPERT_STORE"] = LocalExpertStore(base_dir=_EXPERTS_DIR)
     logging.info("EXPERT_STORE (DEV) loaded from %s", _EXPERTS_DIR)
 else:

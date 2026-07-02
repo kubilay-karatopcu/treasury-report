@@ -36,10 +36,9 @@ presentations/static/js/kesif-assets/
 presentations/static/js/bloklar.bundle.js
 presentations/static/js/bloklar.bundle.js.map
 
-# DEV-only — local stub, sample data, reference dumps. PROD'da kullanılmaz.
-fake_db.py
+# DEV-only lokal harness (fake_db.py + dev_data/) artık repoda tutulur ki
+# `python app.py` ofis dışında da mock tablolarla çalışsın.
 # Kullanıcı-scope konseptler kişiseldir (Phase 7: user-scope DB/lokal) — git'e girmez.
 presentations/catalog/concepts/user.yaml
 granted_tables.txt
-examples/
 reference/
