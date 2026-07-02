@@ -1,0 +1,31 @@
+table: DIM_RATING
+schema: LOOKUP
+description: |
+  Kredi notu boyut tablosu — Moody's / S&P / Fitch dengeleme tablosu +
+  iç skor karşılığı. Risk raporlarının nota göre bucket'lamasına dayanır.
+
+columns:
+  RATING_BUCKET:
+    type: VARCHAR2(6)
+    description: "Bizim iç bucket (AAA, AA, A, BBB, BB, B, CCC, D)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: ratings
+    suggested_semantic_tag: rating_bucket
+    distinct_values_sample: [AAA, AA, A, BBB, BB, B, CCC, D]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z
+
+  MOODYS_LABEL:
+    type: VARCHAR2(10)
+    description: "Moody's denkliği"
+    filterable: false
+
+  SP_LABEL:
+    type: VARCHAR2(10)
+    description: "S&P denkliği"
+    filterable: false
+
+  INTERNAL_SCORE_MIN:
+    type: NUMBER(5,2)
+    description: "İç PD skoru alt sınır (%)"
+    filterable: false

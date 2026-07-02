@@ -12,7 +12,7 @@ from presentations.table_docs.store import LocalTableDocStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-TABLE_DOCS_DIR = REPO_ROOT / "examples" / "table_docs"
+TABLE_DOCS_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "table_docs"
 
 
 @pytest.fixture(scope="session")

@@ -1,0 +1,24 @@
+table: DIM_CURRENCY
+schema: LOOKUP
+description: |
+  Döviz boyut tablosu — ISO 4217 kodu, ad, ondalık basamak.
+  FX raporlamasının ana sözlüğü.
+
+columns:
+  CCY_CODE:
+    type: CHAR(3)
+    description: "ISO kodu"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+
+  CCY_NAME:
+    type: VARCHAR2(40)
+    description: "Tam ad"
+    filterable: false
+
+  DECIMALS:
+    type: NUMBER(1)
+    description: "Ondalık basamak sayısı"
+    filterable: false

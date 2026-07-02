@@ -1,0 +1,55 @@
+table: LIQUIDITY_RISK_BUCKETS
+schema: ODS_RISK
+description: |
+  Vade dilimi bazında likidite riski — net cash flow gap, kümülatif,
+  stress senaryosu altında. Likidite raporlamasının ana detay tablosu.
+partition_column: AS_OF_DATE
+
+columns:
+  AS_OF_DATE:
+    type: DATE
+    description: "Hesaplama tarihi"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_date
+    suggested_semantic_tag: as_of_time
+
+  CURRENCY:
+    type: CHAR(3)
+    description: "Para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+
+  TENOR:
+    type: VARCHAR2(6)
+    description: "Vade dilimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: tenors
+    suggested_semantic_tag: tenor_bucket
+
+  CASH_INFLOW:
+    type: NUMBER(18,2)
+    description: "Beklenen nakit girişi"
+    filterable: false
+    aggregatable: true
+
+  CASH_OUTFLOW:
+    type: NUMBER(18,2)
+    description: "Beklenen nakit çıkışı"
+    filterable: false
+    aggregatable: true
+
+  NET_GAP:
+    type: NUMBER(18,2)
+    description: "Net gap (inflow - outflow)"
+    filterable: false
+    aggregatable: true
+
+  CUMULATIVE_GAP:
+    type: NUMBER(18,2)
+    description: "Kümülatif gap"
+    filterable: false
+    aggregatable: true
