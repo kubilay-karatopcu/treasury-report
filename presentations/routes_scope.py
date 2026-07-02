@@ -3050,7 +3050,11 @@ def _profile_node_df(df, max_cols: int = 40) -> dict:
         except Exception:
             pass
         cols.append({"name": str(name), "dtype": dtype, "sample": sample[:120]})
-    return {"row_count": int(len(df)), "columns": cols}
+    # Cap ötesindeki kolonların ADLARI da LLM'e gitsin — geniş tablolarda
+    # (60+ kolon) görünmeyen kolon "yok" sanılıyordu; detay (dtype/örnek)
+    # ilk max_cols ile sınırlı kalır, adlar tam liste.
+    extra = [str(c) for c in list(df.columns)[max_cols:]]
+    return {"row_count": int(len(df)), "columns": cols, "extra_columns": extra}
 
 
 def _node_profile_for_chat(dc, pid: str, alias: str) -> dict | None:
@@ -3122,7 +3126,10 @@ def scope_chat(pid: str):
 
     # Faz P — node-scope: seçili node'un kolonlarını LLM bağlamına ver. Türetilmiş
     # node'lar cols_by_alias'ta olmayabilir (yalnız raw main'ler dolduruldu); o
-    # zaman projection.columns'a düş.
+    # zaman derivation'dan türetilebilir kolonlara (output_columns / group_by +
+    # measures / calculated names / filter kaynağı) düş — projection.columns
+    # python node'larda BOŞTUR (include_all), eski fallback LLM'e "kolon yok"
+    # dedirtiyordu (kullanıcı var olan kolonu isteyince model reddediyordu).
     selected_columns: list[str] | None = None
     selected_columns_meta: list[dict] | None = None   # M3 — ad+tip+concept+açıklama
     if selected_alias:
@@ -3131,10 +3138,8 @@ def scope_chat(pid: str):
             selected_columns = [c.get("name") for c in meta if c.get("name")]
             selected_columns_meta = meta
         else:
-            sel = next((b for b in (scope_in.get("basket") or [])
-                        if b.get("alias") == selected_alias), None)
-            if sel is not None:
-                selected_columns = list((sel.get("projection") or {}).get("columns") or [])
+            selected_columns = _columns_hint_for_alias(
+                scope_in.get("basket") or [], selected_alias, cols_by_alias)
 
     # Öneri 1 — ODAK node materialise edilmişse gerçek dtype + örnek profili ver
     # (yalnız kolon adı değil). Best-effort; lazy node ya da hata → isim listesine düşer.
@@ -3280,6 +3285,100 @@ class _ApplyError(Exception):
     """Raised by the mutators when a suggestion cannot be applied as given."""
 
 
+def _columns_hint_for_alias(
+    basket: list[dict], alias: str,
+    cols_by_alias: dict[str, list[dict]] | None = None,
+    depth: int = 0,
+    strict: bool = False,
+) -> list[str] | None:
+    """Bir node'un BİLİNEN çıktı kolon adları (draft dict basket, best-effort).
+
+    Raw main → table-doc kolonları; türetilmiş → derivation'dan türetilebilenler
+    (output_columns / aggregate group_by+measures / calculated names / filter →
+    kaynağına recurse). Bilinemiyorsa (çalıştırılmamış python, join/union, sql
+    node, doc'suz tablo) None döner — None "kolon yok" DEĞİL "bilinmiyor"
+    demektir; çağıran taraf asla None üzerinden reddetmemeli.
+
+    ``strict=False`` (chat bağlam ipucu): tam liste bilinemeyince
+    ``projection.columns``'a düşer — LLM'e hiç yoktan seçili kolon adlarını verir.
+    ``strict=True`` (apply validasyonu): projection fallback'i YOKTUR — projection
+    zaten seçilmiş ALT KÜMEDİR; onu evren sayıp doc'taki diğer kolonları
+    reddetmek tam da "kolon vardı ama yok dedi" hatasını üretir. Evren yalnız
+    otoritatif kaynaktan (doc / derivation tanımı) kurulamıyorsa None.
+    """
+    if depth > 5:
+        return None
+    item = next((b for b in basket if b.get("alias") == alias), None)
+    if item is None:
+        return None
+
+    def _proj_fallback() -> list[str] | None:
+        if strict:
+            return None
+        proj = list((item.get("projection") or {}).get("columns") or [])
+        return proj or None
+
+    ref = item.get("table_ref") or {}
+    if ref.get("schema") and ref.get("name"):
+        meta = (cols_by_alias or {}).get(alias)
+        if meta is None:
+            try:
+                meta = _columns_for(ref["schema"], ref["name"])
+            except Exception:
+                meta = None  # app context / store yok (ör. unit test) → bilinmiyor
+        names = [c.get("name") for c in (meta or []) if c.get("name")]
+        return names or _proj_fallback()
+
+    d = item.get("derivation") or {}
+    kind = d.get("kind")
+    out_cols = [c for c in (d.get("output_columns") or []) if c]
+    if out_cols:
+        return list(out_cols)
+    if kind == "aggregate":
+        cols = list(d.get("group_by") or [])
+        for m in (d.get("measures") or []):
+            as_ = m.get("as") or (f"{str(m.get('fn','')).upper()}_{m.get('column','')}"
+                                  if m.get("column") else None)
+            if as_:
+                cols.append(as_)
+        return cols or _proj_fallback()
+    if kind == "calculated":
+        cols = [c.get("name") for c in (d.get("columns") or []) if c.get("name")]
+        return cols or _proj_fallback()
+    if kind == "filter" and d.get("source_alias"):
+        # Filter kaynağın kolonlarını aynen taşır.
+        return _columns_hint_for_alias(
+            basket, d["source_alias"], cols_by_alias, depth + 1, strict=strict)
+    # python (çalıştırılmamış) / join / union / sql → bilinemez.
+    return _proj_fallback()
+
+
+def _canonical_column(basket: list[dict], alias: str, column: str, *, what: str) -> str:
+    """LLM'in verdiği kolon adını node'un GERÇEK kolon adına kanonikleştir.
+
+    - Birebir eşleşme → aynen.
+    - Büyük/küçük harf ya da baş/son boşluk farkı → doc'taki kanonik ad
+      (LLM `ccy_code` yazsa da `CCY_CODE` uygulanır — false-red yok).
+    - Kolon listesi BİLİNEMİYORSA (None) → dokunma, aynen geçir (asla
+      "kolon yok" diye yanlış reddetme).
+    - Liste biliniyor ve eşleşme yoksa → mevcut kolonları listeleyen
+      actionable _ApplyError.
+    """
+    col = (column or "").strip()
+    known = _columns_hint_for_alias(basket, alias, strict=True)
+    if not known:
+        return col
+    if col in known:
+        return col
+    by_ci = {k.strip().lower(): k for k in known}
+    hit = by_ci.get(col.lower())
+    if hit:
+        return hit
+    shown = ", ".join(known[:15]) + (f" … (+{len(known) - 15} kolon)" if len(known) > 15 else "")
+    raise _ApplyError(f"{what}: '{column}' kolonu '{alias}' üzerinde bulunamadı. "
+                      f"Mevcut kolonlar: {shown}")
+
+
 def _mutate_scope_with_suggestion(scope: dict, sugg: dict) -> dict:
     """Pure function: returns a deep-copied scope with the suggestion applied.
 
@@ -3303,7 +3402,13 @@ def _mutate_scope_with_suggestion(scope: dict, sugg: dict) -> dict:
     if kind == "confirm_join":
         return _apply_confirm_join(s, sugg)
     if kind == "create_aggregate":
-        return _apply_create_aggregate(s, sugg)
+        # Politika: tek-kaynak dönüşüm/agregasyon HER ZAMAN Python node'dur
+        # (prompt bunu üretmemeli; üretirse net redle geri bildir — sessizce
+        # SQL agregasyon uygulamak "LLM her zaman Python" kuralını deler).
+        raise _ApplyError(
+            "create_aggregate artık desteklenmiyor — agregasyonu "
+            "create_python_node (Python) olarak öner/uygula."
+        )
     if kind == "create_calculation":
         return _apply_create_calculation(s, sugg)
     if kind == "create_python_node":
@@ -3384,6 +3489,10 @@ def _apply_add_projection_column(s: dict, sugg: dict) -> dict:
         raise _ApplyError("add_projection_column: alias + column zorunlu")
     for b in s["basket"]:
         if b.get("alias") == alias:
+            # LLM'in verdiği adı gerçek kolona kanonikleştir (case/boşluk
+            # farkı düzelir; gerçekten yoksa actionable hata).
+            column = _canonical_column(s["basket"], alias, column,
+                                       what="add_projection_column")
             proj = b.setdefault("projection", {"columns": [], "include_all": False})
             cols = list(proj.get("columns") or [])
             if column not in cols:
@@ -3403,6 +3512,10 @@ def _apply_confirm_join(s: dict, sugg: dict) -> dict:
     aliases = {b.get("alias") for b in s["basket"]}
     if la not in aliases or ra not in aliases:
         raise _ApplyError(f"confirm_join: alias basket'te yok ({la} / {ra})")
+    # Join anahtarlarını gerçek kolon adlarına kanonikleştir — uydurma kolon
+    # apply'da yakalansın, build'de değil.
+    lc = _canonical_column(s["basket"], la, lc, what="confirm_join(left)")
+    rc = _canonical_column(s["basket"], ra, rc, what="confirm_join(right)")
     # Reject duplicate join on same column pair.
     for j in s["joins"]:
         l = j.get("left") or {}
@@ -3414,41 +3527,6 @@ def _apply_confirm_join(s: dict, sugg: dict) -> dict:
         "left": {"alias": la, "column": lc},
         "right": {"alias": ra, "column": rc},
         "kind": jkind,
-    })
-    return s
-
-
-def _apply_create_aggregate(s: dict, sugg: dict) -> dict:
-    src = sugg.get("source_alias")
-    new_alias = sugg.get("new_alias")
-    group_by = list(sugg.get("group_by") or [])
-    measures = list(sugg.get("measures") or [])
-    if not src or not new_alias:
-        raise _ApplyError("create_aggregate: source_alias + new_alias zorunlu")
-    aliases = {b.get("alias") for b in s["basket"]}
-    if src not in aliases:
-        raise _ApplyError(f"create_aggregate: source_alias '{src}' basket'te yok")
-    if new_alias in aliases:
-        raise _ApplyError(f"create_aggregate: '{new_alias}' alias'ı zaten mevcut")
-    # Reject derived-from-derived (matches frontend rule: aggregate only from raw).
-    src_item = next(b for b in s["basket"] if b.get("alias") == src)
-    if src_item.get("derivation"):
-        raise _ApplyError("create_aggregate: kaynak türetilmiş tablo olamaz (sadece raw)")
-    if not (group_by or measures):
-        raise _ApplyError("create_aggregate: group_by veya measures gerekli")
-    s["basket"].append({
-        "alias": new_alias,
-        "derivation": {
-            "kind": "aggregate",
-            "source_alias": src,
-            "group_by": group_by,
-            "measures": [{"column": m["column"], "fn": m["fn"], "as": m.get("as") or f"{m['fn'].upper()}_{m['column']}"} for m in measures],
-        },
-        "projection": {
-            "columns": list(group_by) + [m.get("as") or f"{m['fn'].upper()}_{m['column']}" for m in measures],
-            "include_all": False,
-        },
-        "routing": {"decision": "cached", "decided_by": "system", "estimated_bytes": 0},
     })
     return s
 

@@ -722,11 +722,18 @@ def compose_scope_user_message(
             if isinstance(rc, int):
                 parts.append(f"- satır sayısı: {rc:,}".replace(",", "."))
             parts.append("- kolonlar (ad : tip — örnek değerler; tipleri VARSAYMA, buradan al):")
-            for c in selected_profile["columns"][:40]:
+            for c in selected_profile["columns"]:
                 nm, dt, ex = c.get("name", "?"), c.get("dtype", "?"), c.get("sample", "")
                 parts.append(f"  - `{nm}` : {dt}" + (f" — {ex}" if ex else ""))
+            # Profil detayı cap'lenmiş olabilir — kalan kolon ADLARI da listeye
+            # girsin. Görünmeyen kolon "yok" sayılıyordu (geniş tablolarda
+            # kullanıcının istediği gerçek kolon reddediliyordu).
+            extra = selected_profile.get("extra_columns") or []
+            if extra:
+                parts.append("- diğer kolonlar (detaysız, ama MEVCUTLAR): "
+                             + ", ".join(f"`{c}`" for c in extra))
         elif selected_columns:
-            parts.append("- kolonlar: " + ", ".join(f"`{c}`" for c in selected_columns[:40]))
+            parts.append("- kolonlar: " + ", ".join(f"`{c}`" for c in selected_columns))
         # M3 (madde 9) — kolon DOKÜMANI (ad + concept + açıklama): kullanıcı kolon
         # adını yanlış / açıklayıcı / Türkçe yazsa bile GERÇEK kolona eşleyebilsin
         # (profil dtype+örnek verir; bu, anlam/semantik eşlemesi içindir).
@@ -735,7 +742,7 @@ def compose_scope_user_message(
                           if c.get("concept") or (c.get("description") or "").strip()]
             if documented:
                 parts.append("- kolon dokümanı (yanlış/açıklayıcı yazılan kolonu BURADAN gerçek ada eşle):")
-                for c in documented[:40]:
+                for c in documented:
                     nm = c.get("name", "?")
                     cn = c.get("concept")
                     ds = (c.get("description") or "").strip()
@@ -778,7 +785,8 @@ def compose_scope_user_message(
             tid = t.get("id", "?")
             desc = t.get("desc") or ""
             parts.append(f"**{tid}** — {desc}")
-            for c in (t.get("columns") or [])[:30]:
+            cols = t.get("columns") or []
+            for c in cols[:30]:
                 bits = [f"`{c.get('name','?')}`"]
                 ctype = c.get("type")
                 if ctype:
@@ -789,6 +797,12 @@ def compose_scope_user_message(
                 if cv:
                     bits.append("vals: " + ", ".join(str(x) for x in cv[:5]))
                 parts.append("  - " + " ".join(bits))
+            # 30+ kolonlu tablolarda kalan kolon ADLARINI da ver — sessiz
+            # kesme LLM'e "böyle bir kolon yok" dedirtiyordu (64 kolonlu
+            # rezervasyon tablolarında kullanıcı talebi yanlış reddediliyordu).
+            if len(cols) > 30:
+                rest = [f"`{c.get('name','?')}`" for c in cols[30:]]
+                parts.append("  - diğer kolonlar (MEVCUT): " + ", ".join(rest))
 
     # 4. Chat history (last N turns, max ~6).
     if history:
@@ -1210,7 +1224,9 @@ class FakeLLM:
                 }],
             }
 
-        # Aggregate.
+        # Agregasyon → Python node (politika: tek-kaynak dönüşüm HER ZAMAN
+        # Python; create_aggregate kaldırıldı, apply reddeder — stub da
+        # gerçek modelle aynı sözleşmeyi üretmeli).
         agg_match = re.search(r"(şube|branch|currency|segment)\s+(?:baz|göre).*(topla|toplam|sum|agg|aggregate)", msg)
         if not agg_match and ("aggregate" in msg or "agregat" in msg or "topla" in msg) and raw_aliases:
             agg_match = re.search(r"(şube|branch|currency|segment)", msg)
@@ -1220,18 +1236,20 @@ class FakeLLM:
             group_col = col_map.get(dim, "BRANCH_CODE")
             src = raw_aliases[0]
             measure_col = "BALANCE_TRY" if "balance_try" in str(catalog_excerpt).lower() else "TRY_BALANCE"
-            # Use the resolved column (BRANCH_CODE / CUR / SEGMENT) for the alias
-            # rather than the user's word — alias regex is ASCII-only.
             new_alias = f"{src}_by_{group_col.lower()}"
+            code = (
+                f"g = input_node_df.groupby('{group_col}', as_index=False)"
+                f".agg(SUM_{measure_col}=('{measure_col}', 'sum'))\n"
+                f"output_node_df = g.sort_values('SUM_{measure_col}', ascending=False)\n"
+            )
             return {
-                "explanation": f"`{src}` tablosunu `{group_col}` bazında topla — bir agregat node oluşturuyorum.",
+                "explanation": f"`{src}` tablosunu `{group_col}` bazında toplayan bir Python node oluşturuyorum.",
                 "suggestions": [{
-                    "kind": "create_aggregate",
+                    "kind": "create_python_node",
                     "source_alias": src,
                     "new_alias": new_alias,
-                    "group_by": [group_col],
-                    "measures": [{"column": measure_col, "fn": "sum", "as": f"SUM_{measure_col}"}],
-                    "rationale": f"{dim} seviyesinde toplam.",
+                    "python_code": code,
+                    "rationale": f"{dim} seviyesinde toplam (tek-kaynak agregasyon → Python).",
                 }],
             }
 
