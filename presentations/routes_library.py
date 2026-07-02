@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -658,6 +659,84 @@ def _expert_to_form(expert) -> dict:
             "glyph": ui.get("glyph") or "",
         },
     }
+
+
+@presentations_bp.route("/atolye/uzmanlar/api/create", methods=["POST"])
+@login_required
+def uzman_create():
+    """YENİ uzman (asistan) oluştur.
+
+    Bu uç yokken uzman ancak store'da önceden VARSA düzenlenebiliyordu
+    (uzman_edit/uzman_save bilinmeyen id'de 404) — yeni uzman doğurmanın
+    hiçbir yolu yoktu (DEV'de store boş → akış tamamen tıkalı, PROD'da da
+    yalnız elle S3'e yazılan uzmanlar düzenlenebiliyordu).
+
+    Body: ``{"form": {...}}`` — uzman_save ile AYNI form şekli; ``id``
+    form'dan gelir (``[a-z0-9_]{2,40}``). Var olan id → 409.
+    ``access_scope`` verilmemişse: read=["*"], edit=[oluşturanın departmanı]
+    (sahiplik oluşturana kalır; uzman_save'in edit-scope kontrolüyle uyumlu).
+    """
+    store = _expert_store()
+    if store is None or not hasattr(store, "save"):
+        return _json(
+            {"ok": False, "errors": ["EXPERT_STORE bu ortamda salt-okunur."]},
+            status=400,
+        )
+
+    body = request.get_json(silent=True) or {}
+    form = body.get("form")
+    if not isinstance(form, dict):
+        return _json({"ok": False, "errors": ["`form` zorunlu."]}, status=400)
+
+    eid = (form.get("id") or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{2,40}", eid):
+        return _json({
+            "ok": False,
+            "errors": ["Geçersiz uzman id — [a-z0-9_]{2,40} olmalı (örn. 'mev_uzmani')."],
+        }, status=400)
+
+    if store.load(eid) is not None:
+        return _json({
+            "ok": False,
+            "errors": [f"'{eid}' zaten mevcut — düzenlemek için uzman sayfasını kullan."],
+        }, status=409)
+
+    try:
+        parsed = _form_to_expert_dict(eid, form)
+    except ValueError as exc:
+        return _json({"ok": False, "errors": [str(exc)]}, status=400)
+
+    # Sahiplik: edit scope boş bırakıldıysa oluşturanın departmanı yazılır —
+    # aksi hâlde kimse (403) düzenleyemez ve uzman doğduğu anda kilitlenirdi.
+    dept = getattr(current_user, "department", None) or ""
+    scope = parsed.get("access_scope") or {}
+    if not scope.get("read"):
+        scope["read"] = ["*"]
+    if not scope.get("edit") and dept:
+        scope["edit"] = [dept]
+    parsed["access_scope"] = scope
+
+    try:
+        from prisma_home.experts import Expert
+        rebuilt = Expert.from_dict(parsed)
+    except Exception as exc:
+        return _json({"ok": False, "errors": [f"Uzman şeması hatası: {exc}"]}, status=400)
+
+    try:
+        store.save(rebuilt)
+    except Exception as exc:
+        log.exception("uzman_create: store.save failed for %s", eid)
+        return _json({"ok": False, "errors": [f"Kaydedilemedi: {exc}"]}, status=502)
+
+    # Yeni uzman snapshot bağlarıyla doğabilir — ters-link senkronu (BUG-15
+    # ile aynı mekanizma; eski liste boş).
+    _sync_expert_to_snapshot_links(
+        expert_id=rebuilt.id,
+        old_snapshot_ids=[],
+        new_snapshot_ids=(rebuilt.bound_content or {}).get("snapshots") or [],
+    )
+
+    return _json({"ok": True, "id": rebuilt.id, "version": rebuilt.version}, status=201)
 
 
 @presentations_bp.route("/atolye/uzmanlar/<expert_id>/api/save", methods=["POST"])
