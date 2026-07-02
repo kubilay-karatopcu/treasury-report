@@ -36,8 +36,8 @@ from .uploads import (
     MAX_UPLOAD_BYTES,
 )
 
-# Seed manifest used the first time p_demo is opened.
-_DEMO_MANIFEST = Path(__file__).parent.parent / "examples" / "sample_manifest.json"
+# Seed manifest used the first time p_demo is opened (optional; absent → boş sunum).
+_DEMO_MANIFEST = Path(__file__).parent.parent / "dev_data" / "sample_manifest.json"
 _DEFAULT_CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
 

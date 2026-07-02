@@ -84,13 +84,13 @@ def _build_data_client():
 def _build_store():
     """Pick the appropriate TableDoc store.
 
-    DEV → ``examples/table_docs/`` filesystem.
+    DEV → ``dev_data/table_docs/`` filesystem.
     PROD → ``S3TableDocStore`` via ``DataClient``.
     """
     from presentations.table_docs.store import LocalTableDocStore, S3TableDocStore
 
     if os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes"):
-        return LocalTableDocStore(base_dir=_ROOT / "examples" / "table_docs")
+        return LocalTableDocStore(base_dir=_ROOT / "dev_data" / "table_docs")
     from DataClient import DataClient
     return S3TableDocStore(dc=DataClient())
 

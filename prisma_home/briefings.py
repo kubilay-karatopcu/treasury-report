@@ -120,7 +120,7 @@ def _md_to_html(md: str) -> str:
     return "\n".join(out)
 
 
-_BRIEFINGS_DIR = Path(__file__).resolve().parent.parent / "examples" / "phase_10" / "briefings"
+_BRIEFINGS_DIR = Path(__file__).resolve().parent.parent / "dev_data" / "briefings"
 
 
 def load_static_briefing(expert_id: str, base_dir: Optional[Path] = None) -> StaticBriefing:

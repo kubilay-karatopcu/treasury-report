@@ -1,8 +1,8 @@
 """generate_myu_daily_res.py — EDW.MYU_DAILY_RES için mock veri üretici.
 
 Ofisteki mevduat faiz rezervasyon (MYU) ekstraktının kolon düzenini taklit
-eder ve FakeDataClient'ın okuyabileceği temiz bir CSV üretir:
-``examples/sample_data/MYU_DAILY_RES.csv``.
+eder ve fake_db'nin (DEV_MODE'da app.py'nin kullandığı sahte tablo deposu)
+okuyabileceği temiz bir CSV üretir: ``dev_data/sample_data/MYU_DAILY_RES.csv``.
 
 Ofis ekstraktından bilinçli farklar (uygulamada kullanılabilir olsun diye):
 
@@ -17,10 +17,9 @@ Ofis ekstraktından bilinçli farklar (uygulamada kullanılabilir olsun diye):
   edilebilsin; ``VADE`` / ``MIN_TERM`` / ``MAX_TERM`` çeşitlendirildi
   (1-3, 3-6, 6-12) ki tenor kırılımlı grafikler boş çıkmasın.
 
-Kullanım:
-    cd examples
-    python generate_myu_daily_res.py                    # 500 satır, son 180 gün
-    python generate_myu_daily_res.py --rows 2000 --days 90 --seed 42
+Kullanım (repo kökünden):
+    python dev_data/generate_myu_daily_res.py                    # 500 satır, son 180 gün
+    python dev_data/generate_myu_daily_res.py --rows 2000 --days 90 --seed 42
 """
 from __future__ import annotations
 
