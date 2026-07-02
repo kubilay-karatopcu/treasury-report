@@ -38,13 +38,6 @@ from .uploads import (
 
 # Seed manifest used the first time p_demo is opened (optional; absent → boş sunum).
 _DEMO_MANIFEST = Path(__file__).parent.parent / "dev_data" / "sample_manifest.json"
-_DEFAULT_CATALOG_PATH = Path(__file__).parent / "catalog.json"
-
-
-def _catalog_path() -> Path:
-    """Catalog dosyasının yolu — Flask config'inden override edilebilir.
-    DEV_MODE'da `examples/sample_catalog.json` set ediliyor (app.py)."""
-    return Path(current_app.config.get("CATALOG_PATH") or _DEFAULT_CATALOG_PATH)
 
 # Ephemeral chat job table: token → job dict. Consumed by SSE stream.
 _CHAT_JOBS: dict[str, dict] = {}
@@ -154,8 +147,8 @@ def get_sources(pid: str):
     Includes a synthetic 'Yüklenenler' domain if the manifest has uploads.
 
     Uses the same unified catalog source as Hazırlık (CatalogLoader →
-    TableDocStore, falls back to catalog.json) so Sunum's basket reads
-    the same 30+ tables Keşif sees.
+    TableDocStore, no static fallback) so Sunum's basket reads the same
+    table universe Keşif sees.
     """
     from presentations.routes_scope import _catalog_json
     catalog = _catalog_json()

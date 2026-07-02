@@ -90,6 +90,64 @@ def test_unbound_derived_from_universe(fixture_store, fake_dc):
     assert "branch" not in deposits.concepts_unbound
 
 
+class _StubRegistry:
+    """Minimal CONCEPT_REGISTRY stand-in: .all_concepts() → objects with .id."""
+
+    def __init__(self, ids):
+        self._ids = list(ids)
+
+    def all_concepts(self):
+        from types import SimpleNamespace
+        return [SimpleNamespace(id=i) for i in self._ids]
+
+
+def test_empty_registry_hides_all_concepts(fixture_store, fake_dc):
+    """Registry wired but EMPTY → the registry is the single source of
+    truth, so suggested_semantic_tag hints must NOT surface as concepts
+    (the 'Keşif shows ghost concepts after catalog wipe' bug)."""
+    loader = CatalogLoader(
+        table_doc_store=fixture_store,
+        data_client=fake_dc,
+        concept_registry=_StubRegistry([]),
+    )
+    for entry in loader.load():
+        assert entry.concepts_bound == []
+        assert entry.concepts_unbound == []
+
+
+def test_bound_filtered_to_registry_universe(fixture_store, fake_dc):
+    """Tags whose concept id isn't in the registry are dropped; the rest
+    survive. Registry queried live — no restart needed after edits."""
+    registry = _StubRegistry(["branch", "as_of_time"])
+    loader = CatalogLoader(
+        table_doc_store=fixture_store,
+        data_client=fake_dc,
+        concept_registry=registry,
+    )
+    deposits = next(e for e in loader.load() if e.name == "DEPOSITS_DAILY")
+    assert "branch" in deposits.concepts_bound
+    assert "as_of_time" in deposits.concepts_bound
+    # segment / product_group are tagged on columns but absent from the
+    # registry → filtered out.
+    assert "segment" not in deposits.concepts_bound
+    assert "product_group" not in deposits.concepts_bound
+
+
+def test_registry_growth_reflected_without_restart(fixture_store, fake_dc):
+    registry = _StubRegistry([])
+    loader = CatalogLoader(
+        table_doc_store=fixture_store,
+        data_client=fake_dc,
+        concept_registry=registry,
+        ttl_seconds=0,  # bypass loader TTL so the live query is visible
+    )
+    assert all(e.concepts_bound == [] for e in loader.load())
+    registry._ids = ["branch"]
+    loader.invalidate()
+    deposits = next(e for e in loader.load() if e.name == "DEPOSITS_DAILY")
+    assert deposits.concepts_bound == ["branch"]
+
+
 # ── User uploads ──────────────────────────────────────────────────────────
 
 

@@ -1,0 +1,47 @@
+table: NII_PROJECTIONS
+schema: ALM
+description: |
+  Faiz senaryolarına göre NII projeksiyonları — parallel shift, twist,
+  invert. Asset-liability committee'nin senaryo girdisi.
+partition_column: AS_OF_DATE
+
+columns:
+  AS_OF_DATE:
+    type: DATE
+    description: "Rapor tarihi"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_date
+    suggested_semantic_tag: as_of_time
+
+  PROJECTION_MONTH:
+    type: DATE
+    description: "İleri ay"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: projection_month
+    suggested_semantic_tag: as_of_time
+
+  SCENARIO:
+    type: VARCHAR2(30)
+    description: "Faiz senaryosu (BASE, +100bp, -100bp, TWIST)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: scenarios
+    suggested_semantic_tag: instrument_type
+    distinct_values_sample: [BASE, PLUS_100BP, MINUS_100BP, TWIST_STEEPEN, TWIST_FLATTEN]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z
+
+  CURRENCY:
+    type: CHAR(3)
+    description: "Para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+
+  PROJECTED_NII:
+    type: NUMBER(18,2)
+    description: "Projeksiyon NII (TL)"
+    filterable: false
+    aggregatable: true
