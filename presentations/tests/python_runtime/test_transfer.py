@@ -197,3 +197,39 @@ def test_user_round_code_rounds_decimal_source_end_to_end():
     assert r.ok, r.error
     assert r.df["NII_FORECAST"].tolist() == pytest.approx([1.235, 2.346])
     assert r.df["NII_ACTUAL"].tolist() == pytest.approx([3.457, 4.568])
+
+
+def test_sorted_frame_does_not_grow_ghost_index_column():
+    """sort_values / filtre sonrası adsız Int64 index konumsaldır — kolona
+    çevrilmemeli. Eskiden roundtrip çıktıya hayalet bir 'index' kolonu
+    sızdırıyordu (downstream node'lar + output_columns UI kirleniyordu)."""
+    df = pd.DataFrame({"CCY": ["TRY", "USD", "EUR"], "TOTAL": [3, 1, 2]})
+    out = _roundtrip(df.sort_values("TOTAL"))
+    assert list(out.columns) == ["CCY", "TOTAL"]
+    assert out["CCY"].tolist() == ["USD", "EUR", "TRY"]
+
+
+def test_named_index_still_becomes_column():
+    """Adlı index (groupby as_index=True vb.) anlamlıdır — kolona çevrilmeye
+    devam etmeli (grup anahtarı kaybolmasın)."""
+    df = pd.DataFrame({"CCY": ["TRY", "TRY", "USD"], "AMT": [1, 2, 5]})
+    g = df.groupby("CCY").sum()          # index.name == "CCY"
+    out = _roundtrip(g)
+    assert "CCY" in out.columns
+    assert "AMT" in out.columns
+
+
+def test_end_to_end_sorted_output_has_no_index_column():
+    """Sandbox e2e: kullanıcı sort'lu çıktı üretirse 'index' kolonu doğmamalı."""
+    from presentations.python_runtime.executor import run_python_transform
+
+    df = pd.DataFrame({"CCY_CODE": ["TRY", "USD", "TRY"], "CURRENTAMOUNT": [5, 9, 1]})
+    code = (
+        "g = input_node_df.groupby('CCY_CODE', as_index=False)"
+        ".agg(TOTAL=('CURRENTAMOUNT', 'sum'))\n"
+        "output_node_df = g.sort_values('TOTAL', ascending=False)\n"
+    )
+    r = run_python_transform(code, df)
+    assert r.ok, r.error
+    assert "index" not in [str(c) for c in r.df.columns]
+    assert list(r.df.columns) == ["CCY_CODE", "TOTAL"]
