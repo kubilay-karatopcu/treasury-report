@@ -16,8 +16,11 @@ The loader walks two storage shapes and produces a uniform list of
 
 Caching: a 30-second TTL keyed by ``(user_sicil, refresh_flag)`` (spec
 §11). Calling with ``refresh=True`` skips the cache. The Phase 7
-``CONCEPT_REGISTRY`` (if configured) is consulted purely for the
-``concepts_unbound`` derivation; absent registry → empty unbound list.
+``CONCEPT_REGISTRY`` (if configured) is the live concept universe:
+``concepts_bound`` is intersected with it (a ``suggested_semantic_tag``
+whose concept doesn't exist in the registry is NOT a concept) and
+``concepts_unbound`` is derived from it. Absent registry → tags pass
+through unfiltered and unbound stays empty (legacy/test behavior).
 
 The loader is intentionally tolerant: a malformed YAML or a missing field
 is logged and the table is skipped, never raised. The catalog must remain
@@ -93,14 +96,23 @@ class CatalogLoader:
         schema_department_map: dict[str, str] | None = None,
         ttl_seconds: float = 30.0,
         all_concepts: Iterable[str] | None = None,
+        concept_registry: Any | None = None,
     ):
         self._docs = table_doc_store
         self._dc = data_client
         self._dept_map = dict(schema_department_map or DEFAULT_SCHEMA_DEPARTMENT_MAP)
         self._ttl = float(ttl_seconds)
-        # Universe of concepts for the unbound calculation. Optional: when
-        # absent, ``concepts_unbound`` is empty for every table.
-        self._concept_universe = sorted(set(all_concepts or []))
+        # Concept universe: the registry is the single source of truth for
+        # which concept ids exist. ``concept_registry`` is queried live on
+        # each load (it hot-reloads / TTL-caches internally), so concepts
+        # created or deleted in Atölye reflect here without a restart.
+        # ``all_concepts`` is a static fallback for tests. When NEITHER is
+        # wired the universe is *unknown* (None): tags pass through
+        # unfiltered and ``concepts_unbound`` stays empty — legacy behavior.
+        self._registry = concept_registry
+        self._static_universe = (
+            sorted(set(all_concepts)) if all_concepts is not None else None
+        )
         self._cache: dict[tuple[str | None, bool], _CacheEntry] = {}
         self._lock = threading.Lock()
 
@@ -127,10 +139,11 @@ class CatalogLoader:
                 if hit is not None and hit.expires_at > now:
                     return list(hit.entries)
 
+        universe = self._universe()
         entries: list[TableEntry] = []
-        entries.extend(self._load_corporate())
+        entries.extend(self._load_corporate(universe))
         if user_sicil:
-            entries.extend(self._load_user_uploads(user_sicil))
+            entries.extend(self._load_user_uploads(user_sicil, universe))
 
         with self._lock:
             self._cache[key] = _CacheEntry(
@@ -147,18 +160,19 @@ class CatalogLoader:
         intentionally stripped from the list response to keep payloads
         compact.
         """
+        universe = self._universe()
         if _is_user_schema(schema):
             if not user_sicil or schema != _user_schema_marker(user_sicil):
                 return None
             doc = self._load_user_upload_doc(user_sicil, name)
             if doc is None:
                 return None
-            return self._upload_doc_to_entry(doc, user_sicil)
+            return self._upload_doc_to_entry(doc, user_sicil, universe)
 
         doc = self._load_corporate_doc(schema, name)
         if doc is None:
             return None
-        return self._corporate_doc_to_entry(doc, with_details=True)
+        return self._corporate_doc_to_entry(doc, with_details=True, universe=universe)
 
     def invalidate(self) -> None:
         """Wipe the cache; useful in tests and after a known-fresh write."""
@@ -167,7 +181,7 @@ class CatalogLoader:
 
     # ── Corporate path ────────────────────────────────────────────────────
 
-    def _load_corporate(self) -> list[TableEntry]:
+    def _load_corporate(self, universe: list[str] | None = None) -> list[TableEntry]:
         store = self._docs
         if store is None:
             return []
@@ -179,7 +193,7 @@ class CatalogLoader:
         out: list[TableEntry] = []
         for doc in docs:
             try:
-                out.append(self._corporate_doc_to_entry(doc, with_details=False))
+                out.append(self._corporate_doc_to_entry(doc, with_details=False, universe=universe))
             except Exception:
                 schema = getattr(doc, "schema_name", "?")
                 name = getattr(doc, "table", "?")
@@ -195,13 +209,15 @@ class CatalogLoader:
         except Exception:
             return None
 
-    def _corporate_doc_to_entry(self, doc, *, with_details: bool) -> TableEntry:
+    def _corporate_doc_to_entry(
+        self, doc, *, with_details: bool, universe: list[str] | None = None,
+    ) -> TableEntry:
         schema = getattr(doc, "schema_name", None) or getattr(doc, "schema", "")
         name = getattr(doc, "table", "")
         cols = getattr(doc, "columns", {}) or {}
 
-        concepts_bound = self._bound_concepts(cols)
-        concepts_unbound = self._unbound_concepts(concepts_bound)
+        concepts_bound = self._bound_concepts(cols, universe)
+        concepts_unbound = self._unbound_concepts(concepts_bound, universe)
 
         department = self._dept_map.get(schema)
 
@@ -248,7 +264,9 @@ class CatalogLoader:
 
     # ── User-upload path ──────────────────────────────────────────────────
 
-    def _load_user_uploads(self, sicil: str) -> list[TableEntry]:
+    def _load_user_uploads(
+        self, sicil: str, universe: list[str] | None = None,
+    ) -> list[TableEntry]:
         """List the user's confirmed uploads under ``uploads/<sicil>/``.
 
         Phase 9.a never has actual uploads to read (that's 9.d), but the
@@ -276,7 +294,7 @@ class CatalogLoader:
             doc = self._load_user_upload_doc(sicil, upload_id)
             if doc is None:
                 continue
-            entries.append(self._upload_doc_to_entry(doc, sicil))
+            entries.append(self._upload_doc_to_entry(doc, sicil, universe))
         return entries
 
     def _load_user_upload_doc(self, sicil: str, upload_id: str) -> dict[str, Any] | None:
@@ -303,7 +321,9 @@ class CatalogLoader:
             return None
         return {"doc": doc, "meta": meta, "upload_id": upload_id, "sicil": sicil}
 
-    def _upload_doc_to_entry(self, blob: dict[str, Any], sicil: str) -> TableEntry:
+    def _upload_doc_to_entry(
+        self, blob: dict[str, Any], sicil: str, universe: list[str] | None = None,
+    ) -> TableEntry:
         doc = blob["doc"] or {}
         meta = blob["meta"] or {}
         upload_id = blob["upload_id"]
@@ -312,10 +332,13 @@ class CatalogLoader:
         # Build ColumnSummary-shaped dicts from the user-upload YAML.
         column_summaries: list[ColumnSummary] = []
         bound: list[str] = []
+        universe_set = set(universe) if universe is not None else None
         for cname, c in cols.items():
             c = c or {}
             concept = c.get("concept") or c.get("suggested_semantic_tag")
-            if concept and concept not in bound:
+            if concept and concept not in bound and (
+                universe_set is None or concept in universe_set
+            ):
                 bound.append(concept)
             column_summaries.append(ColumnSummary(
                 name=cname,
@@ -337,7 +360,7 @@ class CatalogLoader:
             department=None,
             description=doc.get("description"),
             concepts_bound=bound,
-            concepts_unbound=self._unbound_concepts(bound),
+            concepts_unbound=self._unbound_concepts(bound, universe),
             row_count_estimate=doc.get("estimated_total_rows") or upload_info.get("row_count"),
             row_count_basis="total",
             partition_column=doc.get("partition_column"),
@@ -351,27 +374,54 @@ class CatalogLoader:
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
-    def _bound_concepts(self, columns: dict[str, Any]) -> list[str]:
+    def _universe(self) -> list[str] | None:
+        """Current concept universe, queried live from the registry.
+
+        Returns None when the universe is *unknown* (no registry and no
+        static list wired) — callers then skip filtering entirely. A wired
+        but empty registry returns ``[]``: the registry is the single
+        source of truth, so zero concepts means zero concepts shown.
+        """
+        if self._registry is not None:
+            try:
+                return sorted({c.id for c in self._registry.all_concepts()})
+            except Exception:
+                log.warning("catalog: concept registry query failed; "
+                            "skipping concept filtering", exc_info=True)
+                return self._static_universe
+        return self._static_universe
+
+    def _bound_concepts(
+        self, columns: dict[str, Any], universe: list[str] | None = None,
+    ) -> list[str]:
         """Concepts referenced by any column on the table.
 
         Prefer Phase 7's ``concept_bindings`` if attached to the TableDoc,
-        fall back to the Phase 6.5.b ``suggested_semantic_tag``.
+        fall back to the Phase 6.5.b ``suggested_semantic_tag``. Tags that
+        don't exist in the concept registry (``universe``) are dropped —
+        column hints alone must not resurrect deleted concepts.
         """
+        universe_set = set(universe) if universe is not None else None
         bound: list[str] = []
         for col in columns.values():
             concept = getattr(col, "suggested_semantic_tag", None)
-            if concept and concept not in bound:
-                bound.append(concept)
+            if not concept or concept in bound:
+                continue
+            if universe_set is not None and concept not in universe_set:
+                continue
+            bound.append(concept)
         return bound
 
-    def _unbound_concepts(self, bound: list[str]) -> list[str]:
+    def _unbound_concepts(
+        self, bound: list[str], universe: list[str] | None = None,
+    ) -> list[str]:
         """``concepts_unbound`` per spec §2.2 — the concept universe minus
         what this table binds. When the universe is unknown (no registry
         wired), return empty so consumers don't see noise."""
-        if not self._concept_universe:
+        if not universe:
             return []
         bound_set = set(bound)
-        return [c for c in self._concept_universe if c not in bound_set]
+        return [c for c in universe if c not in bound_set]
 
     def _columns_summary(self, columns: dict[str, Any]) -> list[ColumnSummary]:
         out: list[ColumnSummary] = []
@@ -424,26 +474,20 @@ def make_loader_from_app(app) -> CatalogLoader:
     - ``DATA_CLIENT``                        — optional; used for user uploads.
     - ``PRESENTATIONS_SCHEMA_DEPARTMENT_MAP``— optional override for the default map.
     - ``PRESENTATIONS_CATALOG_TTL_SECONDS``  — override the 30s TTL.
-    - ``CONCEPT_REGISTRY``                   — optional; used to derive
-                                                ``concepts_unbound``.
+    - ``CONCEPT_REGISTRY``                   — optional; queried live as the
+                                                concept universe (filters
+                                                ``concepts_bound``, derives
+                                                ``concepts_unbound``).
     """
     table_doc_store = app.config.get("TABLE_DOC_STORE")
     data_client = app.config.get("DATA_CLIENT")
     dept_map = app.config.get("PRESENTATIONS_SCHEMA_DEPARTMENT_MAP")
     ttl = float(app.config.get("PRESENTATIONS_CATALOG_TTL_SECONDS", 30))
 
-    registry = app.config.get("CONCEPT_REGISTRY")
-    all_concepts: list[str] = []
-    if registry is not None:
-        try:
-            all_concepts = [c.id for c in registry.all_concepts()]
-        except Exception:
-            all_concepts = []
-
     return CatalogLoader(
         table_doc_store=table_doc_store,
         data_client=data_client,
         schema_department_map=dept_map,
         ttl_seconds=ttl,
-        all_concepts=all_concepts,
+        concept_registry=app.config.get("CONCEPT_REGISTRY"),
     )

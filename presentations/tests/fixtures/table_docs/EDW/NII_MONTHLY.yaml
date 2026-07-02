@@ -1,0 +1,28 @@
+table: NII_MONTHLY
+schema: EDW
+description: |
+  Aylık net interest income — gerçekleşen + tahmin. Tahmin satırları
+  (NII_FORECAST dolu, NII_ACTUAL boş) finansal planlama tarafından üretilir.
+partition_column: MONTH
+estimated_daily_rows: 1400
+
+columns:
+  MONTH:
+    type: DATE
+    description: "Ay başı tarihi"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_month
+    suggested_semantic_tag: as_of_time
+
+  NII_ACTUAL:
+    type: NUMBER(18,2)
+    description: "Gerçekleşmiş net interest income (TL)"
+    filterable: false
+    aggregatable: true
+
+  NII_FORECAST:
+    type: NUMBER(18,2)
+    description: "Tahmin edilen net interest income (TL)"
+    filterable: false
+    aggregatable: true

@@ -493,33 +493,25 @@ def _load_latest_scope_or_draft(pid: str) -> ScopeContract:
 def _catalog_json() -> dict[str, Any]:
     """Return the catalog as ``{domains: [...]}``.
 
-    Source priority:
-      1. ``CatalogLoader`` (Phase 9 / Atölye source of truth — reads
-         ``examples/table_docs/<SCHEMA>/<TABLE>.yaml``). Tables are
-         bucketed by schema so domain labels match Keşif's tree.
-      2. Legacy curated ``catalog.json`` — fallback for environments
-         that don't have a TableDocStore configured.
+    Single source: ``CatalogLoader`` (Phase 9 / Atölye source of truth —
+    reads the ``TABLE_DOC_STORE``). Tables are bucketed by schema so
+    domain labels match Keşif's tree. This unification lets Atölye →
+    Keşif → Hazırlık → Sunum share the same table universe: the basket
+    items the user picks in Keşif actually resolve in Hazırlık.
 
-    This unification lets Atölye → Keşif → Hazırlık → Sunum share the
-    same table universe: the basket items the user picks in Keşif
-    actually resolve in Hazırlık.
+    There is deliberately NO static-file fallback: a second catalog copy
+    can only drift from the store. If the loader fails we log ERROR and
+    return an empty catalog so the failure is visible, not masked.
     """
-    # Try the CatalogLoader first.
     try:
         from presentations.catalog.api import _get_loader
         loader = _get_loader()
         sicil = getattr(current_user, "sicil", None)
         entries = loader.load(user_sicil=sicil)
-        if entries:
-            return _domains_from_catalog_entries(entries)
+        return _domains_from_catalog_entries(entries)
     except Exception:
-        log.warning("_catalog_json: CatalogLoader path failed, falling back to catalog.json",
-                    exc_info=True)
-    # Fallback to the static catalog.json.
-    from presentations.routes import _catalog_path
-    try:
-        return json.loads(_catalog_path().read_text(encoding="utf-8"))
-    except Exception:
+        log.error("_catalog_json: CatalogLoader failed — returning empty catalog "
+                  "(TABLE_DOC_STORE erişimini kontrol edin)", exc_info=True)
         return {"domains": []}
 
 

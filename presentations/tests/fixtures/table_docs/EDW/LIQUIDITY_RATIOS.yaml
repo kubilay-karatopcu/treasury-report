@@ -1,0 +1,43 @@
+table: LIQUIDITY_RATIOS
+schema: EDW
+description: |
+  Günlük likidite oranları — LCR (Liquidity Coverage), NSFR (Net Stable
+  Funding), encumbrance yüzdesi. Likidite yönetiminin günlük scoreboard'u.
+partition_column: DATE
+
+columns:
+  DATE:
+    type: DATE
+    description: "Rapor tarihi"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_date
+    suggested_semantic_tag: as_of_time
+
+  CURRENCY:
+    type: CHAR(3)
+    description: "Para birimi (TRY veya konsolide USD)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+    distinct_values_sample: [TRY, USD, EUR, ALL]
+    distinct_values_sampled_at: 2026-05-21T03:00:00Z
+
+  LCR:
+    type: NUMBER(6,2)
+    description: "Liquidity Coverage Ratio (%)"
+    filterable: false
+    aggregatable: true
+
+  NSFR:
+    type: NUMBER(6,2)
+    description: "Net Stable Funding Ratio (%)"
+    filterable: false
+    aggregatable: true
+
+  ENCUMBRANCE_PCT:
+    type: NUMBER(5,2)
+    description: "Encumbered varlık yüzdesi"
+    filterable: false
+    aggregatable: true

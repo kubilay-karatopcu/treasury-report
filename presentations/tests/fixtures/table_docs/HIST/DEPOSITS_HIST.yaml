@@ -1,0 +1,49 @@
+table: DEPOSITS_HIST
+schema: HIST
+description: |
+  Mevduat tarihsel arşivi — DEPOSITS_DAILY'nin günlük snapshot'larının
+  ay sonu kapanışlarıyla kondanse halinde 5 yıllık geçmişi.
+partition_column: SNAPSHOT_MONTH
+
+columns:
+  SNAPSHOT_MONTH:
+    type: DATE
+    description: "Ay sonu snapshot"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: as_of_month
+    suggested_semantic_tag: as_of_time
+
+  BRANCH_CODE:
+    type: VARCHAR2(10)
+    description: "Şube"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: branch_codes
+    suggested_semantic_tag: branch
+    lookup:
+      table: DIM_BRANCH
+      key: BRANCH_CODE
+      display: BRANCH_NAME
+
+  CURRENCY:
+    type: CHAR(3)
+    description: "Para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+
+  SEGMENT:
+    type: VARCHAR2(20)
+    description: "Müşteri segmenti"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: segments
+    suggested_semantic_tag: segment
+
+  BALANCE_TRY:
+    type: NUMBER(18,2)
+    description: "TL eşdeğeri bakiye"
+    filterable: false
+    aggregatable: true
