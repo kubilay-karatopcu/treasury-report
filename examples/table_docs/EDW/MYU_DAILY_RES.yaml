@@ -1,0 +1,405 @@
+table: MYU_DAILY_RES
+schema: EDW
+description: |
+  Mevduat faiz rezervasyon (MYU) günlük ekstraktı. Şube kullanıcısının
+  girdiği rezervasyon talepleri, fiyatlama (talep/teklif oranları), müşteri
+  demografisi ve piyasa referans oranı tek satırda birleşir. Bir satır =
+  bir rezervasyon revizyonu. Lokal geliştirmede mock veri
+  examples/generate_myu_daily_res.py ile üretilir.
+partition_column: CREATE_DT
+estimated_daily_rows: 3000
+
+columns:
+  RES_ID:
+    type: NUMBER(19)
+    description: "Rezervasyon kimliği (birincil anahtar)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: res_id
+    suggested_semantic_tag: deal_id
+
+  TALEP_REVIZE_NO:
+    type: NUMBER(4)
+    description: "Talep revizyon sırası (1 = ilk giriş)"
+    filterable: false
+
+  RESERVATION_NO:
+    type: NUMBER(10)
+    description: "Kullanıcıya görünen rezervasyon numarası"
+    filterable: false
+
+  CREATE_DT:
+    type: DATE
+    description: "Rezervasyon giriş tarihi (partisyon kolonu)"
+    filterable: true
+    filter_role: time_axis
+    suggested_variable: create_date
+    suggested_semantic_tag: as_of_time
+
+  CREATE_TM:
+    type: NUMBER(6)
+    description: "Giriş saati, HHMMSS tamsayı (84411 = 08:44:11)"
+    filterable: false
+
+  RESERVATION_ID_RCL:
+    type: NUMBER(19)
+    description: "RCL tablosundaki rezervasyon referansı (RES_ID ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  CUST_ID:
+    type: NUMBER(12)
+    description: "Müşteri numarası"
+    filterable: false
+
+  CCY_CODE:
+    type: VARCHAR2(3)
+    description: "Rezervasyon para birimi"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: currencies
+    suggested_semantic_tag: currency
+    get_distinct: true
+    distinct_values_sample: [TRY, USD, EUR]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  CURRENTAMOUNT:
+    type: NUMBER(18,2)
+    description: "Müşterinin mevcut bakiyesi"
+    filterable: false
+    aggregatable: true
+
+  INCOMING_AMT:
+    type: NUMBER(18,2)
+    description: "Gelen (yeni para) tutar"
+    filterable: false
+    aggregatable: true
+
+  PORTFOLIO_AMT:
+    type: NUMBER(18,2)
+    description: "Müşterinin toplam portföy büyüklüğü"
+    filterable: false
+    aggregatable: true
+
+  RESERVATION_AMT:
+    type: NUMBER(18,2)
+    description: "Rezervasyona konu tutar"
+    filterable: false
+    aggregatable: true
+
+  CUST_REL:
+    type: VARCHAR2(10)
+    description: "Müşteri ilişki kodu (çoğunlukla NULL)"
+    filterable: false
+    visible_in_ui: false
+
+  RELATED_CUST_ID:
+    type: NUMBER(12)
+    description: "İlişkili müşteri numarası (0 = yok)"
+    filterable: false
+    visible_in_ui: false
+
+  RSI_ID:
+    type: NUMBER(19)
+    description: "Rezervasyon-öneri (suggestion item) kimliği"
+    filterable: false
+    visible_in_ui: false
+
+  RESERVATION_ID_RIL:
+    type: NUMBER(19)
+    description: "RIL tablosundaki rezervasyon referansı (RES_ID ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  MIN_TERM:
+    type: NUMBER(4)
+    description: "Talep edilen minimum vade (ay)"
+    filterable: false
+
+  MAX_TERM:
+    type: NUMBER(4)
+    description: "Talep edilen maksimum vade (ay)"
+    filterable: false
+
+  VADE:
+    type: VARCHAR2(10)
+    description: "Vade dilimi etiketi (1-3, 3-6, 6-12)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: tenor_buckets
+    suggested_semantic_tag: tenor_bucket
+    get_distinct: true
+    distinct_values_sample: ["1-3", "3-6", "6-12"]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  AIRATE:
+    type: NUMBER(10,4)
+    description: "Ek faiz oranı (AI rate)"
+    filterable: false
+
+  AIRATETYPE:
+    type: VARCHAR2(10)
+    description: "Ek faiz oranı tipi (çoğunlukla NULL)"
+    filterable: false
+    visible_in_ui: false
+
+  ENTRYUSER_ORG_CD:
+    type: VARCHAR2(5)
+    description: "Girişi yapan kullanıcının şube/organizasyon kodu"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: entry_org_codes
+    suggested_semantic_tag: branch
+
+  ENTRY_USERCODE:
+    type: VARCHAR2(8)
+    description: "Girişi yapan kullanıcı sicili (A#####)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: entry_users
+    suggested_semantic_tag: user_id
+
+  RESERVATION_ID_ENTRY:
+    type: NUMBER(19)
+    description: "Giriş kaydındaki rezervasyon referansı (RES_ID ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  FIYATLAYAN_USERCODE:
+    type: VARCHAR2(8)
+    description: "Fiyatlamayı yapan hazine kullanıcısı (NULL = henüz fiyatlanmadı)"
+    filterable: false
+
+  RESERVATION_ID_PRCTRANSACTION:
+    type: NUMBER(19)
+    description: "Fiyatlama işlem referansı"
+    filterable: false
+    visible_in_ui: false
+
+  INTRST_ID:
+    type: NUMBER(19)
+    description: "Faiz kaydı kimliği"
+    filterable: false
+    visible_in_ui: false
+
+  COMPETITOR_BANK_RTS:
+    type: NUMBER(10,2)
+    description: "Müşterinin beyan ettiği rakip banka oranı"
+    filterable: false
+    aggregatable: true
+
+  CUST_ID_OUTCOME:
+    type: NUMBER(12)
+    description: "Sonuç kaydındaki müşteri referansı"
+    filterable: false
+    visible_in_ui: false
+
+  ACCOUNT_COUNT:
+    type: NUMBER(6)
+    description: "Müşterinin açılan hesap adedi"
+    filterable: false
+    aggregatable: true
+
+  ORIG_TERM:
+    type: NUMBER(4)
+    description: "Gerçekleşen orijinal vade (ay)"
+    filterable: false
+
+  CCY_CODE_2:
+    type: VARCHAR2(3)
+    description: "Hesap açılış para birimi (kaynak ekstraktta ikinci CCY_CODE kolonu)"
+    filterable: false
+    visible_in_ui: false
+
+  ACCT_OPEN_RATE:
+    type: NUMBER(12,10)
+    description: "Hesap açılış kur/oran referansı"
+    filterable: false
+
+  INTRST_ID_RIRL:
+    type: NUMBER(19)
+    description: "RIRL faiz kaydı referansı"
+    filterable: false
+    visible_in_ui: false
+
+  SUGGESTION_STATE_CODE:
+    type: VARCHAR2(2)
+    description: "Öneri durum kodu (01 = aktif)"
+    filterable: false
+
+  DEMANDED_RATE:
+    type: NUMBER(10,2)
+    description: "Müşterinin talep ettiği faiz oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  OFFERED_RATE:
+    type: NUMBER(10,2)
+    description: "Hazinenin teklif ettiği faiz oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  OFFER_DATE:
+    type: DATE
+    description: "Teklif tarihi"
+    filterable: false
+
+  OFFER_TIME:
+    type: NUMBER(6)
+    description: "Teklif saati, HHMMSS tamsayı"
+    filterable: false
+
+  ROLL_CUST_ID:
+    type: NUMBER(12)
+    description: "Yenileme (roll) yapan müşteri (NULL = yeni para)"
+    filterable: false
+
+  ROLL_AMOUNT:
+    type: NUMBER(18,2)
+    description: "Yenilenen tutar"
+    filterable: false
+    aggregatable: true
+
+  EDW_CUST_ID:
+    type: NUMBER(12)
+    description: "EDW müşteri anahtarı"
+    filterable: false
+    visible_in_ui: false
+
+  CUST_TP:
+    type: VARCHAR2(1)
+    description: "Müşteri tipi: G (gerçek), T (tüzel), K (kamu)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: cust_types
+    suggested_semantic_tag: segment
+    get_distinct: true
+    distinct_values_sample: [G, T, K]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  MAPPED_PC:
+    type: VARCHAR2(4)
+    description: "Eşlenen kâr merkezi / iş kolu (FB, DB, SB)"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: mapped_pcs
+    suggested_semantic_tag: product_group
+    get_distinct: true
+    distinct_values_sample: [FB, DB, SB]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
+
+  CONVERTUSD:
+    type: NUMBER(12,10)
+    description: "USD çevrim katsayısı"
+    filterable: false
+
+  DAT:
+    type: DATE
+    description: "ETL yükleme tarihi"
+    filterable: false
+    visible_in_ui: false
+
+  DIM_CUST_ID:
+    type: NUMBER(12)
+    description: "Müşteri boyut tablosu anahtarı"
+    filterable: false
+    visible_in_ui: false
+
+  BRTH_DT:
+    type: DATE
+    description: "Müşteri doğum tarihi (gerçek kişi)"
+    filterable: false
+
+  OCCP_CODE:
+    type: VARCHAR2(4)
+    description: "Meslek kodu"
+    filterable: false
+
+  MRTL_ST_CODE:
+    type: VARCHAR2(2)
+    description: "Medeni durum kodu"
+    filterable: false
+
+  EDUC_LVL_CODE:
+    type: VARCHAR2(2)
+    description: "Eğitim seviyesi kodu"
+    filterable: false
+
+  GND_CODE:
+    type: VARCHAR2(1)
+    description: "Cinsiyet: K / E"
+    filterable: false
+    get_distinct: true
+
+  START_DT:
+    type: DATE
+    description: "Kayıt geçerlilik başlangıcı (SCD)"
+    filterable: false
+    visible_in_ui: false
+
+  END_DT:
+    type: DATE
+    description: "Kayıt geçerlilik bitişi (2400-01-01 = güncel)"
+    filterable: false
+    visible_in_ui: false
+
+  MARKET_MAX_DATE:
+    type: DATE
+    description: "Piyasa maksimum oranının geçerli olduğu tarih"
+    filterable: false
+
+  MARKET_MAX_RT:
+    type: NUMBER(10,2)
+    description: "Piyasa maksimum referans oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  DAT_2:
+    type: DATE
+    description: "Yetki bloğu ETL tarihi (kaynak ekstraktta ikinci DAT kolonu)"
+    filterable: false
+    visible_in_ui: false
+
+  DOVIZ:
+    type: VARCHAR2(3)
+    description: "Yetki bloğu para birimi (CCY_CODE ile aynı)"
+    filterable: false
+    visible_in_ui: false
+
+  VADE_BASLANGIC:
+    type: NUMBER(4)
+    description: "Yetki vade başlangıcı (ay)"
+    filterable: false
+
+  VADE_BITIS:
+    type: NUMBER(4)
+    description: "Yetki vade bitişi (ay)"
+    filterable: false
+
+  EKSTREM:
+    type: NUMBER(10,2)
+    description: "Ekstrem oran limiti (%)"
+    filterable: false
+    aggregatable: true
+
+  ZARAR_YETKISI:
+    type: NUMBER(10,2)
+    description: "Zarar yetkisi limiti"
+    filterable: false
+
+  EKSTREM_YETKI:
+    type: NUMBER(10,2)
+    description: "Ekstrem yetki oranı (%)"
+    filterable: false
+    aggregatable: true
+
+  OUTCOME:
+    type: NUMBER(1)
+    description: "Sonuç: 0 = kazanılmadı, 1 = kazanıldı"
+    filterable: true
+    filter_role: dimension
+    suggested_variable: outcomes
+    suggested_semantic_tag: other
+    get_distinct: true
+    distinct_values_sample: [0, 1]
+    distinct_values_sampled_at: 2026-07-02T03:00:00Z
