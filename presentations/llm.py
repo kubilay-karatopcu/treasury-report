@@ -411,18 +411,32 @@ def _catalog_section(catalog: dict | None) -> str:
     lines.append("")
     return "\n".join(lines)
 
-# config içindeki veri taşıyan liste alanları (apply_data_to_config'in yazdıkları).
-# Prompt'a giderken kısaltılır — grafik verisi SQL'den yeniden üretilir, LLM'in
-# 5000 elemanlı diziyi görmesine gerek yok (ofiste 253k-token / HTTP 400 sebebi).
-_CONFIG_DATA_LIST_KEYS = ("categories", "x_axis", "labels", "values", "rows")
+# Prompt manifest budama cap'leri. Anahtar-adı listesi DEĞİL, jenerik derin
+# budama: manifest'e bugüne kadar hangi anahtarla veri yazılmış olursa olsun
+# (bugünkü categories/series[].values, eski deploy'ların series[].data /
+# sample benzeri legacy alanları, filters.allowed_values...) cap'ten uzun HER
+# liste kısaltılır. Ofis bulgusu (2026-07-03): anahtar-adı bazlı budama legacy
+# alanları ıskaladı, prompt 670k karakter kaldı.
 _CONFIG_CAP_DATA_BOUND = 24    # SQL'li blok: config her execute'ta yeniden dolar
 _CONFIG_CAP_STATIC = 200       # statik blok: elle girilmiş veri — koru ama sınırla
+_GENERIC_LIST_CAP = 50         # config dışı her yer (data_source, filters, ...)
+
+
+def _deep_truncate(value, cap: int):
+    """cap'ten uzun her listeyi baştan cap elemana indir; dict/list içine in.
+    Kopya döndürür — orijinal manifest mutate edilmez."""
+    if isinstance(value, list):
+        vv = value[:cap] if len(value) > cap else value
+        return [_deep_truncate(x, cap) for x in vv]
+    if isinstance(value, dict):
+        return {k: _deep_truncate(v, cap) for k, v in value.items()}
+    return value
 
 
 def _slim_config_for_prompt(block: dict) -> dict | None:
-    """Bloğun config kopyasını döndür; veri dizileri cap'ten uzunsa baştan
-    cap kadarını tut. Data-bound bloklarda agresif cap güvenli: execute_block_sqls
-    her dokunuşta config'i SQL sonucundan yeniden yazar."""
+    """Bloğun config kopyasını döndür; içindeki HER uzun liste budanır.
+    Data-bound bloklarda agresif cap güvenli: execute_block_sqls her dokunuşta
+    config'i SQL sonucundan yeniden yazar."""
     cfg = block.get("config")
     if not isinstance(cfg, dict):
         return cfg
@@ -432,23 +446,7 @@ def _slim_config_for_prompt(block: dict) -> dict | None:
         str(ds.get("original_sql") or ds.get("sql") or "").strip()
     )
     cap = _CONFIG_CAP_DATA_BOUND if has_sql else _CONFIG_CAP_STATIC
-
-    out = dict(cfg)
-    for k in _CONFIG_DATA_LIST_KEYS:
-        v = out.get(k)
-        if isinstance(v, list) and len(v) > cap:
-            out[k] = v[:cap]
-
-    series = out.get("series")
-    if isinstance(series, list):
-        slim_series = []
-        for s in series:
-            if isinstance(s, dict) and isinstance(s.get("values"), list) \
-                    and len(s["values"]) > cap:
-                s = {**s, "values": s["values"][:cap]}
-            slim_series.append(s)
-        out["series"] = slim_series
-    return out
+    return _deep_truncate(cfg, cap)
 
 
 def _manifest_for_prompt(manifest: dict) -> dict:
@@ -476,9 +474,16 @@ def _manifest_for_prompt(manifest: dict) -> dict:
         if isinstance(ds, dict):
             slim_ds = {k: v for k, v in ds.items()
                        if k not in ("rows", "preview_rows")}
-            out["data_source"] = slim_ds
+            out["data_source"] = _deep_truncate(slim_ds, _GENERIC_LIST_CAP)
         if isinstance(out.get("config"), dict):
             out["config"] = _slim_config_for_prompt(out)
+        # config/data_source/children DIŞINDAKİ blok anahtarları: variables'ın
+        # allowed_values'u, eski deploy'ların blok köküne yazdığı legacy veri
+        # alanları... — hepsine jenerik cap.
+        for k, v in list(out.items()):
+            if k in ("children", "config", "data_source"):
+                continue
+            out[k] = _deep_truncate(v, _GENERIC_LIST_CAP)
         children = out.get("children")
         if isinstance(children, list):
             out["children"] = [_strip_ds(c) for c in children]
@@ -502,6 +507,14 @@ def _manifest_for_prompt(manifest: dict) -> dict:
             slim_u["sheets"] = slim_sheets
             slim_uploads.append(slim_u)
         out["uploads"] = slim_uploads
+
+    # blocks dışındaki TÜM top-level anahtarlara jenerik cap — filters'ın
+    # allowed_values'u, basket, uploads ve adını bugün bilmediğimiz her legacy
+    # anahtar. blocks hariç: bölüm/karosel yapısı _strip_ds'te korunarak işlendi.
+    # Bu adım EN SONDA koşar ki uploads gibi özel işlenen anahtarlar da cap'lensin.
+    for k, v in list(out.items()):
+        if k != "blocks":
+            out[k] = _deep_truncate(v, _GENERIC_LIST_CAP)
 
     return out
 
