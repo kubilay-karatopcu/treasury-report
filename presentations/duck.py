@@ -232,9 +232,25 @@ def summarize_views(conn, view_names, sample_rows=5):
 _NUMERIC_TYPES = ("INT", "BIGINT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC", "REAL")
 
 
+# argmax bağlamında tutulacak en fazla boyut kolonu. Satırın TAMAMINI koymak
+# sayısal_kolon × toplam_kolon KARESEL şişme yapıyor: 181 kolonlu (150 sayısal)
+# bir tabloda data_summary tek başına ~600KB → prompt 253k token → provider
+# HTTP 400 (ofis, 2026-07-03). "Max değer hangi bağlamda" sorusuna boyut
+# (sayısal olmayan: tarih/kategori) kolonları cevap verir; diğer sayısal
+# kolonların o satırdaki değerleri LLM için bağlam değil gürültüdür.
+_ARGMAX_MAX_DIMS = 6
+
+
 def _compute_stats(conn, safe_view, col_list, row_count):
     if row_count == 0:
         return {}
+
+    dim_cols = [
+        c["name"] for c in col_list
+        if not any(t in c["type"].upper() for t in _NUMERIC_TYPES)
+        and c["name"].replace("_", "").isalnum()
+    ][:_ARGMAX_MAX_DIMS]
+
     stats = {}
     for c in col_list:
         ctype = c["type"].upper()
@@ -248,13 +264,15 @@ def _compute_stats(conn, safe_view, col_list, row_count):
                 f'SELECT MIN("{col}") AS mn, MAX("{col}") AS mx, AVG("{col}") AS av FROM {safe_view}'
             ).fetchone()
             mn, mx, av = row
-            argmax_row = conn.execute(
-                f'SELECT * FROM {safe_view} WHERE "{col}" = ? LIMIT 1', [mx]
-            ).fetchdf()
-            argmax = (
-                {k: _jsonable(v) for k, v in argmax_row.iloc[0].to_dict().items()}
-                if not argmax_row.empty else {}
-            )
+            argmax = {}
+            if dim_cols:
+                sel = ", ".join(f'"{d}"' for d in dim_cols)
+                argmax_row = conn.execute(
+                    f'SELECT {sel} FROM {safe_view} WHERE "{col}" = ? LIMIT 1', [mx]
+                ).fetchdf()
+                if not argmax_row.empty:
+                    argmax = {k: _jsonable(v)
+                              for k, v in argmax_row.iloc[0].to_dict().items()}
             stats[col] = {
                 "min": _jsonable(mn), "max": _jsonable(mx),
                 "avg": _jsonable(av), "argmax": argmax,
