@@ -1,5 +1,6 @@
 from presentations.llm import (
     _block_layout_summary,
+    _manifest_for_prompt,
     _section_insertion_indices,
     compose_user_message,
     _parse_llm_output,
@@ -106,6 +107,97 @@ class TestParseLlmOutput:
         patches, expl, _sugg = _parse_llm_output("totally not json")
         assert patches == []
         assert "parse edilemedi" in expl.lower()
+
+
+class TestManifestForPrompt:
+    """Ofis bulgusu (2026-07-03): CREATE_TM eksenli grafiklerde config
+    5000-elemanlı dizilerle doluyor, chat_history 200 mesaja çıkıyor →
+    prompt 253k token → provider HTTP 400. Prompt kopyası budanmalı."""
+
+    @staticmethod
+    def _chart_block(n=5000, with_sql=True):
+        block = {
+            "id": "c_big", "type": "combo_chart", "title": "Verilen Oran",
+            "config": {
+                "categories": [f"2026-07-01T10:{i % 60:02d}:{i % 60:02d}" for i in range(n)],
+                "series": [
+                    {"name": "İşlem", "values": list(range(n)), "kind": "bar", "axis": "right"},
+                    {"name": "Oran", "values": [i * 0.1 for i in range(n)], "kind": "line", "axis": "left"},
+                ],
+            },
+        }
+        if with_sql:
+            block["data_source"] = {
+                "original_sql": "SELECT CREATE_TM, COUNT(*) FROM T GROUP BY CREATE_TM",
+                "rows": [[1, 2]] * n,
+                "preview_rows": [[1, 2]],
+            }
+        return block
+
+    def test_data_bound_config_arrays_truncated(self):
+        m = {"blocks": [{"id": "s", "type": "section_header", "title": "S",
+                         "children": [self._chart_block()]}]}
+        out = _manifest_for_prompt(m)
+        cfg = out["blocks"][0]["children"][0]["config"]
+        assert len(cfg["categories"]) == 24
+        assert all(len(s["values"]) == 24 for s in cfg["series"])
+        # kind/axis gibi stil alanları korunur
+        assert cfg["series"][0]["kind"] == "bar"
+
+    def test_static_block_small_config_untouched(self):
+        blk = {"id": "k", "type": "bar_chart", "title": "Elle",
+               "config": {"categories": ["a", "b", "c"],
+                          "series": [{"name": "x", "values": [1, 2, 3]}]}}
+        m = {"blocks": [{"id": "s", "type": "section_header", "children": [blk]}]}
+        cfg = _manifest_for_prompt(m)["blocks"][0]["children"][0]["config"]
+        assert cfg["categories"] == ["a", "b", "c"]
+        assert cfg["series"][0]["values"] == [1, 2, 3]
+
+    def test_static_block_huge_config_capped_at_200(self):
+        blk = self._chart_block(n=500, with_sql=False)
+        m = {"blocks": [{"id": "s", "type": "section_header", "children": [blk]}]}
+        cfg = _manifest_for_prompt(m)["blocks"][0]["children"][0]["config"]
+        assert len(cfg["categories"]) == 200
+        assert len(cfg["series"][0]["values"]) == 200
+
+    def test_chat_histories_stripped(self):
+        m = {"blocks": [],
+             "chat_history": [{"role": "user", "text": "x"}] * 200,
+             "kesif_chat_history": [{"role": "user", "text": "y"}] * 50}
+        out = _manifest_for_prompt(m)
+        assert "chat_history" not in out
+        assert "kesif_chat_history" not in out
+
+    def test_data_source_rows_still_stripped(self):
+        m = {"blocks": [{"id": "s", "type": "section_header",
+                         "children": [self._chart_block()]}]}
+        ds = _manifest_for_prompt(m)["blocks"][0]["children"][0]["data_source"]
+        assert "rows" not in ds and "preview_rows" not in ds
+        assert ds["original_sql"].startswith("SELECT")
+
+    def test_original_manifest_not_mutated(self):
+        blk = self._chart_block()
+        m = {"blocks": [{"id": "s", "type": "section_header", "children": [blk]}],
+             "chat_history": [{"role": "user", "text": "x"}]}
+        _manifest_for_prompt(m)
+        assert len(blk["config"]["categories"]) == 5000
+        assert len(blk["config"]["series"][0]["values"]) == 5000
+        assert "rows" in blk["data_source"]
+        assert "chat_history" in m
+
+    def test_oversized_prompt_raises_actionable_error(self, monkeypatch):
+        from presentations import llm as llm_mod
+        from presentations.llm import QwenClient
+        import pytest
+
+        called = {"post": False}
+        monkeypatch.setattr(llm_mod.requests, "post",
+                            lambda *a, **k: called.update(post=True))
+        # ~1MB'lık user mesajı → tahmini token > 200k → provider'a gitmeden hata
+        with pytest.raises(RuntimeError, match="bağlamı çok büyük"):
+            QwenClient(endpoint="http://x", token="t").generate_patches(
+                "sys", "x" * 1_000_000, {"blocks": []})
+        assert called["post"] is False
 
 
 class TestGenMaxTokensAndTruncation:
