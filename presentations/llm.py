@@ -96,25 +96,29 @@ class QwenClient:
         )
 
         # Sanity check: catch runaway prompts before the server does.
-        # ~4 chars per token is the standard rule of thumb for English/Turkish
-        # (Türkçe'de gerçek token sayısı genelde bu tahminin ÜZERİNDE çıkar).
-        approx_tokens = (len(system) + len(composed_user)) // 4
-        if approx_tokens > 100_000:
+        # Ofis ölçümü (2026-07-03): 670,302 karakterlik prompt'u Qwen 253,953
+        # token saydı → JSON ağırlıklı Türkçe'de ~2.6 karakter/token. chars//4
+        # tahmini gerçek token'ı ciddi EKSİK sayar; eşikler karakter bazlı.
+        total_chars = len(system) + len(composed_user)
+        approx_tokens = int(total_chars / 2.6)
+        if total_chars > 260_000:   # ~100k gerçek token
             import logging
             logging.warning(
                 "QwenClient: large prompt detected (~%d tokens, %d chars). "
                 "Manifest may need pruning.",
-                approx_tokens, len(system) + len(composed_user),
+                approx_tokens, total_chars,
             )
-        # Provider limiti (Qwen: 262k) aşılacaksa kriptik HTTP 400 dökümü yerine
-        # eyleme dönük hata ver. Config/chat_history budaması sonrası normal bir
-        # sunum buraya asla yaklaşmamalı — bu eşik bir güvenlik ağı.
-        if approx_tokens > 200_000:
+        # Provider limiti (Qwen: 262k token toplam, 8k output ayrılmış) aşılacaksa
+        # kriptik HTTP 400 dökümü yerine eyleme dönük hata ver. 600k karakter ≈
+        # ~230k gerçek token — normal bir sunum buraya asla yaklaşmamalı.
+        if total_chars > 600_000:
             raise RuntimeError(
-                f"İstek bağlamı çok büyük (~{approx_tokens // 1000}k token) — "
-                "LLM'e gönderilemedi. Sunumdaki blok/veri hacmi olağan dışı "
-                "büyümüş olabilir; birkaç bloğu silmeyi veya yeni bir sunumda "
-                "devam etmeyi deneyin."
+                f"İstek bağlamı çok büyük (~{approx_tokens // 1000}k token, "
+                f"{total_chars} karakter) — LLM'e gönderilemedi. Sunumdaki "
+                "blok/veri hacmi olağan dışı büyümüş olabilir; birkaç bloğu "
+                "silmeyi veya yeni bir sunumda devam etmeyi deneyin. "
+                "(Sunucu logunda 'compose_user_message: büyük prompt' satırı "
+                "hangi bölümün şiştiğini gösterir.)"
             )
  
         # NOTE: Qwen corporate endpoint, `model` body'de varsa reddediyor.
@@ -546,11 +550,19 @@ def compose_user_message(
                     f"data_source.original_sql DOLU yaz."
                 )
 
-    full_json = json.dumps(_manifest_for_prompt(manifest), ensure_ascii=False, indent=2)
+    pruned_manifest = _manifest_for_prompt(manifest)
+    full_json = json.dumps(pruned_manifest, ensure_ascii=False, indent=2)
     data_section = _data_summary_section(data_summary)
     catalog_section = _catalog_section(catalog)
     library_section = _library_summary(library)
     table_docs_section = _table_docs_section(table_docs)
+
+    _log_prompt_size_breakdown(
+        pruned_manifest,
+        catalog=catalog_section, table_docs=table_docs_section, layout=layout,
+        library=library_section, data_summary=data_section,
+        manifest_json=full_json, user_message=user_message,
+    )
 
     return (
         "# Bağlam\n\n"
@@ -571,6 +583,55 @@ def compose_user_message(
         "# Talep\n"
         f"{user_message}\n"
     )
+
+
+# Prompt bölüm dökümü bu eşiğin üstünde loglanır. 200k karakter ≈ ~65-75k
+# gerçek token (JSON ağırlıklı Türkçe ~2.6-3 karakter/token — ofis ölçümü:
+# 670k karakter → 254k gerçek token). Provider limiti 262k.
+_PROMPT_BREAKDOWN_CHAR_THRESHOLD = 200_000
+
+
+def _log_prompt_size_breakdown(pruned_manifest: dict, **sections: str) -> None:
+    """Ofis teşhisi (2026-07-03): budama sonrası prompt hâlâ 670k karakterdi ve
+    hangi bölümün şiştiği loglardan görülemiyordu. Toplam eşiği aşınca bölüm
+    boyutlarını, manifest'in top-level anahtar boyutlarını ve en büyük 5 bloğu
+    logla — şişkinliğin kaynağı tek log satırından okunabilsin."""
+    import logging
+
+    total = sum(len(s or "") for s in sections.values())
+    if total <= _PROMPT_BREAKDOWN_CHAR_THRESHOLD:
+        return
+
+    log = logging.getLogger(__name__)
+    sizes = {k: len(v or "") for k, v in sections.items()}
+    log.warning("compose_user_message: büyük prompt (%d char) — bölümler: %s",
+                total, sizes)
+
+    try:
+        key_sizes = {
+            k: len(json.dumps(v, ensure_ascii=False, default=str))
+            for k, v in (pruned_manifest or {}).items()
+        }
+        log.warning("compose_user_message: manifest top-level anahtar boyutları: %s",
+                    dict(sorted(key_sizes.items(), key=lambda kv: -kv[1])))
+
+        block_sizes: list[tuple[str, int]] = []
+
+        def _walk(b):
+            if not isinstance(b, dict):
+                return
+            bid = f'{b.get("id", "?")}({b.get("type", "?")})'
+            block_sizes.append(
+                (bid, len(json.dumps(b, ensure_ascii=False, default=str))))
+            for c in (b.get("children") or []):
+                _walk(c)
+
+        for b in (pruned_manifest or {}).get("blocks") or []:
+            _walk(b)
+        top5 = sorted(block_sizes, key=lambda kv: -kv[1])[:5]
+        log.warning("compose_user_message: en büyük 5 blok (iç içe dahil): %s", top5)
+    except Exception:
+        log.exception("compose_user_message: boyut dökümü başarısız (non-fatal)")
 
 
 def _table_docs_section(table_docs) -> str:
