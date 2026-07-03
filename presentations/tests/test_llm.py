@@ -185,6 +185,40 @@ class TestManifestForPrompt:
         assert "rows" in blk["data_source"]
         assert "chat_history" in m
 
+    def test_legacy_unknown_keys_also_truncated(self):
+        """Jenerik derin budama: bugünkü anahtar adlarını bilmesek de manifest'e
+        geçmiş deploy'ların yazdığı HER uzun liste kısaltılmalı (ofis bulgusu:
+        anahtar-adı bazlı budama legacy alanları ıskalayıp 670k char bıraktı)."""
+        blk = {
+            "id": "c", "type": "combo_chart", "title": "L",
+            "data_source": {"original_sql": "SELECT 1",
+                            "sample": [[1, 2]] * 3000,          # legacy key
+                            "columns": ["A"] * 300},
+            "config": {"series": [{"name": "s", "data": list(range(5000))}],  # legacy 'data'
+                       "weird_legacy": [{"x": 1}] * 4000},
+            "cached_rows": [[1]] * 2000,                        # blok kökünde legacy
+        }
+        m = {"blocks": [{"id": "s", "type": "section_header", "children": [blk]}],
+             "filters": [{"id": "f1", "concept": "c",
+                          "allowed_values": [str(i) for i in range(3000)]}],
+             "legacy_top": [1] * 9000}
+        out = _manifest_for_prompt(m)
+        b = out["blocks"][0]["children"][0]
+        assert len(b["data_source"]["sample"]) == 50
+        assert len(b["data_source"]["columns"]) == 50
+        assert len(b["config"]["series"][0]["data"]) == 24
+        assert len(b["config"]["weird_legacy"]) == 24
+        assert len(b["cached_rows"]) == 50
+        assert len(out["filters"][0]["allowed_values"]) == 50
+        assert len(out["legacy_top"]) == 50
+
+    def test_children_structure_never_truncated(self):
+        children = [{"id": f"k{i}", "type": "kpi", "title": str(i),
+                     "config": {"value": i}} for i in range(80)]
+        m = {"blocks": [{"id": "s", "type": "section_header", "children": children}]}
+        out = _manifest_for_prompt(m)
+        assert len(out["blocks"][0]["children"]) == 80
+
     def test_oversized_prompt_raises_actionable_error(self, monkeypatch):
         from presentations import llm as llm_mod
         from presentations.llm import QwenClient
