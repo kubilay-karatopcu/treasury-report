@@ -96,7 +96,8 @@ class QwenClient:
         )
 
         # Sanity check: catch runaway prompts before the server does.
-        # ~4 chars per token is the standard rule of thumb for English/Turkish.
+        # ~4 chars per token is the standard rule of thumb for English/Turkish
+        # (Türkçe'de gerçek token sayısı genelde bu tahminin ÜZERİNDE çıkar).
         approx_tokens = (len(system) + len(composed_user)) // 4
         if approx_tokens > 100_000:
             import logging
@@ -104,6 +105,16 @@ class QwenClient:
                 "QwenClient: large prompt detected (~%d tokens, %d chars). "
                 "Manifest may need pruning.",
                 approx_tokens, len(system) + len(composed_user),
+            )
+        # Provider limiti (Qwen: 262k) aşılacaksa kriptik HTTP 400 dökümü yerine
+        # eyleme dönük hata ver. Config/chat_history budaması sonrası normal bir
+        # sunum buraya asla yaklaşmamalı — bu eşik bir güvenlik ağı.
+        if approx_tokens > 200_000:
+            raise RuntimeError(
+                f"İstek bağlamı çok büyük (~{approx_tokens // 1000}k token) — "
+                "LLM'e gönderilemedi. Sunumdaki blok/veri hacmi olağan dışı "
+                "büyümüş olabilir; birkaç bloğu silmeyi veya yeni bir sunumda "
+                "devam etmeyi deneyin."
             )
  
         # NOTE: Qwen corporate endpoint, `model` body'de varsa reddediyor.
@@ -396,15 +407,59 @@ def _catalog_section(catalog: dict | None) -> str:
     lines.append("")
     return "\n".join(lines)
 
+# config içindeki veri taşıyan liste alanları (apply_data_to_config'in yazdıkları).
+# Prompt'a giderken kısaltılır — grafik verisi SQL'den yeniden üretilir, LLM'in
+# 5000 elemanlı diziyi görmesine gerek yok (ofiste 253k-token / HTTP 400 sebebi).
+_CONFIG_DATA_LIST_KEYS = ("categories", "x_axis", "labels", "values", "rows")
+_CONFIG_CAP_DATA_BOUND = 24    # SQL'li blok: config her execute'ta yeniden dolar
+_CONFIG_CAP_STATIC = 200       # statik blok: elle girilmiş veri — koru ama sınırla
+
+
+def _slim_config_for_prompt(block: dict) -> dict | None:
+    """Bloğun config kopyasını döndür; veri dizileri cap'ten uzunsa baştan
+    cap kadarını tut. Data-bound bloklarda agresif cap güvenli: execute_block_sqls
+    her dokunuşta config'i SQL sonucundan yeniden yazar."""
+    cfg = block.get("config")
+    if not isinstance(cfg, dict):
+        return cfg
+
+    ds = block.get("data_source")
+    has_sql = isinstance(ds, dict) and bool(
+        str(ds.get("original_sql") or ds.get("sql") or "").strip()
+    )
+    cap = _CONFIG_CAP_DATA_BOUND if has_sql else _CONFIG_CAP_STATIC
+
+    out = dict(cfg)
+    for k in _CONFIG_DATA_LIST_KEYS:
+        v = out.get(k)
+        if isinstance(v, list) and len(v) > cap:
+            out[k] = v[:cap]
+
+    series = out.get("series")
+    if isinstance(series, list):
+        slim_series = []
+        for s in series:
+            if isinstance(s, dict) and isinstance(s.get("values"), list) \
+                    and len(s["values"]) > cap:
+                s = {**s, "values": s["values"][:cap]}
+            slim_series.append(s)
+        out["series"] = slim_series
+    return out
+
+
 def _manifest_for_prompt(manifest: dict) -> dict:
     """Return a copy of the manifest safe to send to the LLM.
 
     The on-disk manifest carries `data_source.rows` (up to 5000 rows per block)
-    and `data_source.preview_rows` for every data-bound block. These can blow
-    past any reasonable context window. The LLM doesn't need raw data — it
-    sees the loaded views via `data_summary`. Keep only schema/SQL.
+    and `data_source.preview_rows` for every data-bound block, AND
+    `config.categories / x_axis / labels / values / rows / series[].values`
+    hold the full SQL result for rendering (again up to 5000 elements per
+    block). Any of these can blow past the provider context window. The LLM
+    doesn't need raw data — it sees the loaded views via `data_summary`.
+    Keep only schema/SQL; truncate config data arrays.
 
-    Also drops `data_source.columns` (kept) and other small fields are kept.
+    `chat_history` / `kesif_chat_history` (up to 200 messages) are also
+    dropped — the prompt carries only the current user message.
     """
     if not isinstance(manifest, dict):
         return manifest
@@ -418,12 +473,16 @@ def _manifest_for_prompt(manifest: dict) -> dict:
             slim_ds = {k: v for k, v in ds.items()
                        if k not in ("rows", "preview_rows")}
             out["data_source"] = slim_ds
+        if isinstance(out.get("config"), dict):
+            out["config"] = _slim_config_for_prompt(out)
         children = out.get("children")
         if isinstance(children, list):
             out["children"] = [_strip_ds(c) for c in children]
         return out
 
     out = dict(manifest)
+    out.pop("chat_history", None)
+    out.pop("kesif_chat_history", None)
     out["blocks"] = [_strip_ds(b) for b in (manifest.get("blocks") or [])]
 
     # uploads.sheets[].preview_rows can also be heavy; trim it.
@@ -505,6 +564,9 @@ def compose_user_message(
         f"## Seçili blok\n  {sel_info}{sel_shape_hint}\n"
         f"{data_section}\n"
         "## Tam manifest (JSON, referans için)\n"
+        "Not: uzun config veri dizileri (categories/x_axis/series.values/rows) "
+        "kısaltılmış olabilir — bu diziler SQL'den otomatik dolar, patch'lerde "
+        "config'e veri dizisi YAZMA; data_source.original_sql üzerinden çalış.\n"
         f"```json\n{full_json}\n```\n\n"
         "# Talep\n"
         f"{user_message}\n"
