@@ -188,7 +188,9 @@ def _build_series(columns, rows, existing_series):
 def _build_combo_series(columns, rows, existing_series):
     """Like _build_series, but each series also carries kind (bar/line) + axis
     (left/right). Roles are preserved by index across re-runs; new series get a
-    sensible default (first series = bar/right, the rest = line/left)."""
+    sensible default: first series = bar/left, the rest = line/right, so a
+    fresh combo comes up with distinct kinds AND distinct y-axes. Mirrors
+    comboSeriesDefaults in editor/lib/store.js — keep the two in sync."""
     existing = existing_series if isinstance(existing_series, list) else []
     series = []
     for col_idx in range(1, len(columns)):
@@ -196,7 +198,7 @@ def _build_combo_series(columns, rows, existing_series):
         name = columns[col_idx]
         values = [_safe_number(row[col_idx]) for row in rows]
         kind = "bar" if s_idx == 0 else "line"
-        axis = "right" if s_idx == 0 else "left"
+        axis = "left" if s_idx == 0 else "right"
         if s_idx < len(existing) and isinstance(existing[s_idx], dict):
             ex = existing[s_idx]
             if ex.get("name"):
