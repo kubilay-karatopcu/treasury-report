@@ -147,6 +147,18 @@ export default function SourceModal({ open, onClose, block, onRefresh, refreshin
             <pre className="src-sql src-sql--rewritten ts-scroll">{ds.sql}</pre>
           </details>
         )}
+
+        {/* Concept filtresi enjekte edilerek koşulduysa fiilen çalıştırılan
+            SQL'i göster — dashboard filtresinin sorguya nasıl indiğini
+            görmenin tek yolu bu (şablon SQL'e asla yazılmaz). */}
+        {ds.executed_sql && (
+          <details className="src-rewritten" open>
+            <summary>Filtreler uygulanmış hali (son çalıştırılan SQL)</summary>
+            <pre className="src-sql src-sql--rewritten ts-scroll">
+              {substituteBindParams(ds.executed_sql, ds.executed_params || ds.bind_params)}
+            </pre>
+          </details>
+        )}
       </div>
 
       {/* ── Preview rows ──────────────────────────────────────────── */}
@@ -204,8 +216,14 @@ export function substituteBindParams(sql, params) {
   if (!sql) return '';
   if (!params || typeof params !== 'object') return sql;
   // Match :ident not preceded by ':' (skip Postgres ::cast).
-  return sql.replace(/(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match, name) => {
+  const out = sql.replace(/(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match, name) => {
     if (!(name in params)) return match;          // unknown bind — leave as-is
+    return _formatLiteral(params[name]);
+  });
+  // DuckDB tarafında koşan sorgular $name bind'i kullanır (apply-filters
+  // dataset_sql yolu) — bilinen anahtarları aynı şekilde yerleştir.
+  return out.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match, name) => {
+    if (!(name in params)) return match;
     return _formatLiteral(params[name]);
   });
 }
