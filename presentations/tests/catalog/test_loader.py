@@ -304,3 +304,42 @@ def test_malformed_yaml_is_skipped(fixture_store, fake_dc, tmp_path):
     assert "BROKEN" not in names
     # Other tables still load.
     assert "DEPOSITS_DAILY" in names
+
+
+# ── Binding kataloğu → concepts_bound birleşimi (ofis senaryosu) ──────────
+
+
+def test_binding_catalog_concepts_merge_into_bound(fixture_store, fake_dc):
+    """Tablo dokümanında suggested_semantic_tag OLMASA bile Konseptler
+    UI'ından yapılmış human_verified binding keşifte concept olarak görünür."""
+    from presentations.concepts.bindings import BindingCatalog
+
+    cat = BindingCatalog.from_dicts([{
+        "table": "DEPOSITS_BY_BRANCH", "schema": "EDW",
+        "concept_bindings": [{
+            "concept": "region", "column": "REGION_CODE",
+            "transform": {"kind": "identity"},
+            "confidence": "human_verified",
+        }],
+    }])
+    loader = CatalogLoader(table_doc_store=fixture_store, data_client=fake_dc,
+                           binding_catalog=cat)
+    entry = next(e for e in loader.load() if e.name == "DEPOSITS_BY_BRANCH")
+    assert "region" in entry.concepts_bound
+
+
+def test_binding_catalog_unverified_bindings_ignored(fixture_store, fake_dc):
+    from presentations.concepts.bindings import BindingCatalog
+
+    cat = BindingCatalog.from_dicts([{
+        "table": "DEPOSITS_BY_BRANCH", "schema": "EDW",
+        "concept_bindings": [{
+            "concept": "region", "column": "REGION_CODE",
+            "transform": {"kind": "identity"},
+            "confidence": "llm_proposed",   # gated — compiler'a da keşfe de girmez
+        }],
+    }])
+    loader = CatalogLoader(table_doc_store=fixture_store, data_client=fake_dc,
+                           binding_catalog=cat)
+    entry = next(e for e in loader.load() if e.name == "DEPOSITS_BY_BRANCH")
+    assert "region" not in entry.concepts_bound

@@ -505,7 +505,8 @@ def _filter_predicate(spec: dict, value, params: dict, idx: int,
 
 
 def _concept_predicates(column_concepts, concept_filters, params: dict,
-                        dt_cols: frozenset = frozenset()) -> list[str]:
+                        dt_cols: frozenset = frozenset(),
+                        prefix: str = "cf") -> list[str]:
     """#4 / end-to-end — dataset (türetilmiş) node'a CONCEPT filtrelerini uygula.
 
     ``column_concepts = {COLUMN: concept_id}`` kullanıcının Hazırlık'ta o node'un
@@ -533,7 +534,7 @@ def _concept_predicates(column_concepts, concept_filters, params: dict,
             continue
         for col in cols:
             col_is_dt = col in dt_cols
-            p = f"cf{idx}"
+            p = f"{prefix}{idx}"
             if op == "between" and len(vals) == 2 and vals[0] is not None and vals[1] is not None:
                 hi_c, half_open = _day_inclusive_upper(_coerce(vals[1]), col_is_dt)
                 params[f"{p}_lo"] = _coerce(vals[0])
@@ -550,6 +551,81 @@ def _concept_predicates(column_concepts, concept_filters, params: dict,
                 clauses.append(f'"{col}" IN ({", ".join(names)})')
             idx += 1
     return clauses
+
+
+_SCHEMA_TABLE_RE = re.compile(r"^[A-Za-z_][\w$#]*\.[A-Za-z_][\w$#]*$")
+
+
+def inherit_source_bindings(conn, alias: str, source_ref: str | None,
+                            concept_filters, catalog, *,
+                            skip_concepts: set | None = None):
+    """Base→türev binding mirası: kaynak katalog tablosunun human_verified
+    binding'lerini, aynı adla türetilmiş view'a taşınmış kolonlara uygula.
+
+    Sunum filtre çubuğu basket'teki KAYNAK tabloların binding'lerinden
+    tohumlanır; bloklar ise Hazırlık'ta üretilen view/dataset'i okur. View
+    katmanında binding olmadığı için filtreler daha önce koşulsuz blind
+    kalıyordu ("filtre seçtim ama grafik değişmiyor"). Bu fonksiyon,
+    ``source_ref`` (SCHEMA.TABLE) üzerindeki binding'lerden view'da birebir
+    var olan kolonlara predicate eşlemesi türetir:
+
+    - ``identity`` / ``time_truncation`` → kolon → concept (identity predicate;
+      tarih kolonları ``dt_cols`` üzerinden gün-kapsayıcı işlenir),
+    - ``map`` → kolon → concept + filtre değerleri canonical→tablo değerine
+      çevrilir (pairs tersine çevrilir; compiler'la aynı semantik, bilinmeyen
+      canonical düşer),
+    - ``lookup`` / ``bucket_from_range`` → atlanır (view'da dim join garantisi
+      yok) — concept blind kalır ve UI rozetinde görünür.
+
+    Returns ``(extra_column_concepts, translated_filters)``. Bir concept'e
+    çevrilmiş değer kalmazsa (map'te hiç eşleşme yok) o concept miras
+    ALINMAZ — sessizce filtresiz koşmak yerine görünür şekilde blind kalır.
+    """
+    if not source_ref or catalog is None or not concept_filters:
+        return {}, list(concept_filters or [])
+    ref = str(source_ref).strip()
+    if not _SCHEMA_TABLE_RE.match(ref):
+        return {}, list(concept_filters)
+    schema, _, table = ref.upper().partition(".")
+
+    try:
+        view_cols = {str(r[0]) for r in conn.execute('DESCRIBE "' + alias + '"').fetchall()}
+    except Exception:
+        return {}, list(concept_filters)
+
+    skip = skip_concepts or set()
+    extra_cc: dict = {}
+    translated: list = []
+    for f in concept_filters:
+        cid = (f or {}).get("concept")
+        if not cid or cid in skip:
+            translated.append(f)
+            continue
+        try:
+            binding = catalog.get_binding(schema, table, cid)
+        except Exception:
+            binding = None
+        if binding is None or binding.column not in view_cols:
+            translated.append(f)
+            continue
+        kind = binding.transform.kind
+        if kind in ("identity", "time_truncation"):
+            extra_cc[binding.column] = cid
+            translated.append(f)
+        elif kind == "map" and (f.get("operator") in ("in", "eq")):
+            inv: dict[str, list[str]] = {}
+            for table_val, canon in binding.transform.pairs.items():
+                inv.setdefault(str(canon), []).append(str(table_val))
+            new_vals = [tv for v in (f.get("values") or [])
+                        for tv in inv.get(str(v), [])]
+            if new_vals:
+                extra_cc[binding.column] = cid
+                translated.append({**f, "values": new_vals})
+            else:
+                translated.append(f)
+        else:
+            translated.append(f)
+    return extra_cc, translated
 
 
 _CONCEPT_SENTINEL = "{{concept_filters}}"
@@ -578,7 +654,8 @@ def inject_dataset_concepts(
 
 
 def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = None,
-                               *, concept_filters=None, column_concepts=None):
+                               *, concept_filters=None, column_concepts=None,
+                               source_ref: str | None = None, binding_catalog=None):
     """Project a dataset-bound Sunum block from its materialised DuckDB view,
     applying interactive dashboard filters as LOCAL DuckDB predicates.
 
@@ -592,6 +669,11 @@ def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = 
     ``concept_filters`` + ``column_concepts`` (end-to-end #4): aktif concept
     filtreleri, kullanıcının bu node kolonlarına bağladığı concept'lerle
     eşleşirse identity predicate olarak da uygulanır.
+
+    ``source_ref`` + ``binding_catalog``: dataset'in kaynağı olduğu katalog
+    tablosunun human_verified binding'leri view kolonlarına miras alınır
+    (:func:`inherit_source_bindings`) — kullanıcı Hazırlık'ta kolona concept
+    bağlamamış olsa bile kaynak tablodan gelen binding filtreyi işletir.
     """
     alias = (binding or {}).get("alias")
     if not alias or not _IDENT_RE.match(str(alias)) or not _view_exists(conn, alias):
@@ -617,6 +699,16 @@ def project_block_from_dataset(conn, binding: dict, filter_state: dict | None = 
     # Concept filtreleri (column_concepts → identity) — katalog binding'i olmayan
     # türetilmiş node'lara da uygulanır.
     clauses += _concept_predicates(column_concepts, concept_filters, params, dt_cols)
+    # Kaynak tablo binding'lerinin mirası (base→türev): column_concepts'in
+    # kapsamadığı concept'ler için kaynak kolon adı view'da aynen varsa
+    # predicate oradan türetilir.
+    extra_cc, translated = inherit_source_bindings(
+        conn, alias, source_ref, concept_filters, binding_catalog,
+        skip_concepts=set((column_concepts or {}).values()),
+    )
+    if extra_cc:
+        clauses += _concept_predicates(extra_cc, translated, params, dt_cols,
+                                       prefix="ih")
 
     sql = f'SELECT {select} FROM "{alias}"'
     if clauses:
