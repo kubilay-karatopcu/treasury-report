@@ -247,6 +247,43 @@ function _emptyBlockTemplate(id, type) {
   }
 }
 
+// Combo serisi rol varsayılanları — tek doğruluk kaynağı. Backend
+// (_build_combo_series) ve render/panel fallback'leri aynı politikayı izler:
+// ilk seri çubuk/sol, sonrakiler çizgi/sağ (farklı tip + farklı eksen).
+export function comboSeriesDefaults(i) {
+  return { kind: i === 0 ? 'bar' : 'line', axis: i === 0 ? 'left' : 'right' };
+}
+
+// Kategori ekseni `categories` anahtarında yaşayan tipler ↔ `x_axis`
+// anahtarında yaşayan tipler. Tip değişince veri anahtarı taşınmazsa
+// /patch'in manifest-geneli chart-length validasyonu patch'i reddeder
+// (örn. line→combo: series N değerli ama categories boş → 400) ve tip
+// bir sonraki çalıştırmada sessizce eski haline döner.
+const CATEGORY_KEY_TYPES = new Set(['bar_chart', 'combo_chart']);
+const XAXIS_KEY_TYPES = new Set(['line_chart', 'area_chart', 'heatmap']);
+
+function migrateConfigForType(prevType, nextType, config) {
+  const next = { ...(config || {}) };
+  const cats = Array.isArray(next.categories) ? next.categories : null;
+  const xs = Array.isArray(next.x_axis) ? next.x_axis : null;
+  if (CATEGORY_KEY_TYPES.has(nextType) && XAXIS_KEY_TYPES.has(prevType)) {
+    next.categories = xs || cats || [];
+    delete next.x_axis;
+  } else if (XAXIS_KEY_TYPES.has(nextType) && CATEGORY_KEY_TYPES.has(prevType)) {
+    next.x_axis = cats || xs || [];
+    delete next.categories;
+  }
+  if (nextType === 'combo_chart') {
+    next.series = (Array.isArray(next.series) ? next.series : []).map((s, i) => {
+      const d = comboSeriesDefaults(i);
+      const kind = s && (s.kind === 'bar' || s.kind === 'line') ? s.kind : d.kind;
+      const axis = s && (s.axis === 'left' || s.axis === 'right') ? s.axis : d.axis;
+      return { ...s, kind, axis };
+    });
+  }
+  return next;
+}
+
 function _defaultTitle(type) {
   const map = {
     kpi:         'Yeni KPI',
@@ -1029,6 +1066,38 @@ const useStore = create((set) => ({
       };
     });
     return result;
+  },
+
+  // Blok tipini değiştir: config'in veri anahtarları yeni tipin şemasına
+  // taşınır ve tip + config + data_stale TEK /patch çağrısında gider — iki
+  // ayrı patch'te config'i uyumsuz kalan tip patch'i backend'de 400 yiyor,
+  // optimistik UI combo gösterirken sonraki çalıştırma sunucudaki eski tipi
+  // geri getiriyordu.
+  changeBlockType: (blockId, nextType) => {
+    const state = useStore.getState();
+    if (!state.manifest || !blockId || !nextType) return;
+    const loc = findBlockPath(state.manifest, blockId);
+    if (!loc || loc.block.type === nextType) return;
+
+    const prevBlock = loc.block;
+    const nextConfig = migrateConfigForType(prevBlock.type, nextType, prevBlock.config);
+    set((s) => ({
+      manifest: updateBlockInPlace(s.manifest, blockId, (b) => ({
+        ...b, type: nextType, config: nextConfig, data_stale: true,
+      })),
+    }));
+    submitPatches([
+      { op: 'replace', path: `${loc.path}/type`, value: nextType },
+      { op: 'config' in prevBlock ? 'replace' : 'add', path: `${loc.path}/config`, value: nextConfig },
+      { op: 'data_stale' in prevBlock ? 'replace' : 'add', path: `${loc.path}/data_stale`, value: true },
+    ]).catch((e) => {
+      console.error('changeBlockType persist failed:', e);
+      // Persist başarısızsa optimistik durumu geri al — UI sunucuyla
+      // çelişen bir tip göstermesin (sessiz revert regresyonu).
+      set((s) => ({
+        manifest: updateBlockInPlace(s.manifest, blockId, () => prevBlock),
+      }));
+    });
   },
 
   // Generic block field setter — optimistic local update + persist via /patch.

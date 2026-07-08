@@ -1,16 +1,22 @@
 import Chart from 'react-apexcharts';
 import { comboChartOptions, normalizeLabels } from './chartHelpers.js';
+import { comboSeriesDefaults } from '../lib/store.js';
 
 // Combo (dual-axis) chart: single query, column-split. Each series carries a
 // user-set kind (bar/line) + axis (left/right), edited in the properties panel.
 export default function ComboChart({ block }) {
   const config = block.config || {};
-  const categories = normalizeLabels(config.categories);
-  const rawSeries = (config.series || []).map((s) => ({
+  // Eski manifestlerde tip değişimi config'i taşımamış olabilir — kategori
+  // ekseni x_axis'te kalmışsa ona düş (yoksa "veri yok" görünür).
+  const rawCats = (config.categories && config.categories.length)
+    ? config.categories
+    : (config.x_axis || []);
+  const categories = normalizeLabels(rawCats);
+  const rawSeries = (config.series || []).map((s, i) => ({
     name:   s.name || '',
     values: s.values || [],
-    kind:   s.kind === 'line' ? 'line' : 'bar',
-    axis:   s.axis === 'right' ? 'right' : 'left',
+    kind:   s.kind === 'line' || s.kind === 'bar' ? s.kind : comboSeriesDefaults(i).kind,
+    axis:   s.axis === 'right' || s.axis === 'left' ? s.axis : comboSeriesDefaults(i).axis,
   }));
 
   if (categories.length === 0 || rawSeries.length === 0) {
