@@ -1764,9 +1764,23 @@ def apply_dashboard_filters(pid: str):
             for _a in _refs:
                 merged_cc.update(_alias_column_concepts.get(_a) or {})
             _has_sentinel = "{{concept_filters}}" in _sa_sql
-            if _has_sentinel and _concept_filter_dicts:
-                inj_sql, inj_params = inject_dataset_concepts(
-                    _sa_sql, merged_cc, _concept_filter_dicts)
+            if _concept_filter_dicts and merged_cc:
+                if _has_sentinel:
+                    inj_sql, inj_params = inject_dataset_concepts(
+                        _sa_sql, merged_cc, _concept_filter_dicts)
+                else:
+                    # Sentinel YOK ama aktif filtre view'ın bir kolonuna bağlı →
+                    # predicate'i WHERE'e AND'leyerek uygula (Oracle yolundaki
+                    # apply_concepts_to_block ile aynı davranış). Eskiden
+                    # sentinel'siz view blokları koşulsuz blind kalıyordu:
+                    # "filtre seçtim, güncelledim ama grafik değişmiyor".
+                    from .concepts.integration import inject_where_predicate
+                    from .scope.materialize import _concept_predicates
+                    inj_params = {}
+                    _clauses = _concept_predicates(
+                        merged_cc, _concept_filter_dicts, inj_params)
+                    inj_sql = (inject_where_predicate(_sa_sql, " AND ".join(_clauses))
+                               if _clauses else _sa_sql)
                 # Aktif bir filtrenin concept'i referans edilen HİÇBİR kolona bağlı
                 # değilse o filtre bu blokta "blind" (UI "filtre uygulanmadı" der).
                 _bound = set(merged_cc.values())
@@ -1775,9 +1789,10 @@ def apply_dashboard_filters(pid: str):
                 _blind = [f["concept"] for f in _concept_filter_dicts
                           if f.get("concept") not in _bound]
             else:
-                # Sentinel yok ya da aktif filtre yok → filtre uygulanmaz; SQL'i
-                # olduğu gibi DuckDB'de koş (sentinel varsa 1=1'e indir). Aktif
-                # filtreler blind raporlanır (sessiz değil görünür).
+                # Aktif filtre yok ya da view'a bağlı kolon yok → filtre
+                # uygulanmaz; SQL'i olduğu gibi DuckDB'de koş (sentinel varsa
+                # 1=1'e indir). Aktif filtreler blind raporlanır (sessiz değil
+                # görünür).
                 inj_sql, inj_params = strip_concept_sentinel(_sa_sql), {}
                 _applied = []
                 _blind = [f["concept"] for f in _concept_filter_dicts]
@@ -1789,7 +1804,8 @@ def apply_dashboard_filters(pid: str):
                     gate = validate_and_wrap(inj_sql, dialect="duckdb")
                     df = (conn.execute(gate.sql, inj_params).fetchdf()
                           if inj_params else conn.execute(gate.sql).fetchdf())
-                _apply_df_to_block(block, df, engine="dataset_sql", query=_sa_sql)
+                _apply_df_to_block(block, df, engine="dataset_sql", query=_sa_sql,
+                                   executed_sql=inj_sql, executed_params=inj_params)
                 results.append({
                     "id": block["id"], "status": "dataset_sql",
                     "row_count": int(len(df)), "aliases": _refs,
@@ -1983,7 +1999,8 @@ def apply_dashboard_filters(pid: str):
                             import pandas as _pd
                             df = _pd.DataFrame()
                         engine = "refetched"
-                    _apply_df_to_block(block, df, engine=engine, query=query)
+                    _apply_df_to_block(block, df, engine=engine, query=query,
+                                       executed_sql=inj.sql, executed_params=inj.params)
                     results.append({
                         "id": block["id"],
                         "status": "empty" if inj.empty else "refetched",
@@ -2184,9 +2201,16 @@ def _discover_distinct_values(query: str, var_name: str, dc, limit: int = 50) ->
     return out
 
 
-def _apply_df_to_block(block: dict, df, *, engine: str, query: str) -> None:
+def _apply_df_to_block(block: dict, df, *, engine: str, query: str,
+                       executed_sql: str | None = None,
+                       executed_params: dict | None = None) -> None:
     """Push a result DataFrame back into the manifest block (data_source +
-    config), so the renderer picks it up unchanged."""
+    config), so the renderer picks it up unchanged.
+
+    ``executed_sql``: concept-injected SQL fiilen çalıştırıldıysa buraya ver —
+    kullanıcı Kaynakça'da hangi filtre predicate'leriyle koşulduğunu görsün.
+    ``query`` yeniden-çalıştırılabilir şablon olarak kalır (çifte enjeksiyon
+    olmaması için sql/original_sql'e ASLA yazılmaz)."""
     from .nodes.execute_block_sqls import apply_data_to_config
     import datetime as _dt
 
@@ -2212,6 +2236,12 @@ def _apply_df_to_block(block: dict, df, *, engine: str, query: str) -> None:
         "view_name":    f"v_{block['id']}",
         "engine":       engine,
     }
+    if executed_sql and executed_sql != query:
+        block["data_source"]["executed_sql"] = executed_sql
+        if executed_params:
+            block["data_source"]["executed_params"] = {
+                str(k): duck._jsonable(v) for k, v in executed_params.items()
+            }
     block.pop("data_stale", None)
     apply_data_to_config(block, block["data_source"])
 
