@@ -151,3 +151,57 @@ def test_reject_persists_and_dedupes(tmp_path):
     assert n1 == 1 and n2 == 0   # second is a dup → no-op
     state = load_review_state(tmp_path)
     assert len(state["rejected"]) == 1
+
+
+def test_approve_via_catalog_uses_save_doc(registry, tmp_path):
+    """PROD: approve aktif katalog (S3) üzerinden yazmalı — pod-lokal dosyaya
+    yazılan onay compiler'a hiç ulaşmıyordu (S3 katalog dosyayı okumaz)."""
+
+    class _FakeS3Catalog:
+        def __init__(self):
+            self.docs: dict[tuple[str, str], dict] = {}
+
+        def get_raw_doc(self, schema, table):
+            return self.docs.get((schema, table))
+
+        def save_doc(self, schema, table, raw):
+            self.docs[(schema, table)] = raw
+
+    cat = _FakeS3Catalog()
+    n = approve_bindings(tmp_path, "ODS_X", "T", [
+        {"column": "CCY", "concept": "currency", "transform": {"kind": "identity"}},
+    ], verified_by="A16438", catalog=cat)
+    assert n == 1
+    # Dosya sistemine DEĞİL, kataloğa yazıldı.
+    assert not (tmp_path / "tables" / "ODS_X" / "T.yaml").exists()
+    doc = cat.docs[("ODS_X", "T")]
+    cb = doc["concept_bindings"][0]
+    assert cb["confidence"] == "human_verified"
+    assert cb["column"] == "CCY"
+
+
+def test_approve_via_catalog_merges_existing(registry, tmp_path):
+    class _FakeS3Catalog:
+        def __init__(self):
+            self.docs = {("ODS_X", "T"): {
+                "table": "T", "schema": "ODS_X", "description": "keep me",
+                "concept_bindings": [{
+                    "concept": "as_of_time", "column": "AS_OF_DATE",
+                    "transform": {"kind": "time_truncation"},
+                    "confidence": "human_verified",
+                }],
+            }}
+
+        def get_raw_doc(self, schema, table):
+            return self.docs.get((schema, table))
+
+        def save_doc(self, schema, table, raw):
+            self.docs[(schema, table)] = raw
+
+    cat = _FakeS3Catalog()
+    approve_bindings(tmp_path, "ODS_X", "T", [
+        {"column": "CCY", "concept": "currency", "transform": {"kind": "identity"}},
+    ], verified_by="A16438", catalog=cat)
+    doc = cat.docs[("ODS_X", "T")]
+    assert doc["description"] == "keep me"
+    assert {b["concept"] for b in doc["concept_bindings"]} == {"as_of_time", "currency"}

@@ -97,11 +97,17 @@ class CatalogLoader:
         ttl_seconds: float = 30.0,
         all_concepts: Iterable[str] | None = None,
         concept_registry: Any | None = None,
+        binding_catalog: Any | None = None,
     ):
         self._docs = table_doc_store
         self._dc = data_client
         self._dept_map = dict(schema_department_map or DEFAULT_SCHEMA_DEPARTMENT_MAP)
         self._ttl = float(ttl_seconds)
+        # Phase 7.b binding kataloğu (opsiyonel): Konseptler UI'ından yapılan
+        # human_verified kolon binding'leri concepts_bound'a katılır. Tablo
+        # dokümanı suggested_semantic_tag taşımasa bile (ofisteki gerçek
+        # tabloların çoğu) keşif grafiği gerçek binding'leri gösterir.
+        self._bindings = binding_catalog
         # Concept universe: the registry is the single source of truth for
         # which concept ids exist. ``concept_registry`` is queried live on
         # each load (it hot-reloads / TTL-caches internally), so concepts
@@ -217,6 +223,11 @@ class CatalogLoader:
         cols = getattr(doc, "columns", {}) or {}
 
         concepts_bound = self._bound_concepts(cols, universe)
+        # Binding kataloğundaki human_verified binding'leri birleştir — tag'i
+        # olmayan dokümanlarda da gerçek binding keşifte görünsün.
+        for cid in self._catalog_bound_concepts(schema, name, universe):
+            if cid not in concepts_bound:
+                concepts_bound.append(cid)
         concepts_unbound = self._unbound_concepts(concepts_bound, universe)
 
         department = self._dept_map.get(schema)
@@ -391,6 +402,33 @@ class CatalogLoader:
                 return self._static_universe
         return self._static_universe
 
+    def _catalog_bound_concepts(
+        self, schema: str, table: str, universe: list[str] | None = None,
+    ) -> list[str]:
+        """Binding kataloğundan (human_verified) bu tablonun concept'leri.
+
+        Katalog yapılandırılmamışsa ya da sorgu patlarsa boş liste — keşif
+        yüklemesi binding kataloğu yüzünden asla düşmez.
+        """
+        if self._bindings is None or not schema or not table:
+            return []
+        try:
+            bindings = self._bindings.get_bindings(schema, table)
+        except Exception:
+            log.warning("catalog: binding catalog query failed for %s.%s",
+                        schema, table, exc_info=True)
+            return []
+        universe_set = set(universe) if universe is not None else None
+        out: list[str] = []
+        for b in bindings:
+            cid = getattr(b, "concept", None)
+            if not cid or cid in out:
+                continue
+            if universe_set is not None and cid not in universe_set:
+                continue
+            out.append(cid)
+        return out
+
     def _bound_concepts(
         self, columns: dict[str, Any], universe: list[str] | None = None,
     ) -> list[str]:
@@ -478,6 +516,10 @@ def make_loader_from_app(app) -> CatalogLoader:
                                                 concept universe (filters
                                                 ``concepts_bound``, derives
                                                 ``concepts_unbound``).
+    - ``CONCEPT_BINDING_CATALOG``            — optional; human_verified kolon
+                                                binding'leri ``concepts_bound``a
+                                                katılır (tag'siz dokümanlarda
+                                                keşif yine concept gösterir).
     """
     table_doc_store = app.config.get("TABLE_DOC_STORE")
     data_client = app.config.get("DATA_CLIENT")
@@ -490,4 +532,5 @@ def make_loader_from_app(app) -> CatalogLoader:
         schema_department_map=dept_map,
         ttl_seconds=ttl,
         concept_registry=app.config.get("CONCEPT_REGISTRY"),
+        binding_catalog=app.config.get("CONCEPT_BINDING_CATALOG"),
     )
