@@ -138,3 +138,17 @@ class TestExecuteBlockRouting:
         )
         assert ds["engine"] == "oracle"
         assert len(dc.calls) == 1
+
+
+def test_schema_qualified_table_never_matches_alias():
+    """Ofis regresyonu: blok SQL'i SCHEMA.TABLE okurken tablo adı bir basket
+    alias'ıyla çakışıyorsa (alias=tablo adının küçük harfi) blok DuckDB'ye
+    YÖNLENMEMELİ — şema-nitelikli referans Oracle tablosudur."""
+    from presentations.duck import find_view_refs
+
+    sql = ("SELECT DIM_PRODUCT, SUM(BALANCE) FROM A63837PY.PRISMA_DEP_OUT_MONTHLY "
+           "WHERE MONTH BETWEEN :donem_from AND :donem_to GROUP BY DIM_PRODUCT")
+    assert find_view_refs(sql, ["prisma_dep_out_monthly"]) == []
+    # Çıplak referans (gerçek scope view kullanımı) eşleşmeye devam eder.
+    assert find_view_refs("SELECT * FROM prisma_dep_out_monthly",
+                          ["prisma_dep_out_monthly"]) == ["prisma_dep_out_monthly"]
