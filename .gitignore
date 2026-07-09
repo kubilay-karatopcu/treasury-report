@@ -42,3 +42,6 @@ presentations/static/js/bloklar.bundle.js.map
 presentations/catalog/concepts/user.yaml
 granted_tables.txt
 reference/
+
+# deposits ETL üretilen çıktılar (cron yazar, commit edilmez)
+dev_data/deposits_etl/
