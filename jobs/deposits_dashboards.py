@@ -645,7 +645,11 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--sicil", required=True, help="Manifest sahibi sicil")
+    p.add_argument("--sicil", required=True,
+                   help="SİTEYE GİRİŞ YAPTIĞIN sicil (örn. A63837) — sunum "
+                        "listesi/editör bu kullanıcının klasörünü okur. DB "
+                        "bağlantı kullanıcısı (örn. A63837PY) DEĞİL; tablo "
+                        "şeması ondan bağımsız --schema/bağlantıdan gelir.")
     p.add_argument("--schema", default=None,
                    help="PRISMA_* tablolarının şeması (varsayılan: bağlantı kullanıcısı)")
     p.add_argument("--only", default=None, help="Virgülle ayrılmış pid alt kümesi")
