@@ -14,6 +14,8 @@ const BASE_BLOCKS = [
   { type: 'area_chart', label: 'Area Chart',  desc: 'Trend + hacim hissi' },
   { type: 'pie_chart',  label: 'Pie Chart',   desc: 'Dağılım / pay' },
   { type: 'heatmap',    label: 'Heatmap',     desc: 'Matris (2D yoğunluk)' },
+  { type: 'waterfall_chart', label: 'Waterfall', desc: 'Köprü / adım ayrıştırma (Δ)' },
+  { type: 'scatter_chart',   label: 'Bubble',    desc: 'X-Y dağılım (boyutlu nokta)' },
   { type: 'radial_bar', label: 'Radial Bar',  desc: 'Hedef / yüzde göstergesi' },
   { type: 'data_table', label: 'Tablo',       desc: 'Veri tablosu (AG Grid)' },
   { type: 'narrative',  label: 'Metin',       desc: 'Markdown narrative — yorum/açıklama' },
@@ -30,6 +32,8 @@ function TypeIcon({ type, size = 14 }) {
     case 'area_chart': return <Activity   {...p} />;
     case 'pie_chart':  return <PieIcon    {...p} />;
     case 'heatmap':    return <Grid3x3    {...p} />;
+    case 'waterfall_chart': return <BarChart3 {...p} />;
+    case 'scatter_chart':   return <Activity  {...p} />;
     case 'radial_bar': return <Activity   {...p} />;
     case 'data_table': return <TableIcon  {...p} />;
     case 'narrative':  return <FileText   {...p} />;

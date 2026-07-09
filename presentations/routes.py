@@ -1684,6 +1684,13 @@ def apply_dashboard_filters(pid: str):
         for item in (manifest.get("basket") or [])
         if item.get("alias")
     }
+    # Base→türev binding mirası için: alias → kaynak SCHEMA.TABLE referansı.
+    # Türetilmiş node'larda ref tablo formatında değildir → miras devreye girmez.
+    _alias_table_ref = {
+        item.get("alias"): (item.get("table") or "")
+        for item in (manifest.get("basket") or [])
+        if item.get("alias")
+    }
 
     # Auto-binding fallback'i için dashboard filtre modelleri (bozuk kayıt
     # tek tek atlanır — bir filtre şeması bütün apply'ı düşürmesin).
@@ -1713,6 +1720,8 @@ def apply_dashboard_filters(pid: str):
                     conn, binding, filter_state,
                     concept_filters=_concept_filter_dicts,
                     column_concepts=_alias_column_concepts.get(binding.get("alias")),
+                    source_ref=_alias_table_ref.get(binding.get("alias")),
+                    binding_catalog=cat_snapshot,
                 )
             if df is None:
                 results.append({
@@ -1756,40 +1765,69 @@ def apply_dashboard_filters(pid: str):
         _refs = (duck.find_view_refs(_sa_sql, _all_basket_aliases)
                  if (_sa_sql and not block.get("variables")) else [])
         if _refs:
-            from .scope.materialize import inject_dataset_concepts
             from .routes_scope import hydrate_block_datasets, load_scope_for_manifest
             from .aggregation_gate import validate_and_wrap
-            from .concepts.integration import strip_concept_sentinel
+            from .concepts.integration import inject_where_predicate
+            from .scope.materialize import _concept_predicates, inherit_source_bindings
             merged_cc: dict = {}
             for _a in _refs:
                 merged_cc.update(_alias_column_concepts.get(_a) or {})
             _has_sentinel = "{{concept_filters}}" in _sa_sql
-            if _has_sentinel and _concept_filter_dicts:
-                inj_sql, inj_params = inject_dataset_concepts(
-                    _sa_sql, merged_cc, _concept_filter_dicts)
-                # Aktif bir filtrenin concept'i referans edilen HİÇBİR kolona bağlı
-                # değilse o filtre bu blokta "blind" (UI "filtre uygulanmadı" der).
-                _bound = set(merged_cc.values())
-                _applied = [{"concept": f["concept"]} for f in _concept_filter_dicts
-                            if f.get("concept") in _bound]
-                _blind = [f["concept"] for f in _concept_filter_dicts
-                          if f.get("concept") not in _bound]
-            else:
-                # Sentinel yok ya da aktif filtre yok → filtre uygulanmaz; SQL'i
-                # olduğu gibi DuckDB'de koş (sentinel varsa 1=1'e indir). Aktif
-                # filtreler blind raporlanır (sessiz değil görünür).
-                inj_sql, inj_params = strip_concept_sentinel(_sa_sql), {}
-                _applied = []
-                _blind = [f["concept"] for f in _concept_filter_dicts]
             try:
                 with session.duck_conn() as conn:
                     _sc = load_scope_for_manifest(manifest)
                     if _sc is not None:
                         hydrate_block_datasets(dc, conn, _sc, _sa_sql)
+
+                    # Predicate kaynakları (öncelik sırasıyla):
+                    # 1) column_concepts — Hazırlık'ta kullanıcının view
+                    #    kolonuna bağladığı concept (identity semantiği).
+                    # 2) Base→türev miras — kaynak katalog tablosunun
+                    #    human_verified binding'i, aynı adla view'a taşınmış
+                    #    kolona uygulanır (map değerleri çevrilir). Eskiden
+                    #    yalnız (1) + sentinel varken filtre uygulanıyordu;
+                    #    sohbetle üretilen sentinel'siz bloklar hep blind
+                    #    kalıyordu: "filtre seçtim ama grafik değişmiyor".
+                    inj_params: dict = {}
+                    _clauses: list[str] = []
+                    _bound: set = set()
+                    if _concept_filter_dicts:
+                        if merged_cc:
+                            _cl = _concept_predicates(
+                                merged_cc, _concept_filter_dicts, inj_params)
+                            if _cl:
+                                _clauses += _cl
+                                _bound |= set(merged_cc.values())
+                        for _ri, _a in enumerate(_refs):
+                            _extra_cc, _translated = inherit_source_bindings(
+                                conn, _a, _alias_table_ref.get(_a),
+                                _concept_filter_dicts, cat_snapshot,
+                                skip_concepts=_bound,
+                            )
+                            if _extra_cc:
+                                _clauses += _concept_predicates(
+                                    _extra_cc, _translated, inj_params,
+                                    prefix=f"ih{_ri}_")
+                                _bound |= set(_extra_cc.values())
+
+                    _applied = [{"concept": f["concept"]} for f in _concept_filter_dicts
+                                if f.get("concept") in _bound]
+                    _blind = [f["concept"] for f in _concept_filter_dicts
+                              if f.get("concept") not in _bound]
+                    _predicate = " AND ".join(_clauses)
+                    if _has_sentinel:
+                        inj_sql = _sa_sql.replace("{{concept_filters}}",
+                                                  _predicate or "1 = 1")
+                    elif _predicate:
+                        inj_sql = inject_where_predicate(_sa_sql, _predicate)
+                    else:
+                        inj_sql = _sa_sql
+
                     gate = validate_and_wrap(inj_sql, dialect="duckdb")
                     df = (conn.execute(gate.sql, inj_params).fetchdf()
                           if inj_params else conn.execute(gate.sql).fetchdf())
-                _apply_df_to_block(block, df, engine="dataset_sql", query=_sa_sql)
+                _apply_df_to_block(block, df, engine="dataset_sql", query=_sa_sql,
+                                   executed_sql=inj_sql, executed_params=inj_params)
                 results.append({
                     "id": block["id"], "status": "dataset_sql",
                     "row_count": int(len(df)), "aliases": _refs,
@@ -1983,7 +2021,8 @@ def apply_dashboard_filters(pid: str):
                             import pandas as _pd
                             df = _pd.DataFrame()
                         engine = "refetched"
-                    _apply_df_to_block(block, df, engine=engine, query=query)
+                    _apply_df_to_block(block, df, engine=engine, query=query,
+                                       executed_sql=inj.sql, executed_params=inj.params)
                     results.append({
                         "id": block["id"],
                         "status": "empty" if inj.empty else "refetched",
@@ -2184,9 +2223,16 @@ def _discover_distinct_values(query: str, var_name: str, dc, limit: int = 50) ->
     return out
 
 
-def _apply_df_to_block(block: dict, df, *, engine: str, query: str) -> None:
+def _apply_df_to_block(block: dict, df, *, engine: str, query: str,
+                       executed_sql: str | None = None,
+                       executed_params: dict | None = None) -> None:
     """Push a result DataFrame back into the manifest block (data_source +
-    config), so the renderer picks it up unchanged."""
+    config), so the renderer picks it up unchanged.
+
+    ``executed_sql``: concept-injected SQL fiilen çalıştırıldıysa buraya ver —
+    kullanıcı Kaynakça'da hangi filtre predicate'leriyle koşulduğunu görsün.
+    ``query`` yeniden-çalıştırılabilir şablon olarak kalır (çifte enjeksiyon
+    olmaması için sql/original_sql'e ASLA yazılmaz)."""
     from .nodes.execute_block_sqls import apply_data_to_config
     import datetime as _dt
 
@@ -2212,6 +2258,12 @@ def _apply_df_to_block(block: dict, df, *, engine: str, query: str) -> None:
         "view_name":    f"v_{block['id']}",
         "engine":       engine,
     }
+    if executed_sql and executed_sql != query:
+        block["data_source"]["executed_sql"] = executed_sql
+        if executed_params:
+            block["data_source"]["executed_params"] = {
+                str(k): duck._jsonable(v) for k, v in executed_params.items()
+            }
     block.pop("data_stale", None)
     apply_data_to_config(block, block["data_source"])
 

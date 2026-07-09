@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, RefreshCw, Lock, Unlock, Trash2, Layers, Plus, Save, MoveRight } from 'lucide-react';
-import useStore, { CONTAINER_TYPES } from '../lib/store.js';
+import useStore, { CONTAINER_TYPES, comboSeriesDefaults } from '../lib/store.js';
 import ManualSqlEditor from './ManualSqlEditor.jsx';
 
 const TYPE_LABELS = {
@@ -13,6 +13,8 @@ const TYPE_LABELS = {
   heatmap:        'Isı Haritası',
   radial_bar:     'Radyal Gösterge',
   data_table:     'Tablo',
+  waterfall_chart: 'Waterfall (Köprü)',
+  scatter_chart:  'Bubble / Scatter',
   narrative:      'Metin',
   carousel:       'Carousel',
   canvas:         'Tuval',
@@ -28,6 +30,8 @@ const SLIDE_TYPES = [
   { type: 'heatmap',    label: 'Isı' },
   { type: 'radial_bar', label: 'Gösterge' },
   { type: 'data_table', label: 'Tablo' },
+  { type: 'waterfall_chart', label: 'Waterfall' },
+  { type: 'scatter_chart',   label: 'Bubble' },
   { type: 'narrative',  label: 'Metin' },
 ];
 
@@ -41,6 +45,7 @@ const WIDTH_OPTIONS = [
 const DATA_BOUND_TYPES = new Set([
   'kpi', 'bar_chart', 'line_chart', 'combo_chart', 'area_chart',
   'pie_chart', 'heatmap', 'radial_bar', 'data_table',
+  'waterfall_chart', 'scatter_chart',
 ]);
 
 
@@ -782,8 +787,9 @@ function TitleField({ block }) {
 
 // Type-change dropdown. Switching type marks block.data_stale so the renderer
 // can show "Bu blok yeni veri bekliyor" badge until the user re-runs the SQL.
-// We keep block.config as-is to preserve style settings; the next successful
-// /run-manual will overwrite the data-bound fields anyway.
+// store.changeBlockType migrates the config's data keys (x_axis ↔ categories,
+// combo kind/axis defaults) and persists type+config atomically; style
+// settings are preserved and the next /run-manual refreshes the data fields.
 const TYPE_CHANGE_OPTIONS = [
   { value: 'kpi',        label: 'KPI' },
   { value: 'bar_chart',  label: 'Çubuk Grafik' },
@@ -792,24 +798,20 @@ const TYPE_CHANGE_OPTIONS = [
   { value: 'area_chart', label: 'Alan Grafiği' },
   { value: 'pie_chart',  label: 'Pasta Grafik' },
   { value: 'heatmap',    label: 'Isı Haritası' },
+  { value: 'waterfall_chart', label: 'Waterfall (Köprü)' },
+  { value: 'scatter_chart',   label: 'Bubble / Scatter' },
   { value: 'radial_bar', label: 'Radyal Gösterge' },
   { value: 'data_table', label: 'Tablo' },
 ];
 
 function TypeField({ block }) {
-  const setBlockField = useStore((s) => s.setBlockField);
+  const changeBlockType = useStore((s) => s.changeBlockType);
   return (
     <Row label="Tip" hint="Tip değişirse mevcut veri uyumsuz olabilir — yeniden Çalıştır.">
       <select
         className="props-select"
         value={block.type}
-        onChange={(e) => {
-          const next = e.target.value;
-          if (next === block.type) return;
-          setBlockField(block.id, 'type', next);
-          // Mark stale so the canvas can show "Çalıştır gerekli" overlay.
-          setBlockField(block.id, 'data_stale', true);
-        }}
+        onChange={(e) => changeBlockType(block.id, e.target.value)}
       >
         {TYPE_CHANGE_OPTIONS.map((t) => (
           <option key={t.value} value={t.value}>{t.label}</option>
@@ -1094,13 +1096,13 @@ function ComboChartControls({ block }) {
                 {s.name || `Seri ${i + 1}`}
               </span>
               <select className="props-input props-select" style={{ flex: '0 0 84px' }}
-                value={s.kind === 'line' ? 'line' : 'bar'}
+                value={s.kind === 'line' || s.kind === 'bar' ? s.kind : comboSeriesDefaults(i).kind}
                 onChange={(e) => setBlockField(block.id, `config.series.${i}.kind`, e.target.value)}>
                 <option value="bar">Çubuk</option>
                 <option value="line">Çizgi</option>
               </select>
               <select className="props-input props-select" style={{ flex: '0 0 72px' }}
-                value={s.axis === 'right' ? 'right' : 'left'}
+                value={s.axis === 'right' || s.axis === 'left' ? s.axis : comboSeriesDefaults(i).axis}
                 onChange={(e) => setBlockField(block.id, `config.series.${i}.axis`, e.target.value)}>
                 <option value="left">Sol</option>
                 <option value="right">Sağ</option>

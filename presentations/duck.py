@@ -385,7 +385,15 @@ def _table_position_names(sql: str) -> Optional[set[str]]:
 
     def _add(tok):
         if isinstance(tok, _sql.Identifier):
-            real = tok.get_real_name()  # takma adı ve şema önekini soyar
+            # Şema-nitelikli referans (SCHEMA.TABLE) tanım gereği bir Oracle
+            # tablosudur — DuckDB scope-view'ları hep çıplak addır. Öneki
+            # soyup çıplak ada indirgemek, tablo adı bir basket alias'ıyla
+            # çakıştığında (örn. A63837PY.PRISMA_DEP_OUT_MONTHLY ↔ alias
+            # prisma_dep_out_monthly) bloğu yanlışlıkla DuckDB'ye yönlendirip
+            # "Catalog Error: schema does not exist" üretiyordu.
+            if tok.get_parent_name():
+                return
+            real = tok.get_real_name()  # takma adı soyar
             if real:
                 names.add(real.lower())
         elif isinstance(tok, _sql.IdentifierList):
