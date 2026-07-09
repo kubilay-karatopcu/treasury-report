@@ -73,6 +73,8 @@ LEAF_BLOCK_TYPES = frozenset({
     "pie_chart", "heatmap", "radial_bar",
     "combo_chart",      # dual-axis bar+line (single query, column-split)
     "data_table",       # AG Grid table block
+    "waterfall_chart",  # köprü/adım ayrıştırma (delta + toplam bayrağı)
+    "scatter_chart",    # bubble/scatter (nokta: name/x/y/size)
 })
 
 # section_header — yalnızca top-level; children: leaf VEYA container (carousel/canvas)
@@ -101,6 +103,7 @@ AXIS_SIDES = frozenset({"left", "right"})
 DATA_SOURCE_TYPES = frozenset({
 "kpi", "bar_chart", "line_chart", "area_chart", "pie_chart",
 "heatmap", "radial_bar", "combo_chart", "data_table",
+"waterfall_chart", "scatter_chart",
 })
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -168,6 +171,38 @@ def _validate_chart_length(block: dict) -> list[str]:
                     f"Block {bid!r}: series[{i}].values length ({len(vals)}) "
                     f"!= x_axis length ({len(x)})"
                 )
+
+    elif btype == "waterfall_chart":
+        cats = config.get("categories", [])
+        errors.extend(_validate_label_array(cats, "categories", bid))
+        vals = config.get("values", [])
+        if len(vals) != len(cats):
+            errors.append(
+                f"Block {bid!r}: values length ({len(vals)}) "
+                f"!= categories length ({len(cats)})"
+            )
+        totals = config.get("totals")
+        if totals is not None and len(totals) != len(cats):
+            errors.append(
+                f"Block {bid!r}: totals length ({len(totals)}) "
+                f"!= categories length ({len(cats)})"
+            )
+
+    elif btype == "scatter_chart":
+        pts = config.get("points", [])
+        if not isinstance(pts, list):
+            errors.append(f"Block {bid!r}: points must be a list")
+        else:
+            for i, pt in enumerate(pts):
+                if not isinstance(pt, dict):
+                    errors.append(f"Block {bid!r}: points[{i}] must be an object")
+                    continue
+                for axis in ("x", "y"):
+                    v = pt.get(axis)
+                    if not isinstance(v, (int, float)) or isinstance(v, bool):
+                        errors.append(
+                            f"Block {bid!r}: points[{i}].{axis} must be numeric"
+                        )
 
     elif btype == "combo_chart":
         cats = config.get("categories", [])
@@ -320,7 +355,8 @@ def validate_block(
         if "value" in config and not isinstance(config["value"], (int, float)):
             errors.append(f"Block {bid!r}: kpi.value must be numeric")
 
-    elif btype in ("bar_chart", "line_chart", "area_chart", "heatmap", "combo_chart"):
+    elif btype in ("bar_chart", "line_chart", "area_chart", "heatmap",
+                   "combo_chart", "waterfall_chart", "scatter_chart"):
         errors.extend(_validate_chart_length(block))
         errors.extend(_validate_chart_style(block))
 

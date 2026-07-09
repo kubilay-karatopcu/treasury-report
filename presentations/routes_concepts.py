@@ -245,17 +245,22 @@ def api_review_approve():
     if not schema or not table or not isinstance(bindings, list):
         return _json({"error": "schema, table ve bindings[] zorunlu"}, status=400)
 
+    # Aktif katalog üzerinden yaz (PROD'da S3) — pod-lokal dosyaya yazmak
+    # onayı compiler'a hiç ulaştırmıyordu (S3 kataloğu dosyayı okumaz,
+    # restart'ta da silinir). Katalog yapılandırılmamışsa dosya-sistemi
+    # davranışı korunur.
+    catalog = _catalog()
     try:
         n = approve_bindings(
             _catalog_root(), schema, table, bindings,
             verified_by=getattr(current_user, "sicil", "unknown"),
+            catalog=catalog if (catalog is not None and hasattr(catalog, "save_doc")) else None,
         )
     except Exception as exc:
         log.exception("approve_bindings failed for %s.%s", schema, table)
         return _json({"error": str(exc), "kind": "validation"}, status=400)
 
     # Force the cached catalog to pick up the freshly written YAML now.
-    catalog = _catalog()
     if catalog is not None and hasattr(catalog, "reload"):
         try:
             catalog.reload()

@@ -160,6 +160,7 @@ def approve_bindings(
     approved: list[dict[str, Any]],
     *,
     verified_by: str,
+    catalog=None,
 ) -> int:
     """Merge approved proposals into the table YAML as human_verified bindings.
 
@@ -167,7 +168,21 @@ def approve_bindings(
     before writing. Idempotent: re-approving a (column, concept) replaces the
     existing entry rather than duplicating. Preserves all other YAML fields.
     Returns the number of bindings written.
+
+    ``catalog`` verilirse (Cached/S3BindingCatalog) doküman onun üzerinden
+    okunup yazılır — PROD'da aktif katalog S3'tür; pod-lokal ``catalog_root``
+    dosyasına yazmak onayı compiler'a hiç ulaştırmıyordu (restart'ta siliniyor).
+    ``catalog=None`` eski dosya-sistemi davranışını korur (DEV/test).
     """
+    if catalog is not None:
+        doc = catalog.get_raw_doc(schema, table)
+        if not isinstance(doc, dict):
+            doc = {}
+        return _merge_and_persist(
+            doc, schema, table, approved, verified_by=verified_by,
+            persist=lambda d: catalog.save_doc(schema, table, d),
+        )
+
     path = _table_yaml_path(catalog_root, schema, table)
 
     # Load the existing full doc (preserve columns/description/etc.), or seed
@@ -178,6 +193,28 @@ def approve_bindings(
             doc = {}
     else:
         doc = {"table": table, "schema": schema}
+    def _write_fs(d: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            yaml.safe_dump(d, allow_unicode=True, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+
+    return _merge_and_persist(
+        doc, schema, table, approved, verified_by=verified_by, persist=_write_fs,
+    )
+
+
+def _merge_and_persist(
+    doc: dict[str, Any],
+    schema: str,
+    table: str,
+    approved: list[dict[str, Any]],
+    *,
+    verified_by: str,
+    persist,
+) -> int:
+    """Onaylanan binding'leri ``doc``'a merge et, ``persist`` ile kalıcılaştır."""
     doc.setdefault("table", table)
     doc.setdefault("schema", schema)
 
@@ -208,10 +245,5 @@ def approve_bindings(
         written += 1
 
     doc["concept_bindings"] = list(by_key.values())
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump(doc, allow_unicode=True, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
-    )
+    persist(doc)
     return written

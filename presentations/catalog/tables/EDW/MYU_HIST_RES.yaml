@@ -1,0 +1,45 @@
+# Phase 7.b — concept bindings: EDW.MYU_HIST_RES (dev mock tablosu).
+#
+# MYU_DAILY_RES'in tarihsel ekstraktı. Kolon adları kısmen farklıdır
+# (CURRENCY_CODE, CUST_REL) — binding'ler tabloya özgüdür. VADE burada
+# serbest "MIN-MAX" etiketi (ör. 3-24) taşıdığı için sonlu bir map ile
+# kovalanamaz → tenor_bucket bilinçli olarak bağlanmadı (concept-blind).
+
+table: MYU_HIST_RES
+schema: EDW
+primary_time_concept: as_of_time
+
+concept_bindings:
+  - concept: as_of_time
+    column: CREATE_DT
+    transform: { kind: time_truncation }
+    confidence: human_verified
+    verified_by: A16438
+    verified_at: 2026-07-08T00:00:00Z
+
+  - concept: currency
+    column: CURRENCY_CODE
+    transform: { kind: identity }
+    confidence: human_verified
+    verified_by: A16438
+    verified_at: 2026-07-08T00:00:00Z
+
+  # Müşteri ilişki kategorisi → kanonik segment.
+  - concept: segment
+    column: CUST_REL
+    transform:
+      kind: map
+      pairs:
+        BIREYSEL: RETAIL
+        KORPORATIF: CORP
+        AILE_PORTFOYU: PRIVATE
+    confidence: human_verified
+    verified_by: A16438
+    verified_at: 2026-07-08T00:00:00Z
+
+  - concept: branch
+    column: ENTRYUSER_ORG_CD
+    transform: { kind: identity }
+    confidence: human_verified
+    verified_by: A16438
+    verified_at: 2026-07-08T00:00:00Z

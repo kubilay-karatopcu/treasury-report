@@ -1,0 +1,122 @@
+# Phase 7 — Treasury departmental concepts.
+#
+# Path in production: s3://<bucket>/concepts/treasury.yaml
+# Data team-owned. Extends but does NOT override globals.
+
+version: 1
+scope: dept:treasury
+owners:
+  department: treasury_data
+  contact: treasury.data@qnbfb.com
+
+concepts:
+  - id: maturity
+    name: "Vade"
+    type: bucket
+    description: |
+      Vade kovası. İşlem/pozisyon kalan vadesi bu kanonik kovalardan
+      birine düşer. Tablolarda iki şekilde tutulur:
+      - MATURITY_BUCKET varchar (örn. "1M") — transform: identity/map
+      - MATURITY_DAYS integer (örn. 45)    — transform: bucket_from_range
+      Filter compiler iki durumu da otomatik handle eder.
+    canonical_values:
+      - code: "ON"
+        label: "Overnight"
+        day_range: [0, 1]
+        aliases: [OVERNIGHT, "O/N"]
+      - code: "1W"
+        label: "1 Hafta"
+        day_range: [1, 8]
+        aliases: [1WEEK, ONE_WEEK]
+      - code: "1M"
+        label: "1 Ay"
+        day_range: [8, 32]
+        aliases: [1MONTH, ONE_MONTH]
+      - code: "3M"
+        label: "3 Ay"
+        day_range: [32, 95]
+        aliases: [3MONTH, "Q1"]
+      - code: "6M"
+        label: "6 Ay"
+        day_range: [95, 185]
+      - code: "1Y"
+        label: "1 Yıl"
+        day_range: [185, 370]
+      - code: "2Y"
+        label: "2 Yıl"
+        day_range: [370, 735]
+      - code: "5Y"
+        label: "5 Yıl"
+        day_range: [735, 1830]
+      - code: "10Y+"
+        label: "10 Yıl ve üzeri"
+        day_range: [3650, null]   # null = open-ended high
+
+  - id: tenor_bucket
+    name: "Vade Dilimi"
+    type: enum
+    description: "Vade dilimi grubu (raporlamada kullanılan üst kovalama)."
+    canonical_values:
+      - { code: SHORT,  label: "Kısa (≤1Y)",  aliases: [KISA] }
+      - { code: MEDIUM, label: "Orta (1Y-5Y)", aliases: [ORTA] }
+      - { code: LONG,   label: "Uzun (>5Y)",   aliases: [UZUN] }
+
+  - id: branch
+    name: "Şube"
+    type: enum
+    description: |
+      Şube kodu. Canonical değer DIM_BRANCH.BRANCH_CODE'tur. Tablolarda
+      BRANCH_ID (FK) veya doğrudan BRANCH_CODE olarak görünür.
+    # canonical_values: lookup via DIM_BRANCH (~400 şube — büyük).
+    related_concepts: [region]
+
+  - id: region
+    name: "Bölge"
+    type: enum
+    description: "Coğrafi bölge."
+    canonical_values:
+      - { code: MARMARA,        label: "Marmara" }
+      - { code: EGE,            label: "Ege" }
+      - { code: AKDENIZ,        label: "Akdeniz" }
+      - { code: IC_ANADOLU,     label: "İç Anadolu" }
+      - { code: KARADENIZ,      label: "Karadeniz" }
+      - { code: DOGU_ANADOLU,   label: "Doğu Anadolu" }
+      - { code: GUNEY_DOGU,     label: "Güneydoğu Anadolu" }
+
+  - id: product_group
+    name: "Ürün Grubu"
+    type: enum
+    description: "Ürün grubu (mevduat, kredi, vs.)."
+    canonical_values:
+      - { code: DEPOSIT_DEMAND, label: "Vadesiz Mevduat" }
+      - { code: DEPOSIT_TIME,   label: "Vadeli Mevduat" }
+      - { code: LOAN_RETAIL,    label: "Bireysel Kredi" }
+      - { code: LOAN_CORP,      label: "Kurumsal Kredi" }
+      - { code: LOAN_SME,       label: "KOBİ Kredisi" }
+      - { code: TRADE_FX,       label: "FX İşlemleri" }
+      - { code: TRADE_BOND,     label: "Bono/Tahvil İşlemleri" }
+
+  - id: segment
+    name: "Segment"
+    type: enum
+    description: "Müşteri segmenti."
+    canonical_values:
+      - { code: RETAIL,  label: "Bireysel",        aliases: [BIREYSEL] }
+      - { code: SME,     label: "KOBİ" }
+      - { code: CORP,    label: "Kurumsal",        aliases: [KURUMSAL, KORPORATIF] }
+      - { code: PRIVATE, label: "Özel Bankacılık" }
+      - { code: PUBLIC,  label: "Kamu",            aliases: [KAMU] }
+
+  - id: rating_bucket
+    name: "Rating Dilimi"
+    type: enum
+    description: "Kredi rating dilimi (içsel / Moody's / S&P konsolide)."
+    canonical_values:
+      - { code: "AAA",      label: "AAA" }
+      - { code: "AA",       label: "AA" }
+      - { code: "A",        label: "A" }
+      - { code: "BBB",      label: "BBB (yatırım yapılabilir)" }
+      - { code: "BB",       label: "BB" }
+      - { code: "B",        label: "B" }
+      - { code: "CCC_BELOW", label: "CCC ve altı" }
+      - { code: "NR",       label: "Rating yok" }
