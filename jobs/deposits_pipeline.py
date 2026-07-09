@@ -39,8 +39,12 @@ Seçenekler:
     --rollings-start / --rollings-end   DD/MM/YYYY (varsayılan bugün → +28g)
     --only T1,T2      yalnız bu tabloları üret/yaz
     --schema X        tabloların/dokümanların şeması (varsayılan: bağlantı kullanıcısı)
+    --grant-to U1,U2  tablolara SELECT verilecek kullanıcılar (varsayılan: A63837)
     --skip-db         DB'ye yazma (yalnız üret + doküman)
     --skip-docs       S3 dokümanlarını yazma
+
+NOT: Vade modu kolonu TENOR_MODE'dur — MODE Oracle'da rezerve kelime
+(ORA-00904), kolon adı olarak kullanılamaz.
 """
 from __future__ import annotations
 
@@ -392,7 +396,7 @@ def tenor_final(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
              .agg({"BALANCE": "sum", "WR_SUM": "sum", "WT_SUM": "sum"})
              .reset_index()
              .rename(columns={bucket_col: "DIM_BUCKET"}))
-        g.insert(1, "MODE", mode)
+        g.insert(1, "TENOR_MODE", mode)
         frames.append(g)
     return pd.concat(frames, ignore_index=True)
 
@@ -464,12 +468,12 @@ DDL = {
         DIM_CUSTOMER VARCHAR2(16), DIM_AUM VARCHAR2(64), DIM_SEGMENT VARCHAR2(32),
         BALANCE NUMBER, WR_SUM NUMBER, CUST_COUNT NUMBER, LOADED_AT DATE)""",
     "PRISMA_DEP_TENOR_MONTHLY": """CREATE TABLE {t} (
-        MONTH DATE, MODE VARCHAR2(8), DIM_BUCKET VARCHAR2(32),
+        MONTH DATE, TENOR_MODE VARCHAR2(8), DIM_BUCKET VARCHAR2(32),
         DIM_PRODUCT VARCHAR2(64), DIM_SUBPRODUCT VARCHAR2(64),
         DIM_CUSTOMER VARCHAR2(16), DIM_AUM VARCHAR2(64), DIM_SEGMENT VARCHAR2(32),
         BALANCE NUMBER, WR_SUM NUMBER, WT_SUM NUMBER, LOADED_AT DATE)""",
     "PRISMA_DEP_TENOR_DAILY": """CREATE TABLE {t} (
-        DAT DATE, MODE VARCHAR2(8), DIM_BUCKET VARCHAR2(32),
+        DAT DATE, TENOR_MODE VARCHAR2(8), DIM_BUCKET VARCHAR2(32),
         DIM_PRODUCT VARCHAR2(64), DIM_SUBPRODUCT VARCHAR2(64),
         DIM_CUSTOMER VARCHAR2(16), DIM_AUM VARCHAR2(64), DIM_SEGMENT VARCHAR2(32),
         BALANCE NUMBER, WR_SUM NUMBER, WT_SUM NUMBER, LOADED_AT DATE)""",
@@ -508,6 +512,24 @@ def _ddl_columns(name: str) -> list[str]:
     — bu sözleşme bozulursa (örn. NUMBER(18,2)) burayı da güncelle."""
     body = DDL[name].split("(", 1)[1].rsplit(")", 1)[0]
     return [seg.strip().split()[0] for seg in body.split(",") if seg.strip()]
+
+
+def grant_tables(con, schema: str, tables: list[str], grantees: list[str]) -> None:
+    """Üretilen tablolara SELECT grant'i ver (idempotent — Oracle'da yeniden
+    grant hata değildir). Grant hatası koşuyu düşürmez, görünür loglanır."""
+    cur = con.cursor()
+    try:
+        for table in tables:
+            for grantee in grantees:
+                try:
+                    cur.execute(f"GRANT SELECT ON {schema}.{table} TO {grantee}")
+                    log.info("   ✓ GRANT SELECT ON %s.%s TO %s", schema, table, grantee)
+                except Exception as exc:
+                    log.error("   ✗ grant başarısız (%s.%s → %s): %s",
+                              schema, table, grantee, exc)
+        con.commit()
+    finally:
+        cur.close()
 
 
 def _table_exists(con, schema: str, table: str) -> bool:
@@ -647,7 +669,7 @@ def build_table_docs(schema: str, dfs: dict[str, pd.DataFrame]) -> list[dict]:
 
     tenor_cols = lambda datcol: {
         datcol: _col("DATE", "Snapshot tarihi", tag="as_of_time", role="time_axis"),
-        "MODE":       _col("VARCHAR2(8)", "Vade modu: tenor (orijinal) | dtm (kalan)", tag="other"),
+        "TENOR_MODE": _col("VARCHAR2(8)", "Vade modu: tenor (orijinal) | dtm (kalan)", tag="other"),
         "DIM_BUCKET": _col("VARCHAR2(32)", "Vade kovası (örn. 32-45)", tag="tenor_bucket"),
         **_DIM_DOC,
         "BALANCE": _col("NUMBER", "Toplam bakiye (TL)", aggregatable=True),
@@ -777,6 +799,9 @@ def main(argv=None) -> int:
     p.add_argument("--only", default=None, help="Virgülle ayrılmış tablo alt kümesi")
     p.add_argument("--schema", default=None,
                    help="Hedef şema (varsayılan: bağlantı kullanıcısı)")
+    p.add_argument("--grant-to", default="A63837",
+                   help="Tablolara SELECT verilecek kullanıcı(lar), virgülle "
+                        "ayrılmış (varsayılan: A63837; boş ver → grant yok)")
     p.add_argument("--skip-db", action="store_true")
     p.add_argument("--skip-docs", action="store_true")
     args = p.parse_args(argv)
@@ -805,6 +830,11 @@ def main(argv=None) -> int:
                 raise RuntimeError(f"{name} boş — kaynak sorguyu kontrol et")
             if not args.skip_db:
                 write_table(con, schema, name, df)
+
+        grantees = [g.strip().upper() for g in (args.grant_to or "").split(",") if g.strip()]
+        if not args.skip_db and grantees:
+            log.info("── Grant'ler veriliyor (%s)…", ", ".join(grantees))
+            grant_tables(con, schema, list(dfs), grantees)
 
         if not args.skip_docs:
             log.info("── Tablo dokümanları S3'e yazılıyor…")
