@@ -48,3 +48,55 @@ def test_line_chart_series_without_roles_get_defaults():
     series = _build_combo_series(COLS, ROWS, existing)
     assert series[0] == {"name": "Seri 1", "values": [10.0, 20.0], "kind": "bar", "axis": "left"}
     assert series[1] == {"name": "Seri 2", "values": [1.5, 2.5], "kind": "line", "axis": "right"}
+
+
+# ── Yeni tipler: waterfall_chart / scatter_chart veri eşlemesi ──────────────
+
+def test_waterfall_mapping():
+    from presentations.nodes.execute_block_sqls import apply_data_to_config
+    blk = {"id": "w1", "type": "waterfall_chart", "config": {}}
+    ds = {"columns": ["STEP", "DELTA", "IS_TOTAL"],
+          "rows": [["Başlangıç", 42.0, 1], ["Vadeli", 1.5, 0],
+                   ["Kasa", -0.7, None], ["Bitiş", 42.8, 1]]}
+    apply_data_to_config(blk, ds)
+    c = blk["config"]
+    assert c["categories"] == ["Başlangıç", "Vadeli", "Kasa", "Bitiş"]
+    assert c["values"] == [42.0, 1.5, -0.7, 42.8]
+    assert c["totals"] == [True, False, False, True]
+
+
+def test_waterfall_without_total_flag():
+    from presentations.nodes.execute_block_sqls import apply_data_to_config
+    blk = {"id": "w2", "type": "waterfall_chart", "config": {}}
+    apply_data_to_config(blk, {"columns": ["S", "D"], "rows": [["a", 1.0]]})
+    assert blk["config"]["totals"] == [False]
+
+
+def test_scatter_mapping_with_size():
+    from presentations.nodes.execute_block_sqls import apply_data_to_config
+    blk = {"id": "s1", "type": "scatter_chart", "config": {}}
+    ds = {"columns": ["NAME", "X", "Y", "SIZE"],
+          "rows": [["Vadeli", 12.5, 44.1, 900.0], ["Kasa", -3.0, 40.0, 120.0]]}
+    apply_data_to_config(blk, ds)
+    assert blk["config"]["points"] == [
+        {"name": "Vadeli", "x": 12.5, "y": 44.1, "size": 900.0},
+        {"name": "Kasa", "x": -3.0, "y": 40.0, "size": 120.0},
+    ]
+
+
+def test_new_types_manifest_validation():
+    from presentations.manifest import validate_manifest
+    m = {"id": "p", "version": 1, "meta": {"title": "t"}, "blocks": [
+        {"id": "sec", "type": "section_header", "title": "S", "config": {},
+         "children": [
+            {"id": "w1", "type": "waterfall_chart", "title": "W", "locked": False,
+             "config": {"categories": ["a", "b"], "values": [1, 2],
+                        "totals": [True, False]}},
+            {"id": "s1", "type": "scatter_chart", "title": "S", "locked": False,
+             "config": {"points": [{"name": "n", "x": 1, "y": 2.5}]}},
+         ]},
+    ]}
+    assert validate_manifest(m) == []
+    # uzunluk uyumsuzluğu yakalanır
+    m["blocks"][0]["children"][0]["config"]["values"] = [1]
+    assert any("values length" in e for e in validate_manifest(m))

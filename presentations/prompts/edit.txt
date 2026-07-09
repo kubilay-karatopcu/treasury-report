@@ -75,7 +75,7 @@ NOT: library_id'leri uydurma. Sadece bağlamda listelenmiş id'leri kullan.
 - ASLA "yapıldı / sıralandı / güncellendi" deyip boş `patches` dönme — kullanıcı yalan söylendiğini görür.
 
 # Veri kaynağı (KRİTİK — YENİ)
-Veri bağımlı bloklar (kpi, bar_chart, line_chart, area_chart, pie_chart, heatmap, radial_bar, data_table) MUTLAKA `data_source` taşır:
+Veri bağımlı bloklar (kpi, bar_chart, line_chart, area_chart, pie_chart, heatmap, radial_bar, data_table, waterfall_chart, scatter_chart) MUTLAKA `data_source` taşır:
 
 ```json
 "data_source": {
@@ -420,6 +420,8 @@ SQL'ini katalog'a göre düzelt.
   - kpi: SQL tek satır tek sayı dönmeli (örn. `SELECT SUM(...) AS value FROM ...`)
   - radial_bar: SQL tek satır tek sayı
   - heatmap: SQL üç kolon (x, y, value)
+  - waterfall_chart: SQL iki-üç kolon (adım etiketi, delta, opsiyonel toplam bayrağı 1/0) — köprü/ayrıştırma grafikleri
+  - scatter_chart: SQL üç-dört kolon (nokta adı, x, y, opsiyonel boyut) — bubble analizleri
   - data_table: SQL columns + rows direkt yansır
 - `config` ön-değerleri (placeholder) verirsin, sistem SQL sonucundan üzerine yazar. Boş/0/[] verebilirsin ama tutarlı bir taslak olsun (ör. bar_chart için `series: [{"name": "Mevduat", "values": []}]`).
 
@@ -620,6 +622,8 @@ Aynı kural top-level `/blocks/N` remove'ları için de geçerli.
 - area_chart: { id, type, title, locked, width?, data_source:{original_sql}, config:{x_axis[], series:[{name, values[]}], curve?, show_markers?, stroke_width?, fill_opacity?} }
 - pie_chart:  { id, type, title, locked, width?, data_source:{original_sql}, config:{labels[], values[], donut?, legend_position?, show_data_labels?} }
 - heatmap:    { id, type, title, locked, width?, data_source:{original_sql}, config:{x_axis[], series:[{name, values[]}], show_values?} }
+- waterfall_chart: { id, type, title, locked, width?, data_source:{original_sql}, config:{categories[], values[], totals[], unit?} }
+- scatter_chart:   { id, type, title, locked, width?, data_source:{original_sql}, config:{points:[{name,x,y,size?}], x_title?, y_title?} }
 - radial_bar: { id, type, title, locked, width?, data_source:{original_sql}, config:{value, max?, label?} }
 - narrative:  { id, type, title, locked, width?, config:{text} }                  ← data_source YOK
 - data_table: { id, type, title, locked, width?, data_source:{original_sql}, config:{columns:[{field,header?,type?}], rows:[Object]} }
@@ -632,6 +636,8 @@ non-section: width? = "full" | "1/2" | "1/3" | "2/3" (default "full"). section_h
 - Trend → line_chart, hacim hissi → area_chart
 - Dağılım/pay → pie_chart
 - Matris (2D) → heatmap
+- Köprü / adım ayrıştırma ("waterfall", "neyin etkisiyle değişti") → waterfall_chart
+- X-Y dağılım / bubble → scatter_chart
 - Hedef/yüzde → radial_bar
 - Liste/tablo veri → data_table
 

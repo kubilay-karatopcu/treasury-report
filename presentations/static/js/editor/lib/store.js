@@ -236,6 +236,14 @@ function _emptyBlockTemplate(id, type) {
     case 'data_table':
       return { ...base, data_source: { original_sql: '' },
                config: { columns: [], rows: [] } };
+    case 'waterfall_chart':
+      // SQL: col0 = adım etiketi, col1 = delta, col2 (ops.) = toplam bayrağı.
+      return { ...base, data_source: { original_sql: '' },
+               config: { categories: [], values: [], totals: [], unit: '' } };
+    case 'scatter_chart':
+      // SQL: col0 = ad, col1 = x, col2 = y, col3 (ops.) = boyut.
+      return { ...base, data_source: { original_sql: '' },
+               config: { points: [], x_title: '', y_title: '' } };
     case 'narrative':
       return { ...base, config: { text: 'Metin yazın…' } };
     case 'carousel':
@@ -295,6 +303,8 @@ function _defaultTitle(type) {
     heatmap:     'Yeni Isı Haritası',
     radial_bar:  'Yeni Gösterge',
     data_table:  'Yeni Tablo',
+    waterfall_chart: 'Yeni Waterfall',
+    scatter_chart:  'Yeni Bubble Grafik',
     narrative:   'Yeni Metin',
     carousel:    'Yeni Carousel',
     canvas:      'Yeni Tuval',
