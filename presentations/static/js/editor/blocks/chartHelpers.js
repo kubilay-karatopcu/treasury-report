@@ -342,3 +342,97 @@ export function radialBarOptions({ value, max = 100, label = '', height = 260 })
     noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
   };
 }
+
+// ── Waterfall (Apex rangeBar) ────────────────────────────────────────────
+// Girdi: categories + values (adım deltaları) + totals (bar kümülatiften
+// bağımsız 0'dan çizilir). Kümülatif burada hesaplanır; config'te yalnız
+// deltalar durur (NIM dashboard'unun renderWaterfall sözleşmesiyle aynı ruh).
+export function waterfallSeries({ categories, values, totals }) {
+  const data = [];
+  let run = 0;
+  for (let i = 0; i < categories.length; i++) {
+    const v = Number(values[i] ?? 0);
+    const isTotal = !!(totals && totals[i]);
+    let y0;
+    let y1;
+    if (isTotal) {
+      y0 = 0; y1 = v; run = v;
+    } else {
+      y0 = run; y1 = run + v; run = y1;
+    }
+    data.push({
+      x: String(categories[i]),
+      y: [Math.min(y0, y1), Math.max(y0, y1)],
+      _delta: v,
+      _total: isTotal,
+      fillColor: isTotal
+        ? theme.chart.waterfallTotal ?? '#d4a574'
+        : v >= 0
+          ? theme.chart.waterfallUp ?? '#5b8a72'
+          : theme.chart.waterfallDown ?? '#b05c5c',
+    });
+  }
+  return [{ name: 'Δ', data }];
+}
+
+export function waterfallOptions({ height = 280, unit = '', showDataLabels = true }) {
+  return {
+    chart: { ...CHART_BASE, type: 'rangeBar', height },
+    ...CHART_THEME,
+    plotOptions: { bar: { horizontal: false, borderRadius: 3, rangeBarOverlap: true } },
+    dataLabels: {
+      enabled: showDataLabels,
+      formatter: (_v, { w, seriesIndex, dataPointIndex }) => {
+        const p = w.config.series[seriesIndex].data[dataPointIndex];
+        const d = p && p._delta;
+        return typeof d === 'number' ? formatNumber(d) : '';
+      },
+      style: { fontSize: '10px' },
+    },
+    xaxis: { labels: { ...COMMON_AXIS_STYLE, rotate: -35, rotateAlways: false } },
+    yaxis: { labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber } },
+    grid: COMMON_GRID,
+    legend: { show: false },
+    tooltip: {
+      ...COMMON_TOOLTIP,
+      custom: ({ w, seriesIndex, dataPointIndex }) => {
+        const p = w.config.series[seriesIndex].data[dataPointIndex];
+        if (!p) return '';
+        const kind = p._total ? 'Toplam' : 'Δ';
+        return `<div style="padding:6px 10px">${p.x}<br/><b>${kind}: ${formatNumber(p._delta)}${unit ? ' ' + unit : ''}</b></div>`;
+      },
+    },
+  };
+}
+
+// ── Scatter / Bubble ─────────────────────────────────────────────────────
+// Her nokta kendi serisi → legend + ayrık renk (dashboard bubble'ları gibi).
+export function scatterSeries(points) {
+  return (points || []).map((p, i) => ({
+    name: p.name || `Nokta ${i + 1}`,
+    data: [[Number(p.x) || 0, Number(p.y) || 0,
+            Math.max(4, Number(p.size) || 8)]],
+  }));
+}
+
+export function scatterOptions({ height = 300, xTitle = '', yTitle = '',
+                                 showDataLabels = false }) {
+  return {
+    chart: { ...CHART_BASE, type: 'bubble', height, zoom: { enabled: false } },
+    ...CHART_THEME,
+    dataLabels: { enabled: showDataLabels },
+    fill: { opacity: 0.75 },
+    xaxis: {
+      tickAmount: 6,
+      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+      title: { text: xTitle, style: { fontSize: '11px' } },
+    },
+    yaxis: {
+      labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
+      title: { text: yTitle, style: { fontSize: '11px' } },
+    },
+    grid: COMMON_GRID,
+    legend: { position: 'bottom', fontSize: '11px' },
+    tooltip: { ...COMMON_TOOLTIP },
+  };
+}

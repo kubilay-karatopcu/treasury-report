@@ -13,6 +13,8 @@ const TYPE_LABELS = {
   heatmap:        'Isı Haritası',
   radial_bar:     'Radyal Gösterge',
   data_table:     'Tablo',
+  waterfall_chart: 'Waterfall (Köprü)',
+  scatter_chart:  'Bubble / Scatter',
   narrative:      'Metin',
   carousel:       'Carousel',
   canvas:         'Tuval',
@@ -28,6 +30,8 @@ const SLIDE_TYPES = [
   { type: 'heatmap',    label: 'Isı' },
   { type: 'radial_bar', label: 'Gösterge' },
   { type: 'data_table', label: 'Tablo' },
+  { type: 'waterfall_chart', label: 'Waterfall' },
+  { type: 'scatter_chart',   label: 'Bubble' },
   { type: 'narrative',  label: 'Metin' },
 ];
 
@@ -41,6 +45,7 @@ const WIDTH_OPTIONS = [
 const DATA_BOUND_TYPES = new Set([
   'kpi', 'bar_chart', 'line_chart', 'combo_chart', 'area_chart',
   'pie_chart', 'heatmap', 'radial_bar', 'data_table',
+  'waterfall_chart', 'scatter_chart',
 ]);
 
 
@@ -793,6 +798,8 @@ const TYPE_CHANGE_OPTIONS = [
   { value: 'area_chart', label: 'Alan Grafiği' },
   { value: 'pie_chart',  label: 'Pasta Grafik' },
   { value: 'heatmap',    label: 'Isı Haritası' },
+  { value: 'waterfall_chart', label: 'Waterfall (Köprü)' },
+  { value: 'scatter_chart',   label: 'Bubble / Scatter' },
   { value: 'radial_bar', label: 'Radyal Gösterge' },
   { value: 'data_table', label: 'Tablo' },
 ];

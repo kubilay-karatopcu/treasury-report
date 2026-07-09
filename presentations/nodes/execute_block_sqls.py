@@ -35,6 +35,8 @@ _DATA_KEYS_BY_TYPE = {
     "combo_chart": {"categories", "series"},
     "pie_chart":  {"labels", "values"},
     "data_table": {"columns", "rows"},
+    "waterfall_chart": {"categories", "values", "totals"},
+    "scatter_chart": {"points"},
 }
 
 
@@ -125,6 +127,37 @@ def apply_data_to_config(block: dict, data_source: dict) -> None:
         config["series"] = _build_combo_series(columns, rows, config.get("series"))
         return
 
+    if btype == "waterfall_chart":
+        # col0 = adım etiketi, col1 = delta, col2 (ops.) = toplam bayrağı (1/0).
+        # Kümülatif hesaplanmaz — renderer çizer; config yalnız deltaları taşır.
+        if not rows:
+            config["categories"] = []
+            config["values"] = []
+            config["totals"] = []
+            return
+        config["categories"] = [_safe_label(r[0]) for r in rows]
+        config["values"] = [_safe_number(r[1]) for r in rows]
+        if len(columns) > 2:
+            config["totals"] = [bool(r[2]) if r[2] is not None else False for r in rows]
+        else:
+            config["totals"] = [False] * len(rows)
+        return
+
+    if btype == "scatter_chart":
+        # col0 = ad, col1 = x, col2 = y, col3 (ops.) = boyut.
+        if not rows or len(columns) < 3:
+            config["points"] = []
+            return
+        pts = []
+        for r in rows:
+            pt = {"name": _safe_label(r[0]),
+                  "x": _safe_number(r[1]), "y": _safe_number(r[2])}
+            if len(columns) > 3:
+                pt["size"] = _safe_number(r[3])
+            pts.append(pt)
+        config["points"] = pts
+        return
+
     if btype == "data_table":
         # Kolon tipi (number/date/text) → DataTable formatlama + sağa yaslama;
         # meta (satır sayısı + truncation) → grid altı bilgi şeridi. column_types
@@ -168,6 +201,12 @@ def _clear_config_for_type(btype: str, config: dict) -> None:
     elif btype == "data_table":
         config["columns"] = []
         config["rows"] = []
+    elif btype == "waterfall_chart":
+        config["categories"] = []
+        config["values"] = []
+        config["totals"] = []
+    elif btype == "scatter_chart":
+        config["points"] = []
 
 
 def _build_series(columns, rows, existing_series):

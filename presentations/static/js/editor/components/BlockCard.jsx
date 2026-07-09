@@ -18,6 +18,8 @@ import Heatmap        from '../blocks/Heatmap.jsx';
 import RadialBar      from '../blocks/RadialBar.jsx';
 import DataTable      from '../blocks/DataTable.jsx';
 import Narrative      from '../blocks/Narrative.jsx';
+import WaterfallChart from '../blocks/WaterfallChart.jsx';
+import ScatterChart   from '../blocks/ScatterChart.jsx';
 import Carousel       from '../blocks/Carousel.jsx';
 import Canvas         from '../blocks/Canvas.jsx';
 
@@ -33,6 +35,8 @@ const BLOCK_MAP = {
   radial_bar:     RadialBar,
   data_table:     DataTable,
   narrative:      Narrative,
+  waterfall_chart: WaterfallChart,
+  scatter_chart:  ScatterChart,
   carousel:       Carousel,
   canvas:         Canvas,
 };
@@ -47,6 +51,8 @@ const TYPE_LABELS = {
   heatmap:     'Heatmap',
   radial_bar:  'Radial Bar',
   data_table:  'Tablo',
+  waterfall_chart: 'Waterfall',
+  scatter_chart:  'Bubble/Scatter',
   narrative:   'Metin',
 };
 
@@ -54,6 +60,7 @@ const TYPE_LABELS = {
 const DATA_BACKED_TYPES = new Set([
   'kpi', 'bar_chart', 'line_chart', 'combo_chart', 'area_chart',
   'pie_chart', 'heatmap', 'radial_bar', 'data_table',
+  'waterfall_chart', 'scatter_chart',
 ]);
 
 function TypeIcon({ type }) {
@@ -68,6 +75,8 @@ function TypeIcon({ type }) {
     case 'heatmap':    return <Grid3x3    {...iconProps} />;
     case 'radial_bar': return <Activity   {...iconProps} />;
     case 'data_table': return <TableIcon  {...iconProps} />;
+    case 'waterfall_chart': return <BarChart3 {...iconProps} />;
+    case 'scatter_chart':   return <Activity  {...iconProps} />;
     case 'narrative':  return <FileText   {...iconProps} />;
     default:           return <FileText   {...iconProps} />;
   }
