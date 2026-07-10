@@ -852,6 +852,19 @@ def main(argv=None) -> int:
                    help="Blok SQL'lerini koşma (config'ler boş kalır)")
     args = p.parse_args(argv)
 
+    # Bekçi: hangi presentations paketi yüklendi? Script başka bir dizine
+    # kopyalanıp oradaki ESKİ repo kopyasıyla koşarsa (Desktop\prisma vakası)
+    # manifest doğrulaması anlaşılmaz hatalar üretir — erken ve net patla.
+    import presentations
+    from presentations.manifest import LEAF_BLOCK_TYPES
+    log.info("presentations paketi: %s", presentations.__file__)
+    if "waterfall_chart" not in LEAF_BLOCK_TYPES:
+        raise SystemExit(
+            f"ESKİ presentations paketi yüklendi: {presentations.__file__}\n"
+            "Bu sürümde waterfall_chart/scatter_chart tanımlı değil — script'i "
+            "güncel repo kökünden çalıştır (git pull sonrası) ve eski repo "
+            "kopyalarını (örn. Desktop\\prisma) kaldır.")
+
     from DataClient import DataClient
     dc = DataClient()
     con = dc.get_connection()
