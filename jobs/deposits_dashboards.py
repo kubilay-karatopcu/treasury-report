@@ -34,7 +34,7 @@ Cost Analysis sayfası kaynakla BİREBİR (bu revizyonda getirilenler):
     1) "Mix vs Pricing" özet köprüsü, 2) Pricing Drivers (Top 7 + Other) +
     altında Balance Growth companion bar'ı, 3) Mix Drivers (Top 7 + Other) +
     altında Weight Changes companion bar'ı. Bennet ayrıştırması SQL'de:
-    mix_i = Δw_i·r̄_i, price_i = w̄_i·Δr_i; hepsi bps.
+    mix_i = Δw_i·r̄_i, price_i = w̄_i·Δr_i; değerler % (etiket okunurluğu).
   * "Gruplama (Dimensions)" filtresi — kaynaktaki PRODUCT/SUBPRODUCT/
     CUSTOMER_TYPE/AUM/SEGMENT toggle'ları. Composite grup anahtarı SQL'de
     ('X' IN (:gruplama) CASE zinciri, '_' ile birleştirme — motorla aynı).
@@ -250,10 +250,13 @@ ORDER BY 2 DESC"""
 
 # ════════════════════════════════════════════════════════════════════════════
 # Cost Analysis SQL kalıpları — kaynak DepositDetailEngine.build_waterfalls
-# (NIM_calculation app.py L1324-1470) birebir portu. Tüm oranlar bps;
-# ayrıştırma Bennet (simetrik): mix_i = Δw_i·r̄_i, price_i = w̄_i·Δr_i,
+# (NIM_calculation app.py L1324-1470) birebir portu. Ayrıştırma Bennet
+# (simetrik): mix_i = Δw_i·r̄_i, price_i = w̄_i·Δr_i,
 # mix-driver_i = Δw_i·(r̄_i − r̄_toplam). Σmix_i = Mix, Σprice_i = Pricing,
 # Start + Mix + Pricing = End birebir tutar.
+# Birim: YÜZDE (kaynak bps gösterir ama 4-5 haneli bps etiketleri okunmuyor —
+# kullanıcı kararı: değerler/etiketler/y-ekseni %; 1 bps = 0.01 çözünürlük
+# ROUND(...,2) ile korunur).
 # ════════════════════════════════════════════════════════════════════════════
 
 CA_DIMS = [("PRODUCT", "DIM_PRODUCT"), ("SUBPRODUCT", "DIM_SUBPRODUCT"),
@@ -283,7 +286,7 @@ def ca_grp_expr():
 
 def ca_core(table, dcol, enum_where, dv):
     """f→t0/t1→s0/s1→g0/g1→k→mm→eff→drv CTE zinciri. drv = grup başına
-    b0/b1/r0/r1 + Bennet etkileri (bps) + Δpay (puan)."""
+    b0/b1/r0/r1 + Bennet etkileri (%) + Δpay (puan)."""
     grp = ca_grp_expr()
     return f"""WITH f AS (SELECT * FROM {table} WHERE {enum_where}),
 t0 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_from),
@@ -294,8 +297,8 @@ s1 AS (SELECT {grp} p, SUM(BALANCE) b, SUM(WR_SUM) wr
        FROM f, t1 WHERE f.{dcol} = t1.m GROUP BY {grp}),
 g0 AS (SELECT SUM(b) tb, SUM(wr) twr FROM s0),
 g1 AS (SELECT SUM(b) tb, SUM(wr) twr FROM s1),
-k AS (SELECT g0.twr/NULLIF(g0.tb,0)*10000 start_bps,
-             g1.twr/NULLIF(g1.tb,0)*10000 end_bps
+k AS (SELECT g0.twr/NULLIF(g0.tb,0)*100 start_pct,
+             g1.twr/NULLIF(g1.tb,0)*100 end_pct
       FROM g0 CROSS JOIN g1),
 mm AS (SELECT NVL(s0.p, s1.p) p, NVL(s0.b,0) b0, NVL(s1.b,0) b1,
               NVL(s0.wr,0) wr0, NVL(s1.wr,0) wr1
@@ -307,45 +310,45 @@ eff AS (SELECT mm.p, mm.b0, mm.b1,
                NVL(mm.b1/NULLIF(g1.tb,0), 0) w1
         FROM mm CROSS JOIN g0 CROSS JOIN g1),
 drv AS (SELECT p, b0, b1, r0, r1,
-               (w1 - w0) * (r0 + r1)/2 * 10000 mix_bps,
-               (w0 + w1)/2 * (r1 - r0) * 10000 price_bps,
-               (w1 - w0) * ((r0 + r1)/2 * 10000
-                            - (SELECT (start_bps + end_bps)/2 FROM k)) mixdrv_bps,
+               (w1 - w0) * (r0 + r1)/2 * 100 mix_pct,
+               (w0 + w1)/2 * (r1 - r0) * 100 price_pct,
+               (w1 - w0) * ((r0 + r1)/2 * 100
+                            - (SELECT (start_pct + end_pct)/2 FROM k)) mixdrv_pct,
                (w1 - w0) * 100 dw_pct
         FROM eff)"""
 
 
 def ca_sql_wf1(table, dcol, enum_where, dv):
-    """Slayt 1 — Rate Waterfall (bps): Mix vs Pricing (kaynak wf1)."""
+    """Slayt 1 — Rate Waterfall (%): Mix vs Pricing (kaynak wf1)."""
     return f"""{ca_core(table, dcol, enum_where, dv)}
-SELECT STEP, ROUND(DELTA, 1) AS DELTA_BPS, IS_TOTAL FROM (
-  SELECT 1 ord, 'Start Rate' step, start_bps delta, 1 is_total FROM k
+SELECT STEP, ROUND(DELTA, 2) AS DELTA_PCT, IS_TOTAL FROM (
+  SELECT 1 ord, 'Start Rate' step, start_pct delta, 1 is_total FROM k
   UNION ALL
-  SELECT 2, 'Mix / Interaction', (SELECT SUM(mix_bps) FROM drv), 0 FROM DUAL
+  SELECT 2, 'Mix / Interaction', (SELECT SUM(mix_pct) FROM drv), 0 FROM DUAL
   UNION ALL
-  SELECT 3, 'Pricing (rate, detailed)', (SELECT SUM(price_bps) FROM drv), 0 FROM DUAL
+  SELECT 3, 'Pricing (rate, detailed)', (SELECT SUM(price_pct) FROM drv), 0 FROM DUAL
   UNION ALL
-  SELECT 4, 'End Rate', end_bps, 1 FROM k
+  SELECT 4, 'End Rate', end_pct, 1 FROM k
 ) ORDER BY ord"""
 
 
 def ca_sql_wf2(table, dcol, enum_where, dv):
-    """Slayt 2 — Pricing Drivers (Top 7 + Other, bps) (kaynak wf2).
+    """Slayt 2 — Pricing Drivers (Top 7 + Other, %) (kaynak wf2).
     Bazal 'After Mix' = Start + Mix; üyeler |price_eff| sırasıyla."""
     return f"""{ca_core(table, dcol, enum_where, dv)},
-rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(price_bps) DESC, p) rn
+rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(price_pct) DESC, p) rn
         FROM drv)
-SELECT STEP, ROUND(DELTA, 1) AS DELTA_BPS, IS_TOTAL FROM (
+SELECT STEP, ROUND(DELTA, 2) AS DELTA_PCT, IS_TOTAL FROM (
   SELECT 0 ord, 0 ord2, 'After Mix' step,
-         start_bps + (SELECT SUM(mix_bps) FROM drv) delta, 1 is_total FROM k
+         start_pct + (SELECT SUM(mix_pct) FROM drv) delta, 1 is_total FROM k
   UNION ALL
-  SELECT 1, rn, p, price_bps, 0 FROM rnk WHERE rn <= {CA_TOP_N}
+  SELECT 1, rn, p, price_pct, 0 FROM rnk WHERE rn <= {CA_TOP_N}
   UNION ALL
   SELECT 2, 0, 'Other Items',
-         (SELECT SUM(price_bps) FROM rnk WHERE rn > {CA_TOP_N}), 0
+         (SELECT SUM(price_pct) FROM rnk WHERE rn > {CA_TOP_N}), 0
   FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {CA_TOP_N})
   UNION ALL
-  SELECT 3, 0, 'End Rate', end_bps, 1 FROM k
+  SELECT 3, 0, 'End Rate', end_pct, 1 FROM k
 ) ORDER BY ord, ord2"""
 
 
@@ -353,7 +356,7 @@ def ca_sql_wf2_bal(table, dcol, enum_where, dv):
     """Slayt 2 companion — Balance Growth (₺M), wf2 ile aynı üye sırası.
     Çapa kolonlara 0 (kaynakta None) → eksen hizası korunur."""
     return f"""{ca_core(table, dcol, enum_where, dv)},
-rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(price_bps) DESC, p) rn
+rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(price_pct) DESC, p) rn
         FROM drv)
 SELECT STEP, ROUND(DELTA_M, 2) AS "Bakiye Degisimi (MTL)" FROM (
   SELECT 0 ord, 0 ord2, 'After Mix' step, 0 delta_m FROM DUAL
@@ -369,29 +372,29 @@ SELECT STEP, ROUND(DELTA_M, 2) AS "Bakiye Degisimi (MTL)" FROM (
 
 
 def ca_sql_wf4(table, dcol, enum_where, dv):
-    """Slayt 3 — Mix Drivers (Top 7 + Other, bps) (kaynak wf4).
+    """Slayt 3 — Mix Drivers (Top 7 + Other, %) (kaynak wf4).
     Üye değeri Δw·(r̄ − r̄toplam); Start Rate → After Mix köprüsü."""
     return f"""{ca_core(table, dcol, enum_where, dv)},
-rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(mixdrv_bps) DESC, p) rn
+rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(mixdrv_pct) DESC, p) rn
         FROM drv)
-SELECT STEP, ROUND(DELTA, 1) AS DELTA_BPS, IS_TOTAL FROM (
-  SELECT 0 ord, 0 ord2, 'Start Rate' step, start_bps delta, 1 is_total FROM k
+SELECT STEP, ROUND(DELTA, 2) AS DELTA_PCT, IS_TOTAL FROM (
+  SELECT 0 ord, 0 ord2, 'Start Rate' step, start_pct delta, 1 is_total FROM k
   UNION ALL
-  SELECT 1, rn, p, mixdrv_bps, 0 FROM rnk WHERE rn <= {CA_TOP_N}
+  SELECT 1, rn, p, mixdrv_pct, 0 FROM rnk WHERE rn <= {CA_TOP_N}
   UNION ALL
   SELECT 2, 0, 'Other Items',
-         (SELECT SUM(mixdrv_bps) FROM rnk WHERE rn > {CA_TOP_N}), 0
+         (SELECT SUM(mixdrv_pct) FROM rnk WHERE rn > {CA_TOP_N}), 0
   FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {CA_TOP_N})
   UNION ALL
   SELECT 3, 0, 'After Mix',
-         start_bps + (SELECT SUM(mix_bps) FROM drv), 1 FROM k
+         start_pct + (SELECT SUM(mix_pct) FROM drv), 1 FROM k
 ) ORDER BY ord, ord2"""
 
 
 def ca_sql_wf4_weights(table, dcol, enum_where, dv):
     """Slayt 3 companion — Weight Changes (Δ pay, puan), wf4 sırasıyla."""
     return f"""{ca_core(table, dcol, enum_where, dv)},
-rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(mixdrv_bps) DESC, p) rn
+rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(mixdrv_pct) DESC, p) rn
         FROM drv)
 SELECT STEP, ROUND(DELTA_W, 3) AS "Agirlik Degisimi (puan)" FROM (
   SELECT 0 ord, 0 ord2, 'Start Rate' step, 0 delta_w FROM DUAL
@@ -410,13 +413,16 @@ def ca_sql_bubble(table, dcol, enum_where, dv, mode):
     """Bubble noktaları (kaynak _build_bubble_charts). mode='bal':
     x=ΔBakiye ₺M; mode='rate': x=ΔFaiz bps. y=t₁ faizi %,
     boyut=(|b0|+|b1|)/2 ₺M. Kaynaktaki min-size slider yerine boyuta göre
-    ilk 40 nokta (derin gruplamada okunabilirlik)."""
+    ilk 40 nokta (derin gruplamada okunabilirlik). 5. kolon = WAvg t₁ faizi:
+    scatter sözleşmesi gereği yatay referans çizgisi olur (kaynaktaki kesikli
+    'WAvg %x.xx' çizgisi) ve filtre/gruplama değişince güncellenir."""
     x = "(b1 - b0)/1e6" if mode == "bal" else "(r1 - r0)*10000"
     return f"""{ca_core(table, dcol, enum_where, dv)}
-SELECT AD, X_DEGER, FAIZ_T1_PCT, BOYUT_M FROM (
+SELECT AD, X_DEGER, FAIZ_T1_PCT, BOYUT_M, "WAvg (%)" FROM (
   SELECT p AS AD, ROUND({x}, 2) X_DEGER,
          ROUND(r1*100, 2) FAIZ_T1_PCT,
-         ROUND((ABS(b0) + ABS(b1))/2/1e6, 2) BOYUT_M
+         ROUND((ABS(b0) + ABS(b1))/2/1e6, 2) BOYUT_M,
+         (SELECT ROUND(end_pct, 2) FROM k) AS "WAvg (%)"
   FROM drv WHERE b0 <> 0 OR b1 <> 0
   ORDER BY (ABS(b0) + ABS(b1)) DESC
 ) WHERE ROWNUM <= 40"""
@@ -541,7 +547,7 @@ def build_cost(runner, sch):
         vars_wf = [v_don] + enums + [v_grp]
         vars_hm = [v_don] + enums
 
-        def wf(bid, title, sql, unit="bps"):
+        def wf(bid, title, sql, unit="%"):
             return _block(bid, "waterfall_chart", title, sql, vars_wf, b, T,
                           width="full", config={"unit": unit})
 
@@ -551,17 +557,17 @@ def build_cost(runner, sch):
 
         car_wf = _carousel(
             f"car_wf_{sfx}", f"Deposit Rate Waterfall ({label})",
-            [wf(f"wf1_{sfx}", "Rate Waterfall (bps): Mix vs Pricing",
+            [wf(f"wf1_{sfx}", "Rate Waterfall (%): Mix vs Pricing",
                 ca_sql_wf1(T, dcol, W, dv)),
              _canvas(f"cv_wf2_{sfx}", "Pricing Drivers",
                      [wf(f"wf2_{sfx}",
-                         f"Pricing Drivers (Top {CA_TOP_N} + Other, bps)",
+                         f"Pricing Drivers (Top {CA_TOP_N} + Other, %)",
                          ca_sql_wf2(T, dcol, W, dv)),
                       bar(f"wf2bal_{sfx}", "Balance Growth (₺M)",
                           ca_sql_wf2_bal(T, dcol, W, dv))]),
              _canvas(f"cv_wf4_{sfx}", "Mix Drivers",
                      [wf(f"wf4_{sfx}",
-                         f"Mix Drivers (Top {CA_TOP_N} + Other, bps)",
+                         f"Mix Drivers (Top {CA_TOP_N} + Other, %)",
                          ca_sql_wf4(T, dcol, W, dv)),
                       bar(f"wf4w_{sfx}", "Weight Changes (Δ pay, puan)",
                           ca_sql_wf4_weights(T, dcol, W, dv))])])
@@ -593,7 +599,7 @@ def build_cost(runner, sch):
         "p_dep_cost", "Outstanding Cost Analysis",
         "Mevduat maliyet analizi — kaynak dashboard'la birebir: 3 slaytlık "
         "rate waterfall carousel'i (Mix vs Pricing / Pricing Drivers / Mix "
-        "Drivers, Bennet ayrıştırması, bps), Balance + Rate Evolution "
+        "Drivers, Bennet ayrıştırması, %), Balance + Rate Evolution "
         "bubble'ları (₺M / bps), Segment × AUM faiz heatmap'i (Δbps ↔ t₁ "
         "seviye slaytları). t₀/t₁ = dönem filtresi (AS-OF, varsayılan son iki "
         "snapshot); 'Gruplama' filtresi kaynaktaki Dimensions toggle'ları.",

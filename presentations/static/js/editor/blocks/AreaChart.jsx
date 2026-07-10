@@ -23,6 +23,7 @@ export default function AreaChart({ block }) {
     strokeWidth:  typeof config.stroke_width === 'number' ? config.stroke_width : 2,
     showMarkers:  !!config.show_markers,
     fillOpacity:  typeof config.fill_opacity === 'number' ? config.fill_opacity : 0.45,
+    refLines:     config.ref_lines,
   });
 
   const remountKey = `${block.id}-${block.width || 'full'}`;

@@ -96,6 +96,13 @@ NO_WIDTH_TYPES = frozenset({"section_header"})
 
 # Style option values.
 CURVE_VALUES = frozenset({"smooth", "straight", "stepline"})
+
+# Referans çizgisi (config.ref_lines) destekleyen kartezyen chart tipleri —
+# frontend'deki PropertiesPanel.REF_LINE_TYPES ile eş tutulmalı.
+REF_LINE_TYPES = frozenset({
+    "bar_chart", "line_chart", "area_chart", "combo_chart",
+    "waterfall_chart", "scatter_chart",
+})
 LEGEND_POSITIONS = frozenset({"top", "right", "bottom", "left"})
 # Combo chart per-series role + axis side.
 COMBO_SERIES_KINDS = frozenset({"bar", "line"})
@@ -271,6 +278,31 @@ def _validate_chart_style(block: dict) -> list[str]:
     if btype == "heatmap":
         if "show_values" in config and not isinstance(config["show_values"], bool):
             errors.append(f"Block {bid!r}: show_values must be bool")
+
+    # Referans çizgileri — kartezyen chart'larda opsiyonel yatay/dikey kesikli
+    # çizgi. axis: 'y' → value sayısal; 'x' → sayı (sayısal eksen) veya
+    # kategori etiketi (string). source='query' girdileri SQL sonucundan
+    # gelir (scatter 5. kolon) ve her koşuda tazelenir.
+    if btype in REF_LINE_TYPES and "ref_lines" in config:
+        rl = config["ref_lines"]
+        if not isinstance(rl, list):
+            errors.append(f"Block {bid!r}: ref_lines must be a list")
+        else:
+            for i, line in enumerate(rl):
+                if not isinstance(line, dict):
+                    errors.append(f"Block {bid!r}: ref_lines[{i}] must be an object")
+                    continue
+                if line.get("axis") not in ("x", "y"):
+                    errors.append(
+                        f"Block {bid!r}: ref_lines[{i}].axis must be 'x' or 'y'"
+                    )
+                if "value" not in line or line["value"] is None:
+                    errors.append(f"Block {bid!r}: ref_lines[{i}] missing 'value'")
+                elif line.get("axis") == "y" and not isinstance(
+                        line["value"], (int, float, str)):
+                    errors.append(
+                        f"Block {bid!r}: ref_lines[{i}].value must be number/string"
+                    )
 
     return errors
 

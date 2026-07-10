@@ -144,7 +144,16 @@ def apply_data_to_config(block: dict, data_source: dict) -> None:
         return
 
     if btype == "scatter_chart":
-        # col0 = ad, col1 = x, col2 = y, col3 (ops.) = boyut.
+        # col0 = ad, col1 = x, col2 = y, col3 (ops.) = boyut,
+        # col4 (ops.) = yatay referans çizgisi değeri (her satırda aynı;
+        # ör. WAvg faiz — kolon adı çizgi etiketi olur). Query kaynaklı
+        # çizgi her koşuda tazelenir; elle eklenen ref_lines girdileri
+        # (source != 'query') korunur.
+        ref_val = (next((_safe_number(r[4]) for r in rows
+                         if len(r) > 4 and r[4] is not None), None)
+                   if len(columns) > 4 else None)
+        _set_query_ref_line(config, ref_val,
+                            str(columns[4]) if len(columns) > 4 else "")
         if not rows or len(columns) < 3:
             config["points"] = []
             return
@@ -207,6 +216,22 @@ def _clear_config_for_type(btype: str, config: dict) -> None:
         config["totals"] = []
     elif btype == "scatter_chart":
         config["points"] = []
+        _set_query_ref_line(config, None, "")
+
+
+def _set_query_ref_line(config: dict, value, label: str) -> None:
+    """config.ref_lines içindeki SQL kaynaklı (source='query') yatay çizgiyi
+    güncelle: value None → kaldır, değilse tek girdiyle değiştir. Kullanıcının
+    elle eklediği çizgiler olduğu gibi kalır."""
+    manual = [l for l in (config.get("ref_lines") or [])
+              if isinstance(l, dict) and l.get("source") != "query"]
+    if value is not None:
+        manual.append({"axis": "y", "value": value,
+                       "label": label, "source": "query"})
+    if manual:
+        config["ref_lines"] = manual
+    else:
+        config.pop("ref_lines", None)
 
 
 def _build_series(columns, rows, existing_series):

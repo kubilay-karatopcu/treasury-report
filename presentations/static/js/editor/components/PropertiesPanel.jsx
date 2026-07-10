@@ -151,6 +151,7 @@ export default function PropertiesPanel({ width, onResizeStart }) {
         {block.type === 'heatmap'    && <HeatmapControls block={block} />}
         {block.type === 'radial_bar' && <RadialBarControls block={block} />}
         {block.type === 'narrative'  && <NarrativeControls block={block} />}
+        {REF_LINE_TYPES.has(block.type) && <RefLinesControls block={block} />}
 
         {isDataBound && <ManualSqlEditor block={block} />}
 
@@ -1156,6 +1157,81 @@ function RadialBarControls({ block }) {
     <Section title="Radyal Gösterge Ayarları">
       <Row label="Maks değer"><NumberInput block={block} path="config.max" /></Row>
       <Row label="Etiket"><TextInput block={block} path="config.label" /></Row>
+    </Section>
+  );
+}
+
+/* ── Referans çizgileri (yatay/dikey) — tüm kartezyen chart'larda ───────── */
+
+const REF_LINE_TYPES = new Set([
+  'bar_chart', 'line_chart', 'area_chart', 'combo_chart',
+  'waterfall_chart', 'scatter_chart',
+]);
+
+function RefLinesControls({ block }) {
+  const setBlockField = useStore((s) => s.setBlockField);
+  const lines = Array.isArray(block.config?.ref_lines) ? block.config.ref_lines : [];
+
+  function addLine() {
+    setBlockField(block.id, 'config.ref_lines',
+      [...lines, { axis: 'y', value: 0, label: '' }]);
+  }
+  function removeLine(i) {
+    setBlockField(block.id, 'config.ref_lines', lines.filter((_, j) => j !== i));
+  }
+
+  return (
+    <Section title="Referans Çizgileri">
+      <div className="props-form-hint" style={{ paddingBottom: 6 }}>
+        Kesikli yatay (Y) / dikey (X) çizgi. X değeri sayısal eksende sayı,
+        kategori ekseninde kategori etiketi olmalı.
+      </div>
+      {lines.map((l, i) => {
+        const fromQuery = l.source === 'query';
+        return (
+          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+            <select
+              className="props-input props-select"
+              style={{ flex: '0 0 56px' }}
+              value={l.axis === 'x' ? 'x' : 'y'}
+              disabled={fromQuery}
+              onChange={(e) => setBlockField(block.id, `config.ref_lines.${i}.axis`, e.target.value)}
+            >
+              <option value="y">Y</option>
+              <option value="x">X</option>
+            </select>
+            {fromQuery ? (
+              <span
+                title="Bu çizgi SQL sonucundan gelir (5. kolon) — değeri her koşuda güncellenir"
+                style={{ flex: '1 1 0', minWidth: 0, fontSize: 12, overflow: 'hidden',
+                         textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.8 }}
+              >
+                {typeof l.value === 'number' ? l.value.toLocaleString('tr-TR') : String(l.value)}
+                {' · '}{l.label || 'SQL'} <em style={{ fontSize: 10 }}>(SQL)</em>
+              </span>
+            ) : (
+              <>
+                <TextInput block={block} path={`config.ref_lines.${i}.value`} placeholder="değer" />
+                <TextInput block={block} path={`config.ref_lines.${i}.label`} placeholder="etiket" />
+              </>
+            )}
+            {!fromQuery && (
+              <button
+                type="button"
+                className="props-btn props-btn--icon props-btn--icon-danger"
+                title="Çizgiyi kaldır"
+                onClick={() => removeLine(i)}
+                style={{ flex: '0 0 auto' }}
+              >
+                <X size={13} strokeWidth={2} />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <button type="button" className="props-btn props-btn--ghost" onClick={addLine}>
+        <Plus size={13} strokeWidth={2} /> Çizgi ekle
+      </button>
     </Section>
   );
 }

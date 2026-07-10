@@ -76,12 +76,12 @@ def _engine(df, d0, d1, dims):
          .join(a1[["BALANCE", "r"]].rename(columns={"BALANCE": "b1", "r": "r1"}),
                how="outer").fillna(0.0))
     m["dw"] = m["b1"] / tot1 - m["b0"] / tot0
-    m["mix"] = m["dw"] * (m["r0"] + m["r1"]) / 2 * 10000
+    m["mix"] = m["dw"] * (m["r0"] + m["r1"]) / 2 * 100
     m["price"] = ((m["b0"] / tot0 + m["b1"] / tot1) / 2
-                  * (m["r1"] - m["r0"]) * 10000)
-    start = a0["WR_SUM"].sum() / tot0 * 10000
-    end = a1["WR_SUM"].sum() / tot1 * 10000
-    m["mixdrv"] = m["dw"] * ((m["r0"] + m["r1"]) / 2 * 10000
+                  * (m["r1"] - m["r0"]) * 100)
+    start = a0["WR_SUM"].sum() / tot0 * 100
+    end = a1["WR_SUM"].sum() / tot1 * 100
+    m["mixdrv"] = m["dw"] * ((m["r0"] + m["r1"]) / 2 * 100
                              - (start + end) / 2)
     return start, end, m
 
@@ -106,14 +106,14 @@ def test_wf1_bennet_totals(data):
     df, con = data
     start, end, m = _engine(df, "2026-05-01", "2026-06-01", DIMS)
     wf1 = _run(con, dd.ca_sql_wf1(T, "MONTH", W, "donem_ay"))
-    got = dict(zip(wf1["STEP"], wf1["DELTA_BPS"]))
-    assert abs(got["Start Rate"] - start) < 0.15
-    assert abs(got["Mix / Interaction"] - m["mix"].sum()) < 0.15
-    assert abs(got["Pricing (rate, detailed)"] - m["price"].sum()) < 0.15
-    assert abs(got["End Rate"] - end) < 0.15
+    got = dict(zip(wf1["STEP"], wf1["DELTA_PCT"]))
+    assert abs(got["Start Rate"] - start) < 0.006
+    assert abs(got["Mix / Interaction"] - m["mix"].sum()) < 0.006
+    assert abs(got["Pricing (rate, detailed)"] - m["price"].sum()) < 0.006
+    assert abs(got["End Rate"] - end) < 0.006
     # Köprü kimliği: Start + Mix + Pricing = End
     assert abs(got["Start Rate"] + got["Mix / Interaction"]
-               + got["Pricing (rate, detailed)"] - got["End Rate"]) < 0.3
+               + got["Pricing (rate, detailed)"] - got["End Rate"]) < 0.012
     assert list(wf1["IS_TOTAL"]) == [1, 0, 0, 1]
 
 
@@ -124,13 +124,13 @@ def test_wf2_pricing_drivers_top7(data):
     top = m.reindex(m["price"].abs().sort_values(ascending=False).index).head(7)
     assert set(wf2["STEP"]) - {"After Mix", "Other Items", "End Rate"} \
         == set(top.index)
-    assert abs(wf2.iloc[0]["DELTA_BPS"] - (start + m["mix"].sum())) < 0.2
+    assert abs(wf2.iloc[0]["DELTA_PCT"] - (start + m["mix"].sum())) < 0.012
     for lbl in top.index:
-        got = float(wf2[wf2["STEP"] == lbl]["DELTA_BPS"].iloc[0])
-        assert abs(got - m.loc[lbl, "price"]) < 0.15
+        got = float(wf2[wf2["STEP"] == lbl]["DELTA_PCT"].iloc[0])
+        assert abs(got - m.loc[lbl, "price"]) < 0.006
     other = m.loc[~m.index.isin(top.index), "price"].sum()
-    got_o = float(wf2[wf2["STEP"] == "Other Items"]["DELTA_BPS"].iloc[0])
-    assert abs(got_o - other) < 0.15
+    got_o = float(wf2[wf2["STEP"] == "Other Items"]["DELTA_PCT"].iloc[0])
+    assert abs(got_o - other) < 0.006
 
 
 def test_wf4_mix_drivers(data):
@@ -139,10 +139,10 @@ def test_wf4_mix_drivers(data):
     wf4 = _run(con, dd.ca_sql_wf4(T, "MONTH", W, "donem_ay"))
     top = m.reindex(m["mixdrv"].abs().sort_values(ascending=False).index).head(7)
     for lbl in top.index:
-        got = float(wf4[wf4["STEP"] == lbl]["DELTA_BPS"].iloc[0])
-        assert abs(got - m.loc[lbl, "mixdrv"]) < 0.15
-    am = float(wf4[wf4["STEP"] == "After Mix"]["DELTA_BPS"].iloc[0])
-    assert abs(am - (start + m["mix"].sum())) < 0.3   # Σmixdrv = Σmix kimliği
+        got = float(wf4[wf4["STEP"] == lbl]["DELTA_PCT"].iloc[0])
+        assert abs(got - m.loc[lbl, "mixdrv"]) < 0.006
+    am = float(wf4[wf4["STEP"] == "After Mix"]["DELTA_PCT"].iloc[0])
+    assert abs(am - (start + m["mix"].sum())) < 0.012   # Σmixdrv = Σmix kimliği
 
 
 def test_bubbles_units_and_cap(data):
@@ -161,6 +161,41 @@ def test_bubbles_units_and_cap(data):
     lblr = br.iloc[0]["AD"]
     assert abs(br.iloc[0]["X_DEGER"]
                - (m.loc[lblr, "r1"] - m.loc[lblr, "r0"]) * 10000) < 0.15
+    # 5. kolon = WAvg t₁ (%): scatter sözleşmesiyle yatay referans çizgisi olur
+    wavg_col = next(c for c in bb.columns if c.startswith("WAVG"))
+    tot_b1 = m["b1"].sum()
+    wavg_want = (m["b1"] * m["r1"]).sum() / tot_b1 * 100
+    assert abs(float(bb.iloc[0][wavg_col]) - wavg_want) < 0.006
+    assert bb[wavg_col].nunique() == 1   # her satırda aynı değer
+
+
+def test_scatter_query_ref_line_apply():
+    """execute_block_sqls scatter sözleşmesi: 5. kolon → source='query' yatay
+    çizgi; elle eklenen çizgiler korunur; kolon kalkınca query çizgisi düşer."""
+    from presentations.nodes.execute_block_sqls import apply_data_to_config
+
+    blk = {"id": "b1", "type": "scatter_chart",
+           "config": {"points": [],
+                      "ref_lines": [{"axis": "x", "value": 5, "label": "elle"}]}}
+    ds5 = {"columns": ["AD", "X", "Y", "BOYUT", "WAvg (%)"],
+           "rows": [["a", 1, 2, 3, 45.67], ["b", 2, 3, 4, 45.67]]}
+    apply_data_to_config(blk, ds5)
+    lines = blk["config"]["ref_lines"]
+    assert {"axis": "x", "value": 5, "label": "elle"} in lines
+    q = [l for l in lines if l.get("source") == "query"]
+    assert len(q) == 1 and q[0]["value"] == 45.67 and q[0]["axis"] == "y"
+    assert q[0]["label"] == "WAvg (%)"
+
+    # Tekrar koşum çizgiyi BİRİKTİRMEZ, günceller
+    apply_data_to_config(blk, {"columns": ds5["columns"],
+                               "rows": [["a", 1, 2, 3, 44.0]]})
+    q = [l for l in blk["config"]["ref_lines"] if l.get("source") == "query"]
+    assert len(q) == 1 and q[0]["value"] == 44.0
+
+    # 5. kolon kalkarsa query çizgisi düşer, elle eklenen kalır
+    apply_data_to_config(blk, {"columns": ["AD", "X", "Y"],
+                               "rows": [["a", 1, 2]]})
+    assert blk["config"]["ref_lines"] == [{"axis": "x", "value": 5, "label": "elle"}]
 
 
 def test_heatmap_delta_and_level(data):
@@ -177,6 +212,7 @@ def test_heatmap_delta_and_level(data):
     r0 = cell("2026-05-01", "BIREYSEL", "AUM_0_100K")
     r1 = cell("2026-06-01", "BIREYSEL", "AUM_0_100K")
     pick = (hm_d["SEGMENT"] == "BIREYSEL") & (hm_d["AUM_BANDI"] == "AUM_0_100K")
+    # Heatmap Δ bilinçli olarak bps kalır (hücre değerleri küçük; kaynak da bps)
     assert abs(float(hm_d[pick]["DELTA_BPS"].iloc[0]) - (r1 - r0) * 10000) < 0.15
     pick_l = (hm_l["SEGMENT"] == "BIREYSEL") & (hm_l["AUM_BANDI"] == "AUM_0_100K")
     assert abs(float(hm_l[pick_l]["FAIZ_PCT"].iloc[0]) - r1 * 100) < 0.05

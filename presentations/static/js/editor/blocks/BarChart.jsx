@@ -23,6 +23,7 @@ export default function BarChart({ block }) {
     borderRadius:   typeof config.border_radius === 'number' ? config.border_radius : 4,
     distributed:    !!config.distributed,
     colors:         Array.isArray(config.colors) ? config.colors : undefined,
+    refLines:       config.ref_lines,
   });
 
   // key forces ApexCharts to re-measure when the user changes width
