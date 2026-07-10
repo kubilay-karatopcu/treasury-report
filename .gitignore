@@ -23,8 +23,9 @@ Thumbs.db
 # Claude Code workspace (sessions, worktrees, memory)
 .claude/
 
-# Build artifacts — prod ortamında `bash presentations/build.sh` ile üretilecek
-presentations/static/js/bundle.js
+# Build artifacts — editör bundle'ı (bundle.js) artık git'te taşınır (ofiste
+# npm/build gerektirmesin diye; kaynak JS değişince yeniden build + commit).
+# Diğer bundle'lar prod ortamında `bash presentations/build.sh` ile üretilir.
 presentations/static/js/bundle.js.map
 presentations/static/js/hazirlik.bundle.js
 presentations/static/js/hazirlik.bundle.js.map
