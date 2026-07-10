@@ -54,6 +54,13 @@ class PresentationSession:
 
     _conn: Optional[duckdb.DuckDBPyConnection] = field(default=None, init=False)
     _manifest: Optional[dict] = field(default=None, init=False)
+    # Dış-yazar tespiti: manifest S3'e uygulama DIŞINDAN da yazılabilir
+    # (jobs/deposits_dashboards.py gibi importer'lar). Bellek kopyası eskimesin
+    # diye ETag'i saklayıp ~30 sn'de bir HEAD ile karşılaştırırız; değiştiyse
+    # S3'ten yeniden yükleriz. HEAD desteklemeyen DataClient'larda (dev stub)
+    # kontrol sessizce devre dışı kalır — eski davranış.
+    _manifest_etag: Optional[str] = field(default=None, init=False)
+    _manifest_checked_at: float = field(default=0.0, init=False)
     _last_basket_signature: Optional[str] = field(default=None, init=False)
     _last_used: float = field(default_factory=time.time, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
@@ -146,12 +153,48 @@ class PresentationSession:
 
     # ── Manifest (S3-backed) ─────────────────────────────────────────────────
 
+    def _head_etag(self) -> Optional[str]:
+        """Manifest'in S3 ETag'i — HEAD desteklenmiyorsa (dev stub) None."""
+        try:
+            head = self.dc._head(self.manifest_s3_key)
+            return (head or {}).get("ETag")
+        except Exception:
+            return None
+
+    def _maybe_reload_external(self) -> None:
+        """Bellek kopyası varken S3'te dış yazım olduysa yeniden yükle.
+
+        En fazla ~30 sn'de bir HEAD atar (hot path'i şişirmez). ETag
+        bilinmiyorsa (HEAD yok / ilk yüklemede alınamadı) hiçbir şey yapmaz.
+        """
+        now = time.monotonic()
+        if now - self._manifest_checked_at < 30.0:
+            return
+        self._manifest_checked_at = now
+        if self._manifest_etag is None:
+            return
+        etag = self._head_etag()
+        if etag is None or etag == self._manifest_etag:
+            return
+        try:
+            raw = self.dc.read_json(self.manifest_s3_key)
+        except Exception:
+            return
+        from presentations.migration import ensure_nested
+        with self._lock:
+            self._manifest = ensure_nested(raw)
+            self._manifest_etag = etag
+        log.info("session: %s/%s manifest'i dış yazımla değişmiş — S3'ten "
+                 "yeniden yüklendi (v%s)", self.user_id, self.presentation_id,
+                 (raw or {}).get("version"))
+
     def get_manifest(self, fallback: Optional[dict] = None) -> Optional[dict]:
         """Load manifest from cache, then S3, then fallback. Migrates legacy
         flat-shape manifests to nested form on first load."""
         from presentations.migration import ensure_nested
 
         if self._manifest is not None:
+            self._maybe_reload_external()
             return self._manifest
 
         try:
@@ -174,6 +217,8 @@ class PresentationSession:
                 self.set_manifest(migrated)
             else:
                 self._manifest = migrated
+                self._manifest_etag = self._head_etag()
+                self._manifest_checked_at = time.monotonic()
             return self._manifest
 
         if fallback is not None:
@@ -189,6 +234,8 @@ class PresentationSession:
             self.dc._upload_bytes(
                 self.manifest_s3_key, body, content_type="application/json"
             )
+            self._manifest_etag = self._head_etag()
+            self._manifest_checked_at = time.monotonic()
         log.info(
             "session: persisted manifest %s/%s v%s → s3://%s",
             self.user_id, self.presentation_id, manifest.get("version"),
