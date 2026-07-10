@@ -519,8 +519,12 @@ def _manifest_shell(pid, title, description, filters, sections, tables,
         "meta": {"title": title, "eyebrow": "Deposits",
                  "date": date.today().strftime("%d.%m.%Y"),
                  "description": description},
+        # duck_cache: PRISMA_* tabloları küçük, plot-hazır agregalardır —
+        # apply-filters onları İLK kullanımda oturum DuckDB'sine çeker ve
+        # blok SQL'lerini lokalde koşar (filtre değişimi = sıfır Oracle turu).
         "basket": [{"table": t, "alias": t.split(".")[-1].lower(),
-                    "column_concepts": {}} for t in tables],
+                    "column_concepts": {}, "duck_cache": True}
+                   for t in tables],
         "filters": filters,
         "blocks": sections,
         "uploads": [],

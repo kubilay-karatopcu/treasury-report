@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Database, Hash, Sparkles, Presentation, ArrowLeft } from 'lucide-react';
-import useStore from '../lib/store.js';
+import useStore, { effectivePageId, sectionOnPage } from '../lib/store.js';
 import Basket from './Basket.jsx';
 import ChatBox from './ChatBox.jsx';
 import Header from './Header.jsx';
@@ -109,11 +109,33 @@ function EditSidebar({ onPresent, width, onResizeStart }) {
 function PresentationSidebar({ onExit, width, onResizeStart }) {
   const manifest = useStore((s) => s.manifest);
   const mode     = useStore((s) => s.mode);
+  const activePageId = useStore((s) => s.activePageId);
+  const setActivePage = useStore((s) => s.setActivePage);
   const isSnapshot = mode === 'snapshot';
 
+  // Sayfa hiyerarşisi: TOC navigatörü sayfaya duyarlı — canvas'ta yalnız
+  // aktif sayfanın section'ları render olduğundan, başka sayfadaki başlığa
+  // tıklamak önce sayfayı değiştirir, render sonrası scroll eder.
+  const pages = manifest?.pages || [];
+  const activePage = effectivePageId(manifest, activePageId);
   // Flatten section_header blocks at top level + inside children, in document order.
-  const headers = collectHeaders(manifest?.blocks || []);
+  const allHeaders = collectHeaders(manifest?.blocks || []);
+  // Scroll-spy yalnız GÖRÜNÜR başlıklarla çalışır (diğer sayfadakiler DOM'da yok).
+  const headers = activePage
+    ? allHeaders.filter((h) => sectionOnPage(h, activePage))
+    : allHeaders;
   const [activeId, setActiveId] = useState(headers[0]?.id);
+
+  function gotoHeader(h) {
+    setActiveId(h.id);
+    if (activePage && h.page && h.page !== activePage) {
+      setActivePage(h.page);
+      // Sayfa değişimi yeni section'ları mount eder — scroll'u render sonrasına bırak.
+      requestAnimationFrame(() => requestAnimationFrame(() => scrollToBlock(h.id)));
+    } else {
+      scrollToBlock(h.id);
+    }
+  }
 
   // Scroll-spy: highlight the heading whose top is just above the 25% scroll line.
   useEffect(() => {
@@ -137,7 +159,7 @@ function PresentationSidebar({ onExit, width, onResizeStart }) {
     main.addEventListener('scroll', update, { passive: true });
     update();
     return () => main.removeEventListener('scroll', update);
-  }, [headers.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [headers.length, activePage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <aside className="editor-sidebar" style={width ? { width } : undefined}>
@@ -156,7 +178,43 @@ function PresentationSidebar({ onExit, width, onResizeStart }) {
             <div className="sidebar-empty">Bölüm başlığı yok.</div>
           ) : (
             <nav className="toc-list">
-              {headers.map((b, idx) => {
+              {pages.length > 0 && pages.map((pg) => (
+                <div key={pg.id} className="toc-page-group">
+                  <button
+                    type="button"
+                    className={`toc-page${pg.id === activePage ? ' is-active' : ''}`}
+                    onClick={() => setActivePage(pg.id)}
+                    title={`'${pg.title}' sayfasına geç`}
+                  >
+                    {pg.title}
+                  </button>
+                  {allHeaders
+                    .filter((h) => sectionOnPage(h, pg.id))
+                    .map((h, idx) => (
+                      <button
+                        type="button"
+                        key={`${pg.id}-${h.id}`}
+                        className={`toc-item toc-item--nested${
+                          pg.id === activePage && h.id === activeId ? ' is-active' : ''}`}
+                        onClick={() => {
+                          if (pg.id !== activePage) {
+                            setActivePage(pg.id);
+                            requestAnimationFrame(() =>
+                              requestAnimationFrame(() => scrollToBlock(h.id)));
+                            setActiveId(h.id);
+                          } else {
+                            gotoHeader(h);
+                          }
+                        }}
+                        title={`'${h.title}' bölümüne git`}
+                      >
+                        <span className="toc-item-num">{idx + 1}</span>
+                        <span className="toc-item-title">{h.title}</span>
+                      </button>
+                    ))}
+                </div>
+              ))}
+              {pages.length === 0 && headers.map((b, idx) => {
                 const active = b.id === activeId;
                 return (
                   <button

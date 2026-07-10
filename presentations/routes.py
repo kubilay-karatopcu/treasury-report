@@ -1622,9 +1622,77 @@ def apply_dashboard_filters(pid: str):
     _all_basket_aliases = [it.get("alias") for it in (manifest.get("basket") or [])
                            if it.get("alias")]
 
+    # ── Oturum tablo-önbelleği (küçük basket tabloları) ─────────────────
+    # Importer basket'e `duck_cache: true` yazar: bu tablolar İLK kullanımda
+    # bir kez Oracle'dan oturum DuckDB'sine çekilir (TTL 15 dk), blok SQL'leri
+    # Oracle→DuckDB çevirisiyle LOKALDE koşar. Filtre değişimi = sıfır Oracle
+    # turu. Çeviri/koşum hatasında sessizce Oracle'a düşülür (yalnız hızlanma
+    # kaybolur, davranış bozulmaz).
+    _duck_cache_tables = {
+        str(it.get("table", "")).upper(): it.get("alias")
+        for it in (manifest.get("basket") or [])
+        if it.get("duck_cache") and it.get("table") and it.get("alias")
+    }
+    _TCACHE_TTL = 900.0   # sn — kaynak tablolar pipeline koşusuyla değişir
+
+    def _ensure_table_cached(conn, table, alias):
+        import time as _time
+        meta = getattr(session, "_table_cache_meta", None)
+        if meta is None:
+            meta = {}
+            session._table_cache_meta = meta
+        now = _time.time()
+        ts = meta.get(table)
+        if ts is not None and now - ts < _TCACHE_TTL:
+            return
+        df = dc.get_data(base_prefix=None, dataset=f"block::tcache/{alias}",
+                         query=f"SELECT * FROM {table}", query_params={})
+        src_name = f"_tc_src_{alias}"
+        conn.register(src_name, df)
+        conn.execute(
+            f'CREATE OR REPLACE TABLE "tcache_{alias}" AS SELECT * FROM "{src_name}"')
+        try:
+            conn.unregister(src_name)
+        except Exception:
+            pass
+        meta[table] = now
+        _req_logger.info(
+            "table_cache: %s -> tcache_%s (%d satir yuklendi)",
+            table, alias, len(df))
+
+    def _try_table_cache(sql, params, block_id):
+        if not _duck_cache_tables or not sql:
+            return None
+        from .sql.oracle_duck import oracle_sql_to_duckdb, find_oracle_table_refs
+        t_refs = find_oracle_table_refs(sql)
+        if not t_refs or any(r not in _duck_cache_tables for r in t_refs):
+            return None
+        try:
+            with session.duck_conn() as conn:
+                duck_sql = sql
+                for r in t_refs:
+                    _ensure_table_cached(conn, r, _duck_cache_tables[r])
+                    duck_sql = re.sub(re.escape(r),
+                                      f'tcache_{_duck_cache_tables[r]}',
+                                      duck_sql, flags=re.IGNORECASE)
+                duck_sql = _oracle_binds_to_duckdb(oracle_sql_to_duckdb(duck_sql))
+                used = {k: v for k, v in (params or {}).items()
+                        if f"${k}" in duck_sql}
+                df = (conn.execute(duck_sql, used).fetchdf()
+                      if used else conn.execute(duck_sql).fetchdf())
+            return df
+        except Exception:
+            _req_logger.warning(
+                "table_cache: %s DuckDB yolu basarisiz - Oracle'a dusuluyor",
+                block_id, exc_info=True)
+            return None
+
     def _run_block_query(sql, params, block_id):
         refs = duck.find_view_refs(sql, _all_basket_aliases) if sql else []
         if not refs:
+            cached_df = _try_table_cache(sql, params, block_id)
+            if cached_df is not None:
+                return cached_df
             return dc.get_data(base_prefix=None, dataset=f"block::{block_id}",
                                query=sql, query_params=params)
         from .routes_scope import hydrate_block_datasets

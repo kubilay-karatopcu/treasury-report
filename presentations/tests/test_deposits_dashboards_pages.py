@@ -22,20 +22,9 @@ from jobs import deposits_dashboards as dd  # noqa: E402
 
 
 def _duck(sql, con, params):
-    sql = re.sub(r"\bNVL\b", "COALESCE", sql)
-    sql = sql.replace(" FROM DUAL", "")
-    sql = re.sub(r"\)\s+WHERE ROWNUM <= (\d+)", r") LIMIT \1", sql)
-    # Oracle band_order_expr → DuckDB
-    sql = re.sub(
-        r"TO_NUMBER\(REPLACE\(REGEXP_SUBSTR\((.+?), '\\d\+\(\[.,\]\\d\+\)\?'\), ',', '\.'\)\)",
-        r"TRY_CAST(replace(regexp_extract(\1, '\\d+([.,]\\d+)?'), ',', '.') AS DOUBLE)",
-        sql)
-    sql = re.sub(
-        r"UPPER\(REGEXP_SUBSTR\((.+?), '\\d\+\(\[.,\]\\d\+\)\?\\s\*\(\[KMB\]\)', 1, 1, 'i', 2\)\)",
-        r"UPPER(regexp_extract(\1, '(?i)\\d+([.,]\\d+)?\\s*([KMB])', 2))",
-        sql)
-    sql = sql.replace("RATIO_TO_REPORT(SUM(TRY_BALANCE)) OVER (PARTITION BY ROLL_DATE)",
-                      "SUM(TRY_BALANCE) / SUM(SUM(TRY_BALANCE)) OVER (PARTITION BY ROLL_DATE)")
+    # Üretim çevirisi — apply-filters tablo önbelleğiyle aynı yol.
+    from presentations.sql.oracle_duck import oracle_sql_to_duckdb
+    sql = oracle_sql_to_duckdb(sql)
     sql = re.sub(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)", r"$\1", sql)
     # DuckDB kullanılmayan named-param kabul etmez; tarih string'leri DATE'e
     # çevir (Oracle'da binder date objesi bağlar — testte de aynı tip olsun).
@@ -221,3 +210,51 @@ def test_band_sort_key():
         "AUM_0_100K", "AUM_100K_500K", "AUM_500K_1M", "AUM_1M_5M", "Bilinmiyor"]
     assert dd._band_sort_key("0-30") == 0
     assert dd._band_sort_key("200M+") == 200e6
+
+
+# ── Rollings: TO_CHAR + RATIO_TO_REPORT çevirisiyle müşteri listesi ─────────
+
+def test_rollings_customer_grid_translates(bal_data):
+    _, con = bal_data
+    det = pd.DataFrame({
+        "ROLL_DATE": [pd.Timestamp("2026-07-06")] * 3,
+        "FULL_NM": ["A*** B***", "C*** D***", "E*** F***"],
+        "SEGMENT": ["Tüzel", "Private", "Tüzel"],
+        "CCY_CODE": ["USD", "TRY", "TRY"],
+        "TRY_BALANCE": [3e8, 2e8, 5e7],     # sonuncu <100M → elenir
+        "INTRST_RT": [40.0, 45.0, 42.0],
+        "DTM": [30, 60, 10],
+        "ACCT_ID": [1, 2, 3],
+    })
+    con.register("ROLLD", det)
+    sql = None
+    # build_rollings'in ürettiği cust_grid SQL'ini yakala
+    class Stub:
+        def distinct(self, table, col):
+            return ["TRY", "USD"]
+        def minmax_date(self, table, col):
+            return "2026-07-01", "2026-07-10"
+        def query(self, sql, params=None):
+            return pd.DataFrame({"SEGMENT": ["Tüzel", "Private"]})
+    m, _t = dd.build_rollings(Stub(), "S")
+    blk = next(b for b in dd.iter_leaf_blocks(m) if b["id"] == "cust_grid")
+    sql = blk["query"].replace("S.PRISMA_DEP_ROLL_DETAIL", "ROLLD")
+    lit = "'TRY', 'USD'"
+    sql = sql.replace("IN (:ccy)", f"IN ({lit})")
+    out = _duck(sql, con, {"donem_from": "2026-07-01", "donem_to": "2026-07-10"})
+    # <100M elendi; TRY önce; DD/MM/YYYY formatı; gün payı % (pencere fonksiyonu
+    # HAVING SONRASI çalışır → pay, LİSTELENEN müşteriler içindeki paydır —
+    # Oracle'da da aynı semantik)
+    assert list(out["CCY_CODE"]) == ["TRY", "USD"]
+    assert out.iloc[0]["DONUS"] == "06/07/2026"
+    assert abs(float(out.iloc[0]["GUN_PAYI_PCT"]) - 2e8 / 5e8 * 100) < 0.05
+    assert abs(float(out.iloc[0]["ORT_FAIZ"]) - 45.0) < 0.01
+
+
+def test_find_oracle_table_refs():
+    from presentations.sql.oracle_duck import find_oracle_table_refs
+    sql = ("WITH f AS (SELECT * FROM A63837PY.PRISMA_DEP_OUT_MONTHLY WHERE 1=1),\n"
+           "t0 AS (SELECT MAX(MONTH) m FROM f)\n"
+           "SELECT f.MONTH FROM f, t0 JOIN a63837py.prisma_np_out_daily o ON 1=1")
+    refs = find_oracle_table_refs(sql)
+    assert refs == ["A63837PY.PRISMA_DEP_OUT_MONTHLY", "A63837PY.PRISMA_NP_OUT_DAILY"]

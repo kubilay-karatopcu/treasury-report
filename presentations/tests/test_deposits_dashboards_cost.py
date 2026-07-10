@@ -87,21 +87,13 @@ def _engine(df, d0, d1, dims):
 
 
 def _run(con, sql):
-    """Oracle SQL → DuckDB shim + koş. Kolonlar Oracle gibi UPPERCASE."""
-    sql = re.sub(r"\bNVL\b", "COALESCE", sql)
-    sql = sql.replace(" FROM DUAL", "")
-    sql = re.sub(r"\)\s+WHERE ROWNUM <= (\d+)", r") LIMIT \1", sql)
-    # band_order_expr → DuckDB karşılığı
-    sql = re.sub(
-        r"TO_NUMBER\(REPLACE\(REGEXP_SUBSTR\((.+?), '\\d\+\(\[.,\]\\d\+\)\?'\), ',', '\.'\)\)",
-        r"TRY_CAST(replace(regexp_extract(\1, '\\d+([.,]\\d+)?'), ',', '.') AS DOUBLE)",
-        sql)
-    sql = re.sub(
-        r"UPPER\(REGEXP_SUBSTR\((.+?), '\\d\+\(\[.,\]\\d\+\)\?\\s\*\(\[KMB\]\)', 1, 1, 'i', 2\)\)",
-        r"UPPER(regexp_extract(\1, '(?i)\\d+([.,]\\d+)?\\s*([KMB])', 2))",
-        sql)
+    """Üretim çevirisi (oracle_duck) + koş — testler apply-filters'ın tablo
+    önbelleği yolunun kullandığı ÇEVİRİCİYİ doğrular. Kolonlar Oracle gibi
+    UPPERCASE'e çevrilir."""
+    from presentations.sql.oracle_duck import oracle_sql_to_duckdb
     lit = ", ".join(f"'{d}'" for d in DIMS)
     sql = sql.replace("IN (:gruplama)", f"IN ({lit})")
+    sql = oracle_sql_to_duckdb(sql)
     sql = re.sub(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)", r"$\1", sql)
     out = con.execute(sql, {"donem_ay_from": "2026-05-01",
                             "donem_ay_to": "2026-06-01"}).fetchdf()
