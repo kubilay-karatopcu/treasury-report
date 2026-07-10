@@ -273,7 +273,46 @@ export function pieChartOptions({
   };
 }
 
+// Delta (±) içeren heatmap'ler için ıraksak renk skalası: negatif = adaçayı
+// (maliyet düşüşü), pozitif = terracotta (artış). Tek işaretli veri eski
+// tek-ton gölgelemede kalır — bakiye/adet heatmap'leri değişmez.
+const HEAT_NEG = ['#93B297', '#7A9B7E', '#5F8265'];
+const HEAT_POS = ['#CBA490', '#B8826B', '#9E6B52'];
+
+function _divergingRanges(series) {
+  const vals = [];
+  for (const s of series || []) {
+    for (const d of s.data || []) {
+      const y = Number(d && d.y);
+      if (Number.isFinite(y)) vals.push(y);
+    }
+  }
+  if (!vals.length) return null;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  if (!(min < 0 && max > 0)) return null;   // tek işaret → varsayılan gölgeleme
+  const ranges = [];
+  const negStep = min / HEAT_NEG.length;    // negatif: min→0, koyudan açığa
+  for (let i = 0; i < HEAT_NEG.length; i++) {
+    ranges.push({
+      from: min - negStep * i,
+      to: i === HEAT_NEG.length - 1 ? 0 : min - negStep * (i + 1),
+      color: HEAT_NEG[HEAT_NEG.length - 1 - i],
+    });
+  }
+  const posStep = max / HEAT_POS.length;
+  for (let i = 0; i < HEAT_POS.length; i++) {
+    ranges.push({
+      from: i === 0 ? 1e-9 : posStep * i,
+      to: posStep * (i + 1),
+      color: HEAT_POS[i],
+    });
+  }
+  return ranges;
+}
+
 export function heatmapOptions({ categories, series, height = 280, showValues = true }) {
+  const ranges = _divergingRanges(series);
   return {
     chart: {
       type: 'heatmap',
@@ -292,9 +331,10 @@ export function heatmapOptions({ categories, series, height = 280, showValues = 
     plotOptions: {
       heatmap: {
         radius: 4,
-        enableShades: true,
+        enableShades: !ranges,
         shadeIntensity: 0.5,
         useFillColorAsStroke: false,
+        ...(ranges ? { colorScale: { ranges } } : {}),
       },
     },
     tooltip: { y: { formatter: formatNumber } },
@@ -375,7 +415,28 @@ export function waterfallSeries({ categories, values, totals }) {
   return [{ name: 'Δ', data }];
 }
 
-export function waterfallOptions({ height = 280, unit = '', showDataLabels = true }) {
+export function waterfallOptions({ height = 280, unit = '', showDataLabels = true, data = null }) {
+  // Kaynak dashboard'un y_floor davranışı: köprü yüksek bir taban değer
+  // (ör. ~4500 bps) etrafında ±küçük deltalarla oynuyorsa, 0'dan başlayan
+  // eksen deltaları görünmez kılar. Kümülatif aralık tabandan kopuksa ekseni
+  // aralığa kırp; 0'a yakın köprülerde (bakiye köprüsü gibi) dokunma.
+  let yMin;
+  let yMax;
+  if (Array.isArray(data) && data.length) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of data) {
+      if (!p || !Array.isArray(p.y)) continue;
+      lo = Math.min(lo, p.y[0], p.y[1]);
+      hi = Math.max(hi, p.y[0], p.y[1]);
+    }
+    const span = hi - lo;
+    if (Number.isFinite(span) && lo > 0 && span < lo) {
+      const pad = Math.max(span * 0.15, 1e-9);
+      yMin = lo - pad;
+      yMax = hi + pad;
+    }
+  }
   return {
     chart: { ...CHART_BASE, type: 'rangeBar', height },
     ...CHART_THEME,
@@ -390,7 +451,7 @@ export function waterfallOptions({ height = 280, unit = '', showDataLabels = tru
       style: { fontSize: '10px' },
     },
     xaxis: { labels: { ...COMMON_AXIS_STYLE, rotate: -35, rotateAlways: false } },
-    yaxis: { labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber } },
+    yaxis: { min: yMin, max: yMax, labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber } },
     grid: COMMON_GRID,
     legend: { show: false },
     tooltip: {
@@ -411,28 +472,48 @@ export function scatterSeries(points) {
   return (points || []).map((p, i) => ({
     name: p.name || `Nokta ${i + 1}`,
     data: [[Number(p.x) || 0, Number(p.y) || 0,
-            Math.max(4, Number(p.size) || 8)]],
+            Math.max(0.01, Number(p.size) || 1)]],
   }));
 }
 
+// Eksen aralığını veriden pay bırakarak sabitle: Apex bubble, yarıçapı eksen
+// aralığına katmaz — uçlardaki büyük baloncuklar plot alanının dışına
+// taşıyordu. Yarıçap ayrıca maxBubbleRadius ile sınırlanır, böylece boyut
+// kolonu ham ₺M değeri de olsa (ör. 70.000) baloncuk plot'a sığar.
+function _paddedRange(values) {
+  if (!values.length) return {};
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+  const span = Math.max(hi - lo, Math.max(Math.abs(hi), Math.abs(lo)) * 0.1, 1e-6);
+  return { min: lo - span * 0.18, max: hi + span * 0.18 };
+}
+
 export function scatterOptions({ height = 300, xTitle = '', yTitle = '',
-                                 showDataLabels = false }) {
+                                 showDataLabels = false, points = [] }) {
+  const xr = _paddedRange(points.map((p) => Number(p.x) || 0));
+  const yr = _paddedRange(points.map((p) => Number(p.y) || 0));
   return {
     chart: { ...CHART_BASE, type: 'bubble', height, zoom: { enabled: false } },
     ...CHART_THEME,
     dataLabels: { enabled: showDataLabels },
     fill: { opacity: 0.75 },
+    plotOptions: { bubble: { minBubbleRadius: 4, maxBubbleRadius: 24 } },
     xaxis: {
+      min: xr.min,
+      max: xr.max,
       tickAmount: 6,
       labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
       title: { text: xTitle, style: { fontSize: '11px' } },
     },
     yaxis: {
+      min: yr.min,
+      max: yr.max,
       labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber },
       title: { text: yTitle, style: { fontSize: '11px' } },
     },
     grid: COMMON_GRID,
-    legend: { position: 'bottom', fontSize: '11px' },
+    // Derin gruplamada nokta sayısı büyür — legend liste plot'u ezmesin.
+    legend: { show: points.length <= 14, position: 'bottom', fontSize: '11px' },
     tooltip: { ...COMMON_TOOLTIP },
   };
 }

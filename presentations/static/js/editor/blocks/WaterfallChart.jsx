@@ -22,6 +22,7 @@ export default function WaterfallChart({ block }) {
     height: 280,
     unit: config.unit || '',
     showDataLabels: config.show_data_labels !== false,
+    data: series[0].data,
   });
 
   const remountKey = `${block.id}-${block.width || 'full'}`;
