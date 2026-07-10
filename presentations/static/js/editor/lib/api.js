@@ -315,11 +315,14 @@ export async function runBlockManual(blockId, { query, variables, variableOverri
  * checks cache (exact / subset / miss), executes if needed, and returns
  * per-block status.
  */
-export async function applyDashboardFilters(filterState) {
+export async function applyDashboardFilters(filterState, blockIds = null) {
+  // blockIds (ops.): sayfa-kapsamlı uygulama — yalnız bu bloklar çözülür.
+  const payload = { filter_state: filterState };
+  if (Array.isArray(blockIds) && blockIds.length) payload.block_ids = blockIds;
   const resp = await fetch(`${API_BASE}/apply-filters`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filter_state: filterState }),
+    body: JSON.stringify(payload),
   });
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok || !body.ok) {

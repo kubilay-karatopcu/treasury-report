@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import useStore from '../lib/store.js';
+import useStore, { effectivePageId } from '../lib/store.js';
 import { fetchConceptFilterSuggestions } from '../lib/api.js';
 // _resolveDateExpr lives in the shared module now (used by both the editor and
 // the Hazırlık Filtreleme tab — single source, mirrors backend parse_date_expr).
@@ -36,6 +36,7 @@ const STATUS_LABELS = {
 
 export default function FilterBar() {
   const manifest        = useStore((s) => s.manifest);
+  const activePageId    = useStore((s) => s.activePageId);
   const layoutEditMode  = useStore((s) => s.layoutEditMode);
   const viewMode        = useStore((s) => s.viewMode);
   const filterState     = useStore((s) => s.filterState);
@@ -50,9 +51,16 @@ export default function FilterBar() {
   const [err, setErr] = useState(null);
 
   const filters = manifest?.filters || [];
+  // Sayfa hiyerarşisi: aktif sayfaya bağlı olmayan (global) + aktif sayfanın
+  // filtreleri görünür; diğer sayfaların filtreleri gizlenir (kaynak şikayet:
+  // aylık/günlük dönem filtreleri aynı barda karışıyordu).
+  const activePage = effectivePageId(manifest, activePageId);
+  const pageFilters = activePage
+    ? filters.filter((f) => !f.page || f.page === activePage)
+    : filters;
   // date_range filtreleri sağ-alt sabit FixedDateFilter widget'ında gösterilir;
   // üst bar yalnız enum/sayı filtrelerini + ekle/güncelle aksiyonlarını taşır.
-  const barFilters = filters.filter((f) => f.type !== 'date_range');
+  const barFilters = pageFilters.filter((f) => f.type !== 'date_range');
   // If no bar filters and not in layout-edit mode, render nothing — keeps
   // Phase 1-6 presentations visually unchanged.
   if (barFilters.length === 0 && !(layoutEditMode && viewMode === 'edit')) {

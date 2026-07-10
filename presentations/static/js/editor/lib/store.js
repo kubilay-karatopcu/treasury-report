@@ -911,6 +911,74 @@ const useStore = create((set) => ({
     return changed;
   },
 
+  // ── Sayfa hiyerarşisi (Page > Başlıklar) ──────────────────────────────
+  // manifest.pages: [{id, title}] — canvas üstünde sekme. section_header'ın
+  // (ops.) `page` alanı onu bir sayfaya bağlar; alansızlar her sayfada.
+  activePageId: null,
+  setActivePage: (id) => set({ activePageId: id, selectedBlockId: null }),
+
+  addPage: (title) => {
+    const state = useStore.getState();
+    if (!state.manifest) return;
+    const pages = state.manifest.pages || [];
+    const pid = `pg_${Date.now().toString(36)}`;
+    const patches = [];
+    if (state.manifest.pages === undefined) {
+      patches.push({ op: 'add', path: '/pages', value: [] });
+    }
+    patches.push({ op: 'add', path: `/pages/${pages.length}`,
+                   value: { id: pid, title: title || 'Yeni Sayfa' } });
+    set((s) => {
+      const next = _applyPatches(s.manifest, patches);
+      next.version = (next.version || 0) + 1;
+      return { manifest: next, activePageId: pid };
+    });
+    submitPatches(patches).catch((e) => console.error('addPage persist failed:', e));
+  },
+
+  renamePage: (pageId, title) => {
+    const state = useStore.getState();
+    const pages = state.manifest?.pages || [];
+    const idx = pages.findIndex((p) => p.id === pageId);
+    if (idx < 0 || !title) return;
+    const patch = { op: 'replace', path: `/pages/${idx}/title`, value: title };
+    set((s) => {
+      const next = _applyPatches(s.manifest, [patch]);
+      next.version = (next.version || 0) + 1;
+      return { manifest: next };
+    });
+    submitPatches([patch]).catch((e) => console.error('renamePage persist failed:', e));
+  },
+
+  deletePage: (pageId) => {
+    const state = useStore.getState();
+    const m = state.manifest;
+    const pages = m?.pages || [];
+    const idx = pages.findIndex((p) => p.id === pageId);
+    if (idx < 0) return;
+    const patches = [{ op: 'remove', path: `/pages/${idx}` }];
+    // Bu sayfaya bağlı section/filtre referanslarını temizle — validasyon
+    // bilinmeyen page id'sini reddeder; sayfasızlar "her sayfada" olur.
+    (m.blocks || []).forEach((sec, i) => {
+      if (sec.page === pageId) {
+        patches.push({ op: 'remove', path: `/blocks/${i}/page` });
+      }
+    });
+    (m.filters || []).forEach((f, i) => {
+      if (f.page === pageId) {
+        patches.push({ op: 'replace', path: `/filters/${i}/page`, value: null });
+      }
+    });
+    set((s) => {
+      const next = _applyPatches(s.manifest, patches);
+      next.version = (next.version || 0) + 1;
+      const remaining = (next.pages || []).filter((p) => p.id !== pageId);
+      return { manifest: next,
+               activePageId: remaining[0] ? remaining[0].id : null };
+    });
+    submitPatches(patches).catch((e) => console.error('deletePage persist failed:', e));
+  },
+
   addDashboardFilter: (filterDef) => {
     const state = useStore.getState();
     if (!state.manifest) return;
@@ -980,7 +1048,12 @@ const useStore = create((set) => ({
     if (!state.manifest) return;
     set({ filterBusy: true, filterStatus: {}, conceptStatus: {}, filterErrors: [] });
     try {
-      const result = await applyDashboardFilters(state.filterState);
+      // Sayfa hiyerarşisi varsa yalnız aktif sayfanın bloklarını uygula —
+      // hem semantik doğru (sayfanın filtreleri sayfanın bloklarına) hem de
+      // Oracle turu yarı yarıya iner. Sayfa yoksa eski davranış (tümü).
+      const pageBlockIds = collectPageBlockIds(
+        state.manifest, effectivePageId(state.manifest, state.activePageId));
+      const result = await applyDashboardFilters(state.filterState, pageBlockIds);
       // Refresh manifest from server (server wrote block.data_source +
       // block.config + bumped version).
       // We don't have a single-shot fetch helper in the store; the simplest
@@ -1172,3 +1245,37 @@ const useStore = create((set) => ({
 }));
 
 export default useStore;
+
+// ── Sayfa yardımcıları ─────────────────────────────────────────────────────
+// Aktif sayfa: kullanıcı seçimi yoksa ilk sayfa. pages yoksa null (sekme yok,
+// eski davranış).
+export function effectivePageId(manifest, activePageId) {
+  const pages = manifest?.pages;
+  if (!Array.isArray(pages) || pages.length === 0) return null;
+  if (activePageId && pages.some((p) => p.id === activePageId)) return activePageId;
+  return pages[0].id;
+}
+
+// Bir section aktif sayfada görünür mü? `page` alansız section'lar her
+// sayfada görünür (global).
+export function sectionOnPage(section, pageId) {
+  if (!pageId) return true;
+  return !section.page || section.page === pageId;
+}
+
+// Aktif sayfadaki tüm leaf blok id'leri (carousel/canvas içi dahil) — sayfa
+// kapsamlı apply-filters için. pages yoksa null (sunucu tümünü koşar).
+export function collectPageBlockIds(manifest, pageId) {
+  if (!pageId) return null;
+  const ids = [];
+  const walk = (blocks) => {
+    for (const b of blocks || []) {
+      if (Array.isArray(b.children)) walk(b.children);
+      else ids.push(b.id);
+    }
+  };
+  for (const sec of manifest?.blocks || []) {
+    if (sectionOnPage(sec, pageId)) walk(sec.children);
+  }
+  return ids;
+}

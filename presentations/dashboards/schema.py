@@ -101,6 +101,9 @@ class DashboardFilter(BaseModel):
     # a {from, to} dict, so the backend predicate is unchanged — this only flips
     # the picker between single-day and range modes.
     single: bool = False
+    # Sayfa kapsamı (ops.): manifest.pages[].id — filtre bar'ı bu filtreyi
+    # yalnız o sayfa aktifken gösterir. None = her sayfada (global filtre).
+    page: str | None = None
 
     @field_validator("semantic_tag")
     @classmethod

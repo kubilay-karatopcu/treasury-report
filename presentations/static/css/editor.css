@@ -3612,6 +3612,9 @@ body.theme-dark .props-sql-helper__table td code {
 .docs-side-panel,
 .props-side-panel {
   position: relative;     /* anchor for absolute-positioned resize handle */
+  /* Sağ-alt sabit tarih filtresi (.fdf-fixed, z-index 60) panelin butonlarını
+     örtüyordu — panel üstte kalsın. */
+  z-index: 70;
 }
 
 .resize-handle {
@@ -5526,6 +5529,7 @@ body.theme-dark .props-sql-helper__table td code {
    AddBlockPanel — sağ taraf "Blok Ekle" paneli (PropertiesPanel ile aynı slot)
    ════════════════════════════════════════════════════════════════════════════ */
 .add-block-panel {
+  z-index: 70;   /* .fdf-fixed (60) üstünde kalsın */
   background: #ffffff;
   border-left: 1px solid #e2e8f0;
   display: flex;
@@ -6826,3 +6830,41 @@ body.theme-dark .props-sql-helper__table td code {
   white-space: pre-wrap; word-break: break-word; color: #334155; background: #ffffff;
   max-height: 220px; overflow: auto;
 }
+
+/* ── Sayfa sekmeleri (Page > Başlıklar hiyerarşisi) ───────────────────────── */
+.page-tabs {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 4px 0 14px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--ts-hairline, #e2e8f0);
+}
+.page-tab {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--ts-hairline, #e2e8f0); border-radius: 8px 8px 0 0;
+  background: transparent; overflow: hidden;
+}
+.page-tab__label {
+  border: none; background: none; cursor: pointer;
+  padding: 7px 14px; font-size: 13px; font-weight: 500;
+  color: var(--ts-ink-soft, #64748b);
+}
+.page-tab.is-active {
+  background: var(--ts-surface, #ffffff);
+  border-bottom-color: transparent;
+  box-shadow: 0 -2px 0 var(--ts-accent, #d4a574) inset;
+}
+.page-tab.is-active .page-tab__label { color: var(--ts-ink, #1e293b); font-weight: 600; }
+.page-tab__actions { display: inline-flex; gap: 2px; padding-right: 6px; }
+.page-tab__icon {
+  border: none; background: none; cursor: pointer; padding: 2px;
+  color: var(--ts-ink-soft, #94a3b8); border-radius: 4px;
+  display: inline-flex; align-items: center;
+}
+.page-tab__icon:hover { color: var(--ts-ink, #1e293b); background: rgba(148,163,184,0.15); }
+.page-tab__icon--danger:hover { color: #dc2626; }
+.page-tab--add {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px dashed var(--ts-hairline, #cbd5e1); border-radius: 8px;
+  background: none; cursor: pointer; padding: 6px 10px;
+  font-size: 12px; color: var(--ts-ink-soft, #64748b);
+}
+.page-tab--add:hover { color: var(--ts-ink, #1e293b); border-color: var(--ts-accent, #d4a574); }

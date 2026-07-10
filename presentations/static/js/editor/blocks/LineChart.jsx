@@ -1,5 +1,5 @@
 import Chart from 'react-apexcharts';
-import { lineChartOptions, normalizeLabels } from './chartHelpers.js';
+import { lineChartOptions, normalizeLabels, applyAxisLimits, limitsFromConfig } from './chartHelpers.js';
 
 export default function LineChart({ block }) {
   const config = block.config || {};
@@ -15,7 +15,7 @@ export default function LineChart({ block }) {
     return <div className="chart-empty">Grafik için veri yok.</div>;
   }
 
-  const options = lineChartOptions({
+  const options = applyAxisLimits(lineChartOptions({
     categories,
     series,
     height: 260,
@@ -23,7 +23,7 @@ export default function LineChart({ block }) {
     strokeWidth:  typeof config.stroke_width === 'number' ? config.stroke_width : 2,
     showMarkers:  !!config.show_markers,
     refLines:     config.ref_lines,
-  });
+  }), limitsFromConfig(config));
 
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (

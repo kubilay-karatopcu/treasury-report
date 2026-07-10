@@ -74,6 +74,41 @@ const COMMON_TOOLTIP = {
 // tazelenir (bkz. execute_block_sqls scatter sözleşmesi, 5. kolon).
 export const REF_LINE_COLOR = '#D4A574';
 
+
+// ── Eksen limitleri ─────────────────────────────────────────────────────
+// config.x_min/x_max/y_min/y_max (ops., sayı) — kullanıcı ekseni elle
+// kırpabilir (ör. 0'dan başlayan waterfall'da deltaları büyütmek için).
+// null/undefined = otomatik. axisLimits() Apex axis objesine min/max basar.
+export function applyAxisLimits(options, { xMin, xMax, yMin, yMax } = {}) {
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const ax = { xMin: num(xMin), xMax: num(xMax), yMin: num(yMin), yMax: num(yMax) };
+  if (ax.xMin !== undefined || ax.xMax !== undefined) {
+    options.xaxis = { ...(options.xaxis || {}) };
+    if (ax.xMin !== undefined) options.xaxis.min = ax.xMin;
+    if (ax.xMax !== undefined) options.xaxis.max = ax.xMax;
+  }
+  if (ax.yMin !== undefined || ax.yMax !== undefined) {
+    if (Array.isArray(options.yaxis)) {
+      // combo: limitler SOL eksene uygulanır (ilk eksen)
+      options.yaxis = options.yaxis.map((y, i) => (i === 0
+        ? { ...y,
+            ...(ax.yMin !== undefined ? { min: ax.yMin } : {}),
+            ...(ax.yMax !== undefined ? { max: ax.yMax } : {}) }
+        : y));
+    } else {
+      options.yaxis = { ...(options.yaxis || {}) };
+      if (ax.yMin !== undefined) options.yaxis.min = ax.yMin;
+      if (ax.yMax !== undefined) options.yaxis.max = ax.yMax;
+    }
+  }
+  return options;
+}
+
+export function limitsFromConfig(config) {
+  return { xMin: config?.x_min, xMax: config?.x_max,
+           yMin: config?.y_min, yMax: config?.y_max };
+}
+
 export function refLineAnnotations(refLines) {
   const items = Array.isArray(refLines) ? refLines : [];
   const yaxis = [];
@@ -361,8 +396,39 @@ function _divergingRanges(series) {
   return ranges;
 }
 
+// Tek işaretli heatmap verisi için sıralı (sequential) skala — Apex'in
+// varsayılan tek-ton gölgelemesi kirli görünüyordu; min→max 5 kademeli
+// açıktan koyuya terracotta rampası okunur bir ısı haritası verir.
+const HEAT_SEQ = ['#F1E8DE', '#E0C9AF', '#CBA482', '#B08057', '#8F6239'];
+
+function _sequentialRanges(series) {
+  const vals = [];
+  for (const s of series || []) {
+    for (const d of s.data || []) {
+      const y = Number(d && d.y);
+      if (Number.isFinite(y)) vals.push(y);
+    }
+  }
+  if (!vals.length) return null;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  if (!(max > min)) return null;
+  const step = (max - min) / HEAT_SEQ.length;
+  return HEAT_SEQ.map((color, i) => ({
+    from: i === 0 ? min - Math.abs(min) * 1e-9 - 1e-9 : min + step * i,
+    to: i === HEAT_SEQ.length - 1 ? max : min + step * (i + 1),
+    color,
+  }));
+}
+
 export function heatmapOptions({ categories, series, height = 280, showValues = true }) {
-  const ranges = _divergingRanges(series);
+  // Δ verisi (± karışık) → ıraksak; tek işaret → sıralı ramp. Her iki durumda
+  // da Apex'in `enableShades` varsayılanından çıkıyoruz (madde: "heatmap
+  // çirkin görünüyor").
+  const ranges = _divergingRanges(series) || _sequentialRanges(series);
+  // Kalabalık/uzun x etiketleri ip gibi üst üste biniyordu → eğim ver.
+  const maxLabelLen = Math.max(0, ...(categories || []).map((c) => String(c).length));
+  const rotated = (categories || []).length > 6 || maxLabelLen > 8;
   return {
     chart: {
       type: 'heatmap',
@@ -372,15 +438,23 @@ export function heatmapOptions({ categories, series, height = 280, showValues = 
     ...CHART_THEME,
     dataLabels: { enabled: showValues, style: { fontSize: '10px' } },
     colors: [theme.chart.palette[0]],
+    stroke: { width: 2, colors: [theme.chart.gridBorder] },
     xaxis: {
       type: 'category',
       categories,
-      labels: COMMON_AXIS_STYLE,
+      labels: {
+        ...COMMON_AXIS_STYLE,
+        rotate: rotated ? -45 : 0,
+        rotateAlways: rotated,
+        hideOverlappingLabels: true,
+        trim: true,
+        maxHeight: 90,
+      },
     },
     yaxis: { labels: COMMON_AXIS_STYLE },
     plotOptions: {
       heatmap: {
-        radius: 4,
+        radius: 2,
         enableShades: !ranges,
         shadeIntensity: 0.5,
         useFillColorAsStroke: false,
@@ -559,7 +633,14 @@ export function scatterOptions({ height = 300, xTitle = '', yTitle = '',
     chart: { ...CHART_BASE, type: 'bubble', height, zoom: { enabled: false } },
     ...CHART_THEME,
     dataLabels: { enabled: showDataLabels },
-    fill: { opacity: 0.75 },
+    // Gradyan dolgu + ince kenar: iç içe geçen baloncuklar ayrışır (madde:
+    // "bubble chart kötü görünüyor").
+    fill: {
+      type: 'gradient',
+      opacity: 0.85,
+      gradient: { shade: 'light', shadeIntensity: 0.35, inverseColors: false },
+    },
+    stroke: { width: 1.5, colors: [theme.chart.gridBorder] },
     plotOptions: { bubble: { minBubbleRadius: 4, maxBubbleRadius: 24 } },
     xaxis: {
       min: xr.min,

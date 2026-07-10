@@ -88,7 +88,7 @@ BLOCK_TYPES = LEAF_BLOCK_TYPES | CONTAINER_BLOCK_TYPES
 
 IMMUTABLE_BLOCK_FIELDS = frozenset({"id", "type", "locked"})
 
-ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/", "/filters", "/filter_state", "/user_concepts")
+ALLOWED_PATCH_PREFIXES = ("/blocks/", "/meta/", "/filters", "/filter_state", "/user_concepts", "/pages")
 
 # Block width — Phase 6.
 WIDTH_VALUES = frozenset({"full", "1/2", "1/3", "2/3"})
@@ -278,6 +278,14 @@ def _validate_chart_style(block: dict) -> list[str]:
     if btype == "heatmap":
         if "show_values" in config and not isinstance(config["show_values"], bool):
             errors.append(f"Block {bid!r}: show_values must be bool")
+
+    # Eksen limitleri — kartezyen chart'larda ops. sayısal x/y min/max.
+    if btype in REF_LINE_TYPES:
+        for fld in ("x_min", "x_max", "y_min", "y_max"):
+            v = config.get(fld)
+            if v is not None and (not isinstance(v, (int, float))
+                                  or isinstance(v, bool)):
+                errors.append(f"Block {bid!r}: {fld} must be numeric or null")
 
     # Referans çizgileri — kartezyen chart'larda opsiyonel yatay/dikey kesikli
     # çizgi. axis: 'y' → value sayısal; 'x' → sayı (sayısal eksen) veya
@@ -503,6 +511,32 @@ def validate_manifest(manifest: dict) -> list[str]:
         errors.append("Missing 'blocks' key")
         return errors
 
+    # ── Pages (opsiyonel) — dashboard içi sayfa hiyerarşisi ──────────────
+    # pages: [{id, title}] üstte sekme olarak görünür; section_header'lar
+    # (ops.) `page` alanıyla bir sayfaya bağlanır, bağlanmayanlar her sayfada
+    # görünür. filters[] de (ops.) `page` taşıyabilir — filtre bar'ı yalnız
+    # aktif sayfanın filtrelerini gösterir. pages yokken davranış eskisiyle
+    # birebir aynıdır.
+    pages = manifest.get("pages")
+    page_ids: set[str] = set()
+    if pages is not None:
+        if not isinstance(pages, list):
+            errors.append("manifest.pages must be a list")
+        else:
+            for i, pg in enumerate(pages):
+                if not isinstance(pg, dict):
+                    errors.append(f"pages[{i}] must be an object")
+                    continue
+                pid = pg.get("id")
+                if not pid or not isinstance(pid, str):
+                    errors.append(f"pages[{i}] missing 'id'")
+                    continue
+                if pid in page_ids:
+                    errors.append(f"pages[{i}] duplicate id {pid!r}")
+                page_ids.add(pid)
+                if not pg.get("title") or not isinstance(pg.get("title"), str):
+                    errors.append(f"pages[{i}] ({pid!r}) missing 'title'")
+
     blocks = manifest.get("blocks", [])
     for i, block in enumerate(blocks):
         if block.get("type") != "section_header":
@@ -510,6 +544,13 @@ def validate_manifest(manifest: dict) -> list[str]:
                 f"Top-level blocks[{i}] must be a section_header (got {block.get('type')!r})"
             )
             continue
+        pg_ref = block.get("page")
+        if pg_ref is not None:
+            if not isinstance(pg_ref, str):
+                errors.append(f"blocks[{i}].page must be a string")
+            elif page_ids and pg_ref not in page_ids:
+                errors.append(
+                    f"blocks[{i}].page {pg_ref!r} does not match any pages[].id")
         errors.extend(validate_block(block, allow_section=True))
 
     # ── Phase 6.5.c: top-level filters[] (optional) ───────────────────────

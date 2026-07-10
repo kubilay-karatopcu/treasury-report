@@ -1,5 +1,5 @@
 import Chart from 'react-apexcharts';
-import { comboChartOptions, normalizeLabels } from './chartHelpers.js';
+import { comboChartOptions, normalizeLabels, applyAxisLimits, limitsFromConfig } from './chartHelpers.js';
 import { comboSeriesDefaults } from '../lib/store.js';
 
 // Combo (dual-axis) chart: single query, column-split. Each series carries a
@@ -34,7 +34,7 @@ export default function ComboChart({ block }) {
     return { ...s, name };
   });
 
-  const options = comboChartOptions({
+  const options = applyAxisLimits(comboChartOptions({
     categories,
     series: named,
     height:      260,
@@ -46,7 +46,7 @@ export default function ComboChart({ block }) {
     stacked:        !!config.stacked,
     showDataLabels: !!config.show_data_labels,
     refLines:       config.ref_lines,
-  });
+  }), limitsFromConfig(config));
 
   // ApexCharts mixed chart: each series declares its own type (bar/line).
   const series = named.map((s) => ({ name: s.name, type: s.kind, data: s.values }));
