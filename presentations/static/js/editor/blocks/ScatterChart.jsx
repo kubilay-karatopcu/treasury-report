@@ -17,6 +17,7 @@ export default function ScatterChart({ block }) {
     xTitle: config.x_title || '',
     yTitle: config.y_title || '',
     showDataLabels: !!config.show_data_labels,
+    points,
   });
 
   const remountKey = `${block.id}-${block.width || 'full'}`;
