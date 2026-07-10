@@ -91,8 +91,15 @@ def _run(con, sql):
     sql = re.sub(r"\bNVL\b", "COALESCE", sql)
     sql = sql.replace(" FROM DUAL", "")
     sql = re.sub(r"\)\s+WHERE ROWNUM <= (\d+)", r") LIMIT \1", sql)
-    sql = sql.replace("TO_NUMBER(REGEXP_SUBSTR(a, '\\d+'))",
-                      "TRY_CAST(regexp_extract(a, '\\d+') AS DOUBLE)")
+    # band_order_expr → DuckDB karşılığı
+    sql = re.sub(
+        r"TO_NUMBER\(REPLACE\(REGEXP_SUBSTR\((.+?), '\\d\+\(\[.,\]\\d\+\)\?'\), ',', '\.'\)\)",
+        r"TRY_CAST(replace(regexp_extract(\1, '\\d+([.,]\\d+)?'), ',', '.') AS DOUBLE)",
+        sql)
+    sql = re.sub(
+        r"UPPER\(REGEXP_SUBSTR\((.+?), '\\d\+\(\[.,\]\\d\+\)\?\\s\*\(\[KMB\]\)', 1, 1, 'i', 2\)\)",
+        r"UPPER(regexp_extract(\1, '(?i)\\d+([.,]\\d+)?\\s*([KMB])', 2))",
+        sql)
     lit = ", ".join(f"'{d}'" for d in DIMS)
     sql = sql.replace("IN (:gruplama)", f"IN ({lit})")
     sql = re.sub(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)", r"$\1", sql)

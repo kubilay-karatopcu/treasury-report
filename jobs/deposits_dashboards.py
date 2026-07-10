@@ -29,7 +29,21 @@ Kaynak dashboard'da olup BİLİNÇLİ getirilmeyenler (onay bekleyen liste):
   * NP heatmap hücre-hover yan combo'su; min-bubble-size slider'ı (bubble'lar
     boyuta göre ilk 40 ile sınırlanır — slider'ın yerine geçen düzenleme).
 
-Cost Analysis sayfası kaynakla BİREBİR (bu revizyonda getirilenler):
+Kalan 4 sayfa da kaynakla hizalandı (bu revizyonun kapsamı):
+  * Balance: 4'lü KPI şeridi (₺M), Kırılım/2.Kırılım filtreleri (kaynak
+    Decomposition/Second Dec. Dim select'leri), Top-8 |Δ| + Other bridge,
+    Balance+Customer heatmap carousel'leri (Δ varsayılan ↔ t₁), Composition.
+  * Tenor: bucket Bennet waterfall carousel'i (kesmesiz), ladder/Δ ₺M
+    (₺Mr değildi), Term Structure, TENOR↔DTM, tüm boyut filtreleri.
+  * Rollings: DTM histogramı kaynak kovaları (≤14/15-32/33-90/91-180/180+),
+    ≥100 mio müşteri listesi + türetilmiş kolonlar, tam-sayı pivotlar.
+  * NewBiz: bileşik→basit geri çevrim (POWER), Balance X = outstanding Δ
+    (AS-OF), D/W pencere frekansı, kanal×ortak-AUM heatmap carousel'i,
+    6'lı kaba AUM combo binleri, WAvg çizgili bubble'lar (TRY).
+  * AUM/vade bantları HER YERDE sayısal alt sınıra göre sıralı
+    (K/M/B çarpanlı — band_order_expr / _band_sort_key).
+
+Cost Analysis sayfası kaynakla BİREBİR (önceki revizyon):
   * Waterfall = 3 slaytlık carousel (kaynaktaki CA_MON_SLIDES = wf1/wf2/wf4):
     1) "Mix vs Pricing" özet köprüsü, 2) Pricing Drivers (Top 7 + Other) +
     altında Balance Growth companion bar'ı, 3) Mix Drivers (Top 7 + Other) +
@@ -54,6 +68,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -159,8 +174,36 @@ def _section(sid, title, children):
             "config": {}, "children": children}
 
 
-def _enum_domain(runner, table, col, label, fid, tag, bindings_out):
+def _band_sort_key(label) -> float:
+    """Kaynak _aum_numeric_key'in genelleştirilmiş portu: etiketteki İLK
+    sayı × K/M/B çarpanı (AUM_500K_1M → 500000, AUM_1M_5M → 1000000,
+    '0-30' → 0). Sayısız etiket → inf (sona)."""
+    s = str(label or "").strip()
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*([KMB])?", s, re.IGNORECASE)
+    if not m:
+        return float("inf")
+    val = float(m.group(1).replace(",", "."))
+    mult = {"K": 1e3, "M": 1e6, "B": 1e9}.get((m.group(2) or "").upper(), 1.0)
+    return val * mult
+
+
+def band_order_expr(col: str) -> str:
+    """_band_sort_key'in Oracle karşılığı — ORDER BY ifadesi. Sayı içermeyen
+    etiketler NULL döner (NULLS LAST + alfabetik tie-break çağıranda)."""
+    return (
+        f"TO_NUMBER(REPLACE(REGEXP_SUBSTR({col}, '\\d+([.,]\\d+)?'), ',', '.'))"
+        f" * CASE UPPER(REGEXP_SUBSTR({col}, '\\d+([.,]\\d+)?\\s*([KMB])', 1, 1, 'i', 2))"
+        f" WHEN 'K' THEN 1000 WHEN 'M' THEN 1000000 WHEN 'B' THEN 1000000000"
+        f" ELSE 1 END"
+    )
+
+
+def _enum_domain(runner, table, col, label, fid, tag, bindings_out,
+                 band_order=False):
     values = runner.distinct(table, col)
+    if band_order:
+        # AUM/vade bantları küçükten büyüğe (alfabetik değil) listelensin.
+        values = sorted(values, key=lambda v: (_band_sort_key(v), str(v)))
     filt = _filter(fid, tag, "enum_multi", label, values, values)
     var = _var(fid.removeprefix("f_"), tag, "enum_multi", values, values)
     bindings_out[var["name"]] = fid
@@ -175,12 +218,12 @@ def _quote_list(values):
 # Ortak SQL kalıpları — iki-snapshot (t₀ = as-of :donem_from, t₁ = :donem_to)
 # ════════════════════════════════════════════════════════════════════════════
 
-def _snap_cte(table, dcol, enum_where, dim, extra_measures=""):
+def _snap_cte(table, dcol, enum_where, dim, extra_measures="", dv="donem"):
     """f/t0/t1/s0/s1/g0/g1 CTE zinciri. s* = dim bazında BALANCE+WR_SUM
-    (istenirse ek ölçüler), g* = toplamlar."""
+    (istenirse ek ölçüler), g* = toplamlar. dv = date_range değişken adı."""
     return f"""WITH f AS (SELECT * FROM {table} WHERE {enum_where}),
-t0 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :donem_from),
-t1 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :donem_to),
+t0 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_from),
+t1 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_to),
 s0 AS (SELECT {dim} p, SUM(BALANCE) b, SUM(WR_SUM) wr{extra_measures}
        FROM f, t0 WHERE f.{dcol} = t0.m GROUP BY {dim}),
 s1 AS (SELECT {dim} p, SUM(BALANCE) b, SUM(WR_SUM) wr{extra_measures}
@@ -189,59 +232,23 @@ g0 AS (SELECT SUM(b) tb, SUM(wr) twr FROM s0),
 g1 AS (SELECT SUM(b) tb, SUM(wr) twr FROM s1)"""
 
 
-def sql_rate_waterfall(table, dcol, enum_where, dim):
-    """Faiz köprüsü: Başlangıç (R0) + dim-üyesi katkıları + Bitiş (R1).
-    Katkı_i = (wr1_i/TB1 − wr0_i/TB0)·100 → Σ katkı = R1−R0 birebir."""
-    return f"""{_snap_cte(table, dcol, enum_where, dim)},
-j AS (SELECT NVL(s1.p, s0.p) p,
-             (NVL(s1.wr,0)/NULLIF(g1.tb,0) - NVL(s0.wr,0)/NULLIF(g0.tb,0))*100 c
-      FROM s0 FULL OUTER JOIN s1 ON s0.p = s1.p CROSS JOIN g0 CROSS JOIN g1)
-SELECT STEP, ROUND(DELTA, 3) AS DELTA_PCT, IS_TOTAL FROM (
-  SELECT 0 ord, 0 ord2, 'Başlangıç' step, twr/NULLIF(tb,0)*100 delta, 1 is_total FROM g0
-  UNION ALL SELECT 1, ROWNUM, p, c, 0 FROM (SELECT p, c FROM j ORDER BY c DESC)
-  UNION ALL SELECT 2, 0, 'Bitiş', twr/NULLIF(tb,0)*100, 1 FROM g1
-) ORDER BY ord, ord2"""
 
 
-def sql_balance_bridge(table, dcol, enum_where, dim):
-    """Bakiye köprüsü (₺Mr): Başlangıç + dim-üyesi Δ'ları + Bitiş."""
-    return f"""{_snap_cte(table, dcol, enum_where, dim)},
-j AS (SELECT NVL(s1.p, s0.p) p, (NVL(s1.b,0) - NVL(s0.b,0))/1e9 d
-      FROM s0 FULL OUTER JOIN s1 ON s0.p = s1.p)
-SELECT STEP, ROUND(DELTA, 3) AS DELTA_MLR, IS_TOTAL FROM (
-  SELECT 0 ord, 0 ord2, 'Başlangıç' step, tb/1e9 delta, 1 is_total FROM g0
-  UNION ALL SELECT 1, ROWNUM, p, d, 0 FROM (SELECT p, d FROM j ORDER BY d DESC)
-  UNION ALL SELECT 2, 0, 'Bitiş', tb/1e9, 1 FROM g1
-) ORDER BY ord, ord2"""
 
-
-def sql_heatmap_t1(table, dcol, enum_where, rowdim, coldim, measure):
-    """t₁ snapshot heatmap (long format). measure: 'rate' | 'bal' | 'cust'."""
-    z = {"rate": "SUM(WR_SUM)/NULLIF(SUM(BALANCE),0)*100",
-         "bal": "SUM(BALANCE)/1e9",
-         "cust": "SUM(CUST_COUNT)"}[measure]
-    return f"""WITH f AS (SELECT * FROM {table} WHERE {enum_where}),
-t1 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :donem_to)
-SELECT {rowdim} AS SATIR, {coldim} AS KOLON, ROUND({z}, 2) AS DEGER
-FROM f, t1 WHERE f.{dcol} = t1.m
-  AND {rowdim} IS NOT NULL AND {coldim} IS NOT NULL
-GROUP BY {rowdim}, {coldim} ORDER BY 1, 2"""
-
-
-def sql_mix(table, dcol, enum_where, dim, members):
+def sql_mix(table, dcol, enum_where, dim, members, dv="donem"):
     """Composition Evolution: 2 satır (Başlangıç/Bitiş) × üye payları (%)."""
     cases0 = ", ".join(
         f"ROUND(SUM(CASE WHEN p = '{m}' THEN b ELSE 0 END)/NULLIF(SUM(b),0)*100, 2) AS \"{m}\""
         for m in members)
-    return f"""{_snap_cte(table, dcol, enum_where, dim)}
+    return f"""{_snap_cte(table, dcol, enum_where, dim, dv=dv)}
 SELECT 'Başlangıç' AS DONEM, {cases0} FROM s0
 UNION ALL
 SELECT 'Bitiş', {cases0} FROM s1"""
 
 
-def sql_mix_delta(table, dcol, enum_where, dim):
+def sql_mix_delta(table, dcol, enum_where, dim, dv="donem"):
     """Composition Δ: üye başına pay farkı (puan)."""
-    return f"""{_snap_cte(table, dcol, enum_where, dim)}
+    return f"""{_snap_cte(table, dcol, enum_where, dim, dv=dv)}
 SELECT NVL(s1.p, s0.p) AS UYE,
        ROUND(NVL(s1.b,0)/NULLIF(g1.tb,0)*100 - NVL(s0.b,0)/NULLIF(g0.tb,0)*100, 2) AS DELTA_PUAN
 FROM s0 FULL OUTER JOIN s1 ON s0.p = s1.p CROSS JOIN g0 CROSS JOIN g1
@@ -284,10 +291,11 @@ def ca_grp_expr():
     return f"NVL(RTRIM({parts}, '_'), '-')"
 
 
-def ca_core(table, dcol, enum_where, dv):
+def ca_core(table, dcol, enum_where, dv, grp=None):
     """f→t0/t1→s0/s1→g0/g1→k→mm→eff→drv CTE zinciri. drv = grup başına
-    b0/b1/r0/r1 + Bennet etkileri (%) + Δpay (puan)."""
-    grp = ca_grp_expr()
+    b0/b1/r0/r1 + Bennet etkileri (%) + Δpay (puan). grp verilmezse
+    :gruplama'lı composite anahtar (Cost); Tenor sabit DIM_BUCKET geçirir."""
+    grp = grp or ca_grp_expr()
     return f"""WITH f AS (SELECT * FROM {table} WHERE {enum_where}),
 t0 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_from),
 t1 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_to),
@@ -318,9 +326,9 @@ drv AS (SELECT p, b0, b1, r0, r1,
         FROM eff)"""
 
 
-def ca_sql_wf1(table, dcol, enum_where, dv):
+def ca_sql_wf1(table, dcol, enum_where, dv, grp=None):
     """Slayt 1 — Rate Waterfall (%): Mix vs Pricing (kaynak wf1)."""
-    return f"""{ca_core(table, dcol, enum_where, dv)}
+    return f"""{ca_core(table, dcol, enum_where, dv, grp)}
 SELECT STEP, ROUND(DELTA, 2) AS DELTA_PCT, IS_TOTAL FROM (
   SELECT 1 ord, 'Start Rate' step, start_pct delta, 1 is_total FROM k
   UNION ALL
@@ -332,78 +340,78 @@ SELECT STEP, ROUND(DELTA, 2) AS DELTA_PCT, IS_TOTAL FROM (
 ) ORDER BY ord"""
 
 
-def ca_sql_wf2(table, dcol, enum_where, dv):
-    """Slayt 2 — Pricing Drivers (Top 7 + Other, %) (kaynak wf2).
+def ca_sql_wf2(table, dcol, enum_where, dv, grp=None, top_n=CA_TOP_N):
+    """Slayt 2 — Pricing Drivers (Top N + Other, %) (kaynak wf2).
     Bazal 'After Mix' = Start + Mix; üyeler |price_eff| sırasıyla."""
-    return f"""{ca_core(table, dcol, enum_where, dv)},
+    return f"""{ca_core(table, dcol, enum_where, dv, grp)},
 rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(price_pct) DESC, p) rn
         FROM drv)
 SELECT STEP, ROUND(DELTA, 2) AS DELTA_PCT, IS_TOTAL FROM (
   SELECT 0 ord, 0 ord2, 'After Mix' step,
          start_pct + (SELECT SUM(mix_pct) FROM drv) delta, 1 is_total FROM k
   UNION ALL
-  SELECT 1, rn, p, price_pct, 0 FROM rnk WHERE rn <= {CA_TOP_N}
+  SELECT 1, rn, p, price_pct, 0 FROM rnk WHERE rn <= {top_n}
   UNION ALL
   SELECT 2, 0, 'Other Items',
-         (SELECT SUM(price_pct) FROM rnk WHERE rn > {CA_TOP_N}), 0
-  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {CA_TOP_N})
+         (SELECT SUM(price_pct) FROM rnk WHERE rn > {top_n}), 0
+  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {top_n})
   UNION ALL
   SELECT 3, 0, 'End Rate', end_pct, 1 FROM k
 ) ORDER BY ord, ord2"""
 
 
-def ca_sql_wf2_bal(table, dcol, enum_where, dv):
+def ca_sql_wf2_bal(table, dcol, enum_where, dv, grp=None, top_n=CA_TOP_N):
     """Slayt 2 companion — Balance Growth (₺M), wf2 ile aynı üye sırası.
     Çapa kolonlara 0 (kaynakta None) → eksen hizası korunur."""
-    return f"""{ca_core(table, dcol, enum_where, dv)},
+    return f"""{ca_core(table, dcol, enum_where, dv, grp)},
 rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(price_pct) DESC, p) rn
         FROM drv)
 SELECT STEP, ROUND(DELTA_M, 2) AS "Bakiye Degisimi (MTL)" FROM (
   SELECT 0 ord, 0 ord2, 'After Mix' step, 0 delta_m FROM DUAL
   UNION ALL
-  SELECT 1, rn, p, (b1 - b0)/1e6 FROM rnk WHERE rn <= {CA_TOP_N}
+  SELECT 1, rn, p, (b1 - b0)/1e6 FROM rnk WHERE rn <= {top_n}
   UNION ALL
   SELECT 2, 0, 'Other Items',
-         (SELECT SUM(b1 - b0)/1e6 FROM rnk WHERE rn > {CA_TOP_N})
-  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {CA_TOP_N})
+         (SELECT SUM(b1 - b0)/1e6 FROM rnk WHERE rn > {top_n})
+  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {top_n})
   UNION ALL
   SELECT 3, 0, 'End Rate', 0 FROM DUAL
 ) ORDER BY ord, ord2"""
 
 
-def ca_sql_wf4(table, dcol, enum_where, dv):
-    """Slayt 3 — Mix Drivers (Top 7 + Other, %) (kaynak wf4).
+def ca_sql_wf4(table, dcol, enum_where, dv, grp=None, top_n=CA_TOP_N):
+    """Slayt 3 — Mix Drivers (Top N + Other, %) (kaynak wf4).
     Üye değeri Δw·(r̄ − r̄toplam); Start Rate → After Mix köprüsü."""
-    return f"""{ca_core(table, dcol, enum_where, dv)},
+    return f"""{ca_core(table, dcol, enum_where, dv, grp)},
 rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(mixdrv_pct) DESC, p) rn
         FROM drv)
 SELECT STEP, ROUND(DELTA, 2) AS DELTA_PCT, IS_TOTAL FROM (
   SELECT 0 ord, 0 ord2, 'Start Rate' step, start_pct delta, 1 is_total FROM k
   UNION ALL
-  SELECT 1, rn, p, mixdrv_pct, 0 FROM rnk WHERE rn <= {CA_TOP_N}
+  SELECT 1, rn, p, mixdrv_pct, 0 FROM rnk WHERE rn <= {top_n}
   UNION ALL
   SELECT 2, 0, 'Other Items',
-         (SELECT SUM(mixdrv_pct) FROM rnk WHERE rn > {CA_TOP_N}), 0
-  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {CA_TOP_N})
+         (SELECT SUM(mixdrv_pct) FROM rnk WHERE rn > {top_n}), 0
+  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {top_n})
   UNION ALL
   SELECT 3, 0, 'After Mix',
          start_pct + (SELECT SUM(mix_pct) FROM drv), 1 FROM k
 ) ORDER BY ord, ord2"""
 
 
-def ca_sql_wf4_weights(table, dcol, enum_where, dv):
+def ca_sql_wf4_weights(table, dcol, enum_where, dv, grp=None, top_n=CA_TOP_N):
     """Slayt 3 companion — Weight Changes (Δ pay, puan), wf4 sırasıyla."""
-    return f"""{ca_core(table, dcol, enum_where, dv)},
+    return f"""{ca_core(table, dcol, enum_where, dv, grp)},
 rnk AS (SELECT drv.*, ROW_NUMBER() OVER (ORDER BY ABS(mixdrv_pct) DESC, p) rn
         FROM drv)
 SELECT STEP, ROUND(DELTA_W, 3) AS "Agirlik Degisimi (puan)" FROM (
   SELECT 0 ord, 0 ord2, 'Start Rate' step, 0 delta_w FROM DUAL
   UNION ALL
-  SELECT 1, rn, p, dw_pct FROM rnk WHERE rn <= {CA_TOP_N}
+  SELECT 1, rn, p, dw_pct FROM rnk WHERE rn <= {top_n}
   UNION ALL
   SELECT 2, 0, 'Other Items',
-         (SELECT SUM(dw_pct) FROM rnk WHERE rn > {CA_TOP_N})
-  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {CA_TOP_N})
+         (SELECT SUM(dw_pct) FROM rnk WHERE rn > {top_n})
+  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {top_n})
   UNION ALL
   SELECT 3, 0, 'After Mix', 0 FROM DUAL
 ) ORDER BY ord, ord2"""
@@ -454,7 +462,33 @@ j AS (SELECT NVL(a0.s, a1.s) s, NVL(a0.a, a1.a) a,
       FROM a0 FULL OUTER JOIN a1 ON a0.s = a1.s AND a0.a = a1.a)
 SELECT s AS SEGMENT, a AS AUM_BANDI, {val} AS {alias}
 FROM j
-ORDER BY s, TO_NUMBER(REGEXP_SUBSTR(a, '\\d+')) NULLS FIRST, a"""
+ORDER BY s, {band_order_expr('a')} NULLS LAST, a"""
+
+
+def _snapshot_date_filters(runner, M, D, bindings_out, mcol="MONTH", dcol="DAT"):
+    """Aylık + günlük dönem filtreleri, kaynak varsayılanlarıyla: aylıkta son
+    iki snapshot, günlükte son gün + önceki takvim Perşembesi."""
+    mon = runner.dates(M, mcol)
+    if not mon:
+        raise RuntimeError(f"{M} boş — önce deposits_pipeline koşulmalı")
+    m_from = mon[-2] if len(mon) >= 2 else mon[0]
+    m_to = mon[-1]
+    day = runner.dates(D, dcol) or mon
+    d_to = day[-1]
+    d_from = _prev_thursday(d_to)
+    if d_from < day[0]:
+        d_from = day[0]
+    f_m = _filter("f_donem_ay", "as_of_time", "date_range",
+                  "Dönem — Aylık (t₀ → t₁)", {"from": m_from, "to": m_to})
+    v_m = _var("donem_ay", "as_of_time", "date_range",
+               {"from": m_from, "to": m_to})
+    f_d = _filter("f_donem_gun", "as_of_time", "date_range",
+                  "Dönem — Günlük (t₀ → t₁)", {"from": d_from, "to": d_to})
+    v_d = _var("donem_gun", "as_of_time", "date_range",
+               {"from": d_from, "to": d_to})
+    bindings_out["donem_ay"] = "f_donem_ay"
+    bindings_out["donem_gun"] = "f_donem_gun"
+    return f_m, v_m, f_d, v_d
 
 
 def _carousel(cid, title, children):
@@ -497,7 +531,8 @@ def build_cost(runner, sch):
     f_prd, v_prd = _enum_domain(runner, M, "DIM_PRODUCT", "Ürün", "f_urun", "product_group", b)
     f_sub, v_sub = _enum_domain(runner, M, "DIM_SUBPRODUCT", "Alt Ürün", "f_alturun", "other", b)
     f_cst, v_cst = _enum_domain(runner, M, "DIM_CUSTOMER", "Müşteri Tipi", "f_musteri", "other", b)
-    f_aum, v_aum = _enum_domain(runner, M, "DIM_AUM", "AUM Bandı", "f_aum", "other", b)
+    f_aum, v_aum = _enum_domain(runner, M, "DIM_AUM", "AUM Bandı", "f_aum", "other", b,
+                                band_order=True)
 
     # Gruplama (kaynaktaki "Dimensions:" toggle'ları). Varsayılan = kaynak
     # varsayılanı: PRODUCT kapalı, SUBPRODUCT/CUSTOMER_TYPE/AUM/SEGMENT açık.
@@ -508,31 +543,10 @@ def build_cost(runner, sch):
     v_grp = _var("gruplama", "other", "enum_multi", grp_default, dim_names)
     b["gruplama"] = "f_gruplama"
 
-    # t₀/t₁ varsayılanları kaynak dropdown'larıyla aynı: aylıkta verideki son
-    # iki ay, günlükte son gün + önceki takvim Perşembesi. (Önceki sürümdeki
+    # t₀/t₁ varsayılanları kaynak dropdown'larıyla aynı. (Önceki sürümdeki
     # "MIN tarihten bugüne" varsayılanı, sitede görünen değerlerden çok farklı
     # deltalar üretiyordu — veri yanlış değil, t₀ yanlıştı.)
-    mon_dates = runner.dates(M, "MONTH")
-    if not mon_dates:
-        raise RuntimeError(f"{M} boş — önce deposits_pipeline koşulmalı")
-    m_from = mon_dates[-2] if len(mon_dates) >= 2 else mon_dates[0]
-    m_to = mon_dates[-1]
-    day_dates = runner.dates(D, "DAT") or mon_dates
-    d_to = day_dates[-1]
-    d_from = _prev_thursday(d_to)
-    if d_from < day_dates[0]:
-        d_from = day_dates[0]
-
-    f_don_m = _filter("f_donem_ay", "as_of_time", "date_range",
-                      "Dönem — Aylık (t₀ → t₁)", {"from": m_from, "to": m_to})
-    v_don_m = _var("donem_ay", "as_of_time", "date_range",
-                   {"from": m_from, "to": m_to})
-    b["donem_ay"] = "f_donem_ay"
-    f_don_d = _filter("f_donem_gun", "as_of_time", "date_range",
-                      "Dönem — Günlük (t₀ → t₁)", {"from": d_from, "to": d_to})
-    v_don_d = _var("donem_gun", "as_of_time", "date_range",
-                   {"from": d_from, "to": d_to})
-    b["donem_gun"] = "f_donem_gun"
+    f_don_m, v_don_m, f_don_d, v_don_d = _snapshot_date_filters(runner, M, D, b)
 
     # NULL boyutlar (ör. AUM'suz Kasa/O-N satırları) IN-filtreden düşmesin —
     # kaynak filtre paneli de boş değerleri listelemez ama satırları tutar.
@@ -614,178 +628,351 @@ def build_cost(runner, sch):
 
 # ════════════════════════════════════════════════════════════════════════════
 # SAYFA 2 — Outstanding Balance Analysis (Monthly + Daily)
+# Kaynak: BalanceAnalysisEngine / DailyBalanceEngine + _build_balance_payload
+# (app.py L2560-2940). Birim ₺M; bridge Top-8 |Δ| + Other; heatmap'ler
+# varsayılan Δ modunda (kaynak toggle default'u), rows=Kırılım, cols=2. Kırılım.
 # ════════════════════════════════════════════════════════════════════════════
 
+BA_TOP_N = 8   # kaynak BalanceAnalysisEngine.TOP_N
+
+_DIM_CASE = ("CASE :{bind} WHEN 'PRODUCT' THEN DIM_PRODUCT "
+             "WHEN 'SUBPRODUCT' THEN DIM_SUBPRODUCT "
+             "WHEN 'CUSTOMER_TYPE' THEN DIM_CUSTOMER "
+             "WHEN 'AUM' THEN DIM_AUM ELSE DIM_SEGMENT END")
+
+
+def dim_case_expr(bind: str) -> str:
+    """enum_single kırılım değişkenini DIM_* kolonuna çeviren ifade —
+    kaynak sayfalardaki 'Decomposition Dim' select'inin SQL karşılığı."""
+    return "NVL(" + _DIM_CASE.format(bind=bind) + ", '-')"
+
+
+def ba_core(table, dcol, enum_where, dv, grp):
+    """Balance snapshot çekirdeği: grup başına b0/b1 + toplamlar (₺M değil,
+    ham TL — ölçek final select'te)."""
+    return f"""WITH f AS (SELECT * FROM {table} WHERE {enum_where}),
+t0 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_from),
+t1 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_to),
+s0 AS (SELECT {grp} p, SUM(BALANCE) b, SUM(CUST_COUNT) cc
+       FROM f, t0 WHERE f.{dcol} = t0.m GROUP BY {grp}),
+s1 AS (SELECT {grp} p, SUM(BALANCE) b, SUM(CUST_COUNT) cc
+       FROM f, t1 WHERE f.{dcol} = t1.m GROUP BY {grp}),
+g0 AS (SELECT SUM(b) tb FROM s0),
+g1 AS (SELECT SUM(b) tb FROM s1),
+m AS (SELECT NVL(s0.p, s1.p) p, NVL(s0.b,0) b0, NVL(s1.b,0) b1,
+             NVL(s0.cc,0) c0, NVL(s1.cc,0) c1
+      FROM s0 FULL OUTER JOIN s1 ON s0.p = s1.p)"""
+
+
+def ba_sql_kpi(table, dcol, enum_where, dv, what):
+    """what: t0 | t1 | delta | growth — kaynak KPI şeridi (₺M / %)."""
+    core = f"""WITH f AS (SELECT * FROM {table} WHERE {enum_where}),
+t0 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_from),
+t1 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_to),
+g0 AS (SELECT SUM(BALANCE) tb FROM f, t0 WHERE f.{dcol} = t0.m),
+g1 AS (SELECT SUM(BALANCE) tb FROM f, t1 WHERE f.{dcol} = t1.m)"""
+    sel = {
+        "t0":     "SELECT ROUND(g0.tb/1e6) FROM g0",
+        "t1":     "SELECT ROUND(g1.tb/1e6) FROM g1",
+        "delta":  "SELECT ROUND((g1.tb - g0.tb)/1e6) FROM g0 CROSS JOIN g1",
+        "growth": "SELECT ROUND((g1.tb/NULLIF(g0.tb,0) - 1)*100, 2) "
+                  "FROM g0 CROSS JOIN g1",
+    }[what]
+    return f"{core}\n{sel}"
+
+
+def ba_sql_bridge(table, dcol, enum_where, dv, grp):
+    """Balance Bridge (₺M): Start + Top-8 |Δ| üye + Other + End (kaynak
+    _build_balance_payload bridge'i)."""
+    return f"""{ba_core(table, dcol, enum_where, dv, grp)},
+rnk AS (SELECT m.*, ROW_NUMBER() OVER (ORDER BY ABS(b1 - b0) DESC, p) rn FROM m)
+SELECT STEP, ROUND(DELTA_M) AS DELTA_M, IS_TOTAL FROM (
+  SELECT 0 ord, 0 ord2, 'Start' step, g0.tb/1e6 delta_m, 1 is_total FROM g0
+  UNION ALL
+  SELECT 1, rn, p, (b1 - b0)/1e6, 0 FROM rnk WHERE rn <= {BA_TOP_N}
+  UNION ALL
+  SELECT 2, 0, 'Other', (SELECT SUM(b1 - b0)/1e6 FROM rnk WHERE rn > {BA_TOP_N}), 0
+  FROM DUAL WHERE EXISTS (SELECT 1 FROM rnk WHERE rn > {BA_TOP_N})
+  UNION ALL
+  SELECT 3, 0, 'End', g1.tb/1e6, 1 FROM g1
+) ORDER BY ord, ord2"""
+
+
+
+def ba_sql_heatmap(table, dcol, enum_where, dv, grp_row, grp_col, measure, mode):
+    """Kırılım × 2. Kırılım heatmap'i (kaynak growth/customer heatmap'leri).
+    measure: 'bal' (₺M) | 'cust' (adet); mode: 'delta' (kaynak varsayılanı) |
+    'abs' (t₁). Eksenler banda göre sıralı (AUM K/M çarpanlı alt sınır)."""
+    m_col = "BALANCE" if measure == "bal" else "CUST_COUNT"
+    scale = "/1e6" if measure == "bal" else ""
+    val = (f"ROUND((NVL(a1.v,0) - NVL(a0.v,0)){scale}, 1)" if mode == "delta"
+           else f"ROUND(NVL(a1.v,0){scale}, 1)")
+    alias = ("DELTA_M" if measure == "bal" else "DELTA_ADET") if mode == "delta" \
+        else ("BAKIYE_M" if measure == "bal" else "ADET")
+    return f"""WITH f AS (SELECT * FROM {table} WHERE {enum_where}),
+t0 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_from),
+t1 AS (SELECT MAX({dcol}) m FROM f WHERE {dcol} <= :{dv}_to),
+a0 AS (SELECT {grp_row} s, {grp_col} a, SUM({m_col}) v
+       FROM f, t0 WHERE f.{dcol} = t0.m GROUP BY {grp_row}, {grp_col}),
+a1 AS (SELECT {grp_row} s, {grp_col} a, SUM({m_col}) v
+       FROM f, t1 WHERE f.{dcol} = t1.m GROUP BY {grp_row}, {grp_col})
+SELECT NVL(a0.s, a1.s) AS SATIR, NVL(a0.a, a1.a) AS KOLON, {val} AS {alias}
+FROM a0 FULL OUTER JOIN a1 ON a0.s = a1.s AND a0.a = a1.a
+ORDER BY {band_order_expr('NVL(a0.s, a1.s)')} NULLS LAST, 1,
+         {band_order_expr('NVL(a0.a, a1.a)')} NULLS LAST, 2"""
+
+
+def ba_sql_mix(table, dcol, enum_where, dv, grp):
+    """Composition — grup başına t₀/t₁ pay (%). Kategoriler t₁ bakiyesine
+    göre azalan (kaynak sıralaması)."""
+    return f"""{ba_core(table, dcol, enum_where, dv, grp)}
+SELECT p AS GRUP,
+       ROUND(b0/NULLIF(g0.tb,0)*100, 2) AS "Pay t0 (%)",
+       ROUND(b1/NULLIF(g1.tb,0)*100, 2) AS "Pay t1 (%)"
+FROM m CROSS JOIN g0 CROSS JOIN g1
+ORDER BY b1 DESC"""
+
+
+def ba_sql_mix_delta(table, dcol, enum_where, dv, grp):
+    """Composition Change — grup başına Δ pay (puan), t₁ bakiye sırasıyla."""
+    return f"""{ba_core(table, dcol, enum_where, dv, grp)}
+SELECT p AS GRUP,
+       ROUND(b1/NULLIF(g1.tb,0)*100 - b0/NULLIF(g0.tb,0)*100, 2) AS DELTA_PUAN
+FROM m CROSS JOIN g0 CROSS JOIN g1
+ORDER BY b1 DESC"""
+
+
 def build_balance(runner, sch):
+    """Kaynak 'Outstanding Balance Analysis' ile blok-blok birebir: 4'lü KPI
+    şeridi (₺M), Kırılım'a göre Balance Bridge (Top-8 + Other), Balance ve
+    Customer heatmap carousel'leri (Δ varsayılan ↔ t₁), Composition + Δ."""
     M, D = f"{sch}.PRISMA_DEP_OUT_MONTHLY", f"{sch}.PRISMA_DEP_OUT_DAILY"
     b = {}
     f_seg, v_seg = _enum_domain(runner, M, "DIM_SEGMENT", "Segment", "f_segment", "segment", b)
     f_prd, v_prd = _enum_domain(runner, M, "DIM_PRODUCT", "Ürün", "f_urun", "product_group", b)
-    f_aum, v_aum = _enum_domain(runner, M, "DIM_AUM", "AUM Bandı", "f_aum", "other", b)
-    lo, _ = runner.minmax_date(M, "MONTH")
-    f_don = _filter("f_donem", "as_of_time", "date_range", "Dönem (t₀ → t₁)",
-                    {"from": lo, "to": "today"})
-    v_don = _var("donem", "as_of_time", "date_range", {"from": lo, "to": "today"})
-    b["donem"] = "f_donem"
-    all_vars = [v_don, v_seg, v_prd, v_aum]
-    W = "DIM_SEGMENT IN (:segment) AND DIM_PRODUCT IN (:urun) AND DIM_AUM IN (:aum)"
-    products = runner.distinct(M, "DIM_PRODUCT")
+    f_sub, v_sub = _enum_domain(runner, M, "DIM_SUBPRODUCT", "Alt Ürün", "f_alturun", "other", b)
+    f_cst, v_cst = _enum_domain(runner, M, "DIM_CUSTOMER", "Müşteri Tipi", "f_musteri", "other", b)
+    f_aum, v_aum = _enum_domain(runner, M, "DIM_AUM", "AUM Bandı", "f_aum", "other", b,
+                                band_order=True)
 
-    def kpis(T, dcol, sfx):
-        base = _snap_cte(T, dcol, W, "DIM_PRODUCT")
+    DIMS = ["SEGMENT", "AUM", "PRODUCT", "SUBPRODUCT", "CUSTOMER_TYPE"]
+    f_k1 = _filter("f_kirilim", "other", "enum_single",
+                   "Kırılım (Decomposition Dim)", "SEGMENT", DIMS)
+    v_k1 = _var("kirilim", "other", "enum_single", "SEGMENT", DIMS)
+    b["kirilim"] = "f_kirilim"
+    f_k2 = _filter("f_kirilim2", "other", "enum_single",
+                   "2. Kırılım (heatmap kolonları)", "AUM", DIMS)
+    v_k2 = _var("kirilim2", "other", "enum_single", "AUM", DIMS)
+    b["kirilim2"] = "f_kirilim2"
+
+    f_don_m, v_don_m, f_don_d, v_don_d = _snapshot_date_filters(runner, M, D, b)
+
+    W = ("(DIM_SEGMENT IN (:segment) OR DIM_SEGMENT IS NULL) AND "
+         "(DIM_PRODUCT IN (:urun) OR DIM_PRODUCT IS NULL) AND "
+         "(DIM_SUBPRODUCT IN (:alturun) OR DIM_SUBPRODUCT IS NULL) AND "
+         "(DIM_CUSTOMER IN (:musteri) OR DIM_CUSTOMER IS NULL) AND "
+         "(DIM_AUM IN (:aum) OR DIM_AUM IS NULL)")
+    GRP1 = dim_case_expr("kirilim")
+    GRP2 = dim_case_expr("kirilim2")
+
+    def widgets(T, dcol, v_don, dv, sfx, label):
+        enums = [v_seg, v_prd, v_sub, v_cst, v_aum]
+        base_vars = [v_don] + enums
+        vars_k1 = base_vars + [v_k1]
+        vars_hm = base_vars + [v_k1, v_k2]
+
+        def kpi(what, title, unit):
+            return _block(f"kpi_{what}_{sfx}", "kpi", title,
+                          ba_sql_kpi(T, dcol, W, dv, what),
+                          base_vars, b, T, width="1/3",
+                          config={"unit": unit})
+
+        def hm_car(measure, title_tr):
+            return _carousel(
+                f"car_hm_{measure}_{sfx}", f"{title_tr} ({label})",
+                [_block(f"hm_{measure}_d_{sfx}", "heatmap",
+                        f"{title_tr} — Δ (t₀→t₁)",
+                        ba_sql_heatmap(T, dcol, W, dv, GRP1, GRP2, measure, "delta"),
+                        vars_hm, b, T, width="full"),
+                 _block(f"hm_{measure}_a_{sfx}", "heatmap",
+                        f"{title_tr} — t₁ seviyesi",
+                        ba_sql_heatmap(T, dcol, W, dv, GRP1, GRP2, measure, "abs"),
+                        vars_hm, b, T, width="full")])
+
         return [
-            _block(f"kpi_b0_{sfx}", "kpi", "Bakiye t₀ (₺Mr)",
-                   f"{base} SELECT ROUND(tb/1e9, 2) FROM g0",
-                   all_vars, b, T, width="1/3", config={"unit": "Mr ₺"}),
-            _block(f"kpi_b1_{sfx}", "kpi", "Bakiye t₁ (₺Mr)",
-                   f"{base} SELECT ROUND(tb/1e9, 2) FROM g1",
-                   all_vars, b, T, width="1/3", config={"unit": "Mr ₺"}),
-            _block(f"kpi_gr_{sfx}", "kpi", "Büyüme (%)",
-                   f"{base} SELECT ROUND((g1.tb/NULLIF(g0.tb,0) - 1)*100, 2) "
-                   f"FROM g0 CROSS JOIN g1",
-                   all_vars, b, T, width="1/3", config={"unit": "%"}),
-        ]
-
-    def widgets(T, dcol, sfx, label):
-        return kpis(T, dcol, sfx) + [
+            kpi("t0", "Bakiye t₀", "₺M"),
+            kpi("t1", "Bakiye t₁", "₺M"),
+            kpi("delta", "Δ Bakiye", "₺M"),
+            kpi("growth", "Büyüme", "%"),
             _block(f"bridge_{sfx}", "waterfall_chart",
-                   f"Balance Bridge (₺Mr, {label})",
-                   sql_balance_bridge(T, dcol, W, "DIM_PRODUCT"),
-                   all_vars, b, T, width="full", config={"unit": "Mr ₺"}),
-            _block(f"hm_bal_{sfx}", "heatmap",
-                   f"Balance Heatmap — Segment × AUM (₺Mr, {label}, t₁)",
-                   sql_heatmap_t1(T, dcol, W, "DIM_SEGMENT", "DIM_AUM", "bal"),
-                   all_vars, b, T),
-            _block(f"hm_cust_{sfx}", "heatmap",
-                   f"Customer Heatmap — Segment × AUM (adet, {label}, t₁)",
-                   sql_heatmap_t1(T, dcol, W, "DIM_SEGMENT", "DIM_AUM", "cust"),
-                   all_vars, b, T),
+                   f"Balance Bridge (₺M, Top {BA_TOP_N} + Other, {label})",
+                   ba_sql_bridge(T, dcol, W, dv, GRP1),
+                   vars_k1, b, T, width="full", config={"unit": "M ₺"}),
+            hm_car("bal", "Balance Heatmap (₺M)"),
+            hm_car("cust", "Customer Heatmap (adet)"),
             _block(f"mix_{sfx}", "bar_chart",
-                   f"Composition Evolution by Ürün (%, {label})",
-                   sql_mix(T, dcol, W, "DIM_PRODUCT", products),
-                   all_vars, b, T,
-                   config={"stacked": True, "horizontal": True}),
+                   f"Composition — t₀ vs t₁ pay (%, {label})",
+                   ba_sql_mix(T, dcol, W, dv, GRP1),
+                   vars_k1, b, T, width="1/2"),
             _block(f"mixd_{sfx}", "bar_chart",
-                   f"Composition Δ (puan, {label})",
-                   sql_mix_delta(T, dcol, W, "DIM_PRODUCT"),
-                   all_vars, b, T),
+                   f"Composition Change (puan, {label})",
+                   ba_sql_mix_delta(T, dcol, W, dv, GRP1),
+                   vars_k1, b, T, width="1/2"),
         ]
 
     manifest = _manifest_shell(
         "p_dep_balance", "Outstanding Balance Analysis",
-        "Mevduat hacim analizi — KPI şeridi, Balance Bridge, Balance/Customer "
-        "heatmap çifti, Composition Evolution + Δ (Monthly + Daily). Heatmap "
-        "Δ-modu ve metrik slider'ı yerine iki heatmap yan yana verildi.",
-        [f_don, f_seg, f_prd, f_aum],
-        [_section("sec_monthly", "Monthly Averages", widgets(M, "MONTH", "mon", "aylık")),
-         _section("sec_daily", "Daily Evolution", widgets(D, "DAT", "dly", "günlük"))],
+        "Mevduat hacim analizi — kaynak sayfayla birebir: 4'lü KPI şeridi "
+        "(Bakiye t₀/t₁/Δ ₺M + büyüme %), Kırılım'a göre Balance Bridge "
+        "(Top-8 |Δ| + Other), Balance ve Customer heatmap carousel'leri "
+        "(varsayılan slayt Δ — kaynak toggle varsayılanı; ikinci slayt t₁), "
+        "Composition t₀/t₁ + Δ. 'Kırılım' filtresi kaynaktaki Decomposition "
+        "Dim, '2. Kırılım' heatmap kolon ekseni.",
+        [f_don_m, f_don_d, f_k1, f_k2, f_seg, f_prd, f_sub, f_cst, f_aum],
+        [_section("sec_monthly", "Monthly Averages",
+                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly")),
+         _section("sec_daily", "Daily Evolution",
+                  widgets(D, "DAT", v_don_d, "donem_gun", "dly", "Daily"))],
         [M, D])
     return manifest, [M, D]
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # SAYFA 3 — Outstanding Tenor Analysis (Monthly + Daily)
+# Kaynak: TenorAnalysisEngine / DailyTenorEngine + _build_tenor_payload
+# (app.py L1999-2380). Birim ₺M; bucket Bennet waterfall carousel'i (tüm
+# kovalar, Top-N kesmesi yok); TENOR↔DTM modu; swap hedge overlay kapsam dışı.
 # ════════════════════════════════════════════════════════════════════════════
 
 def build_tenor(runner, sch):
     M, D = f"{sch}.PRISMA_DEP_TENOR_MONTHLY", f"{sch}.PRISMA_DEP_TENOR_DAILY"
     b = {}
     f_seg, v_seg = _enum_domain(runner, M, "DIM_SEGMENT", "Segment", "f_segment", "segment", b)
+    f_prd, v_prd = _enum_domain(runner, M, "DIM_PRODUCT", "Ürün", "f_urun", "product_group", b)
+    f_sub, v_sub = _enum_domain(runner, M, "DIM_SUBPRODUCT", "Alt Ürün", "f_alturun", "other", b)
+    f_cst, v_cst = _enum_domain(runner, M, "DIM_CUSTOMER", "Müşteri Tipi", "f_musteri", "other", b)
+    f_aum, v_aum = _enum_domain(runner, M, "DIM_AUM", "AUM Bandı", "f_aum", "other", b,
+                                band_order=True)
+    f_kov, v_kov = _enum_domain(runner, M, "DIM_BUCKET", "Vade Kovası", "f_kova",
+                                "tenor_bucket", b, band_order=True)
     f_mod = _filter("f_mod", "other", "enum_single", "Vade Modu (TENOR ↔ DTM)",
                     "tenor", ["tenor", "dtm"])
     v_mod = _var("mod", "other", "enum_single", "tenor", ["tenor", "dtm"])
     b["mod"] = "f_mod"
-    lo, _ = runner.minmax_date(M, "MONTH")
-    f_don = _filter("f_donem", "as_of_time", "date_range", "Dönem (t₀ → t₁)",
-                    {"from": lo, "to": "today"})
-    v_don = _var("donem", "as_of_time", "date_range", {"from": lo, "to": "today"})
-    b["donem"] = "f_donem"
-    all_vars = [v_don, v_seg, v_mod]
-    W = ("TENOR_MODE = :mod AND DIM_SEGMENT IN (:segment) "
-         "AND DIM_BUCKET IS NOT NULL")
-    ORD = "TO_NUMBER(REGEXP_SUBSTR(p, '^\\d+'))"
-    buckets = [x for x in runner.distinct(M, "DIM_BUCKET") if x]
-    buckets.sort(key=lambda s: int(s.split("-")[0]) if s.split("-")[0].isdigit() else 9999)
+    f_don_m, v_don_m, f_don_d, v_don_d = _snapshot_date_filters(runner, M, D, b)
 
-    def snap(T, dcol):
-        return _snap_cte(T, dcol, W, "DIM_BUCKET", extra_measures=", SUM(WT_SUM) wt")
+    W = ("TENOR_MODE = :mod AND DIM_BUCKET IN (:kova) AND "
+         "(DIM_SEGMENT IN (:segment) OR DIM_SEGMENT IS NULL) AND "
+         "(DIM_PRODUCT IN (:urun) OR DIM_PRODUCT IS NULL) AND "
+         "(DIM_SUBPRODUCT IN (:alturun) OR DIM_SUBPRODUCT IS NULL) AND "
+         "(DIM_CUSTOMER IN (:musteri) OR DIM_CUSTOMER IS NULL) AND "
+         "(DIM_AUM IN (:aum) OR DIM_AUM IS NULL)")
+    GRP = "NVL(DIM_BUCKET, '-')"
+    ORD = band_order_expr("p")
+    buckets = sorted([x for x in runner.distinct(M, "DIM_BUCKET") if x],
+                     key=lambda s: (_band_sort_key(s), s))
 
-    def wat_kpis(T, dcol, sfx):
-        base = _snap_cte(T, dcol, W, "DIM_BUCKET", extra_measures=", SUM(WT_SUM) wt")
-        # g0/g1 wt içermiyor — WAT için s0/s1'den topla.
-        return [
-            _block(f"kpi_wat0_{sfx}", "kpi", "WAT t₀ (gün)",
-                   f"{base} SELECT ROUND(SUM(wt)/NULLIF(SUM(b),0), 1) FROM s0",
-                   all_vars, b, T, width="1/3", config={"unit": "gün"}),
-            _block(f"kpi_wat1_{sfx}", "kpi", "WAT t₁ (gün)",
-                   f"{base} SELECT ROUND(SUM(wt)/NULLIF(SUM(b),0), 1) FROM s1",
-                   all_vars, b, T, width="1/3", config={"unit": "gün"}),
-            _block(f"kpi_watd_{sfx}", "kpi", "Δ WAT (gün)",
-                   f"{base} SELECT ROUND((SELECT SUM(wt)/NULLIF(SUM(b),0) FROM s1) - "
-                   f"(SELECT SUM(wt)/NULLIF(SUM(b),0) FROM s0), 1) FROM dual",
-                   all_vars, b, T, width="1/3", config={"unit": "gün"}),
+    def snap(T, dcol, dv):
+        return _snap_cte(T, dcol, W, "DIM_BUCKET",
+                         extra_measures=", SUM(WT_SUM) wt", dv=dv)
+
+    def widgets(T, dcol, v_don, dv, sfx, label):
+        all_vars = [v_don, v_mod, v_seg, v_prd, v_sub, v_cst, v_aum, v_kov]
+
+        def blk(bid, btype, title, sql, **kw):
+            return _block(bid, btype, title, sql, all_vars, b, T, **kw)
+
+        base = snap(T, dcol, dv)
+        wat_kpis = [
+            blk(f"kpi_wat0_{sfx}", "kpi", "WAT t₀ (gün)",
+                f"{base} SELECT ROUND(SUM(wt)/NULLIF(SUM(b),0), 1) FROM s0",
+                width="1/3", config={"unit": "gün"}),
+            blk(f"kpi_wat1_{sfx}", "kpi", "WAT t₁ (gün)",
+                f"{base} SELECT ROUND(SUM(wt)/NULLIF(SUM(b),0), 1) FROM s1",
+                width="1/3", config={"unit": "gün"}),
+            blk(f"kpi_watd_{sfx}", "kpi", "Δ WAT (gün)",
+                f"{base} SELECT ROUND((SELECT SUM(wt)/NULLIF(SUM(b),0) FROM s1) - "
+                f"(SELECT SUM(wt)/NULLIF(SUM(b),0) FROM s0), 1) FROM DUAL",
+                width="1/3", config={"unit": "gün"}),
         ]
 
-    def ladder(T, dcol, sfx, label):
-        return _block(f"ladder_{sfx}", "bar_chart",
-                      f"Maturity Ladder — t₀ vs t₁ (₺Mr, {label})",
-                      f"""{snap(T, dcol)},
-j AS (SELECT NVL(s1.p, s0.p) p, NVL(s0.b,0)/1e9 b0, NVL(s1.b,0)/1e9 b1
+        # Maturity Ladder: t₀/t₁ yan yana (₺M — kaynak birimi; ₺Mr DEĞİL)
+        ladder = blk(f"ladder_{sfx}", "bar_chart",
+                     f"Maturity Ladder — Balance t₀ vs t₁ (₺M, {label})",
+                     f"""{base},
+j AS (SELECT NVL(s1.p, s0.p) p, NVL(s0.b,0)/1e6 b0, NVL(s1.b,0)/1e6 b1
       FROM s0 FULL OUTER JOIN s1 ON s0.p = s1.p)
-SELECT p AS KOVA, ROUND(b0,2) AS "t₀ (₺Mr)", ROUND(b1,2) AS "t₁ (₺Mr)"
-FROM j ORDER BY {ORD}""",
-                      all_vars, b, T, width="full")
-
-    def ladder_delta(T, dcol, sfx, label):
-        return _block(f"ladderd_{sfx}", "bar_chart",
-                      f"Balance Change per Bucket (₺Mr, {label})",
-                      f"""{snap(T, dcol)},
-j AS (SELECT NVL(s1.p, s0.p) p, (NVL(s1.b,0)-NVL(s0.b,0))/1e9 d
+SELECT p AS KOVA, ROUND(b0) AS "t0 (MTL)", ROUND(b1) AS "t1 (MTL)"
+FROM j ORDER BY {ORD} NULLS LAST, p""",
+                     width="full")
+        ladder_d = blk(f"ladderd_{sfx}", "bar_chart",
+                       f"Balance Change per Bucket (₺M, {label})",
+                       f"""{base},
+j AS (SELECT NVL(s1.p, s0.p) p, (NVL(s1.b,0)-NVL(s0.b,0))/1e6 d
       FROM s0 FULL OUTER JOIN s1 ON s0.p = s1.p)
-SELECT p AS KOVA, ROUND(d,2) AS DELTA_MLR FROM j ORDER BY {ORD}""",
-                      all_vars, b, T)
+SELECT p AS KOVA, ROUND(d) AS DELTA_M FROM j ORDER BY {ORD} NULLS LAST, p""",
+                       width="full")
 
-    def term_structure(T, dcol, sfx, label):
-        # combo: col1 Δbps (bar/sağ), col2 r0 (line/sol), col3 r1 (line/sol)
-        return _block(f"curve_{sfx}", "combo_chart",
-                      f"Term Structure — Rate per Bucket ({label})",
-                      f"""{snap(T, dcol)},
+        # Term Structure: Δbps bar (sağ) + t₀/t₁ faiz çizgileri (sol) — kaynakla aynı
+        curve = blk(f"curve_{sfx}", "combo_chart",
+                    f"Term Structure — Rate per Bucket ({label})",
+                    f"""{base},
 j AS (SELECT NVL(s1.p, s0.p) p,
              NVL(s0.wr,0)/NULLIF(s0.b,0)*100 r0, NVL(s1.wr,0)/NULLIF(s1.b,0)*100 r1
       FROM s0 FULL OUTER JOIN s1 ON s0.p = s1.p)
-SELECT p AS KOVA, ROUND((r1-r0)*100, 1) AS "Δ (bps)",
-       ROUND(r0, 2) AS "Faiz t₀ (%)", ROUND(r1, 2) AS "Faiz t₁ (%)"
-FROM j ORDER BY {ORD}""",
-                      all_vars, b, T, width="full",
-                      config={"left_axis_title": "Faiz (%)",
-                              "right_axis_title": "Δ (bps)",
-                              "series": [
-                                  {"name": "Δ (bps)", "kind": "bar", "axis": "right"},
-                                  {"name": "Faiz t₀ (%)", "kind": "line", "axis": "left"},
-                                  {"name": "Faiz t₁ (%)", "kind": "line", "axis": "left"},
-                              ]})
+SELECT p AS KOVA, ROUND((r1-r0)*100) AS "Rate Delta (bps)",
+       ROUND(r0, 2) AS "Faiz t0 (%)", ROUND(r1, 2) AS "Faiz t1 (%)"
+FROM j ORDER BY {ORD} NULLS LAST, p""",
+                    width="full",
+                    config={"left_axis_title": "Faiz (%)",
+                            "right_axis_title": "Δ (bps)",
+                            "series": [
+                                {"name": "Rate Delta (bps)", "kind": "bar", "axis": "right"},
+                                {"name": "Faiz t0 (%)", "kind": "line", "axis": "left"},
+                                {"name": "Faiz t1 (%)", "kind": "line", "axis": "left"},
+                            ]})
 
-    def widgets(T, dcol, sfx, label):
-        out = wat_kpis(T, dcol, sfx)
-        out += [ladder(T, dcol, sfx, label), ladder_delta(T, dcol, sfx, label)]
-        out.append(term_structure(T, dcol, sfx, label))
-        out += [
-            _block(f"mix_{sfx}", "bar_chart",
-                   f"Bucket Composition (% of Total, {label})",
-                   sql_mix(T, dcol, W, "DIM_BUCKET", buckets),
-                   all_vars, b, T, config={"stacked": True, "horizontal": True}),
-            _block(f"mixd_{sfx}", "bar_chart",
+        mix = blk(f"mix_{sfx}", "bar_chart",
+                  f"Bucket Composition (% of Total, {label})",
+                  sql_mix(T, dcol, W, "DIM_BUCKET", buckets, dv=dv),
+                  width="1/2", config={"stacked": True, "horizontal": True})
+        mixd = blk(f"mixd_{sfx}", "bar_chart",
                    f"Composition Δ (puan, {label})",
-                   sql_mix_delta(T, dcol, W, "DIM_BUCKET"),
-                   all_vars, b, T),
-            _block(f"wf_rate_{sfx}", "waterfall_chart",
-                   f"Bucket Rate Waterfall ({label})",
-                   sql_rate_waterfall(T, dcol, W, "DIM_BUCKET"),
-                   all_vars, b, T, width="full", config={"unit": "%"}),
-        ]
-        return out
+                   sql_mix_delta(T, dcol, W, "DIM_BUCKET", dv=dv),
+                   width="1/2")
 
-    # Günlük ekstralar: per-bucket rate evolution + WAT trend
+        # Bucket Bennet waterfall carousel'i — Cost'la aynı motor, sabit
+        # DIM_BUCKET kırılımı, Top-N kesmesi yok (kova sayısı az).
+        NO_CUT = 999
+        car_wf = _carousel(
+            f"car_wf_{sfx}", f"Bucket Rate Waterfall ({label})",
+            [blk(f"wf1_{sfx}", "waterfall_chart",
+                 "Bucket Rate Waterfall (%): Mix vs Pricing",
+                 ca_sql_wf1(T, dcol, W, dv, grp=GRP),
+                 width="full", config={"unit": "%"}),
+             _canvas(f"cv_wf2_{sfx}", "Pricing Drivers",
+                     [blk(f"wf2_{sfx}", "waterfall_chart",
+                          "Bucket Pricing Drivers (%)",
+                          ca_sql_wf2(T, dcol, W, dv, grp=GRP, top_n=NO_CUT),
+                          width="full", config={"unit": "%"}),
+                      blk(f"wf2bal_{sfx}", "bar_chart",
+                          "Bucket Balance Δ (₺M)",
+                          ca_sql_wf2_bal(T, dcol, W, dv, grp=GRP, top_n=NO_CUT),
+                          width="full")]),
+             _canvas(f"cv_wf4_{sfx}", "Mix Drivers",
+                     [blk(f"wf4_{sfx}", "waterfall_chart",
+                          "Bucket Mix Drivers (%)",
+                          ca_sql_wf4(T, dcol, W, dv, grp=GRP, top_n=NO_CUT),
+                          width="full", config={"unit": "%"}),
+                      blk(f"wf4w_{sfx}", "bar_chart",
+                          "Bucket Weight Changes (Δ pay, puan)",
+                          ca_sql_wf4_weights(T, dcol, W, dv, grp=GRP, top_n=NO_CUT),
+                          width="full")])])
+
+        return wat_kpis + [ladder, ladder_d, curve, mix, mixd, car_wf]
+
+    # Günlük ekstra: per-bucket rate evolution (kaynak ta-dly-rate)
+    daily_vars = [v_don_d, v_mod, v_seg, v_prd, v_sub, v_cst, v_aum, v_kov]
     bucket_rate_cases = ", ".join(
         f"ROUND(SUM(CASE WHEN DIM_BUCKET = '{bk}' THEN WR_SUM ELSE 0 END)"
         f"/NULLIF(SUM(CASE WHEN DIM_BUCKET = '{bk}' THEN BALANCE ELSE 0 END),0)*100, 2)"
@@ -794,37 +981,46 @@ FROM j ORDER BY {ORD}""",
         _block("rate_evo_dly", "line_chart",
                "Per-Bucket Rate Evolution (%, günlük)",
                f"""SELECT DAT, {bucket_rate_cases}
-FROM {D} WHERE {W} AND DAT BETWEEN :donem_from AND :donem_to
+FROM {D} WHERE {W} AND DAT BETWEEN :donem_gun_from AND :donem_gun_to
 GROUP BY DAT ORDER BY DAT""",
-               all_vars, b, D, width="full"),
-        _block("wat_trend_dly", "line_chart",
-               "WAT Trend (gün, günlük)",
-               f"""SELECT DAT, ROUND(SUM(WT_SUM)/NULLIF(SUM(BALANCE),0), 1) AS WAT_GUN
-FROM {D} WHERE {W} AND DAT BETWEEN :donem_from AND :donem_to
-GROUP BY DAT ORDER BY DAT""",
-               all_vars, b, D),
+               daily_vars, b, D, width="full"),
     ]
 
     manifest = _manifest_shell(
         "p_dep_tenor", "Outstanding Tenor Analysis",
-        "Vade analizi — WAT KPI'ları, Maturity Ladder (t₀/t₁) + Δ, Term "
-        "Structure (çift eksen), Bucket Composition + Δ, Bucket Rate "
-        "Waterfall; günlükte Per-Bucket Rate Evolution + WAT trend. TENOR↔DTM "
-        "modu filtre. Swap hedge overlay kapsam dışı.",
-        [f_don, f_seg, f_mod],
-        [_section("sec_monthly", "Monthly Averages", widgets(M, "MONTH", "mon", "aylık")),
+        "Vade analizi — kaynak sayfayla birebir: WAT KPI'ları, Maturity "
+        "Ladder t₀/t₁ + Δ (₺M), Term Structure (Δbps bar + t₀/t₁ faiz "
+        "çizgileri), Bucket Composition + Δ, bucket Bennet waterfall "
+        "carousel'i (Mix vs Pricing / Pricing Drivers / Mix Drivers, %); "
+        "günlükte Per-Bucket Rate Evolution. TENOR↔DTM modu filtre. Swap "
+        "hedge overlay kapsam dışı.",
+        [f_don_m, f_don_d, f_mod, f_kov, f_seg, f_prd, f_sub, f_cst, f_aum],
+        [_section("sec_monthly", "Monthly Averages",
+                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly")),
          _section("sec_daily", "Daily Evolution",
-                  widgets(D, "DAT", "dly", "günlük") + daily_extra)],
+                  widgets(D, "DAT", v_don_d, "donem_gun", "dly", "Daily")
+                  + daily_extra)],
         [M, D])
     return manifest, [M, D]
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # SAYFA 4 — Future Deposit Rollings
+# Kaynak: WeeklyRollingsEngine (app.py L2955-3290). Pivotlar tam-sayı ₺mn;
+# DTM histogramı kaynak kovalarıyla (≤14/15-32/33-90/91-180/180+); müşteri
+# listesi ≥100 mio TRY + TRY-önce sıralama + türetilmiş kolonlar (kaynak
+# customers_by_date). AG-Grid hiyerarşisi ve HHI başlığı kapsam dışı.
 # ════════════════════════════════════════════════════════════════════════════
 
 ROLL_BANDS = ["0-5M", "5M-25M", "25M-50M", "50M-100M", "100M-200M", "200M+"]
-ROLL_SEGMENTS = ["NPO", "Tüzel", "Private", "Affluent", "Maaşlı", "Diğer"]
+# Kaynak WeeklyRollingsEngine.DTM_BUCKET_ORDER — '0-30/31-60/...' DEĞİL.
+ROLL_DTM_EDGES = [("<=14", 14), ("15-32", 32), ("33-90", 90), ("91-180", 180)]
+
+
+def _roll_dtm_case():
+    branches = " ".join(f"WHEN DTM <= {hi} THEN '{lbl}'"
+                        for lbl, hi in ROLL_DTM_EDGES)
+    return f"CASE {branches} ELSE '180+' END"
 
 
 def build_rollings(runner, sch):
@@ -840,24 +1036,31 @@ def build_rollings(runner, sch):
 
     R = "ROLL_DATE BETWEEN :donem_from AND :donem_to AND CCY_CODE IN (:ccy)"
     band_cases = ", ".join(
-        f"ROUND(SUM(CASE WHEN AUM_BAND = '{bd}' THEN TRY_BAKIYE_TOPLAM ELSE 0 END)/1e6, 1)"
+        f"ROUND(SUM(CASE WHEN AUM_BAND = '{bd}' THEN TRY_BAKIYE_TOPLAM ELSE 0 END)/1e6)"
         f" AS \"{bd}\"" for bd in ROLL_BANDS)
+
+    # Segment kolon sırası kaynaktaki gibi dönem toplamına göre azalan.
+    seg_df = runner.query(
+        f"SELECT SEGMENT FROM {T} GROUP BY SEGMENT "
+        f"ORDER BY SUM(TRY_BALANCE) DESC")
+    segments = [str(s) for s in seg_df.iloc[:, 0].tolist() if str(s).strip()]
     seg_cases = ", ".join(
         f"ROUND(SUM(CASE WHEN SEGMENT = '{sg}' THEN TRY_BALANCE ELSE 0 END)/1e6, 1)"
-        f" AS \"{sg}\"" for sg in ROLL_SEGMENTS)
+        f" AS \"{sg}\"" for sg in segments)
 
+    dtm_case = _roll_dtm_case()
     blocks_s1 = [
         _block("grid_all", "data_table", "Weekly Rollings (mio TRY — TRY + FX)",
                f"""SELECT TO_CHAR(ROLL_DATE, 'DD/MM/YYYY') AS GUN, CURRENCY,
-{band_cases}, ROUND(SUM(TRY_BAKIYE_TOPLAM)/1e6, 1) AS TOPLAM
+{band_cases}, ROUND(SUM(TRY_BAKIYE_TOPLAM)/1e6) AS TOPLAM
 FROM {A} WHERE {R}
-GROUP BY ROLL_DATE, CURRENCY ORDER BY ROLL_DATE, CURRENCY""",
+GROUP BY ROLL_DATE, CURRENCY ORDER BY ROLL_DATE, CURRENCY DESC""",
                vars_a, b, A, width="full",
                config=_tbl_cols("GUN", "CURRENCY", *ROLL_BANDS, "TOPLAM")),
         _block("grid_g", "data_table",
                "TRY Standart Vadeli Dönüşler (mio TRY) — Gerçek",
                f"""SELECT TO_CHAR(ROLL_DATE, 'DD/MM/YYYY') AS GUN,
-{band_cases}, ROUND(SUM(TRY_BAKIYE_TOPLAM)/1e6, 1) AS TOPLAM
+{band_cases}, ROUND(SUM(TRY_BAKIYE_TOPLAM)/1e6) AS TOPLAM
 FROM {A} WHERE {R} AND CUST_TP = 'G' AND CURRENCY = 'TRY'
 GROUP BY ROLL_DATE ORDER BY ROLL_DATE""",
                vars_a, b, A, width="1/2",
@@ -865,21 +1068,16 @@ GROUP BY ROLL_DATE ORDER BY ROLL_DATE""",
         _block("grid_t", "data_table",
                "TRY Standart Vadeli Dönüşler (mio TRY) — Tüzel",
                f"""SELECT TO_CHAR(ROLL_DATE, 'DD/MM/YYYY') AS GUN,
-{band_cases}, ROUND(SUM(TRY_BAKIYE_TOPLAM)/1e6, 1) AS TOPLAM
+{band_cases}, ROUND(SUM(TRY_BAKIYE_TOPLAM)/1e6) AS TOPLAM
 FROM {A} WHERE {R} AND CUST_TP = 'T' AND CURRENCY = 'TRY'
 GROUP BY ROLL_DATE ORDER BY ROLL_DATE""",
                vars_a, b, A, width="1/2",
                config=_tbl_cols("GUN", *ROLL_BANDS, "TOPLAM")),
         _block("dtm_hist", "bar_chart", "Vade Bucket Dağılımı (mio TRY)",
-               f"""SELECT CASE
-  WHEN DTM <= 30 THEN '0-30' WHEN DTM <= 60 THEN '31-60'
-  WHEN DTM <= 90 THEN '61-90' WHEN DTM <= 180 THEN '91-180'
-  WHEN DTM <= 365 THEN '181-365' ELSE '366+' END AS VADE_GUN,
+               f"""SELECT {dtm_case} AS VADE_GUN,
 ROUND(SUM(TRY_BALANCE)/1e6, 1) AS BAKIYE_M
 FROM {T} WHERE {R}
-GROUP BY CASE WHEN DTM <= 30 THEN '0-30' WHEN DTM <= 60 THEN '31-60'
-  WHEN DTM <= 90 THEN '61-90' WHEN DTM <= 180 THEN '91-180'
-  WHEN DTM <= 365 THEN '181-365' ELSE '366+' END
+GROUP BY {dtm_case}
 ORDER BY MIN(DTM)""",
                vars_a, b, T),
     ]
@@ -893,22 +1091,39 @@ FROM {T} WHERE {R} GROUP BY SEGMENT ORDER BY 2 DESC""",
 FROM {T} WHERE {R}
 GROUP BY ROLL_DATE ORDER BY ROLL_DATE""",
                vars_a, b, T, width="full", config={"stacked": True}),
-        _block("cust_grid", "data_table", "Müşteri Listesi — En Büyük 50 (maskeli)",
-               f"""SELECT FULL_NM AS MUSTERI, SEGMENT, CCY_CODE,
-ROUND(TRY_BALANCE/1e6, 2) AS BAKIYE_M, ROUND(INTRST_RT, 2) AS FAIZ,
-DTM AS KALAN_GUN, TO_CHAR(ROLL_DATE, 'DD/MM/YYYY') AS DONUS
+        # Kaynak customers_by_date: gün içinde (müşteri, CCY) bazında toplanır,
+        # 100 mio TRY altı listelenmez, TRY satırları önce; türetilmiş kolonlar
+        # ort. faiz = Σ(r·B)/ΣB, işlem adedi, ort. DTM, gün içi pay (%).
+        _block("cust_grid", "data_table",
+               "Müşteri Listesi (≥100 mio TRY, KVKK maskeli)",
+               f"""SELECT TO_CHAR(ROLL_DATE, 'DD/MM/YYYY') AS DONUS,
+       FULL_NM AS MUSTERI, SEGMENT, CCY_CODE,
+       ROUND(SUM(TRY_BALANCE)/1e6, 2) AS BAKIYE_M,
+       COUNT(ACCT_ID) AS ISLEM_ADEDI,
+       ROUND(SUM(INTRST_RT * TRY_BALANCE)/NULLIF(SUM(TRY_BALANCE),0), 2) AS ORT_FAIZ,
+       ROUND(AVG(DTM)) AS ORT_KALAN_GUN,
+       ROUND(RATIO_TO_REPORT(SUM(TRY_BALANCE))
+             OVER (PARTITION BY ROLL_DATE) * 100, 2) AS GUN_PAYI_PCT
 FROM {T} WHERE {R}
-ORDER BY TRY_BALANCE DESC FETCH FIRST 50 ROWS ONLY""",
+GROUP BY ROLL_DATE, FULL_NM, SEGMENT, CCY_CODE
+HAVING SUM(TRY_BALANCE) >= 1e8
+ORDER BY ROLL_DATE,
+         CASE WHEN CCY_CODE = 'TRY' THEN 0 ELSE 1 END, CCY_CODE,
+         SUM(TRY_BALANCE) DESC""",
                vars_a, b, T, width="full",
-               config=_tbl_cols("MUSTERI", "SEGMENT", "CCY_CODE", "BAKIYE_M",
-                                "FAIZ", "KALAN_GUN", "DONUS")),
+               config=_tbl_cols("DONUS", "MUSTERI", "SEGMENT", "CCY_CODE",
+                                "BAKIYE_M", "ISLEM_ADEDI", "ORT_FAIZ",
+                                "ORT_KALAN_GUN", "GUN_PAYI_PCT")),
     ]
     manifest = _manifest_shell(
         "p_dep_rollings", "Future Deposit Rollings",
         "Vadesi dolan mevduat dönüşleri — 3 pivot tablo (TRY+FX / Gerçek / "
-        "Tüzel), DTM histogramı, segment donut, tarih×segment istifli bar, "
-        "müşteri listesi (KVKK maskeli). Pencere deposits_pipeline koşusuyla "
-        "belirlenir. Grid hücre-drill'i ve HHI başlığı kapsam dışı.",
+        "Tüzel, tam-sayı mio TRY), kaynak kovalı DTM histogramı "
+        "(≤14/15-32/33-90/91-180/180+), segment donut, tarih×segment istifli "
+        "bar (segmentler dönem toplamına göre sıralı), ≥100 mio TRY müşteri "
+        "listesi (KVKK maskeli; ort. faiz/DTM + gün içi pay). Pencere "
+        "deposits_pipeline koşusuyla belirlenir. Grid hücre-drill'i ve HHI "
+        "başlığı kapsam dışı.",
         [f_don, f_ccy],
         [_section("sec_tables", "Mevduat Dönüş Raporu", blocks_s1),
          _section("sec_segments", "Müşteri Segmenti & Top Müşteri", blocks_s2)],
@@ -918,107 +1133,258 @@ ORDER BY TRY_BALANCE DESC FETCH FIRST 50 ROWS ONLY""",
 
 # ════════════════════════════════════════════════════════════════════════════
 # SAYFA 5 — New Business: Volume & Pricing
+# Kaynak: api_np_rate_volume_bubble / api_np_rate_volume_heatmap /
+# api_np_aum_rate_chart / api_np_rate_volume_curve (app.py L5867-7215).
+# Pencere modeli kaynaktaki gibi: t₀/t₁ = dönem filtresinin uçları; frekans
+# D → tek gün, W → o tarihte biten 7 günlük pencere. Faiz karşılaştırmaları
+# BİLEŞİK (WC_SUM/NP_HACIM) üzerinden; bubble y/Δ'ları ağırlıklı vade ile
+# BASİT faize geri çevrilir (kaynak reverse conversion, POWER ile).
 # ════════════════════════════════════════════════════════════════════════════
 
-NP_COARSE_AUM = [
-    ("0-1M", ["0-1M"]), ("1M-5M", ["1M-2M", "2M-5M"]), ("5M-10M", ["5M-10M"]),
-    ("10M-25M", ["10M-25M"]), ("25M-50M", ["25M-50M"]),
-    ("50M-100M", ["50M-100M"]), ("100M-200M", ["100M-200M"]),
+# new-prod ince AUM bandı → ortak 8-band (kaynak NP_AUM_TO_COMMON).
+NP_AUM_TO_COMMON = [
+    ("0-1M", ["0-1M"]),
+    ("1M-5M", ["1M-2M", "2M-5M"]),
+    ("5M-10M", ["5M-10M"]),
+    ("10M-25M", ["10M-25M"]),
+    ("25M-50M", ["25M-50M"]),
+    ("50M-100M", ["50M-100M"]),
+    ("100M-200M", ["100M-200M"]),
+    ("200M+", ["200M-500M", "500M-1B", "1B+"]),
+]
+# AUM combo grafiğinin 6'lı kaba grupları (kaynak _AUM_GROUP_MAP — ortak
+# 8-band'den FARKLI bir gruplama; birebirlik için ayrı tutulur).
+NP_COMBO_AUM = [
+    ("0-5M", ["0-1M", "1M-2M", "2M-5M"]),
+    ("5-25M", ["5M-10M", "10M-25M"]),
+    ("25-50M", ["25M-50M"]),
+    ("50-100M", ["50M-100M"]),
+    ("100-200M", ["100M-200M"]),
     ("200M+", ["200M-500M", "500M-1B", "1B+"]),
 ]
 
 
-def build_newbiz(runner, sch):
-    N = f"{sch}.PRISMA_NP_FLOW_DAILY"
-    b = {}
-    f_ccy, v_ccy = _enum_domain(runner, N, "CCY_CODE", "Para Birimi", "f_ccy", "currency", b)
-    f_seg, v_seg = _enum_domain(runner, N, "SUB_SEGMENT", "Alt Segment", "f_segment", "segment", b)
-    f_ten, v_ten = _enum_domain(runner, N, "TENOR_GRP", "Vade Grubu", "f_vade", "tenor_bucket", b)
-    f_don = _filter("f_donem", "as_of_time", "date_range", "Dönem",
-                    {"from": "today - 90d", "to": "today"})
-    v_don = _var("donem", "as_of_time", "date_range",
-                 {"from": "today - 90d", "to": "today"})
-    b["donem"] = "f_donem"
-    all_vars = [v_don, v_ccy, v_seg, v_ten]
+def _np_case(pairs, col="AUM_BAND", other="Bilinmiyor"):
+    return ("CASE " + " ".join(
+        f"WHEN {col} IN ({_quote_list(fine)}) THEN '{coarse}'"
+        for coarse, fine in pairs) + f" ELSE '{other}' END")
 
-    ENUMS = ("CCY_CODE IN (:ccy) AND SUB_SEGMENT IN (:segment) "
-             "AND TENOR_GRP IN (:vade)")
-    CUR = f"DAT BETWEEN :donem_from AND :donem_to AND {ENUMS}"
-    # Önceki eş-uzunluk pencere (bubble'ların t₀ penceresi).
-    PRV = (f"DAT BETWEEN :donem_from - (:donem_to - :donem_from) - 1 "
-           f"AND :donem_from - 1 AND {ENUMS}")
 
-    def bubble(mode):
-        x = ("(NVL(c.v,0) - NVL(p.v,0))" if mode == "bal"
-             else "(NVL(c.wc,0)/NULLIF(c.v,0) - NVL(p.wc,0)/NULLIF(p.v,0))*100")
-        return f"""WITH cur AS (
-  SELECT SUB_SEGMENT g, SUM(NP_HACIM) v, SUM(WC_SUM) wc FROM {N}
-  WHERE {CUR} GROUP BY SUB_SEGMENT),
-prv AS (
-  SELECT SUB_SEGMENT g, SUM(NP_HACIM) v, SUM(WC_SUM) wc FROM {N}
-  WHERE {PRV} GROUP BY SUB_SEGMENT)
-SELECT NVL(c.g, p.g) AS AD, ROUND({x}, 2) AS X,
-       ROUND(NVL(c.wc,0)/NULLIF(c.v,0), 2) AS FAIZ_PCT,
-       ROUND(NVL(c.v,0), 1) AS HACIM_M
-FROM cur c FULL OUTER JOIN prv p ON c.g = p.g
-WHERE NVL(c.v,0) > 0 ORDER BY 4 DESC"""
+# Basit faize geri çevrim (kaynak np_compound_to_simple_pct):
+# simple% = ((1 + comp/100)^(t/365) − 1) · (365/t) · 100
+def _np_simple(comp, ten):
+    return (f"CASE WHEN {ten} > 0 THEN "
+            f"(POWER(1 + ({comp})/100, ({ten})/365) - 1) * (365/({ten})) * 100 "
+            f"ELSE NULL END")
 
-    aum_case = "CASE " + " ".join(
-        f"WHEN AUM_BAND IN ({_quote_list(fine)}) THEN '{coarse}'"
-        for coarse, fine in NP_COARSE_AUM) + " ELSE 'Bilinmiyor' END"
-    aum_rate_cases = ", ".join(
-        f"ROUND(SUM(CASE WHEN {aum_case} = '{coarse}' THEN WC_SUM ELSE 0 END)"
-        f"/NULLIF(SUM(CASE WHEN {aum_case} = '{coarse}' THEN NP_HACIM ELSE 0 END),0), 2)"
-        f" AS \"{coarse}\"" for coarse, _f in NP_COARSE_AUM)
 
-    combo_series = ([{"name": "Hacim (₺M)", "kind": "bar", "axis": "left"}] +
-                    [{"name": c, "kind": "line", "axis": "right"}
-                     for c, _f in NP_COARSE_AUM])
+def _np_win(dv, edge):
+    """Frekansa göre pencere: W → [tarih-6, tarih], D → [tarih, tarih]."""
+    d = f":{dv}_{edge}"
+    return (f"DAT BETWEEN {d} - (CASE WHEN :frek = 'W' THEN 6 ELSE 0 END) "
+            f"AND {d}")
 
-    blocks = [
-        _block("bub_vol", "scatter_chart", "Bubble — Δ Hacim × Faiz (önceki pencereye göre)",
-               bubble("bal"), all_vars, b, N,
-               config={"x_title": "Δ Hacim (₺M)", "y_title": "Bileşik Faiz (%)"}),
-        _block("bub_rate", "scatter_chart", "Bubble — Δ Faiz × Faiz (bps, önceki pencereye göre)",
-               bubble("rate"), all_vars, b, N,
-               config={"x_title": "Δ Faiz (bps)", "y_title": "Bileşik Faiz (%)"}),
-        _block("hm_rv", "heatmap", "Rate × Volume Heatmap — Segment × AUM (bileşik %)",
-               f"""SELECT SUB_SEGMENT AS SATIR, {aum_case} AS KOLON,
-ROUND(SUM(WC_SUM)/NULLIF(SUM(NP_HACIM),0), 2) AS FAIZ_PCT
-FROM {N} WHERE {CUR}
-GROUP BY SUB_SEGMENT, {aum_case} ORDER BY 1, 2""",
-               all_vars, b, N, width="full"),
-        _block("aum_combo", "combo_chart", "New Business Volume & Interest Rate (AUM bantları)",
-               f"""SELECT DAT, ROUND(SUM(NP_HACIM), 1) AS "Hacim (₺M)", {aum_rate_cases}
-FROM {N} WHERE {CUR} GROUP BY DAT ORDER BY DAT""",
-               all_vars, b, N, width="full",
-               config={"left_axis_title": "Hacim (₺M)",
-                       "right_axis_title": "Bileşik Faiz (%)",
-                       "series": combo_series}),
-        _block("conc_curve", "line_chart",
-               "Faiz × Kümülatif Hacim Eğrisi (konsantrasyon)",
-               f"""WITH cells AS (
+
+def np_sql_bubble(N, O, enum_where, mode):
+    """Kaynak np_rate_volume_bubble'ın outstanding-grenli birebiri.
+
+    Kaynak, OS bakiyesini ince NP hücrelerine hacim payıyla DAĞITIP client'ta
+    yeniden toplar; hücre toplamları OS greninde (kanal × müşteri tipi ×
+    ortak AUM) birebir korunur. Burada noktalar doğrudan o grende üretilir —
+    dağıtım/toplama sapması yok. Yalnız TRY (OS verisi TRY'dir).
+    x: mode='bal' → Δ outstanding (₺M, AS-OF t₀/t₁); mode='rate' → Δ basit
+    faiz (bps). y = t₁ basit faizi (%); boyut = pencere new-prod hacmi ort.
+    (₺M); 5. kolon = WAvg t₁ (yatay çizgi)."""
+    aum_common = _np_case(NP_AUM_TO_COMMON)
+    grp = f"RELATED_PC || '_' || CUST_TP || '_' || {aum_common}"
+    win0, win1 = _np_win("donem", "from"), _np_win("donem", "to")
+
+    def w(win, name):
+        return f"""{name} AS (
+  SELECT RELATED_PC ch, CUST_TP ct, {aum_common} au,
+         SUM(NP_HACIM) v, SUM(WC_SUM) wc, SUM(WT_SUM) wt
+  FROM {N} WHERE {win} AND CCY_CODE = 'TRY' AND {enum_where}
+  GROUP BY RELATED_PC, CUST_TP, {aum_common})"""
+
+    def o(edge, name):
+        return f"""{name} AS (
+  SELECT CHANNEL ch, CUST_TP ct, AUM_COMMON au, SUM(BAL_SUM) ob
+  FROM {O} WHERE DAT = (SELECT MAX(DAT) FROM {O} WHERE DAT <= :donem_{edge})
+  GROUP BY CHANNEL, CUST_TP, AUM_COMMON)"""
+
+    x = ("(NVL(o1.ob,0) - NVL(o0.ob,0))" if mode == "bal"
+         else "(NVL(e.s1, e.s0) - NVL(e.s0, e.s1)) * 100")
+    return f"""WITH {w(win0, 'w0')},
+{w(win1, 'w1')},
+{o('from', 'o0')},
+{o('to', 'o1')},
+m AS (SELECT NVL(w0.ch, w1.ch) ch, NVL(w0.ct, w1.ct) ct, NVL(w0.au, w1.au) au,
+             NVL(w0.v, 0) v0, NVL(w1.v, 0) v1,
+             w0.wc wc0, w0.wt wt0, w1.wc wc1, w1.wt wt1
+      FROM w0 FULL OUTER JOIN w1
+        ON w0.ch = w1.ch AND w0.ct = w1.ct AND w0.au = w1.au),
+e AS (SELECT m.*,
+             {_np_simple('m.wc0/NULLIF(m.v0,0)', 'm.wt0/NULLIF(m.v0,0)')} s0,
+             {_np_simple('m.wc1/NULLIF(m.v1,0)', 'm.wt1/NULLIF(m.v1,0)')} s1
+      FROM m),
+tot AS (SELECT SUM(CASE WHEN s1 IS NOT NULL THEN v1 * s1 END)
+             / NULLIF(SUM(CASE WHEN s1 IS NOT NULL THEN v1 END), 0) wavg
+        FROM e)
+SELECT AD, X_DEGER, FAIZ_T1_PCT, HACIM_M, "WAvg (%)" FROM (
+  SELECT e.ch || '_' || e.ct || '_' || e.au AS AD,
+         ROUND({x}, 2) X_DEGER,
+         ROUND(NVL(e.s1, e.s0), 2) FAIZ_T1_PCT,
+         ROUND((e.v0 + e.v1)/2, 1) HACIM_M,
+         (SELECT ROUND(wavg, 2) FROM tot) AS "WAvg (%)"
+  FROM e
+  LEFT JOIN o0 ON e.ch = o0.ch AND e.ct = o0.ct AND e.au = o0.au
+  LEFT JOIN o1 ON e.ch = o1.ch AND e.ct = o1.ct AND e.au = o1.au
+  WHERE e.v0 > 0 OR e.v1 > 0
+  ORDER BY (e.v0 + e.v1) DESC
+) WHERE ROWNUM <= 40"""
+
+
+def np_sql_heatmap(N, enum_where, mode):
+    """Rate × Volume heatmap — kanal (kaynak 'Segment' = RELATED_PC) × ortak
+    AUM. mode='t1': t₁ penceresi bileşik faiz (%); mode='delta': Δ bileşik
+    (bps, kaynak per-cell tanımı (t₁−t₀)·100)."""
+    aum_common = _np_case(NP_AUM_TO_COMMON)
+    win0, win1 = _np_win("donem", "from"), _np_win("donem", "to")
+    val = ("ROUND(NVL(h1.wc/NULLIF(h1.v,0), 0), 2)" if mode == "t1"
+           else "CASE WHEN h0.v > 0 AND h1.v > 0 THEN "
+                "ROUND((h1.wc/h1.v - h0.wc/h0.v) * 100, 1) ELSE 0 END")
+    alias = "FAIZ_PCT" if mode == "t1" else "DELTA_BPS"
+    return f"""WITH h0 AS (
+  SELECT RELATED_PC ch, {aum_common} au, SUM(NP_HACIM) v, SUM(WC_SUM) wc
+  FROM {N} WHERE {win0} AND {enum_where}
+  GROUP BY RELATED_PC, {aum_common}),
+h1 AS (
+  SELECT RELATED_PC ch, {aum_common} au, SUM(NP_HACIM) v, SUM(WC_SUM) wc
+  FROM {N} WHERE {win1} AND {enum_where}
+  GROUP BY RELATED_PC, {aum_common})
+SELECT NVL(h0.ch, h1.ch) AS KANAL, NVL(h0.au, h1.au) AS AUM_BANDI,
+       {val} AS {alias}
+FROM h0 FULL OUTER JOIN h1 ON h0.ch = h1.ch AND h0.au = h1.au
+ORDER BY 1, {band_order_expr('NVL(h0.au, h1.au)')} NULLS LAST, 2"""
+
+
+def np_sql_aum_combo(N, enum_where):
+    """New Business Volume & Rate — kaynak np_aum_rate_chart: frekansa göre
+    binlenmiş (W → t₁'de biten 7 günlük pencereler) hacim barı + 6'lı kaba
+    AUM grubu başına bileşik faiz çizgileri."""
+    combo_case = _np_case(NP_COMBO_AUM)
+    rate_cases = ", ".join(
+        f"ROUND(SUM(CASE WHEN {combo_case} = '{coarse}' THEN WC_SUM ELSE 0 END)"
+        f"/NULLIF(SUM(CASE WHEN {combo_case} = '{coarse}' THEN NP_HACIM ELSE 0 END),0), 2)"
+        f" AS \"{coarse}\"" for coarse, _f in NP_COMBO_AUM)
+    bin_len = "CASE WHEN :frek = 'W' THEN 7 ELSE 1 END"
+    bin_date = f":donem_to - FLOOR((:donem_to - DAT)/({bin_len})) * ({bin_len})"
+    return f"""SELECT TO_CHAR({bin_date}, 'YYYY-MM-DD') AS TARIH,
+       ROUND(SUM(NP_HACIM), 1) AS "Hacim (MTL)", {rate_cases}
+FROM {N}
+WHERE DAT BETWEEN :donem_from AND :donem_to AND {enum_where}
+GROUP BY {bin_date}
+ORDER BY 1"""
+
+
+def np_sql_curve(N, enum_where):
+    """Konsantrasyon eğrisi (kaynak np_rate_volume_curve, t₁ penceresi):
+    hücreler bileşik faize göre artan sıralanır, X = kümülatif hacim payı (%).
+    Kaynak satır-bazlı detay kullanır; burada 6-boyutlu hücre yaklaşımı
+    (bilinen, kabul edilmiş sadeleştirme)."""
+    win1 = _np_win("donem", "to")
+    return f"""WITH cells AS (
   SELECT SUM(WC_SUM)/NULLIF(SUM(NP_HACIM),0) r, SUM(NP_HACIM) v
-  FROM {N} WHERE {CUR}
-  GROUP BY SUB_SEGMENT, AUM_BAND, TENOR_GRP
+  FROM {N} WHERE {win1} AND {enum_where}
+  GROUP BY CCY_CODE, CUST_TP, RELATED_PC, AUM_BAND, TENOR_GRP, SUB_SEGMENT
   HAVING SUM(NP_HACIM) > 0)
 SELECT TO_CHAR(ROUND(100 * SUM(v) OVER (ORDER BY r) / SUM(v) OVER (), 1)) AS KUM_PAY_PCT,
        ROUND(r, 2) AS FAIZ_PCT
-FROM cells ORDER BY r""",
-               all_vars, b, N, width="full"),
+FROM cells ORDER BY r"""
+
+
+def build_newbiz(runner, sch):
+    N = f"{sch}.PRISMA_NP_FLOW_DAILY"
+    O = f"{sch}.PRISMA_NP_OUT_DAILY"
+    b = {}
+    f_ccy, v_ccy = _enum_domain(runner, N, "CCY_CODE", "Para Birimi", "f_ccy", "currency", b)
+    f_seg, v_seg = _enum_domain(runner, N, "SUB_SEGMENT", "Alt Segment", "f_segment", "segment", b)
+    f_cst, v_cst = _enum_domain(runner, N, "CUST_TP", "Müşteri Tipi", "f_musteri", "other", b)
+    f_ten, v_ten = _enum_domain(runner, N, "TENOR_GRP", "Vade Grubu", "f_vade",
+                                "tenor_bucket", b, band_order=True)
+
+    # t₀/t₁ varsayılanı: son gün + önceki takvim Perşembesi (Cost/Balance ile
+    # aynı desen; kaynakta da t₁=son gün, t₀ kullanıcı seçimi).
+    dates = runner.dates(N, "DAT")
+    if not dates:
+        raise RuntimeError(f"{N} boş — önce deposits_pipeline koşulmalı")
+    d_to = dates[-1]
+    d_from = max(_prev_thursday(d_to), dates[0])
+    f_don = _filter("f_donem", "as_of_time", "date_range", "Dönem (t₀ → t₁)",
+                    {"from": d_from, "to": d_to})
+    v_don = _var("donem", "as_of_time", "date_range",
+                 {"from": d_from, "to": d_to})
+    b["donem"] = "f_donem"
+    f_frk = _filter("f_frekans", "other", "enum_single",
+                    "Frekans (pencere: D=1 gün, W=7 gün)", "W", ["D", "W"])
+    v_frk = _var("frek", "other", "enum_single", "W", ["D", "W"])
+    b["frek"] = "f_frekans"
+
+    ENUMS = ("CCY_CODE IN (:ccy) AND SUB_SEGMENT IN (:segment) AND "
+             "CUST_TP IN (:musteri) AND TENOR_GRP IN (:vade)")
+    all_vars = [v_don, v_frk, v_ccy, v_seg, v_cst, v_ten]
+    # Bubble'lar OS verisi gereği TRY'ye sabit → ccy değişkeni kullanılmaz.
+    bub_enums = ("SUB_SEGMENT IN (:segment) AND CUST_TP IN (:musteri) "
+                 "AND TENOR_GRP IN (:vade)")
+    bub_vars = [v_don, v_frk, v_seg, v_cst, v_ten]
+
+    blocks_bub = [
+        _block("bub_bal", "scatter_chart", "Balance Evolution (outstanding, TRY)",
+               np_sql_bubble(N, O, bub_enums, "bal"), bub_vars, b, N,
+               config={"x_title": "Δ Outstanding (₺M)",
+                       "y_title": "Basit Faiz t₁ (%)"}),
+        _block("bub_rate", "scatter_chart", "Interest Rate Evolution (TRY)",
+               np_sql_bubble(N, O, bub_enums, "rate"), bub_vars, b, N,
+               config={"x_title": "Δ Basit Faiz (bps)",
+                       "y_title": "Basit Faiz t₁ (%)"}),
+    ]
+    blocks_pricing = [
+        _carousel("car_hm_rv", "Rate × Volume Heatmap — Kanal × AUM",
+                  [_block("hm_rv_t1", "heatmap",
+                          "Bileşik Faiz — t₁ penceresi (%)",
+                          np_sql_heatmap(N, ENUMS, "t1"),
+                          all_vars, b, N, width="full"),
+                   _block("hm_rv_d", "heatmap",
+                          "Δ Bileşik Faiz — t₀→t₁ (bps)",
+                          np_sql_heatmap(N, ENUMS, "delta"),
+                          all_vars, b, N, width="full")]),
+        _block("aum_combo", "combo_chart",
+               "New Business Volume & Interest Rate (AUM grupları)",
+               np_sql_aum_combo(N, ENUMS), all_vars, b, N, width="full",
+               config={"left_axis_title": "Hacim (₺M)",
+                       "right_axis_title": "Bileşik Faiz (%)",
+                       "series": ([{"name": "Hacim (MTL)", "kind": "bar",
+                                    "axis": "left"}] +
+                                  [{"name": c, "kind": "line", "axis": "right"}
+                                   for c, _f in NP_COMBO_AUM])}),
+        _block("conc_curve", "line_chart",
+               "Faiz × Kümülatif Hacim Eğrisi (t₁ penceresi)",
+               np_sql_curve(N, ENUMS), all_vars, b, N, width="full"),
     ]
     manifest = _manifest_shell(
         "p_dep_newbiz", "New Business — Volume & Pricing",
-        "Bağlanan mevduat akışı — 2 bubble (mevcut pencere vs önceki "
-        "eş-uzunluk pencere), Rate×Volume heatmap (bileşik %), AUM bantlı "
-        "dual-axis combo, konsantrasyon eğrisi. Heatmap hücre-hover combo'su, "
-        "drill ve min-bubble slider'ı kapsam dışı; Weekly/Daily seçimi günlük "
-        "sabittir.",
-        [f_don, f_ccy, f_seg, f_ten],
-        [_section("sec_bubbles", "Bubble Analysis", blocks[:2]),
-         _section("sec_pricing", "Fiyatlama ve Hacim", blocks[2:])],
-        [N])
-    return manifest, [N]
+        "Bağlanan mevduat akışı — kaynak sayfayla hizalı: 2 bubble (t₀/t₁ "
+        "pencereleri; Balance X = outstanding Δ, faizler bileşikten basite "
+        "geri çevrilir, WAvg çizgili, TRY), Rate×Volume heatmap carousel'i "
+        "(t₁ bileşik % ↔ Δ bps, kanal × ortak AUM), frekans binli AUM combo, "
+        "konsantrasyon eğrisi (hücre yaklaşımı — kaynak satır-bazlı). "
+        "Heatmap hücre-hover combo'su ve drill kapsam dışı.",
+        [f_don, f_frk, f_ccy, f_seg, f_cst, f_ten],
+        [_section("sec_bubbles", "Bubble Analysis", blocks_bub),
+         _section("sec_pricing", "Fiyatlama ve Hacim", blocks_pricing)],
+        [N, O])
+    return manifest, [N, O]
+
 
 
 BUILDERS = {
