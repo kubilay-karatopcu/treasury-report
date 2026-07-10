@@ -1,5 +1,5 @@
 import Chart from 'react-apexcharts';
-import { scatterOptions, scatterSeries } from './chartHelpers.js';
+import { scatterOptions, scatterSeries, applyAxisLimits, limitsFromConfig } from './chartHelpers.js';
 
 // Bubble/scatter: her satır bir nokta. SQL sözleşmesi:
 //   col0 = nokta adı, col1 = x, col2 = y, col3 (ops.) = boyut.
@@ -12,14 +12,14 @@ export default function ScatterChart({ block }) {
     return <div className="chart-empty">Grafik için veri yok.</div>;
   }
 
-  const options = scatterOptions({
+  const options = applyAxisLimits(scatterOptions({
     height: 300,
     xTitle: config.x_title || '',
     yTitle: config.y_title || '',
     showDataLabels: !!config.show_data_labels,
     points,
     refLines: config.ref_lines,
-  });
+  }), limitsFromConfig(config));
 
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (

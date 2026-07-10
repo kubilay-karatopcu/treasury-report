@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import useStore, { getBlockById } from './lib/store.js';
+import useStore, { getBlockById, effectivePageId, sectionOnPage } from './lib/store.js';
 import { fetchUserInfo } from './lib/api.js';
 // Header.jsx is now imported by Sidebar.jsx (toolbar lives inside the
 // left rail above the chat). Removed from the App.jsx tree.
@@ -20,6 +20,7 @@ import HelpModal from './components/HelpModal.jsx';
 import ManualSqlEditor from './components/ManualSqlEditor.jsx';
 import FilterBar from './components/FilterBar.jsx';
 import FixedDateFilter from './components/FixedDateFilter.jsx';
+import PageTabs from './components/PageTabs.jsx';
 
 const WIDTH_SPAN = {
   'full': 12,
@@ -33,6 +34,7 @@ export default function App({ initialManifest, mode = 'editor' }) {
   const setMode     = useStore((s) => s.setMode);
   const setViewMode = useStore((s) => s.setViewMode);
   const manifest    = useStore((s) => s.manifest);
+  const activePageId = useStore((s) => s.activePageId);
   const viewMode    = useStore((s) => s.viewMode);
   const selectedBlockId  = useStore((s) => s.selectedBlockId);
   const layoutEditMode   = useStore((s) => s.layoutEditMode);
@@ -79,6 +81,12 @@ export default function App({ initialManifest, mode = 'editor' }) {
   const isTemplateEdit = mode === 'template-edit';
   const sections = manifest.blocks || [];
   const isEdit = viewMode === 'edit' && !isSnapshot && !isBlockPreview && !isTemplateEdit;
+  // Sayfa hiyerarşisi: pages varsa canvas yalnız aktif sayfanın (veya
+  // sayfasız = global) section'larını gösterir.
+  const activePage = effectivePageId(manifest, activePageId);
+  const visibleSections = activePage
+    ? sections.filter((s) => sectionOnPage(s, activePage))
+    : sections;
 
   // Block preview mode — sadece tek bloğu render et, hiçbir chrome yok
   if (isBlockPreview) {
@@ -138,13 +146,14 @@ export default function App({ initialManifest, mode = 'editor' }) {
         >
           <div className={`canvas-content${sections.length === 0 && !isSnapshot ? ' canvas-content--empty' : ''}`}>
             {sections.length > 0 && <ReportTitle meta={manifest.meta || {}} />}
+            {sections.length > 0 && <PageTabs isEdit={isEdit && layoutEditMode} />}
             {/* M5 (madde 7) — FilterBar yalnız blok VARKEN (chat sol panelde) görünür.
                 İlk promptta chat ORTADA (empty-start) → filtreler gizli; build'de
                 seed edilmiş filtreler ilk blok oluşunca (chat sola geçince) render olur. */}
             {!isSnapshot && sections.length > 0 && <FilterBar />}
             {isEdit && sections.length > 0 && <Hint hasSelection={!!selectedBlockId} />}
             <div className="sections-list">
-              {sections.map((section) => (
+              {visibleSections.map((section) => (
                 <SectionContainer
                   key={section.id}
                   section={section}

@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, X } from 'lucide-react';
-import useStore from '../lib/store.js';
+import useStore, { effectivePageId } from '../lib/store.js';
 import { _resolveDateExpr } from './FilterBar.jsx';
 
 const _MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
@@ -209,11 +209,15 @@ function DatePill({ filter, editable, onRemove }) {
 
 export default function FixedDateFilter() {
   const manifest = useStore((s) => s.manifest);
+  const activePageId = useStore((s) => s.activePageId);
   const layoutEditMode = useStore((s) => s.layoutEditMode);
   const viewMode = useStore((s) => s.viewMode);
   const removeFilter = useStore((s) => s.removeDashboardFilter);
   const editable = layoutEditMode && viewMode === 'edit';
-  const dateFilters = (manifest?.filters || []).filter((f) => f.type === 'date_range');
+  // Sayfa hiyerarşisi: yalnız aktif sayfanın (veya global) tarih filtreleri.
+  const activePage = effectivePageId(manifest, activePageId);
+  const dateFilters = (manifest?.filters || []).filter(
+    (f) => f.type === 'date_range' && (!activePage || !f.page || f.page === activePage));
   if (dateFilters.length === 0) return null;
   return (
     <div className="fdf-fixed" role="region" aria-label="Tarih filtresi">

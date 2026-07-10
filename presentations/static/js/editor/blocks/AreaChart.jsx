@@ -1,5 +1,5 @@
 import Chart from 'react-apexcharts';
-import { areaChartOptions, normalizeLabels } from './chartHelpers.js';
+import { areaChartOptions, normalizeLabels, applyAxisLimits, limitsFromConfig } from './chartHelpers.js';
 
 export default function AreaChart({ block }) {
   const config = block.config || {};
@@ -15,7 +15,7 @@ export default function AreaChart({ block }) {
     return <div className="chart-empty">Grafik için veri yok.</div>;
   }
 
-  const options = areaChartOptions({
+  const options = applyAxisLimits(areaChartOptions({
     categories,
     series,
     height: 260,
@@ -24,7 +24,7 @@ export default function AreaChart({ block }) {
     showMarkers:  !!config.show_markers,
     fillOpacity:  typeof config.fill_opacity === 'number' ? config.fill_opacity : 0.45,
     refLines:     config.ref_lines,
-  });
+  }), limitsFromConfig(config));
 
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (

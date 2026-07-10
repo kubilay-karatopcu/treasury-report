@@ -169,9 +169,12 @@ def _tbl_cols(*names):
     return {"columns": [{"field": n, "header": n} for n in names], "rows": []}
 
 
-def _section(sid, title, children):
-    return {"id": sid, "type": "section_header", "title": title,
-            "config": {}, "children": children}
+def _section(sid, title, children, page=None):
+    sec = {"id": sid, "type": "section_header", "title": title,
+           "config": {}, "children": children}
+    if page:
+        sec["page"] = page
+    return sec
 
 
 def _band_sort_key(label) -> float:
@@ -265,6 +268,9 @@ ORDER BY 2 DESC"""
 # kullanıcı kararı: değerler/etiketler/y-ekseni %; 1 bps = 0.01 çözünürlük
 # ROUND(...,2) ile korunur).
 # ════════════════════════════════════════════════════════════════════════════
+
+PAGES_MON_DLY = [{"id": "pg_mon", "title": "Monthly Averages"},
+                 {"id": "pg_dly", "title": "Daily Evolution"}]
 
 CA_DIMS = [("PRODUCT", "DIM_PRODUCT"), ("SUBPRODUCT", "DIM_SUBPRODUCT"),
            ("CUSTOMER_TYPE", "DIM_CUSTOMER"), ("AUM", "DIM_AUM"),
@@ -486,6 +492,10 @@ def _snapshot_date_filters(runner, M, D, bindings_out, mcol="MONTH", dcol="DAT")
                   "Dönem — Günlük (t₀ → t₁)", {"from": d_from, "to": d_to})
     v_d = _var("donem_gun", "as_of_time", "date_range",
                {"from": d_from, "to": d_to})
+    # Sayfa hiyerarşisi: aylık dönem filtresi Monthly sekmesinde, günlük
+    # olan Daily sekmesinde görünür (ikisi aynı barda karışmasın).
+    f_m["page"] = "pg_mon"
+    f_d["page"] = "pg_dly"
     bindings_out["donem_ay"] = "f_donem_ay"
     bindings_out["donem_gun"] = "f_donem_gun"
     return f_m, v_m, f_d, v_d
@@ -501,9 +511,10 @@ def _canvas(cid, title, children):
             "locked": False, "children": children}
 
 
-def _manifest_shell(pid, title, description, filters, sections, tables):
+def _manifest_shell(pid, title, description, filters, sections, tables,
+                    pages=None):
     now = datetime.now(timezone.utc).isoformat()
-    return {
+    out = {
         "id": pid, "version": 1, "created_at": now, "updated_at": now,
         "meta": {"title": title, "eyebrow": "Deposits",
                  "date": date.today().strftime("%d.%m.%Y"),
@@ -515,6 +526,12 @@ def _manifest_shell(pid, title, description, filters, sections, tables):
         "uploads": [],
         "bound_experts": [],
     }
+    if pages:
+        # Sayfa hiyerarşisi: canvas üstünde sekmeler; section'lar `page`
+        # alanıyla bağlanır, sayfa-kapsamlı filtreler yalnız kendi
+        # sekmesinde görünür (aylık/günlük dönem karışıklığını bitirir).
+        out["pages"] = pages
+    return out
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -619,10 +636,12 @@ def build_cost(runner, sch):
         "snapshot); 'Gruplama' filtresi kaynaktaki Dimensions toggle'ları.",
         [f_don_m, f_don_d, f_grp, f_seg, f_prd, f_sub, f_cst, f_aum],
         [_section("sec_monthly", "Monthly Averages",
-                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly")),
+                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly"),
+                  page="pg_mon"),
          _section("sec_daily", "Daily Evolution",
-                  widgets(D, "DAT", v_don_d, "donem_gun", "dly", "Daily"))],
-        [M, D])
+                  widgets(D, "DAT", v_don_d, "donem_gun", "dly", "Daily"),
+                  page="pg_dly")],
+        [M, D], pages=PAGES_MON_DLY)
     return manifest, [M, D]
 
 
@@ -830,10 +849,12 @@ def build_balance(runner, sch):
         "Dim, '2. Kırılım' heatmap kolon ekseni.",
         [f_don_m, f_don_d, f_k1, f_k2, f_seg, f_prd, f_sub, f_cst, f_aum],
         [_section("sec_monthly", "Monthly Averages",
-                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly")),
+                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly"),
+                  page="pg_mon"),
          _section("sec_daily", "Daily Evolution",
-                  widgets(D, "DAT", v_don_d, "donem_gun", "dly", "Daily"))],
-        [M, D])
+                  widgets(D, "DAT", v_don_d, "donem_gun", "dly", "Daily"),
+                  page="pg_dly")],
+        [M, D], pages=PAGES_MON_DLY)
     return manifest, [M, D]
 
 
@@ -996,11 +1017,12 @@ GROUP BY DAT ORDER BY DAT""",
         "hedge overlay kapsam dışı.",
         [f_don_m, f_don_d, f_mod, f_kov, f_seg, f_prd, f_sub, f_cst, f_aum],
         [_section("sec_monthly", "Monthly Averages",
-                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly")),
+                  widgets(M, "MONTH", v_don_m, "donem_ay", "mon", "Monthly"),
+                  page="pg_mon"),
          _section("sec_daily", "Daily Evolution",
                   widgets(D, "DAT", v_don_d, "donem_gun", "dly", "Daily")
-                  + daily_extra)],
-        [M, D])
+                  + daily_extra, page="pg_dly")],
+        [M, D], pages=PAGES_MON_DLY)
     return manifest, [M, D]
 
 

@@ -1,5 +1,5 @@
 import Chart from 'react-apexcharts';
-import { barChartOptions, normalizeLabels } from './chartHelpers.js';
+import { barChartOptions, normalizeLabels, applyAxisLimits, limitsFromConfig } from './chartHelpers.js';
 
 export default function BarChart({ block }) {
   const config = block.config || {};
@@ -13,7 +13,7 @@ export default function BarChart({ block }) {
     return <div className="chart-empty">Grafik için veri yok.</div>;
   }
 
-  const options = barChartOptions({
+  const options = applyAxisLimits(barChartOptions({
     categories,
     series,
     height: 260,
@@ -24,7 +24,7 @@ export default function BarChart({ block }) {
     distributed:    !!config.distributed,
     colors:         Array.isArray(config.colors) ? config.colors : undefined,
     refLines:       config.ref_lines,
-  });
+  }), limitsFromConfig(config));
 
   // key forces ApexCharts to re-measure when the user changes width
   // (CSS-grid resizes are flaky for SVG canvases).

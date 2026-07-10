@@ -1,5 +1,5 @@
 import Chart from 'react-apexcharts';
-import { waterfallOptions, waterfallSeries, normalizeLabels } from './chartHelpers.js';
+import { waterfallOptions, waterfallSeries, normalizeLabels, applyAxisLimits, limitsFromConfig } from './chartHelpers.js';
 
 // Waterfall: adım deltalarından kümülatif köprü. SQL sözleşmesi:
 //   col0 = adım etiketi, col1 = delta, col2 (ops.) = toplam bayrağı (1/0).
@@ -18,13 +18,13 @@ export default function WaterfallChart({ block }) {
     values,
     totals: config.totals || [],
   });
-  const options = waterfallOptions({
+  const options = applyAxisLimits(waterfallOptions({
     height: 280,
     unit: config.unit || '',
     showDataLabels: config.show_data_labels !== false,
     data: series[0].data,
     refLines: config.ref_lines,
-  });
+  }), limitsFromConfig(config));
 
   const remountKey = `${block.id}-${block.width || 'full'}`;
   return (

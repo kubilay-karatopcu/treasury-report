@@ -151,6 +151,7 @@ export default function PropertiesPanel({ width, onResizeStart }) {
         {block.type === 'heatmap'    && <HeatmapControls block={block} />}
         {block.type === 'radial_bar' && <RadialBarControls block={block} />}
         {block.type === 'narrative'  && <NarrativeControls block={block} />}
+        {REF_LINE_TYPES.has(block.type) && <AxisLimitsControls block={block} />}
         {REF_LINE_TYPES.has(block.type) && <RefLinesControls block={block} />}
 
         {isDataBound && <ManualSqlEditor block={block} />}
@@ -1002,8 +1003,25 @@ function ColorInput({ block, path }) {
 /* ── Type-specific control groups ───────────────────────────────────────── */
 
 function SectionHeaderControls({ block }) {
+  const manifest = useStore((s) => s.manifest);
+  const setBlockField = useStore((s) => s.setBlockField);
+  const pages = manifest?.pages || [];
   return (
     <Section title="Başlık Stili">
+      {pages.length > 0 && (
+        <Row label="Sayfa" hint="Bu başlık hangi sayfada görünsün? (boş = tüm sayfalar)">
+          <select
+            className="props-input props-select"
+            value={block.page || ''}
+            onChange={(e) => setBlockField(block.id, 'page', e.target.value || null)}
+          >
+            <option value="">(tüm sayfalar)</option>
+            {pages.map((pg) => (
+              <option key={pg.id} value={pg.id}>{pg.title}</option>
+            ))}
+          </select>
+        </Row>
+      )}
       <Row label="Yazı boyutu (px)">
         <NumberInput block={block} path="config.font_size" min={12} max={64} step={1} suffix="px" />
       </Row>
@@ -1167,6 +1185,30 @@ const REF_LINE_TYPES = new Set([
   'bar_chart', 'line_chart', 'area_chart', 'combo_chart',
   'waterfall_chart', 'scatter_chart',
 ]);
+
+function AxisLimitsControls({ block }) {
+  // Eksen limitleri — config.x_min/x_max/y_min/y_max. Boş = otomatik.
+  // Waterfall'da otomatik kırpma (kümülatif aralık) zaten var; buradaki
+  // değerler onu da ezer. X limitleri yalnız sayısal eksende (bubble)
+  // anlamlı — kategori eksenli grafiklerde gizlenir.
+  const showX = block.type === 'scatter_chart';
+  return (
+    <Section title="Eksen Limitleri">
+      <div className="props-form-hint" style={{ paddingBottom: 6 }}>
+        Boş bırak = otomatik. Waterfall'da y-min'i taban değere yaklaştırıp
+        deltaları büyütebilirsin.
+      </div>
+      <Row label="Y min"><NumberInput block={block} path="config.y_min" /></Row>
+      <Row label="Y max"><NumberInput block={block} path="config.y_max" /></Row>
+      {showX && (
+        <>
+          <Row label="X min"><NumberInput block={block} path="config.x_min" /></Row>
+          <Row label="X max"><NumberInput block={block} path="config.x_max" /></Row>
+        </>
+      )}
+    </Section>
+  );
+}
 
 function RefLinesControls({ block }) {
   const setBlockField = useStore((s) => s.setBlockField);

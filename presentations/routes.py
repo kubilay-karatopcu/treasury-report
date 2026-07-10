@@ -1701,12 +1701,24 @@ def apply_dashboard_filters(pid: str):
         except Exception:
             continue
 
-    results: list[dict] = []
-    touched = 0
+    # ── Paralel blok yürütme ────────────────────────────────────────────
+    # Her blok kendi Oracle bağlantısını açıp kapatıyor (DataClient.get_data)
+    # → 18 blokluk bir dashboard'da seri döngü ~10-12 sn sürüyordu. Blok
+    # işleme thread havuzunda koşar; DuckDB erişimi session.duck_conn()
+    # içindeki reentrant kilitle zaten serileşir, Oracle fetch'leri örtüşür.
+    # Flask request-context thread'lere taşınmaz → logger/sicil/config
+    # önden yakalanır.
+    _req_logger = current_app.logger
+    _req_sicil = current_user.sicil
+    _lib_cache_cfg = current_app.config.get("LIBRARY_BLOCK_CACHE")
+    _lib_dispatcher_cfg = current_app.config.get("LIBRARY_REFRESH_DISPATCHER")
 
-    for block in iter_all_blocks(manifest):
+    def _process_block(block) -> list[dict]:
+        """Tek bloğu çöz/koş; sonuç kayıtlarını döndürür. Gövde eski seri
+        döngünün birebir taşınmışı: `continue` → `return results`."""
+        results: list[dict] = []
         if block.get("type") == "section_header":
-            continue
+            return results
 
         # ── Faz B: dataset-bound block ────────────────────────────────────
         # Reads from the materialised DuckDB view (S3 parquet) — no Oracle, no
@@ -1737,8 +1749,8 @@ def apply_dashboard_filters(pid: str):
                     "id": block["id"], "status": "dataset",
                     "row_count": int(len(df)), "alias": binding.get("alias"),
                 })
-                touched += 1
-            continue
+                results[-1]["_t"] = 1
+            return results
 
         # ── Produced / scope-alias SQL block (aggregation on a Hazırlık view) ─
         # A block whose SQL reads a Hazırlık view (produced derivation or cached
@@ -1835,12 +1847,12 @@ def apply_dashboard_filters(pid: str):
                     "blind_filters": _blind,
                     "concept_injected": bool(_applied),
                 })
-                touched += 1
+                results[-1]["_t"] = 1
             except Exception as exc:
                 msg = str(exc).strip().splitlines()[0][:240]
                 results.append({"id": block["id"], "status": "error",
                                  "kind": "duckdb", "error": msg})
-            continue
+            return results
 
         # Data-bound blocks participate if they EITHER declare variables
         # (Phase 6.5) OR are concept-native (source_tables + active concept
@@ -1858,7 +1870,7 @@ def apply_dashboard_filters(pid: str):
         # inip blok render olur ve blind raporlanır (sessiz kaybolma değil görünür).
         sentinel_present = bool(resolved_concept_filters) and ("{{concept_filters}}" in query)
         if not query or (not variables_raw and not concept_eligible and not sentinel_present):
-            continue
+            return results
 
         # Hydrate Pydantic Block stand-in for resolver / binder / cache.
         try:
@@ -1868,7 +1880,7 @@ def apply_dashboard_filters(pid: str):
                 "version": int(block.get("version", 1)),
                 "title": block.get("title") or "block",
                 "team": "in_presentation",
-                "owner": current_user.sicil,
+                "owner": _req_sicil,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "query": query,
                 "variables": [v.model_dump() for v in var_models],
@@ -1877,7 +1889,7 @@ def apply_dashboard_filters(pid: str):
         except Exception as exc:
             results.append({"id": block["id"], "status": "error",
                              "kind": "block_schema", "error": str(exc)})
-            continue
+            return results
 
         # Parse variable_bindings if any.
         raw_bindings = block.get("variable_bindings") or {}
@@ -1889,7 +1901,7 @@ def apply_dashboard_filters(pid: str):
         except Exception as exc:
             results.append({"id": block["id"], "status": "error",
                              "kind": "binding_schema", "error": str(exc)})
-            continue
+            return results
 
         # Spec §3.5 fallback — explicit binding'i OLMAYAN değişkenler için
         # TEK eşleşmeli semantic_tag auto-binding'i uygula. Aksi hâlde blok
@@ -1905,7 +1917,7 @@ def apply_dashboard_filters(pid: str):
                         var_models, _dash_filter_models).items():
                     bindings.setdefault(name, vb)
             except Exception:
-                current_app.logger.warning(
+                _req_logger.warning(
                     "apply-filters: auto-binding fallback failed (%s)",
                     block.get("id"), exc_info=True)
 
@@ -1917,7 +1929,7 @@ def apply_dashboard_filters(pid: str):
             results.append({"id": block["id"], "status": "error",
                              "kind": "resolution",
                              "error": "; ".join(exc.errors)})
-            continue
+            return results
 
         # ── Empty selection short-circuit ────────────────────────────────
         # If any enum_multi variable resolved to an empty list (user
@@ -1936,8 +1948,8 @@ def apply_dashboard_filters(pid: str):
                 "row_count": 0,
                 "reason": f"variable :{empty_var} has no selected values",
             })
-            touched += 1
-            continue
+            results[-1]["_t"] = 1
+            return results
 
         # ── Phase B — shared library-block cache (lazy TTL + serve-stale) ─
         # Eligible blocks (imported_from + refresh_policy.kind=lazy_ttl) try
@@ -1949,8 +1961,8 @@ def apply_dashboard_filters(pid: str):
             try_serve_from_library_cache as _lib_try_serve,
             maybe_write_library_cache as _lib_maybe_write,
         )
-        lib_cache = current_app.config.get("LIBRARY_BLOCK_CACHE")
-        lib_dispatcher = current_app.config.get("LIBRARY_REFRESH_DISPATCHER")
+        lib_cache = _lib_cache_cfg
+        lib_dispatcher = _lib_dispatcher_cfg
         if lib_cache is not None and lib_dispatcher is not None:
             try:
                 _bound_for_lib = expand_binds(stand_in, resolved)
@@ -1985,8 +1997,8 @@ def apply_dashboard_filters(pid: str):
             if cache_result is not None:
                 cache_result["id"] = block["id"]
                 results.append(cache_result)
-                touched += 1
-                continue
+                results[-1]["_t"] = 1
+                return results
 
         # ── Phase 7.b — concept predicate injection ──────────────────────
         # Only blocks that declare source_tables AND embed the
@@ -2004,7 +2016,7 @@ def apply_dashboard_filters(pid: str):
                     resolved_concept_filters, reg_snapshot, cat_snapshot,
                 )
             except Exception:
-                current_app.logger.exception(
+                _req_logger.exception(
                     "concept injection failed for %s; falling back", block["id"])
                 inj = None
 
@@ -2031,14 +2043,14 @@ def apply_dashboard_filters(pid: str):
                         "applied_predicates": inj.applied,
                         "concept_injected": True,
                     })
-                    touched += 1
-                    continue
+                    results[-1]["_t"] = 1
+                    return results
                 except Exception as exc:
                     msg = str(exc).strip().splitlines()[0][:240]
                     results.append({"id": block["id"], "status": "error",
                                      "kind": "oracle", "error": msg,
                                      "blind_filters": inj.blind})
-                    continue
+                    return results
             elif inj is not None and (inj.blind or inj.applied):
                 # Concept filters apply but the block didn't embed the
                 # sentinel — surface what would apply (informational) and let
@@ -2076,8 +2088,8 @@ def apply_dashboard_filters(pid: str):
                 "id": block["id"], "status": "cache_hit",
                 "row_count": hit.row_count, "cache_key": ck.short,
             })
-            touched += 1
-            continue
+            results[-1]["_t"] = 1
+            return results
 
         with session.duck_conn() as conn:
             parent = cache.find_subset_parent(stand_in, resolved)
@@ -2097,8 +2109,8 @@ def apply_dashboard_filters(pid: str):
                 "id": block["id"], "status": "subset",
                 "row_count": int(len(subset_df)), "parent_key": parent.key.short,
             })
-            touched += 1
-            continue
+            results[-1]["_t"] = 1
+            return results
 
         # Cache miss — fetch from Oracle.
         try:
@@ -2127,11 +2139,38 @@ def apply_dashboard_filters(pid: str):
                 "id": block["id"], "status": "refetched",
                 "row_count": int(len(df)),
             })
-            touched += 1
+            results[-1]["_t"] = 1
         except Exception as exc:
             msg = str(exc).strip().splitlines()[0][:240]
             results.append({"id": block["id"], "status": "error",
                              "kind": "oracle", "error": msg})
+
+        return results
+
+    blocks_to_run = [blk for blk in iter_all_blocks(manifest)
+                     if blk.get("type") != "section_header"]
+    # Sayfa-kapsamlı uygulama: frontend yalnız aktif sayfanın bloklarını
+    # gönderirse sadece onlar koşar (Page özelliği + yarı yarıya hızlanma).
+    _only_ids = body.get("block_ids")
+    if isinstance(_only_ids, list) and _only_ids:
+        _wanted = {str(x) for x in _only_ids}
+        blocks_to_run = [blk for blk in blocks_to_run
+                         if blk.get("id") in _wanted]
+
+    results: list[dict] = []
+    touched = 0
+    if blocks_to_run:
+        if len(blocks_to_run) == 1:
+            outs = [_process_block(blocks_to_run[0])]
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(
+                    max_workers=min(6, len(blocks_to_run))) as _pool:
+                outs = list(_pool.map(_process_block, blocks_to_run))
+        for _out in outs:
+            for _r in _out:
+                touched += _r.pop("_t", 0)
+                results.append(_r)
 
     # Attach informational concept metadata (blind/applied) to the results of
     # blocks that matched concept filters but didn't inject (no sentinel).
