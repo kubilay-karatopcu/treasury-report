@@ -65,13 +65,62 @@ const COMMON_TOOLTIP = {
   style: { fontSize: '12px' },
 };
 
+// ── Referans çizgileri ───────────────────────────────────────────────────
+// config.ref_lines: [{axis:'y'|'x', value, label?, color?, source?}] →
+// Apex annotations. Her kartezyen chart'a (bar/line/area/combo/waterfall/
+// scatter) opsiyonel yatay/dikey kesikli çizgi + etiket ekler. `value`:
+// y için sayı; x için sayı (sayısal eksen) VEYA kategori etiketi (string).
+// `source:'query'` işaretli girdiler SQL sonucundan gelir ve her koşuda
+// tazelenir (bkz. execute_block_sqls scatter sözleşmesi, 5. kolon).
+export const REF_LINE_COLOR = '#D4A574';
+
+export function refLineAnnotations(refLines) {
+  const items = Array.isArray(refLines) ? refLines : [];
+  const yaxis = [];
+  const xaxis = [];
+  for (const l of items) {
+    if (!l || (l.axis !== 'x' && l.axis !== 'y')) continue;
+    const isX = l.axis === 'x';
+    const value = isX ? l.value : Number(l.value);
+    if (value == null || (!isX && !Number.isFinite(value))) continue;
+    const color = l.color || REF_LINE_COLOR;
+    const entry = {
+      borderColor: color,
+      strokeDashArray: 5,
+      label: {
+        text: l.label || undefined,
+        borderColor: 'transparent',
+        position: isX ? 'top' : 'right',
+        offsetY: isX ? 6 : -4,
+        style: {
+          color,
+          background: theme.chart.tooltipBg || 'rgba(20,22,28,0.85)',
+          fontSize: '10px',
+        },
+      },
+    };
+    if (isX) xaxis.push({ ...entry, x: value });
+    else yaxis.push({ ...entry, y: value });
+  }
+  if (!yaxis.length && !xaxis.length) return null;
+  return { yaxis, xaxis };
+}
+
+// Options objesine annotations'ı yalnız çizgi varsa ekle (Apex `annotations:
+// undefined`'a toleranslı ama anahtar kirliliği yaratmayalım).
+export function withRefLines(options, refLines) {
+  const ann = refLineAnnotations(refLines);
+  if (ann) options.annotations = ann;
+  return options;
+}
+
 export function barChartOptions({
   categories, series, height = 260,
   stacked = false, horizontal = false,
   showDataLabels = false, borderRadius = 4,
-  distributed = false, colors,
+  distributed = false, colors, refLines,
 }) {
-  return {
+  return withRefLines({
     chart: {
       type: 'bar',
       height,
@@ -110,14 +159,15 @@ export function barChartOptions({
     colors: Array.isArray(colors) && colors.length > 0 ? colors : theme.chart.palette,
     grid: COMMON_GRID,
     noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
-  };
+  }, refLines);
 }
 
 export function lineChartOptions({
   categories, series, height = 260,
   curve = 'smooth', strokeWidth = 2, showMarkers = false,
+  refLines,
 }) {
-  return {
+  return withRefLines({
     chart: {
       type: 'line',
       height,
@@ -143,16 +193,16 @@ export function lineChartOptions({
     colors: theme.chart.palette,
     grid: COMMON_GRID,
     noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
-  };
+  }, refLines);
 }
 
 export function areaChartOptions({
   categories, series, height = 260,
   curve = 'smooth', strokeWidth = 2, showMarkers = false,
-  fillOpacity = 0.45,
+  fillOpacity = 0.45, refLines,
 }) {
   const opts = lineChartOptions({
-    categories, series, height, curve, strokeWidth, showMarkers,
+    categories, series, height, curve, strokeWidth, showMarkers, refLines,
   });
   opts.chart.type = 'area';
   opts.fill = {
@@ -177,7 +227,7 @@ export function comboChartOptions({
   categories, series, height = 260,
   leftTitle = '', rightTitle = '',
   curve = 'smooth', strokeWidth = 2, showMarkers = false,
-  stacked = false, showDataLabels = false,
+  stacked = false, showDataLabels = false, refLines,
 }) {
   const leftNames  = series.filter((s) => s.axis !== 'right').map((s) => s.name);
   const rightNames = series.filter((s) => s.axis === 'right').map((s) => s.name);
@@ -206,7 +256,7 @@ export function comboChartOptions({
     .map((s, i) => (s.kind === 'line' ? -1 : i))
     .filter((i) => i >= 0);
 
-  return {
+  return withRefLines({
     chart: {
       type: 'line',          // base type; each series overrides via its own `type`
       height,
@@ -242,7 +292,7 @@ export function comboChartOptions({
     colors: theme.chart.palette,
     grid: COMMON_GRID,
     noData: { text: 'Veri bulunamadı', style: { color: theme.chart.axisLabel } },
-  };
+  }, refLines);
 }
 
 export function pieChartOptions({
@@ -415,7 +465,7 @@ export function waterfallSeries({ categories, values, totals }) {
   return [{ name: 'Δ', data }];
 }
 
-export function waterfallOptions({ height = 280, unit = '', showDataLabels = true, data = null }) {
+export function waterfallOptions({ height = 280, unit = '', showDataLabels = true, data = null, refLines }) {
   // Kaynak dashboard'un y_floor davranışı: köprü yüksek bir taban değer
   // (ör. ~4500 bps) etrafında ±küçük deltalarla oynuyorsa, 0'dan başlayan
   // eksen deltaları görünmez kılar. Kümülatif aralık tabandan kopuksa ekseni
@@ -437,7 +487,13 @@ export function waterfallOptions({ height = 280, unit = '', showDataLabels = tru
       yMax = hi + pad;
     }
   }
-  return {
+  // Yüzde köprülerinde etiketler her zaman 2 ondalık taşır (45.35 → "45" gibi
+  // tam sayıya yuvarlanırsa Start/End okunmaz; 0.12'lik üye deltası kaybolur).
+  const fmtDelta = unit === '%'
+    ? (v) => (typeof v === 'number' ? v.toFixed(2) : '')
+    : (v) => (typeof v === 'number' ? formatNumber(v) : '');
+  const fmtAxis = unit === '%' ? (v) => Number(v).toFixed(1) : formatNumber;
+  return withRefLines({
     chart: { ...CHART_BASE, type: 'rangeBar', height },
     ...CHART_THEME,
     plotOptions: { bar: { horizontal: false, borderRadius: 3, rangeBarOverlap: true } },
@@ -445,13 +501,12 @@ export function waterfallOptions({ height = 280, unit = '', showDataLabels = tru
       enabled: showDataLabels,
       formatter: (_v, { w, seriesIndex, dataPointIndex }) => {
         const p = w.config.series[seriesIndex].data[dataPointIndex];
-        const d = p && p._delta;
-        return typeof d === 'number' ? formatNumber(d) : '';
+        return p ? fmtDelta(p._delta) : '';
       },
       style: { fontSize: '10px' },
     },
     xaxis: { labels: { ...COMMON_AXIS_STYLE, rotate: -35, rotateAlways: false } },
-    yaxis: { min: yMin, max: yMax, labels: { ...COMMON_AXIS_STYLE, formatter: formatNumber } },
+    yaxis: { min: yMin, max: yMax, labels: { ...COMMON_AXIS_STYLE, formatter: fmtAxis } },
     grid: COMMON_GRID,
     legend: { show: false },
     tooltip: {
@@ -460,10 +515,10 @@ export function waterfallOptions({ height = 280, unit = '', showDataLabels = tru
         const p = w.config.series[seriesIndex].data[dataPointIndex];
         if (!p) return '';
         const kind = p._total ? 'Toplam' : 'Δ';
-        return `<div style="padding:6px 10px">${p.x}<br/><b>${kind}: ${formatNumber(p._delta)}${unit ? ' ' + unit : ''}</b></div>`;
+        return `<div style="padding:6px 10px">${p.x}<br/><b>${kind}: ${fmtDelta(p._delta)}${unit ? ' ' + unit : ''}</b></div>`;
       },
     },
-  };
+  }, refLines);
 }
 
 // ── Scatter / Bubble ─────────────────────────────────────────────────────
@@ -489,10 +544,18 @@ function _paddedRange(values) {
 }
 
 export function scatterOptions({ height = 300, xTitle = '', yTitle = '',
-                                 showDataLabels = false, points = [] }) {
-  const xr = _paddedRange(points.map((p) => Number(p.x) || 0));
-  const yr = _paddedRange(points.map((p) => Number(p.y) || 0));
-  return {
+                                 showDataLabels = false, points = [],
+                                 refLines }) {
+  // Eksen aralığı referans çizgilerini de kapsasın (WAvg çizgisi nokta
+  // bulutunun hemen dışına düşebilir).
+  const refs = Array.isArray(refLines) ? refLines : [];
+  const refY = refs.filter((l) => l && l.axis === 'y')
+    .map((l) => Number(l.value)).filter(Number.isFinite);
+  const refX = refs.filter((l) => l && l.axis === 'x')
+    .map((l) => Number(l.value)).filter(Number.isFinite);
+  const xr = _paddedRange([...points.map((p) => Number(p.x) || 0), ...refX]);
+  const yr = _paddedRange([...points.map((p) => Number(p.y) || 0), ...refY]);
+  return withRefLines({
     chart: { ...CHART_BASE, type: 'bubble', height, zoom: { enabled: false } },
     ...CHART_THEME,
     dataLabels: { enabled: showDataLabels },
@@ -515,5 +578,5 @@ export function scatterOptions({ height = 300, xTitle = '', yTitle = '',
     // Derin gruplamada nokta sayısı büyür — legend liste plot'u ezmesin.
     legend: { show: points.length <= 14, position: 'bottom', fontSize: '11px' },
     tooltip: { ...COMMON_TOOLTIP },
-  };
+  }, refLines);
 }

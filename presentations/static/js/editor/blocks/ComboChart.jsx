@@ -45,6 +45,7 @@ export default function ComboChart({ block }) {
     showMarkers: !!config.show_markers,
     stacked:        !!config.stacked,
     showDataLabels: !!config.show_data_labels,
+    refLines:       config.ref_lines,
   });
 
   // ApexCharts mixed chart: each series declares its own type (bar/line).

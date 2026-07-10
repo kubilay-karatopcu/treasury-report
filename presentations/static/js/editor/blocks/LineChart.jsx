@@ -22,6 +22,7 @@ export default function LineChart({ block }) {
     curve:        config.curve || 'smooth',
     strokeWidth:  typeof config.stroke_width === 'number' ? config.stroke_width : 2,
     showMarkers:  !!config.show_markers,
+    refLines:     config.ref_lines,
   });
 
   const remountKey = `${block.id}-${block.width || 'full'}`;
