@@ -6831,40 +6831,75 @@ body.theme-dark .props-sql-helper__table td code {
   max-height: 220px; overflow: auto;
 }
 
-/* ── Sayfa sekmeleri (Page > Başlıklar hiyerarşisi) ───────────────────────── */
+/* ── Sayfa sekmeleri (Page > Başlıklar hiyerarşisi) ───────────────────────
+   Token disiplini: yalnız editor.css'te TANIMLI --ts-* token'ları kullan —
+   body.prisma (editor_dark.css) onları koyu paletle remap eder; var olmayan
+   token + açık fallback koyu editörde beyaz buton üretiyordu. */
 .page-tabs {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   margin: 4px 0 14px; padding-bottom: 8px;
-  border-bottom: 1px solid var(--ts-hairline, #e2e8f0);
+  border-bottom: 1px solid var(--ts-hairline);
 }
 .page-tab {
   display: inline-flex; align-items: center; gap: 4px;
-  border: 1px solid var(--ts-hairline, #e2e8f0); border-radius: 8px 8px 0 0;
+  border: 1px solid var(--ts-card-border); border-radius: 8px 8px 0 0;
   background: transparent; overflow: hidden;
 }
 .page-tab__label {
   border: none; background: none; cursor: pointer;
   padding: 7px 14px; font-size: 13px; font-weight: 500;
-  color: var(--ts-ink-soft, #64748b);
+  color: var(--ts-muted);
 }
+.page-tab:hover .page-tab__label { color: var(--ts-ink); }
 .page-tab.is-active {
-  background: var(--ts-surface, #ffffff);
+  background: var(--ts-card-bg);
   border-bottom-color: transparent;
-  box-shadow: 0 -2px 0 var(--ts-accent, #d4a574) inset;
+  box-shadow: 0 -2px 0 var(--ts-primary) inset;
 }
-.page-tab.is-active .page-tab__label { color: var(--ts-ink, #1e293b); font-weight: 600; }
+.page-tab.is-active .page-tab__label { color: var(--ts-ink); font-weight: 600; }
 .page-tab__actions { display: inline-flex; gap: 2px; padding-right: 6px; }
 .page-tab__icon {
   border: none; background: none; cursor: pointer; padding: 2px;
-  color: var(--ts-ink-soft, #94a3b8); border-radius: 4px;
+  color: var(--ts-muted-soft); border-radius: 4px;
   display: inline-flex; align-items: center;
 }
-.page-tab__icon:hover { color: var(--ts-ink, #1e293b); background: rgba(148,163,184,0.15); }
-.page-tab__icon--danger:hover { color: #dc2626; }
+.page-tab__icon:hover { color: var(--ts-ink); background: var(--ts-primary-soft); }
+.page-tab__icon--danger:hover { color: var(--ts-red); }
 .page-tab--add {
   display: inline-flex; align-items: center; gap: 4px;
-  border: 1px dashed var(--ts-hairline, #cbd5e1); border-radius: 8px;
+  border: 1px dashed var(--ts-card-border); border-radius: 8px;
   background: none; cursor: pointer; padding: 6px 10px;
-  font-size: 12px; color: var(--ts-ink-soft, #64748b);
+  font-size: 12px; color: var(--ts-muted);
 }
-.page-tab--add:hover { color: var(--ts-ink, #1e293b); border-color: var(--ts-accent, #d4a574); }
+.page-tab--add:hover { color: var(--ts-ink); border-color: var(--ts-primary); }
+
+/* Sayfa ekle/adlandır modal formu */
+.page-modal__form { display: flex; flex-direction: column; gap: 10px; }
+.page-modal__label { font-size: 12px; color: var(--ts-muted); }
+.page-modal__input {
+  width: 100%; padding: 8px 10px; font-size: 14px;
+  border: 1px solid var(--ts-card-border); border-radius: 6px;
+  background: var(--ts-card-bg); color: var(--ts-ink);
+}
+.page-modal__input:focus { outline: none; border-color: var(--ts-primary); }
+
+/* TOC — sayfa gruplu navigatör (sunum modu) */
+.toc-page-group { margin-bottom: 6px; }
+.toc-page {
+  display: block; width: 100%; text-align: left;
+  border: none; background: none; cursor: pointer;
+  padding: 6px 8px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ts-muted);
+}
+.toc-page:hover { color: var(--ts-ink); background: var(--ts-primary-soft); }
+.toc-page.is-active { color: var(--ts-primary); }
+.toc-item--nested { padding-left: 18px; }
+
+/* Modal buton varyantı — silme onayı */
+.btn-danger {
+  background: var(--ts-red); color: #fff; border: 1px solid transparent;
+  border-radius: 6px; padding: 7px 14px; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+}
+.btn-danger:hover { filter: brightness(1.1); }
