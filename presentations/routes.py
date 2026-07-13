@@ -2181,8 +2181,11 @@ def apply_dashboard_filters(pid: str):
             return results
 
         # Cache miss — fetch from Oracle.
+        # NOT: expand_binds BURADA yeniden import EDİLMEZ — nested fonksiyon
+        # içindeki geç `from ... import expand_binds`, adı fonksiyon-yereli
+        # yapıp yukarıdaki (library-cache / concept-injection) kullanımları
+        # UnboundLocalError'a düşürüyordu. Route kapsamındaki import geçerli.
         try:
-            from .sql.binder import expand_binds
             from .concepts.integration import strip_concept_sentinel
             bound = expand_binds(stand_in, resolved)
             # This block carries the sentinel but reached the non-concept path

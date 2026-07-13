@@ -152,3 +152,33 @@ def test_duck_cache_serves_filters_without_oracle(app):
     assert b2["b_rate"]["row_count"] == 1
     assert dc.table_loads == 1          # TTL içinde yeniden yüklenmedi
     assert dc.block_queries == 0        # blok sorgusu Oracle'a hiç gitmedi
+
+
+def test_process_block_has_no_local_import_shadowing():
+    """Regresyon (ofis hatası): _process_block içindeki geç
+    `from ... import expand_binds`, adı fonksiyon-yereli yapıp DAHA ÖNCEKİ
+    kullanımları (library-cache / concept-injection) UnboundLocalError'a
+    düşürüyordu. Fonksiyon içinde import edilen HİÇBİR ad, import satırından
+    önce kullanılmamalı."""
+    import ast
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "routes.py").read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_process_block")
+
+    imports: dict[str, int] = {}
+    for n in ast.walk(fn):
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                nm = a.asname or a.name.split(".")[0]
+                imports[nm] = min(imports.get(nm, n.lineno), n.lineno)
+    hazards = []
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+            if n.id in imports and n.lineno < imports[n.id]:
+                hazards.append((n.id, n.lineno, imports[n.id]))
+    assert not hazards, (
+        f"_process_block içinde yerel import gölgelemesi: {hazards} — "
+        "adı route kapsamında import edip fonksiyon içindeki import'u kaldır.")
