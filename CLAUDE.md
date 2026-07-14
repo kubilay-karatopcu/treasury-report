@@ -6,6 +6,58 @@ This module adds a block-based, LLM-driven presentation editor to the existing *
 
 > **Read `reference/` BEFORE writing any code.** That folder contains read-only copies of the actual app files. The patterns below are summaries; the real files are authoritative.
 
+> **Güncel durum (Temmuz 2026):** Faz 1–7 üretimde; Faz 8 (scope contract), 9 (Keşif/Hazırlık atölyeleri) ve 10 (Bloklar/marketplace) spec'leri `docs/PHASE_*.md`'de ve büyük ölçüde uygulanmış durumda. Bu dosyanın alt yarısındaki faz planları TARİHSEL sözleşmedir (kilitli kararlar geçerli); anlık yetenek listesi için aşağıdaki **"Shipped capabilities"** bölümüne ve `ROADMAP.md`'ye bak.
+
+---
+
+## Shipped capabilities — bu spec'ten sonra eklenenler (özet)
+
+Aşağıdakiler üretimde; ilgili kod referanslarıyla:
+
+- **Sayfa hiyerarşisi (Page > Başlıklar)** — `manifest.pages: [{id, title}]` canvas
+  üstünde sekmeler; `section_header.page` bölümü bir sayfaya bağlar (alansız =
+  her sayfada), `filters[].page` filtreyi o sayfaya kısıtlar. Apply-filters
+  `block_ids` ile yalnız aktif sayfanın bloklarını çözer. Sayfasız manifest'ler
+  birebir eski davranışta. (`manifest.py`, `PageTabs.jsx`, `test_pages.py`)
+- **Container blokları** — `carousel` (slaytlı; slide = leaf ya da `canvas`) ve
+  `canvas` (12 kolonluk grid, leaf-only). Derinlik sınırı:
+  section > carousel > canvas > leaf. (`manifest.py`, `Carousel.jsx`, `Canvas.jsx`)
+- **Yeni chart tipleri** — `combo_chart` (çift eksen bar+line, seri başına
+  kind/axis), `waterfall_chart` (col0=etiket, col1=delta, col2 ops. toplam
+  bayrağı; kümülatif renderer'da), `scatter_chart` (bubble; col0=ad, col1=x,
+  col2=y, col3 ops. boyut, col4 ops. yatay referans değeri → `source:"query"`
+  çizgisi). (`execute_block_sqls.py`, `blocks/*.jsx`)
+- **Referans çizgileri** — `config.ref_lines: [{axis:'x'|'y', value, label?,
+  color?, source?}]` tüm kartezyen chart'larda; Properties panelinden ve
+  chat'ten yönetilir; `source:'query'` girdiler SQL'den tazelenir.
+- **Eksen limitleri** — `config.x_min/x_max/y_min/y_max` (sayı/null) tüm
+  kartezyen chart'larda; waterfall'da otomatik kümülatif-aralık kırpması var,
+  elle limit onu ezer.
+- **Filtre uygulama performansı** — apply-filters blokları 6 worker'lı thread
+  havuzunda paralel çözer (DuckDB erişimi oturum kilidiyle serileşir); ayrıca
+  **oturum tablo-önbelleği**: `basket[].duck_cache: true` tablolar ilk
+  kullanımda bir kez Oracle'dan oturum DuckDB'sine çekilir (TTL 15 dk) ve blok
+  SQL'leri `presentations/sql/oracle_duck.py` çevirisiyle (NVL/FROM DUAL/
+  ROWNUM/REGEXP_SUBSTR/TO_CHAR/TO_NUMBER/RATIO_TO_REPORT) lokalde koşar; hata
+  olursa sessizce Oracle'a düşülür. (`routes.py` apply-filters,
+  `test_table_cache_apply.py`)
+- **Dış-yazar manifest tazeleme** — importer script'leri manifest.json'ı S3'e
+  uygulama dışından yazar; `PresentationSession` ETag değişimini (≥30 sn
+  throttle) görüp bellek kopyasını yeniler. (`session.py`)
+- **Deposits taşıma hattı** — `jobs/deposits_pipeline.py` (ofiste tek koşu:
+  NIM_calculation motorlarının portuyla plot-hazır `PRISMA_DEP_*`/`PRISMA_NP_*`
+  tabloları + GRANT + S3 tablo dokümanları) ve `jobs/deposits_dashboards.py`
+  (5 deposits dashboard'unu kaynak siteyle blok-blok birebir üretip S3'e
+  yazar: Bennet waterfall carousel'leri, bubble/heatmap'ler, sayfalar,
+  filtreler). DuckDB tabanlı semantik regresyon testleri
+  (`test_deposits_dashboards_*.py`) SQL'leri kaynak formüllerle sayı sayı
+  karşılaştırır ve üretim lehçe çeviricisini kullanır.
+- **Bant sıralaması** — AUM/vade bandı etiketleri her yerde sayısal alt sınıra
+  göre sıralanır (ilk sayı × K/M/B çarpanı): SQL'de `band_order_expr`,
+  Python'da `_band_sort_key`, filtre `allowed_values` listelerinde.
+- **KVKK maskesi** — müşteri adları (`FULL_NM`) PRISMA tablolarına ve
+  manifest'lere daima maskeli yazılır (`X*** Y***`); düz PII asla depolanmaz.
+
 ---
 
 ## Repository context (existing patterns to follow)
@@ -24,7 +76,7 @@ The Treasury Platform follows these conventions — **mirror them**. See `refere
 - **Templates**: `base.html` is the shared layout. Block slots available: `title`, `head`, `filter_panel`, `content`, `scripts`. `editor.html` will override `content` and `scripts`; do NOT use `filter_panel` (the editor has its own sidebar). See `reference/templates/rates.html` and `competitor.html` for extension examples.
 - **CSS — Tabler-based with custom tokens**: see `reference/static/css/styles.css`. Reuse existing tokens (`--bs-primary` etc.) and Tabler component classes (`.card`, `.btn`, `.btn-primary`, `.page-header`, `.navbar-vertical`). Do NOT define new color tokens.
 - **CDN URLs — no `@` allowed**: corporate proxy mangles URLs containing `@`. Use cdnjs.cloudflare.com paths. See `base.html` for examples of how libraries are loaded.
-- **Frontend bundling — Phase 2+**: esbuild for the React bundle, output to `presentations/static/js/bundle.js`. Phase 1 uses CDN-loaded React (no build step needed) to keep iteration fast.
+- **Frontend bundling**: esbuild üç bundle üretir (`bash presentations/build.sh`). Editör bundle'ı (`static/js/bundle.js`) git'te taşınır — ofis makinesi build almaz; JS değişikliği yapan, bundle'ı da build edip commit'ler.
 - **OpenShift reverse proxy**: SSE/streaming endpoints must set `X-Accel-Buffering: no` header. The existing WSGI middleware injects `SCRIPT_NAME = '/proxy/8080'`; respect this. (The deposit module deals with this; mirror its pattern.)
 - **LLM endpoint**: Qwen3.5-27B-GGUF, OpenAI-compatible. Token and URL in app config. Tool calling is broken in the GGUF wrapper — use system prompt + JSON parsing in message content. See `reference/modules/deposit_panel/api_deposit.py` for the existing client pattern.
 - **Threading**: heavy work outside the lock; only the atomic reference swap inside. Snapshot pattern: `df_snap = current_df` inside lock, work on snapshot outside. See deposit_panel for examples.
@@ -55,66 +107,42 @@ The Treasury Platform follows these conventions — **mirror them**. See `refere
 
 ## File layout
 
-The existing app's structure: single `app.py` at the root, sibling modules as folders. The new `presentations/` module sits at the same level.
+Gerçek repo düzeni (özet — tam liste için ağaca bak):
 
 ```
-treasury_app/                     (existing repo, don't restructure)
-├── app.py                        (existing — registers blueprints here)
-├── DataClient.py                 (existing — keep using as-is)
-├── deposit_panel/                (existing reference module)
-│   ├── app_deposit.py
-│   └── api_deposit.py
-├── templates/
-│   └── base.html                 (existing — extend this)
-├── static/
-│   ├── styles/
-│   │   └── styles.css            (existing — reuse tokens)
-│   └── js/                       (existing legacy JS)
-└── presentations/                ← NEW MODULE — all our work goes here
-    ├── __init__.py               # Blueprint factory (exports presentations_bp)
-    ├── routes.py                 # HTTP endpoints
-    ├── graph.py                  # LangGraph state machine
-    ├── manifest.py               # Manifest schema + validators
-    ├── patch.py                  # RFC 6902 apply + inverse + classify
-    ├── session.py                # Per-(user, presentation) session manager
-    ├── duck.py                   # Oracle → Arrow → DuckDB helpers
-    ├── llm.py                    # Qwen client
-    ├── store.py                  # S3 snapshot persistence
-    ├── queries/                  # SQL files (matching existing convention)
-    │   └── *.sql
-    ├── prompts/
-    │   ├── block_edit.txt
-    │   └── global_edit.txt
-    ├── nodes/
-    │   ├── route_intent.py
-    │   ├── plan_fetch.py
-    │   ├── fetch_data.py
-    │   ├── generate_patch.py
-    │   ├── validate_patch.py
-    │   └── apply_patch.py
-    ├── templates/
-    │   └── presentations/
-    │       ├── editor.html
-    │       └── list.html
-    ├── static/
-    │   ├── js/
-    │   │   ├── editor/
-    │   │   │   ├── index.jsx
-    │   │   │   ├── App.jsx
-    │   │   │   ├── components/
-    │   │   │   ├── blocks/
-    │   │   │   ├── lib/
-    │   │   │   └── theme.js
-    │   │   └── bundle.js         # esbuild output (Phase 2+, gitignored)
-    │   └── css/
-    │       └── editor.css
-    ├── build.sh                  # esbuild invocation (Phase 2+)
-    ├── tests/
-    │   ├── test_patch.py
-    │   ├── test_manifest.py
-    │   ├── test_session.py
-    │   └── test_llm_smoke.py
-    └── README.md
+repo/
+├── app.py                        # ana Flask app (blueprint kayıtları burada)
+├── DataClient.py                 # Oracle/S3 erişimi (havuz + get_data)
+├── queries/                      # legacy sayfa SQL'leri + queries/deposits/
+├── jobs/                         # OFİSTE koşulan tek-atımlık script'ler
+│   ├── deposits_pipeline.py      #   NIM verisi → PRISMA_* tabloları + dokümanlar
+│   ├── deposits_dashboards.py    #   PRISMA_* → 5 deposits dashboard'u (S3 manifest)
+│   ├── generate_table_docs.py
+│   └── sample_distinct_values.py
+├── prisma_home/                  # PRISMA kabuk sayfaları + editor_dark.css
+├── docs/                         # ROADMAP, PHASE_6_5/7/8/9/10 spec'leri, backend notları
+└── presentations/                # ana modül
+    ├── routes.py                 # Sunum endpoint'leri (apply-filters dahil)
+    ├── routes_blocks.py / _concepts.py / _kesif.py / _library.py / _scope.py
+    ├── manifest.py               # şema + doğrulayıcılar (pages/container/ref_lines)
+    ├── patch.py, session.py, duck.py, graph.py, llm.py, store.py
+    ├── blocks/                   # Block/Variable pydantic şemaları (Phase 6.5)
+    ├── variables/                # resolver + semantic_tags
+    ├── sql/                      # validator, binder, oracle_duck (lehçe çevirisi)
+    ├── dashboards/               # DashboardFilter şeması + binding resolver
+    ├── cache/                    # block_cache (DuckDB, subset routing) + library cache
+    ├── concepts/                 # Phase 7: registry, compiler, review, user-scope
+    ├── catalog/                  # tablo dokümanları + concept YAML'ları + loader
+    ├── scope/                    # Phase 8: scope contract, materialize, store
+    ├── discovery/, drafts/, table_docs/, python_runtime/, uploads.py
+    ├── nodes/                    # LLM graph düğümleri + execute_block_sqls
+    ├── prompts/                  # tüm LLM metinleri (asla inline yazma)
+    ├── templates/presentations/  # editor/list/kesif/hazirlik/bloklar sayfaları
+    ├── static/js/editor/         # React kaynak (App, components/, blocks/, lib/)
+    ├── static/js/bundle.js       # editör bundle'ı — GİT'TE (aşağıya bak)
+    ├── static/css/editor.css     # açık tema token'ları (editor_dark.css remap eder)
+    ├── build.sh                  # üç bundle'ı üretir
+    └── tests/                    # pytest — 1000+ test
 ```
 
 **Registration** in existing `app.py`:
@@ -175,19 +203,49 @@ A Presentation is:
 }
 ```
 
-### Block types (v1)
+### Block types (güncel)
 
-| type             | config schema                                                               |
-| ---------------- | --------------------------------------------------------------------------- |
-| `section_header` | `{}` (only `title` is editable)                                             |
-| `kpi`            | `{ value, unit, delta, delta_label, period }`                               |
-| `bar_chart`      | `{ categories: [str], series: [{ name, values: [num] }] }`                  |
-| `line_chart`     | `{ x_axis: [str], series: [{ name, values: [num] }] }`                      |
-| `narrative`      | `{ text: str }`                                                             |
+Leaf tipler (SQL sözleşmesi: `execute_block_sqls.py` başındaki yorumlar
+otoritedir — col0 = kategori/etiket, sonraki kolonlar veri):
+
+| type              | config schema (veri alanları)                                              |
+| ----------------- | --------------------------------------------------------------------------- |
+| `kpi`             | `{ value, unit, delta, delta_label, period }`                               |
+| `narrative`       | `{ text }`                                                                  |
+| `bar_chart`       | `{ categories: [str], series: [{name, values}] , stacked?, horizontal?, distributed?, colors? }` |
+| `line_chart`      | `{ x_axis: [str], series: [{name, values}], curve?, stroke_width?, show_markers? }` |
+| `area_chart`      | line_chart + `fill_opacity?`                                                 |
+| `pie_chart`       | `{ labels: [str], values: [num], donut?, legend_position? }`                 |
+| `heatmap`         | `{ x_axis: [str], series: [{name, values}] }` — SQL long format (satır, kolon, değer) pivotlanır; Δ verisi ıraksak, tek işaret sıralı renk skalası |
+| `radial_bar`      | `{ value, max?, label? }`                                                    |
+| `combo_chart`     | `{ categories, series: [{name, values, kind: bar\|line, axis: left\|right}], left_axis_title?, right_axis_title? }` |
+| `data_table`      | `{ columns: [{field, header?, type?}], rows: [obj] }` (AG Grid)              |
+| `waterfall_chart` | `{ categories, values, totals?: [bool], unit? }` — kümülatif renderer'da; `unit:"%"` etiketleri 2 ondalık |
+| `scatter_chart`   | `{ points: [{name, x, y, size?}], x_title?, y_title? }` (Apex bubble)        |
+
+Container tipler: `section_header` (yalnız top-level; `children` + ops. `page`),
+`carousel` (section içinde; slide = leaf ya da canvas), `canvas` (12 kolon grid,
+leaf-only). Kartezyen chart'larda ortak opsiyoneller: `width` (`full|2/3|1/2|1/3`),
+`ref_lines`, `x_min/x_max/y_min/y_max`, `show_data_labels`.
+
+### Manifest — güncel üst-düzey alanlar
+
+Yukarıdaki örnek çekirdek şemadır; üretimdeki manifest ek olarak şunları taşır
+(hepsi opsiyonel, yokluğu eski davranışı korur):
+
+- `blocks` artık İÇ İÇEDİR: top-level yalnız `section_header`, leaf'ler
+  `section.children` içinde (carousel/canvas da orada). Düz `blocks[]`
+  taraması leaf'leri kaçırır — `manifest.iter_all_blocks()` kullan.
+- `pages: [{id, title}]` + `section.page` + `filters[].page` — sayfa
+  hiyerarşisi (yukarıdaki Shipped capabilities bölümüne bak).
+- `filters: [DashboardFilter]` (Phase 6.5.c) + `filter_state` — dashboard
+  filtre barı; bloklara `variable_bindings {var: {from_filter}}` ile bağlanır.
+- `basket[]` girdileri `alias`, `column_concepts`, `duck_cache` taşır.
+- `scope_ref` (Phase 8), `uploads`, `bound_experts`, `user_concepts` (7.d).
 
 ### Immutable fields
 
-`id`, `type`, `locked`, and the schema shape itself. The patch validator MUST reject any patch that touches these.
+`id`, `type`, `locked`, and the schema shape itself. The patch validator MUST reject any patch that touches these. İzinli patch kökleri: `/blocks/`, `/meta/`, `/filters`, `/filter_state`, `/user_concepts`, `/pages` (`ALLOWED_PATCH_PREFIXES`).
 
 ### Invariants (validated server-side)
 
@@ -333,22 +391,24 @@ State: **Zustand** store holds `manifest`, `selectedBlockId`, `chatHistory`, `lo
 
 Two view modes: `edit` and `presentation`. Stored in store as `viewMode`. Sidebar content swaps based on mode. Toggle via header button.
 
-Deps to install (npm or vendored):
-- `react`, `react-dom` (18.x)
-- `recharts` (3.x)
-- `lucide-react` (icons)
-- `zustand`
-- `marked` (for narrative markdown rendering)
+Gerçek bağımlılıklar (`presentations/package.json` otoritedir): `react` /
+`react-dom` 18, **`apexcharts` + `react-apexcharts`** (chart motoru — Recharts
+DEĞİL), `ag-grid-community` + `ag-grid-react` (data_table), `zustand`,
+`lucide-react`, `marked`, `@uiw/react-codemirror` (+lang-sql/python),
+`@xyflow/react` (Hazırlık graf editörü), `@cosmograph/react` (Keşif grafı).
+Ortak Apex ayarları `blocks/chartHelpers.js`'te — yeni chart eklerken oradan
+başla (tema, referans çizgileri, eksen limitleri, formatlayıcılar orada).
 
-Build script (`build.sh`):
+Build (`presentations/build.sh` → editor + hazirlik + kesif bundle'ları):
 ```bash
-esbuild static/js/editor/index.jsx \
-  --bundle \
-  --minify \
-  --target=es2020 \
-  --loader:.css=empty \
-  --outfile=static/js/bundle.js
+cd presentations && bash build.sh
 ```
+
+**Bundle politikası:** `static/js/bundle.js` (editör) **git'te taşınır** —
+ofiste npm/build gerekmez; editör JS'ine dokunan her değişiklikte bundle
+yeniden build edilip birlikte commit'lenir. `hazirlik`/`kesif` bundle'ları
+(duckdb-wasm asset'leri büyük) gitignore'da kalır ve prod'da build.sh ile
+üretilir.
 
 ---
 
@@ -376,6 +436,17 @@ No new infra dependencies. Reuse the existing S3 client and Oracle DataClient.
 - **`test_manifest.py`** — schema validators: chart length consistency, immutable fields, type-specific configs.
 - **`test_session.py`** — mock Oracle, real DuckDB; verify Arrow bridge handles NaN, dtype edge cases.
 - **`test_llm_smoke.py`** — hits real Qwen with `pytest -m integration`. The 12 cases from `qwen_patch_test.py` (the standalone test we already ran). Track pass rate over time.
+- **`test_deposits_dashboards_cost.py` / `_pages.py`** — importer SQL'lerini
+  DuckDB'de (üretim `oracle_duck` çevirisiyle) koşup kaynak NIM motorlarının
+  formülleriyle sayı sayı karşılaştırır (Bennet ayrıştırması, ₺M/bps birimleri,
+  bant sıralaması, bileşik→basit geri çevrim).
+- **`test_table_cache_apply.py`** — apply-filters'ın oturum tablo-önbelleği:
+  ilk apply 1 tablo yüklemesi, farklı filtreyle ikinci apply 0 Oracle çağrısı;
+  ayrıca `_process_block` içinde yerel-import gölgeleme regresyon taraması.
+- **`test_pages.py`** — sayfa hiyerarşisi doğrulaması + importer sayfa ataması.
+- Bilinen kırıklar: `examples/` fixture'ları repoda olmadığından ~9 test + 95
+  collection hatası baştan beri kırmızıdır — regresyon değildir, yeşile
+  çevirmek için fixture'ların eklenmesi gerekir.
 
 ---
 
@@ -388,7 +459,8 @@ No new infra dependencies. Reuse the existing S3 client and Oracle DataClient.
    from flask_app.presentations import presentations_bp
    app.register_blueprint(presentations_bp, url_prefix="/presentations")
    ```
-4. Run `cd flask_app/presentations && bash build.sh` to produce the bundle.
+4. Editör bundle'ı git'te gelir (build gerekmez). `hazirlik`/`kesif`
+   bundle'larına dokunulduysa `cd presentations && bash build.sh`.
 5. Deploy via existing OpenShift pipeline.
 
 ---
