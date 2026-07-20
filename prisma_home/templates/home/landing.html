@@ -105,6 +105,26 @@
   </div>
   {% endif %}
 
+  {% if config.get("NIM_PANEL_ENABLED") %}
+  {# ── Bağımsız panolar (akış-dışı süreçler) ────────────────────────────── #}
+  <div class="section-head">
+    <span class="section-num">03</span>
+    <span class="section-title">Panolar</span>
+    <span class="section-tail"></span>
+  </div>
+
+  <div class="experts-grid">
+    <a class="expert-cell" href="{{ url_for('nim_panel.index') }}"
+       style="text-decoration: none; color: inherit;">
+      <div class="glyph"><span class="domain-letters">DP</span></div>
+      <div class="glyph-meta">
+        <span class="name">Deposit Dashboard</span>
+        <span>Outstanding · Rollings · New Business · Sektör</span>
+      </div>
+    </a>
+  </div>
+  {% endif %}
+
   {# ── Footer link to producer side ─────────────────────────────────────── #}
   <div class="footer-producer">
     <span>Üretim tarafı</span>
