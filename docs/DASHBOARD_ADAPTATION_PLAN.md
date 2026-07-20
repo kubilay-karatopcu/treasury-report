@@ -279,10 +279,19 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 - Doğrulama: 10/10 endpoint dev.db harness'ında `ok:true`; Sector sayfası
   12 AG Grid + 266 satır + 7 grafik render; BSC overlay açılıyor; 0 pageerror.
 
-### Faz A7 — Cila + üretim hazırlığı
-- Prewarm bayrağı + arka plan ısıtma; hata/boş-state UX; erişim kuralı
-  (`ROUTE_ACCESS_MAP`); CDN→vendor fallback kararı; ofis makinesinde Oracle
-  smoke testi; `prisma_nav.json` linki; dokümantasyon (`docs/BACKEND_NIM_PANEL.md`).
+### Faz A7 — Cila + üretim hazırlığı — KISMEN (kalan işler ofis gerektirir)
+- ✅ Prewarm: `nim_panel/prewarm.py` — `NIM_PANEL_PREWARM=1` ortam
+  değişkeniyle daemon thread'de cache ısıtma (varsayılan kapalı, lazy).
+- ✅ Vendor kararı: kütüphaneler `static/vendor/`'da (CDN'siz).
+- Kalan (ofis makinesi / kullanıcı kararı gerektirir):
+  - Oracle smoke: gerçek DataClient ile 40 endpoint'in ilk koşumu ve dtype
+    karşılaştırması (özellikle DATE/NUMBER kolonları — `edw_query_to_pandas`
+    vs kaynak `cursor.fetchall` farkı).
+  - Görsel tur: gerçek veriyle 7 sayfa + drill modalları + BSC (deposit-only
+    modda slide seti) + tema geçişleri.
+  - İsteğe bağlı: `ROUTE_ACCESS_MAP` departman kuralı, `prisma_nav.json`
+    linki, `docs/BACKEND_NIM_PANEL.md`.
+  - Ölü NII fonksiyon gövdelerinin JS'ten toplu süpürülmesi (bkz. §8).
 
 ### Faz B — NII tarafı (kapsam dışı, ayrı planlanacak)
 - Scenario/Cross-Scenario/Results Comparison + BS Evolution + BSC'nin NII
