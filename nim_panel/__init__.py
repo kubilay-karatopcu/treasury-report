@@ -12,4 +12,9 @@ Izolasyon sozlesmesi:
 """
 from .routes import nim_panel_bp
 
+# Route modülleri blueprint'i import edip endpoint ekler (presentations
+# modülündeki çok-dosyalı route deseni). Sıra: routes önce (blueprint tanımı).
+from . import routes_cost  # noqa: E402,F401
+from . import routes_outstanding  # noqa: E402,F401
+
 __all__ = ["nim_panel_bp"]
