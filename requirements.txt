@@ -26,6 +26,7 @@ numpy==2.4.3
 openpyxl==3.1.5
 oracledb==3.4.2
 pandas==3.0.1
+plotly==6.9.0
 pyaim==1.5.4
 polars
 pyarrow==23.0.1

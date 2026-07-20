@@ -234,25 +234,28 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
   overlay + dark/light tema çalışıyor; stub hataları SPA'nın kendi hata
   banner'ında zarifçe görünüyor.
 
-### Faz A1 — Veri katmanı
-- `data_source.py` dispatcher (DEV=SQLite / PROD=DataClient), `queries/dev|prod`
-  taşınır, şema prefix parametrik, `data/dev.db` + `seed_dev_db.py` taşınır.
-- Çıktı: `load_dataframe("daily_deposit")` dev'de DataFrame dönüyor; birim test.
+### Faz A1 — Veri katmanı — ✅ TAMAMLANDI (revize)
+- Kullanıcı kararı: **dev.db yok, doğrudan prod.** `data_source.py` tek yol:
+  DataClient havuzu (`get_connection_from_pool` + `edw_query_to_pandas`).
+  Kaynak `load_dataframe(name, params)` imzası korunur; testler monkeypatch'ler.
+- 12 prod SQL `nim_panel/queries/`'e birebir taşındı; `A16438.` prefix'i repo
+  konvansiyonuyla (queries/deposits/) tutarlı, parametrize EDİLMEDİ.
+- Yeni pip bağımlılığı: `plotly` (yalnız `PlotlyJSONEncoder` + figür dict'leri;
+  requirements.txt'e eklendi).
 
-### Faz A2 — Outstanding Cost Analysis (ilk dikey dilim)
-- `engine/deposit_detail.py` + `engine/common.py` portu; endpoint'ler:
-  `deposit_detail_dates/waterfalls`, `daily_deposit_dates/waterfalls`,
-  `cost_rate_heatmap`, `hm_product_bar`, `deposit_product_daily`,
-  `bubble_series`, `rate_drill`.
-- Frontend cost sayfası uçtan uca: waterfall carousel, bubble + slider/play,
-  heatmap + drill, Rate Type + Apply Demand Effect.
-- Çıktı: Cost sayfası dev.db ile birebir çalışıyor; kaynak repo ile endpoint
-  yanıtı snapshot karşılaştırması yeşil (bkz. §7).
-
-### Faz A3 — Balance + Tenor
-- `engine/balance.py`, `engine/tenor.py` (+ SwapHedge overlay), endpoint'ler,
-  iki sayfa uçtan uca (KPI strip, bridge, Balance↔Customer slider heatmap,
-  composition, maturity ladder, term structure, WAT sparkline, TENOR/DTM).
+### Faz A2+A3 — Outstanding üçlüsü (Cost + Balance + Tenor) — ✅ TAMAMLANDI (birleştirildi)
+- Heatmap/drill endpoint'leri üç sayfanın ortak fabrikası çıktığı için A2 ve
+  A3 tek fazda taşındı. `nim_panel/tools/extract_a2.py` kaynak `app.py`'den
+  satır-referanslı birebir çıkarır: `engine/common.py` (yardımcılar, bubble/
+  heatmap kurucuları), `engine/chart_builder.py` (NIMChartBuilder; NII-özel
+  `build_all` kırpıldı), `engine/outstanding.py` (6 motor sınıfı + payload
+  kurucular — kaynaktaki çapraz referanslar nedeniyle tek modül),
+  `request_params.py`, `routes_cost.py` (9 endpoint), `routes_outstanding.py`
+  (7 endpoint).
+- Doğrulama: kaynak dev.db'yi monkeypatch'le besleyen harness'ta 10 ağır
+  endpoint `ok:true` + headless Chromium'da üç sayfa gerçek chart render
+  ediyor (cost monthly: 17 Plotly + 4 Apex figür; 0 pageerror).
+  `nim_panel/tests/` 12 birim testi yeşil.
 
 ### Faz A4 — Future Deposit Rollings
 - `engine/weekly.py`, 3 endpoint, AG Grid pivotları, segment slide'ı,

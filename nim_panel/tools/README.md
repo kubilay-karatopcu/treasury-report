@@ -22,6 +22,18 @@ node --check nim_panel/static/nim_panel.js
   `updatePageVisibility`/`updateTitle`'ı deposit-only hâle getirir.
   Her silme marker çiftiyle tanımlı, bulunamazsa hata verir; >80 satırlık
   silmeler şüpheli sayılıp reddedilir.
+- `extract_a2.py` — kaynak `app.py`'den Outstanding üçlüsünü (Cost + Tenor +
+  Balance motorları, NIMChartBuilder, ortak yardımcılar, parserlar,
+  endpoint'ler) satır-aralığı referanslarıyla `engine/` + `routes_*.py`
+  dosyalarına çıkarır. Kod gövdeleri birebirdir; yalnız modül bağları
+  uyarlanır (`@app.route`→blueprint+`@login_required`, `print`→logging,
+  `_ENV`/`_DEMAND_SUBPRODUCTS` sabitleri). Kaynak satır aralıkları script
+  içinde sabittir — kaynak repo değişirse aralıklar güncellenmelidir.
+
+  ```bash
+  NIM_SRC=/path/to/NIM_calculation python3 nim_panel/tools/extract_a2.py
+  python3 -m pyflakes nim_panel/engine/*.py nim_panel/routes_*.py
+  ```
 
 DİKKAT: Bu araçlar `static/nim_panel.{js,css}` ve
 `templates/nim_panel/index.html`'i SIFIRDAN üretir. A2+ fazlarında bu
