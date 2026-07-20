@@ -17,6 +17,7 @@ from .routes import nim_panel_bp
 from . import routes_cost  # noqa: E402,F401
 from . import routes_np  # noqa: E402,F401
 from . import routes_outstanding  # noqa: E402,F401
+from . import routes_sector  # noqa: E402,F401
 from . import routes_weekly  # noqa: E402,F401
 
 __all__ = ["nim_panel_bp"]
