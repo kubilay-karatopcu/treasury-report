@@ -552,6 +552,10 @@ try:
 
     app.register_blueprint(nim_panel_bp, url_prefix="/nim-panel")
     app.config["NIM_PANEL_ENABLED"] = True
+    if os.environ.get("NIM_PANEL_PREWARM") == "1":
+        from nim_panel.prewarm import start_background_prewarm
+
+        start_background_prewarm(app)
 except Exception:
     app.config["NIM_PANEL_ENABLED"] = False
     app.logger.exception("nim_panel blueprint yuklenemedi — modul atlandi")
