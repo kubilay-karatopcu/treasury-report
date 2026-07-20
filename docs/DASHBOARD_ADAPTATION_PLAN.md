@@ -1,7 +1,10 @@
 # Dashboard Adaptation — NIM_calculation → PRISMA Entegrasyon Planı
 
 > Branch: `dashboard_adaptation` · Kaynak: `doguctan/NIM_calculation@bs_evolution5` (c569ae3)
-> Durum: PLAN — Faz A0 başlamadı. Bu doküman kaynak repo envanteri + treasury-report
+> Durum: **Faz A0 tamamlandı** (kabuk + navigasyon canlı, endpoint'ler stub).
+> Kullanıcı onayları: K1 izolasyon (kritik), K2 kaynak SQL (PRISMA_DEP_* kesinlikle
+> kullanılmayacak), K3 temiz aktarım (sadeleştirme/refaktör gözetilerek), K4
+> modül-scoped Plotly. Bu doküman kaynak repo envanteri + treasury-report
 > entegrasyon yüzeyi analizinin çıktısıdır; uygulama fazları aşağıdadır.
 
 ---
@@ -213,14 +216,23 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 
 ## 6. Faz planı (granüler — her faz deploy edilebilir biter)
 
-### Faz A0 — İskelet + kabuk (veri yok)
-- `nim_panel/` blueprint iskeleti, `app.py` kaydı, `@login_required`.
-- `index.html` deposit-only kırpımı: CSS/JS ayrı dosyalara çıkarılır, NII
-  kalıntıları temizlenir, sayfalar boş-state render olur (fetch'ler 404'e
-  düşse de sayfa kurulur).
-- CDN yüklemeleri (cdnjs), PRISMA tema köprüsü, `_base_prisma.html` kabuk.
-- Masa kartı: `landing.html`'e link.
-- Çıktı: `/nim-panel` açılıyor, 7 sayfa navigasyonu ve tema çalışıyor.
+### Faz A0 — İskelet + kabuk (veri yok) — ✅ TAMAMLANDI
+- `nim_panel/` blueprint iskeleti, `app.py`'de korumalı kayıt (`try/except` +
+  `NIM_PANEL_ENABLED` bayrağı — modül yüklenemezse uygulama etkilenmez),
+  `@login_required`, `/api/<path>` catch-all stub'ı (501 + `{ok:false}`).
+- `index.html` deposit-only kırpımı `nim_panel/tools/` scriptleriyle yapıldı
+  (tekrarlanabilir): template 15.7k → 1.5k satır, CSS/JS ayrı statik dosyalar,
+  NII markup + boot bağlama kodu söküldü. Ölü NII fonksiyon gövdelerinin
+  kalan temizliği fazlar ilerledikçe sürer (bkz. §8).
+- Kütüphaneler CDN yerine **`static/vendor/` altına vendorlandı** (7.4 MB,
+  npm'den; jsdelivr kurumsal/ağ politikasında engelli çıktı — plan sapması).
+- Kabuk: `_base_prisma.html` extend EDİLMEDİ — tam izolasyon için SPA kendi
+  tam-sayfa dokümanı olarak kaldı; PRISMA'ya köprüler: sidebar'da "← Masa"
+  linki + `prisma-theme` localStorage tema köprüsü (plan sapması, K1 gereği).
+- Masa kartı: `landing.html`'e `NIM_PANEL_ENABLED` korumalı "Panolar" bölümü.
+- Doğrulama: headless Chromium — boot 0 hata, 7 sayfa navigasyonu + BSC
+  overlay + dark/light tema çalışıyor; stub hataları SPA'nın kendi hata
+  banner'ında zarifçe görünüyor.
 
 ### Faz A1 — Veri katmanı
 - `data_source.py` dispatcher (DEV=SQLite / PROD=DataClient), `queries/dev|prod`
@@ -289,4 +301,5 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 | **`oracledb` fetch farkı** | Kaynak `cursor.execute+fetchall` kullanıyor (pandas 2.0 uyumu); DataClient'ın `edw_query_to_pandas`'ı dtype davranışını değiştirirse DATE/NUMBER kolonlarında sapma olabilir → Faz A1'de dtype karşılaştırma testi. |
 | **Çok-worker cache tutarlılığı** | Engine cache'leri worker-lokal; veri güncellemesi "restart şart" (kaynakla aynı sözleşme). Kabul edilebilir mi? |
 | **BSC'nin NII slide'ları** | Faz B'ye kadar eksik — BSC deposit-only modda açılır. |
-| **Kaynak repo canlı gelişiyor** | Son commit 20 Tem 2026. Port sırasında bs_evolution5'e gelen commit'ler için taşıma sonunda tek diff turu planlanmalı. |
+| **Kaynak repo canlı gelişiyor** | Son commit 20 Tem 2026. Port sırasında bs_evolution5'e gelen commit'ler için taşıma sonunda tek diff turu planlanmalı (`nim_panel/tools/` bunu tekrarlanabilir kılar). |
+| **Ölü NII fonksiyon gövdeleri** | A0 boot bağlama kodunu söktü; çağrılmayan NII fonksiyonları (sim/cross/BSE/dd- render'ları, `refreshDates`, `setDataSource` vb.) JS'te duruyor. Her fazda ilgili bölge temizlenir; kalan toplu süpürme A7'de. Silmeden önce deposit çağrı grafiği kontrolü şart (paylaşılan helper'lar: `renderFig`, `renderWaterfall`, `sweepPlotly/Apex`, `initChartFullscreen`, bubble helpers). |

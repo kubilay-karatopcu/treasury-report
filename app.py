@@ -544,6 +544,18 @@ app.register_blueprint(presentations_bp, url_prefix="/presentations")
 # Spec §3 — pre-existing index route is replaced by prisma_home.landing.
 app.register_blueprint(prisma_home_bp, url_prefix="")
 
+# NIM Panel: izole dashboard portu (docs/DASHBOARD_ADAPTATION_PLAN.md).
+# Korumali kayit — modul yuklenemezse uygulamanin geri kalani etkilenmez;
+# NIM_PANEL_ENABLED bayragi masa kartinin gorunurlugunu belirler.
+try:
+    from nim_panel import nim_panel_bp
+
+    app.register_blueprint(nim_panel_bp, url_prefix="/nim-panel")
+    app.config["NIM_PANEL_ENABLED"] = True
+except Exception:
+    app.config["NIM_PANEL_ENABLED"] = False
+    app.logger.exception("nim_panel blueprint yuklenemedi — modul atlandi")
+
 _user_cache = {}
 
 if DEV_MODE:
