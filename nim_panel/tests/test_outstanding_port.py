@@ -148,6 +148,17 @@ EXPECTED_ENDPOINTS = {
     "/api/np/cell_drilldown",
     "/api/np/detail_prewarm",
     "/api/np/rate_volume_curve",
+    # Faz A6 — Sector Comparison + BSC
+    "/api/sector_deposit_rates",
+    "/api/tcmb_rate_table",
+    "/api/sector_blotter",
+    "/api/sector_outstanding",
+    "/api/sector_outstanding_monthly",
+    "/api/sector_mix_attribution",
+    "/api/sector_vade_mix",
+    "/api/sector_vade_mix_pres",
+    "/api/bsc_np_rate_series",
+    "/api/bsc_np_monthly_table",
 }
 
 

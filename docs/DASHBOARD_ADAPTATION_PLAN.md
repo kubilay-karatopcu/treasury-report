@@ -271,10 +271,13 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
   Faz A6 ile gelir (route dosyasında port notu var).
 - Doğrulama: 11 endpoint dev.db'yle `ok:true` (51KB müşteri drilldown dahil).
 
-### Faz A6 — Sector Comparison + BSC Presentation
-- `engine/sector_data.py` birebir (en riskli hesap kütlesi — kümülatif gider,
-  vintage, mix attribution); 10+ sektör endpoint'i; Sector sayfası 7 kart;
-  BSC overlay (yalnız deposit/sektör slide'ları).
+### Faz A6 — Sector Comparison + BSC Presentation — ✅ TAMAMLANDI
+- `engine/sector_data.py` kaynak dosyadan birebir (1622 satır — kümülatif
+  gider, vintage TCMB(BDDK Mix), mix attribution; yalnız db_source→
+  data_source ve paket-içi lazy import değişimi); `routes_sector.py`
+  8 sektör + 2 BSC NP endpoint'i.
+- Doğrulama: 10/10 endpoint dev.db harness'ında `ok:true`; Sector sayfası
+  12 AG Grid + 266 satır + 7 grafik render; BSC overlay açılıyor; 0 pageerror.
 
 ### Faz A7 — Cila + üretim hazırlığı
 - Prewarm bayrağı + arka plan ısıtma; hata/boş-state UX; erişim kuralı
