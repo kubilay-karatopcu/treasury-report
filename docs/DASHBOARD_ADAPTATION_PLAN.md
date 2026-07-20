@@ -257,14 +257,19 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
   ediyor (cost monthly: 17 Plotly + 4 Apex figür; 0 pageerror).
   `nim_panel/tests/` 12 birim testi yeşil.
 
-### Faz A4 — Future Deposit Rollings
-- `engine/weekly.py`, 3 endpoint, AG Grid pivotları, segment slide'ı,
-  drill modal, KVKK maskesi, DD/MM/YYYY bind akışı.
+### Faz A4 — Future Deposit Rollings — ✅ TAMAMLANDI
+- `engine/weekly.py` (WeeklyRollingsEngine + `_mask_full_nm` KVKK maskesi),
+  `routes_weekly.py` (3 endpoint + WEEKLY_CACHE'ler). DD/MM/YYYY bind prod
+  yolunda aynen geçer (Oracle TO_DATE). Doğrulama: dev.db harness'ında
+  6 AG Grid + 351 satır render, 0 pageerror.
 
-### Faz A5 — New Business — Volume & Pricing
-- `engine/np_agg.py` + `engine/outstanding_daily.py` birebir; 11 `/api/np/*`
-  endpoint'i; bubble, Rate×Volume heatmap + hover cell-history + drill modal,
-  AUM combo, konsantrasyon eğrisi; NP detail lazy cache (`detail_prewarm`).
+### Faz A5 — New Business — Volume & Pricing — ✅ TAMAMLANDI
+- `engine/np_agg.py` + `engine/outstanding_daily.py` kaynak dosyalardan
+  birebir (yalnız db_source→data_source); `routes_np.py` 10 endpoint +
+  NP detail lazy-master katmanı (`_NP_DETAIL_MASTER_LOCK` + prewarm).
+- `bsc_np_rate_series` + `bsc_np_monthly_table` sector_data'ya bağımlı —
+  Faz A6 ile gelir (route dosyasında port notu var).
+- Doğrulama: 11 endpoint dev.db'yle `ok:true` (51KB müşteri drilldown dahil).
 
 ### Faz A6 — Sector Comparison + BSC Presentation
 - `engine/sector_data.py` birebir (en riskli hesap kütlesi — kümülatif gider,

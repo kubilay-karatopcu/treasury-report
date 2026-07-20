@@ -133,6 +133,21 @@ EXPECTED_ENDPOINTS = {
     "/api/balance_monthly",
     "/api/balance_daily",
     "/api/balance_drill",
+    # Faz A4 — Weekly Rollings
+    "/api/weekly_rollings",
+    "/api/weekly_segments",
+    "/api/weekly_drilldown",
+    # Faz A5 — New Business
+    "/api/np/meta",
+    "/api/np/volume_pricing",
+    "/api/np/aum_rate_chart",
+    "/api/np/segment_rate_bubble",
+    "/api/np/rate_volume_bubble",
+    "/api/np/rate_volume_heatmap",
+    "/api/np/cell_timeseries",
+    "/api/np/cell_drilldown",
+    "/api/np/detail_prewarm",
+    "/api/np/rate_volume_curve",
 }
 
 
