@@ -96,8 +96,8 @@ müşteri drill'i — karşılamıyor). İki hat aynı Oracle kaynak tabloların
 ### 4.1 Modül şekli — izole blueprint (deposit_panel kalıbı)
 
 ```
-nim_panel/                        # yeni modül (isim önerisi; bkz. §8 Açık sorular)
-├── __init__.py                   # nim_panel_bp = Blueprint("nim_panel", __name__,
+mevduat_panel/                        # yeni modül (isim kararı: §8)
+├── __init__.py                   # mevduat_panel_bp = Blueprint("mevduat_panel", __name__,
 │                                 #   template_folder="templates", static_folder="static")
 ├── routes.py                     # sayfa + tüm /api/* endpoint'leri (kaynaktan port)
 ├── engine/
@@ -116,14 +116,14 @@ nim_panel/                        # yeni modül (isim önerisi; bkz. §8 Açık 
 │   ├── prod/*.sql                # 11 Oracle SQL (şema prefix parametrik)
 │   └── dev/*.sql                 # SQLite aynaları (kaynaktan birebir)
 ├── data/dev.db + seed_dev_db.py  # lokal geliştirme (kaynaktan)
-├── templates/nim_panel/
+├── templates/mevduat_panel/
 │   └── index.html                # kaynak SPA'nın deposit-only kırpımı
 └── static/
-    ├── nim_panel.css             # index.html'den çıkarılan CSS
-    └── nim_panel.js              # index.html'den çıkarılan JS (?v= cache-busting)
+    ├── mevduat_panel.css             # index.html'den çıkarılan CSS
+    └── mevduat_panel.js              # index.html'den çıkarılan JS (?v= cache-busting)
 ```
 
-Kayıt: `app.py` → `app.register_blueprint(nim_panel_bp, url_prefix="/nim-panel")`.
+Kayıt: `app.py` → `app.register_blueprint(mevduat_panel_bp, url_prefix="/mevduat-panel")`.
 Auth: her route `@login_required`, kullanıcı kimliği `current_user.sicil`.
 Tüm iç linkler/fetch URL'leri `url_for` ile (OpenShift `SCRIPT_NAME` uyumu);
 fetch tabanları template'te tek `<script type="application/json">` payload'ıyla
@@ -141,7 +141,7 @@ gömülür (keşif atölyesi deseni, `routes_kesif.py:_build_workbench_payload`)
   tetikler). Yeni renk token'ı tanımlanmaz; kaynak CSS değişkenleri
   `--editor-*`/`--gold`/`--ink` token'larına map edilir.
 - **Masa:** `prisma_home/templates/home/landing.html` (footer producer
-  linkleri bölgesi, ~:108-114) yeni bir kart/link: "NIM Paneli — Mevduat".
+  linkleri bölgesi, ~:108-114) yeni bir kart/link: "Mevduat Paneli — Mevduat".
   Gerekirse `prisma_nav.json` R grubuna da link (legacy sayfalardan erişim).
 - Erişim kısıtı gerekiyorsa `app.py::ROUTE_ACCESS_MAP`'e departman kuralı.
 
@@ -154,14 +154,14 @@ iç yönlendirme treasury-report'a uyarlanır:
   `jobs/deposits_pipeline.py`'nin kullandığı `dc.edw_query_to_pandas(con, sql,
   params)` yolu birebir uyar (named bind `:NAME` destekli). Route'lar Oracle'ı
   doğrudan çağırmaz — tüm sorgular `data_source.py`'de.
-- **DEV:** `nim_panel/data/dev.db` (SQLite) + `queries/dev/` — kaynaktaki
+- **DEV:** `mevduat_panel/data/dev.db` (SQLite) + `queries/dev/` — kaynaktaki
   düzen aynen taşınır; `run_local` akışında ekstra stub gerekmez.
 - Şema prefix'i (`A16438.`) SQL'lerde hardcoded kalmaz → `{schema}` template
-  veya config anahtarı (`NIM_PANEL_ORACLE_SCHEMA`).
+  veya config anahtarı (`MEVDUAT_PANEL_ORACLE_SCHEMA`).
 - **Cache:** kaynağın process-lifetime engine cache'leri korunur (dict +
   snapshot deseni; ağır iş kilit dışında, atomik referans swap kilit içinde —
   CLAUDE.md threading kuralı). `_prewarm_deposit_caches()` startup'ta DEĞİL,
-  config bayrağıyla (`NIM_PANEL_PREWARM=0/1`) arka plan thread'inde veya ilk
+  config bayrağıyla (`MEVDUAT_PANEL_PREWARM=0/1`) arka plan thread'inde veya ilk
   istekte lazy koşar — pod açılışını bloklamaz.
 
 ### 4.4 Frontend taşıma stratejisi
@@ -196,7 +196,7 @@ Kırpım kuralları:
 | AG Grid Community 31.3.x | cdnjs `ag-grid/…` | JS + tema CSS; editor.html'in jsdelivr `@`'li deseni DEĞİL, cdnjs. |
 
 CDN erişimi ofis ortamında sorunluysa fallback: minified dosyalar
-`nim_panel/static/vendor/` altına vendorlanır (üçü toplam ~5 MB, git'te
+`mevduat_panel/static/vendor/` altına vendorlanır (üçü toplam ~5 MB, git'te
 taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 
 ## 5. Kilit kararlar
@@ -217,10 +217,10 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 ## 6. Faz planı (granüler — her faz deploy edilebilir biter)
 
 ### Faz A0 — İskelet + kabuk (veri yok) — ✅ TAMAMLANDI
-- `nim_panel/` blueprint iskeleti, `app.py`'de korumalı kayıt (`try/except` +
-  `NIM_PANEL_ENABLED` bayrağı — modül yüklenemezse uygulama etkilenmez),
+- `mevduat_panel/` blueprint iskeleti, `app.py`'de korumalı kayıt (`try/except` +
+  `MEVDUAT_PANEL_ENABLED` bayrağı — modül yüklenemezse uygulama etkilenmez),
   `@login_required`, `/api/<path>` catch-all stub'ı (501 + `{ok:false}`).
-- `index.html` deposit-only kırpımı `nim_panel/tools/` scriptleriyle yapıldı
+- `index.html` deposit-only kırpımı `mevduat_panel/tools/` scriptleriyle yapıldı
   (tekrarlanabilir): template 15.7k → 1.5k satır, CSS/JS ayrı statik dosyalar,
   NII markup + boot bağlama kodu söküldü. Ölü NII fonksiyon gövdelerinin
   kalan temizliği fazlar ilerledikçe sürer (bkz. §8).
@@ -229,7 +229,7 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 - Kabuk: `_base_prisma.html` extend EDİLMEDİ — tam izolasyon için SPA kendi
   tam-sayfa dokümanı olarak kaldı; PRISMA'ya köprüler: sidebar'da "← Masa"
   linki + `prisma-theme` localStorage tema köprüsü (plan sapması, K1 gereği).
-- Masa kartı: `landing.html`'e `NIM_PANEL_ENABLED` korumalı "Panolar" bölümü.
+- Masa kartı: `landing.html`'e `MEVDUAT_PANEL_ENABLED` korumalı "Panolar" bölümü.
 - Doğrulama: headless Chromium — boot 0 hata, 7 sayfa navigasyonu + BSC
   overlay + dark/light tema çalışıyor; stub hataları SPA'nın kendi hata
   banner'ında zarifçe görünüyor.
@@ -238,14 +238,14 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 - Kullanıcı kararı: **dev.db yok, doğrudan prod.** `data_source.py` tek yol:
   DataClient havuzu (`get_connection_from_pool` + `edw_query_to_pandas`).
   Kaynak `load_dataframe(name, params)` imzası korunur; testler monkeypatch'ler.
-- 12 prod SQL `nim_panel/queries/`'e birebir taşındı; `A16438.` prefix'i repo
+- 12 prod SQL `mevduat_panel/queries/`'e birebir taşındı; `A16438.` prefix'i repo
   konvansiyonuyla (queries/deposits/) tutarlı, parametrize EDİLMEDİ.
 - Yeni pip bağımlılığı: `plotly` (yalnız `PlotlyJSONEncoder` + figür dict'leri;
   requirements.txt'e eklendi).
 
 ### Faz A2+A3 — Outstanding üçlüsü (Cost + Balance + Tenor) — ✅ TAMAMLANDI (birleştirildi)
 - Heatmap/drill endpoint'leri üç sayfanın ortak fabrikası çıktığı için A2 ve
-  A3 tek fazda taşındı. `nim_panel/tools/extract_a2.py` kaynak `app.py`'den
+  A3 tek fazda taşındı. `mevduat_panel/tools/extract_a2.py` kaynak `app.py`'den
   satır-referanslı birebir çıkarır: `engine/common.py` (yardımcılar, bubble/
   heatmap kurucuları), `engine/chart_builder.py` (NIMChartBuilder; NII-özel
   `build_all` kırpıldı), `engine/outstanding.py` (6 motor sınıfı + payload
@@ -255,7 +255,7 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 - Doğrulama: kaynak dev.db'yi monkeypatch'le besleyen harness'ta 10 ağır
   endpoint `ok:true` + headless Chromium'da üç sayfa gerçek chart render
   ediyor (cost monthly: 17 Plotly + 4 Apex figür; 0 pageerror).
-  `nim_panel/tests/` 12 birim testi yeşil.
+  `mevduat_panel/tests/` 12 birim testi yeşil.
 
 ### Faz A4 — Future Deposit Rollings — ✅ TAMAMLANDI
 - `engine/weekly.py` (WeeklyRollingsEngine + `_mask_full_nm` KVKK maskesi),
@@ -280,10 +280,10 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
   12 AG Grid + 266 satır + 7 grafik render; BSC overlay açılıyor; 0 pageerror.
 
 ### Faz A7 — Cila + üretim hazırlığı — KISMEN (kalan işler ofis gerektirir)
-- ✅ Prewarm: `nim_panel/prewarm.py` — `NIM_PANEL_PREWARM=1` ortam
+- ✅ Prewarm: `mevduat_panel/prewarm.py` — `MEVDUAT_PANEL_PREWARM=1` ortam
   değişkeniyle daemon thread'de cache ısıtma (varsayılan kapalı, lazy).
 - ✅ Vendor kararı: kütüphaneler `static/vendor/`'da (CDN'siz).
-- ✅ Ölü NII fonksiyon süpürmesi: `nim_panel/tools/sweep_nii_dead.py` —
+- ✅ Ölü NII fonksiyon süpürmesi: `mevduat_panel/tools/sweep_nii_dead.py` —
   acorn AST çağrı-grafiği analiziyle (giriş noktaları: top-level kod +
   index.html + `window.*` atamaları + string literalleri; fixed-point)
   erişilemeyen 59 fonksiyon / 52 top-level span / ~1.4k satır silindi
@@ -298,7 +298,7 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
   - Görsel tur: gerçek veriyle 7 sayfa + drill modalları + BSC (deposit-only
     modda slide seti) + tema geçişleri.
   - İsteğe bağlı: `ROUTE_ACCESS_MAP` departman kuralı, `prisma_nav.json`
-    linki, `docs/BACKEND_NIM_PANEL.md`.
+    linki, `docs/BACKEND_MEVDUAT_PANEL.md`.
   - Ölü NII fonksiyon gövdelerinin JS'ten toplu süpürülmesi (bkz. §8).
 
 ### Faz B — NII tarafı (kapsam dışı, ayrı planlanacak)
@@ -309,7 +309,7 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 
 1. **Kaynak-eşdeğerlik (en önemlisi):** kaynak repo testleri
    (`test_weekly_rollings.py`, `test_np_rate_conversion.py`,
-   `test_outstanding_daily.py`) `nim_panel/tests/`'e taşınır ve yeşil tutulur.
+   `test_outstanding_daily.py`) `mevduat_panel/tests/`'e taşınır ve yeşil tutulur.
 2. **Endpoint snapshot:** dev.db sabit olduğundan kaynak uygulamanın endpoint
    yanıtları fixture olarak dondurulur; port aynı istekte sayı-sayı aynı
    yanıtı vermek zorunda (kaynağın `tests/snapshots/` disiplini).
@@ -323,11 +323,11 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 
 | Konu | Durum |
 |------|-------|
-| **Modül/sayfa adı** | Öneri: `nim_panel` / "NIM Paneli". Kullanıcı onayı bekliyor (alternatif: `mevduat_panel`, `terminal`). |
+| **Modül/sayfa adı** | ✅ KARAR (2026-07-21): `mevduat_panel` / "Mevduat Paneli", URL `/mevduat-panel`, config `MEVDUAT_PANEL_*`. İlk öneri `nim_panel` idi; modül yalnız deposit tarafını taşıdığı için kullanıcı deposit-odaklı ismi seçti. Faz B (NII) gelirse ayrı modül ya da o gün yeniden adlandırma. |
 | **Plotly CDN erişimi (ofis proxy)** | cdnjs `@`'siz; yine de ofiste doğrulanmalı. Fallback: vendor dosyaları git'te (~5 MB). |
 | **dev.db lisans/boyut** | 8.9 MB SQLite git'e girecek (kaynakta da commitli). Sentetik + maskeli; PII yok. Onay gerekli. |
 | **`oracledb` fetch farkı** | Kaynak `cursor.execute+fetchall` kullanıyor (pandas 2.0 uyumu); DataClient'ın `edw_query_to_pandas`'ı dtype davranışını değiştirirse DATE/NUMBER kolonlarında sapma olabilir → Faz A1'de dtype karşılaştırma testi. |
 | **Çok-worker cache tutarlılığı** | Engine cache'leri worker-lokal; veri güncellemesi "restart şart" (kaynakla aynı sözleşme). Kabul edilebilir mi? |
 | **BSC'nin NII slide'ları** | Faz B'ye kadar eksik — BSC deposit-only modda açılır. |
-| **Kaynak repo canlı gelişiyor** | Son commit 20 Tem 2026. Port sırasında bs_evolution5'e gelen commit'ler için taşıma sonunda tek diff turu planlanmalı (`nim_panel/tools/` bunu tekrarlanabilir kılar). |
+| **Kaynak repo canlı gelişiyor** | Son commit 20 Tem 2026. Port sırasında bs_evolution5'e gelen commit'ler için taşıma sonunda tek diff turu planlanmalı (`mevduat_panel/tools/` bunu tekrarlanabilir kılar). |
 | **Ölü NII fonksiyon gövdeleri** | ✅ ÇÖZÜLDÜ (A7): `tools/sweep_nii_dead.py` AST çağrı-grafiği analiziyle 59 ölü fonksiyonu süpürdü; paylaşılan helper'lar (`renderFig`, `renderWaterfall`, `sweepPlotly/Apex`, `initChartFullscreen`, bubble helpers) canlı doğrulandı. `transform_a0.py` dosyayı yeniden üretirse span'lar bayatlar — araç bu durumda hata verir, analiz turu tekrarlanmalı. |

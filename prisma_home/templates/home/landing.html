@@ -105,7 +105,7 @@
   </div>
   {% endif %}
 
-  {% if config.get("NIM_PANEL_ENABLED") %}
+  {% if config.get("MEVDUAT_PANEL_ENABLED") %}
   {# ── Bağımsız panolar (akış-dışı süreçler) ────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">03</span>
@@ -114,7 +114,7 @@
   </div>
 
   <div class="experts-grid">
-    <a class="expert-cell" href="{{ url_for('nim_panel.index') }}"
+    <a class="expert-cell" href="{{ url_for('mevduat_panel.index') }}"
        style="text-decoration: none; color: inherit;">
       <div class="glyph"><span class="domain-letters">DP</span></div>
       <div class="glyph-meta">
