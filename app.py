@@ -546,19 +546,19 @@ app.register_blueprint(prisma_home_bp, url_prefix="")
 
 # NIM Panel: izole dashboard portu (docs/DASHBOARD_ADAPTATION_PLAN.md).
 # Korumali kayit — modul yuklenemezse uygulamanin geri kalani etkilenmez;
-# NIM_PANEL_ENABLED bayragi masa kartinin gorunurlugunu belirler.
+# MEVDUAT_PANEL_ENABLED bayragi masa kartinin gorunurlugunu belirler.
 try:
-    from nim_panel import nim_panel_bp
+    from mevduat_panel import mevduat_panel_bp
 
-    app.register_blueprint(nim_panel_bp, url_prefix="/nim-panel")
-    app.config["NIM_PANEL_ENABLED"] = True
-    if os.environ.get("NIM_PANEL_PREWARM") == "1":
-        from nim_panel.prewarm import start_background_prewarm
+    app.register_blueprint(mevduat_panel_bp, url_prefix="/mevduat-panel")
+    app.config["MEVDUAT_PANEL_ENABLED"] = True
+    if os.environ.get("MEVDUAT_PANEL_PREWARM") == "1":
+        from mevduat_panel.prewarm import start_background_prewarm
 
         start_background_prewarm(app)
 except Exception:
-    app.config["NIM_PANEL_ENABLED"] = False
-    app.logger.exception("nim_panel blueprint yuklenemedi — modul atlandi")
+    app.config["MEVDUAT_PANEL_ENABLED"] = False
+    app.logger.exception("mevduat_panel blueprint yuklenemedi — modul atlandi")
 
 _user_cache = {}
 
