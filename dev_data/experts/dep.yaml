@@ -1,0 +1,30 @@
+id: dep
+version: 1
+code: DEP
+name: Mevduat Uzmanı
+domain_label: Mevduat & Fonlama
+short_description: TL mevduat stoku, fiyatlama ve dönüş dinamiklerini izler; mevduat panolarının sahibidir.
+persona:
+  system_prompt: ''
+  voice_examples: []
+bound_content:
+  blocks: []
+  snapshots: []
+  processes:
+    - mevduat.maliyet
+    - mevduat.bakiye
+    - mevduat.vade
+    - mevduat.donusler
+    - mevduat.yeni_uretim
+    - mevduat.sektor
+    - mevduat.bsc
+briefing_recipe:
+  cache_ttl_seconds: 1800
+  sections: []
+access_scope:
+  read: ['*']
+  edit: []
+ui:
+  accent_color: '#4A9B6E'
+  glyph: ''
+status: active

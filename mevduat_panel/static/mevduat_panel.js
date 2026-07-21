@@ -8851,8 +8851,14 @@
 
 
 
-  // Port: NII tarafi kaldirildi — acilis, deposit tarafinin ilk sayfasi.
-  setPage("cost-analysis");
+  // Port: NII tarafi kaldirildi — acilis ?page= deep-link'i (uzman sayfasindaki
+  // "Surecler" kartlari, Faz P0) veya deposit tarafinin ilk sayfasi.
+  var _bootPage = new URLSearchParams(window.location.search).get("page") || "";
+  if (!/^[a-z-]+$/.test(_bootPage) ||
+      !document.querySelector('.sidebar-nav a[data-page="' + _bootPage + '"]')) {
+    _bootPage = "cost-analysis";
+  }
+  setPage(_bootPage);
 
   // ══════════════════════════════════════════════════════════════════════════
   // NEW PRODUCTION DASHBOARD

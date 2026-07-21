@@ -13,6 +13,7 @@ from flask import render_template, redirect, url_for, Response, current_app, abo
 from flask_login import login_required, current_user
 
 from . import prisma_home_bp
+from .processes import resolve_processes
 from .sidebar import get_sidebar
 from .briefings import (
     featured_expert_for,
@@ -105,6 +106,8 @@ def expert_detail(code: str):
     snapshot_store = current_app.config.get("SNAPSHOT_STORE")
     bound = find_snapshots_bound_to(snapshot_store, expert.id) if snapshot_store else []
 
+    processes = resolve_processes((expert.bound_content or {}).get("processes"))
+
     return render_template(
         "home/expert.html",
         mode="consumer",
@@ -113,6 +116,7 @@ def expert_detail(code: str):
         expert=expert,
         briefing=briefing,
         snapshots=bound,
+        processes=processes,
     )
 
 
