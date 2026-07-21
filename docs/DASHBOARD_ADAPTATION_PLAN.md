@@ -283,6 +283,14 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 - ✅ Prewarm: `nim_panel/prewarm.py` — `NIM_PANEL_PREWARM=1` ortam
   değişkeniyle daemon thread'de cache ısıtma (varsayılan kapalı, lazy).
 - ✅ Vendor kararı: kütüphaneler `static/vendor/`'da (CDN'siz).
+- ✅ Ölü NII fonksiyon süpürmesi: `nim_panel/tools/sweep_nii_dead.py` —
+  acorn AST çağrı-grafiği analiziyle (giriş noktaları: top-level kod +
+  index.html + `window.*` atamaları + string literalleri; fixed-point)
+  erişilemeyen 59 fonksiyon / 52 top-level span / ~1.4k satır silindi
+  (sim/cross/BSE/dd-/Raw Data/refreshDates/setDataSource + kaynakta da
+  ölü olan `_wr*` helper'ları). Plan §8 paylaşılan helper'ları analizde
+  canlı doğrulandı. Doğrulama: `node --check` + DEV headless tur (7 sayfa
+  navigasyonu + tema toggle, 0 JS hatası) + 12 birim testi yeşil.
 - Kalan (ofis makinesi / kullanıcı kararı gerektirir):
   - Oracle smoke: gerçek DataClient ile 40 endpoint'in ilk koşumu ve dtype
     karşılaştırması (özellikle DATE/NUMBER kolonları — `edw_query_to_pandas`
@@ -322,4 +330,4 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 | **Çok-worker cache tutarlılığı** | Engine cache'leri worker-lokal; veri güncellemesi "restart şart" (kaynakla aynı sözleşme). Kabul edilebilir mi? |
 | **BSC'nin NII slide'ları** | Faz B'ye kadar eksik — BSC deposit-only modda açılır. |
 | **Kaynak repo canlı gelişiyor** | Son commit 20 Tem 2026. Port sırasında bs_evolution5'e gelen commit'ler için taşıma sonunda tek diff turu planlanmalı (`nim_panel/tools/` bunu tekrarlanabilir kılar). |
-| **Ölü NII fonksiyon gövdeleri** | A0 boot bağlama kodunu söktü; çağrılmayan NII fonksiyonları (sim/cross/BSE/dd- render'ları, `refreshDates`, `setDataSource` vb.) JS'te duruyor. Her fazda ilgili bölge temizlenir; kalan toplu süpürme A7'de. Silmeden önce deposit çağrı grafiği kontrolü şart (paylaşılan helper'lar: `renderFig`, `renderWaterfall`, `sweepPlotly/Apex`, `initChartFullscreen`, bubble helpers). |
+| **Ölü NII fonksiyon gövdeleri** | ✅ ÇÖZÜLDÜ (A7): `tools/sweep_nii_dead.py` AST çağrı-grafiği analiziyle 59 ölü fonksiyonu süpürdü; paylaşılan helper'lar (`renderFig`, `renderWaterfall`, `sweepPlotly/Apex`, `initChartFullscreen`, bubble helpers) canlı doğrulandı. `transform_a0.py` dosyayı yeniden üretirse span'lar bayatlar — araç bu durumda hata verir, analiz turu tekrarlanmalı. |
