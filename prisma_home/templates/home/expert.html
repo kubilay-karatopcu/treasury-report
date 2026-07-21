@@ -212,6 +212,26 @@
     </aside>
   </div>
 
+  {% if processes %}
+  {# ── Faz P0: uzmanın canlı panoları (bound_content.processes) ─────────── #}
+  <div class="section-head">
+    <span class="section-num">02</span>
+    <span class="section-title">Süreçler · Canlı Panolar</span>
+    <span class="section-tail"></span>
+  </div>
+
+  <div class="experts-grid">
+    {% for p in processes %}
+    <a class="expert-cell" href="{{ p.url }}"
+       style="text-decoration: none; color: inherit;">
+      <div class="code">{{ p.num }}</div>
+      <div class="name">{{ p.label }}</div>
+      <div class="role">{{ p.desc }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="section-head">
     <span class="section-num">03</span>
     <span class="section-title">Tüm Kaynakça · Dayanak Snapshot'lar</span>
