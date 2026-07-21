@@ -22,6 +22,11 @@ node --check nim_panel/static/nim_panel.js
   `updatePageVisibility`/`updateTitle`'ı deposit-only hâle getirir.
   Her silme marker çiftiyle tanımlı, bulunamazsa hata verir; >80 satırlık
   silmeler şüpheli sayılıp reddedilir.
+- `sweep_nii_dead.py` — Faz A7 ölü NII süpürmesi: acorn AST çağrı-grafiği
+  analiziyle erişilemeyen 59 fonksiyonun gövdesini (52 top-level span)
+  `static/nim_panel.js`'ten siler. Her span başlangıç+bitiş satırı içeriğiyle
+  doğrulanır; satır kayarsa benzersiz eşleşme aranır, doğrulanamazsa hata
+  verir. `transform_a0.py` yeniden koşulursa span listesi yeniden üretilmeli.
 - `extract_a2.py` — kaynak `app.py`'den Outstanding üçlüsünü (Cost + Tenor +
   Balance motorları, NIMChartBuilder, ortak yardımcılar, parserlar,
   endpoint'ler) satır-aralığı referanslarıyla `engine/` + `routes_*.py`
