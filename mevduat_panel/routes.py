@@ -20,7 +20,7 @@ mevduat_panel_bp = Blueprint(
 
 #: Statik dosya cache-busting'i. JS/CSS degistiginde artir
 #: (kaynak repo Kirmizi Cizgi #7: tarayici agresif cache'ler).
-MEVDUAT_VERSION = "p0.1"
+MEVDUAT_VERSION = "p1.1"
 
 
 def _masa_url() -> str:

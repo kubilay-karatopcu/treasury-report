@@ -1,0 +1,100 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   mevduat_prisma.css — Faz P1 token köprüsü + PRISMA kabuk yerleşimi.
+
+   Desen: prisma_home/static/css/editor_dark.css — mevcut stylesheet'e
+   dokunmadan, SONRA yüklenen bu katman SPA'nın kendi token'larını PRISMA
+   design sistemi token'larına yönlendirir. Tema geçişi PRISMA'nın
+   <html data-theme> mekanizmasından akar: PRISMA token'ları orada flip
+   olur, buradaki eşlemeler otomatik izler (body.light-mode senkronu
+   mevduat_panel.js önsözündeki iki yönlü köprüyle korunur — SPA'nın kendi
+   light bloğu chart/heatmap değişkenleri için hâlâ gerekli).
+
+   Chart renk değişkenlerine (--chart-*, --cat-*, --heat-*) BİLEREK
+   dokunulmaz — Faz P3/P4'te chartHelpers.js paletine geçecekler.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Token eşlemesi ─────────────────────────────────────────────────────
+   body.light-mode bloğu :root'tan daha spesifik olduğundan eşleme her iki
+   seçicide de tekrarlanır; PRISMA token'ları data-theme ile zaten çift
+   temalı olduğu için değerler doğru akar. */
+:root,
+body.light-mode {
+  --bg-base:    var(--bg-0);
+  --bg-panel:   var(--bg-1);
+  --bg-surface: var(--bg-2);
+  --bg-hover:   var(--bg-2);
+  --bg-input:   var(--bg-0);
+
+  --accent:        var(--gold);
+  --accent-bright: var(--gold-soft);
+
+  --mv-border:      var(--border-soft);
+  --border-line:    var(--border-soft);
+  --border-default: var(--border-soft);
+  --border-mid:     var(--border);
+  --border-strong:  var(--border);
+
+  --text-primary:   var(--ink);
+  --text-muted:     var(--ink-soft);
+  --text-secondary: var(--ink-mute);
+  --text-tertiary:  var(--ink-faint);
+  --text-faint:     var(--ink-dim);
+
+  /* Tipografi: PRISMA tek ailedir — serif başlıklar Inter'e katlanır
+     (Inter 200/300 başlık ağırlıkları prisma.css konvansiyonu). */
+  --font-display: var(--sans);
+  --font-body:    var(--sans);
+  --font-mono:    var(--mono);
+}
+
+/* ── 2. Kabuk yerleşimi ────────────────────────────────────────────────────
+   SPA, 56px PRISMA topbar'ının altına sabitlenir (editor.html mount deseni).
+   İç düzen SPA'nın kendi flex'i: .sidebar + .main. */
+body.prisma { display: block; }
+
+.mevduat-mount {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+.mevduat-mount .sidebar { height: 100%; overflow-y: auto; }
+.mevduat-mount .main    { height: 100%; overflow-y: auto; }
+
+/* ── 3. Sol nav — PRISMA producer sidebar diline yakınlaştırma ─────────────
+   (.atolye-sidebar kalıbı: 240px, bg-1, 9px/0.32em caps etiket, gold sol
+   çubuk aktif durum. Davranış/markup aynı kalır.) */
+.mevduat-mount .sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border-soft);
+}
+.mevduat-mount .sidebar-brand {
+  font-family: var(--sans);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--border-soft);
+}
+.mevduat-mount .sidebar-group-header {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+}
+
+/* ── 4. Tema toggle — PRISMA topbar'ınki esastır ───────────────────────────
+   SPA'nın kendi butonu gizlenir; yalnız BSC tam-ekran overlay'inde (topbar'ı
+   örter, #bsc-theme-host'a taşınır) görünür kalır. */
+.mevduat-mount > .theme-toggle { display: none; }
+#bsc-theme-host .theme-toggle {
+  display: inline-flex;
+  position: static;
+}
