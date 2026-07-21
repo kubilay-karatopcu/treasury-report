@@ -349,3 +349,234 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
 .mevduat-mount .filters select,
 .mevduat-mount .filters input[type="date"],
 .mevduat-mount .filters input[type="text"] { background: var(--bg-0); }
+
+/* ═══ 8. UX yeniden yerleşimi (navbar sadeleştirme, section başlıkları,
+   modal tam ekran, sağ-alt kontrol dock'u, filtre okunabilirliği) ═════════ */
+
+/* 8a. Navbar: ikonsuz, sabit grup başlığı, daha geniş ve okunur. */
+.mevduat-mount .sidebar { width: 272px; min-width: 272px; }
+.mevduat-mount .snav-icon { display: none; }
+.mevduat-mount .sidebar-brand { display: none; }
+.mevduat-mount .sidebar-group-icon { display: none; }
+.mevduat-mount .sidebar-group-header {
+  pointer-events: none;          /* açılıp kapanmaz — statik bölüm etiketi */
+  cursor: default;
+  padding-top: 18px;
+}
+.mevduat-mount .sidebar-nav a {
+  font-size: 14px;
+  padding: 11px 22px;
+  color: var(--ink-soft);
+}
+.mevduat-mount .sidebar-nav a.active { padding-left: 20px; }
+
+/* 8b. Blok başlıkları → PRISMA section-head dili. Kart görünümü gövdeye
+   iner; başlık numaralı, caps, hairline'lı bölüm başlığı olur ve tek işlevi
+   tam ekran açmaktır (sağdaki ⛶). Sayfa/alt-sekme başına numara 01'den. */
+.mevduat-mount [id$="-section"] { counter-reset: mvsec; }
+.mevduat-mount .accordion {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  counter-increment: mvsec;
+  margin-top: 34px;
+}
+.mevduat-mount .accordion:first-of-type { margin-top: 0; }
+.mevduat-mount .accordion-header {
+  font-family: var(--sans) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.22em !important;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  padding: 4px 2px 12px !important;
+  border-bottom: 1px solid var(--border-soft);
+  gap: 14px;
+  background: none !important;
+}
+.mevduat-mount .accordion-header::before {
+  content: counter(mvsec, decimal-leading-zero);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 0.1em;
+}
+.mevduat-mount .accordion-header::after {
+  content: "⛶";
+  margin-left: auto;
+  font-size: 15px;
+  letter-spacing: 0;
+  color: var(--ink-faint);
+  transition: color 0.15s;
+}
+.mevduat-mount .accordion-header:hover { color: var(--ink); }
+.mevduat-mount .accordion-header:hover::after { color: var(--gold); }
+.mevduat-mount .acc-icon { display: none; }
+.mevduat-mount .accordion-body {
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 18px 20px !important;
+  margin-top: 14px;
+}
+
+/* 8c. Tam ekran: ekranı komple kaplamak yerine kenarlardan boşluklu modal;
+   arkası karartılır, dışarı tıklayınca kapanır (JS). */
+.chart-fs-overlay {
+  inset: 4vh 5vw !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 0 0 200vmax rgba(6, 9, 18, 0.72), 0 24px 64px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* 8d. Sağ-alt kontrol dock'u — PRISMA kart dili, drawer. */
+.mv-dock {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 900;
+  width: 320px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 12px;
+}
+.mv-dock-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border-soft);
+  user-select: none;
+}
+.mv-dock-eyebrow {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.mv-dock-dates {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
+}
+.mv-dock-toggle {
+  background: none;
+  border: none;
+  color: var(--ink-mute);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.mv-dock-body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.mv-dock.is-collapsed .mv-dock-body { display: none; }
+.mv-dock-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-top: 6px;
+}
+.mv-dock-label:first-child { margin-top: 0; }
+.mv-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mv-dock-row label {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 1;
+  font-size: 11px !important;
+  color: var(--ink-soft) !important;
+  margin: 0 !important;
+  white-space: nowrap;
+}
+.mv-dock-row select,
+.mv-dock-row input[type="date"],
+.mv-dock-row input.flatpickr-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.mv-dock-arrow {
+  flex: 0 0 22px;
+  height: 26px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  font-size: 9px;
+  line-height: 1;
+}
+.mv-dock-arrow:hover { border-color: var(--gold); color: var(--gold); }
+/* BSC sunumu ya da tam ekran açıkken dock gizlenir. */
+body:has(#bsc-pres:not(.hidden)) .mv-dock,
+body:has(.chart-fs-overlay) .mv-dock { display: none !important; }
+/* Light modda gölge yumuşar. */
+body.light-mode .mv-dock { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
+
+/* 8e. Filtre şeridi okunabilirliği + Grupla butonu. */
+.mevduat-mount .main label { font-size: 13px; }
+.mevduat-mount .bub-filter-dd-btn { font-size: 12px; }
+.mevduat-mount .bub-filter-dd-groupbtn {
+  background: transparent;
+  border: 1px solid var(--gold-dim);
+  border-radius: 4px;
+  color: var(--gold);
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mevduat-mount .bub-filter-dd-groupbtn:hover:not(:disabled),
+.bub-filter-dd-popup .bub-filter-dd-groupbtn:hover:not(:disabled) {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+.bub-filter-dd-popup .bub-filter-dd-groupbtn {
+  background: transparent;
+  border: 1px solid var(--gold-dim);
+  border-radius: 4px;
+  color: var(--gold);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+}
+.bub-filter-dd-popup .bub-filter-dd-groupbtn:disabled {
+  border-color: var(--border);
+  color: var(--ink-dim);
+  cursor: default;
+}
