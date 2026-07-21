@@ -173,16 +173,31 @@ def test_blueprint_endpointleri_kayitli():
         assert f"/mevduat-panel{ep}" in rules, f"eksik endpoint: {ep}"
 
 
-def test_data_source_prod_client_kapisi():
-    """DataClient yoksa net hata — sessiz boş sonuç yasak."""
+def test_data_source_dev_yolu_sqlite(monkeypatch):
+    """DataClient yoksa dev.db'ye düşer (A1 revizesi: lokal geliştirme)."""
     from flask import Flask
-    from mevduat_panel.data_source import load_dataframe
+    from mevduat_panel import data_source
 
     app = Flask(__name__)
     app.config["DATA_CLIENT"] = None
     with app.app_context():
+        df = data_source.load_dataframe("daily_deposit")
+    assert not df.empty
+
+
+def test_data_source_prod_client_kapisi(monkeypatch):
+    """DataClient VE dev.db yoksa net hata — sessiz boş sonuç yasak."""
+    from pathlib import Path
+
+    from flask import Flask
+    from mevduat_panel import data_source
+
+    monkeypatch.setattr(data_source, "DEV_DB_PATH", Path("yok/dev.db"))
+    app = Flask(__name__)
+    app.config["DATA_CLIENT"] = None
+    with app.app_context():
         with pytest.raises(RuntimeError):
-            load_dataframe("daily_deposit")
+            data_source.load_dataframe("daily_deposit")
 
 
 def test_data_source_bilinmeyen_sorgu():
