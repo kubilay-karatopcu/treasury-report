@@ -3,32 +3,47 @@
 Kaynak: NIM_calculation engine/db_source.py. `load_dataframe(name, params)`
 imzası birebir korunur; engine portları değişiklik olmadan çalışır.
 
-Kaynak repodaki DEVELOPMENT/PRODUCTION_EXC yolları TAŞINMADI (kullanıcı
-kararı: dev.db yok, doğrudan prod). Tek yol: DataClient havuzundan Oracle.
-Testler `load_dataframe`'i monkeypatch'leyip sentetik DataFrame verir.
+İki yol (kaynaktaki ENV dispatch'inin uyarlaması):
+
+- **PROD:** DataClient havuzundan Oracle (`queries/*.sql`, Oracle lehçesi).
+- **DEV:** DataClient `edw_query_to_pandas` sunmuyorsa (DEV stub) kaynağın
+  sentetik SQLite'ı kullanılır: `data/dev.db` + `queries/dev/*.sql` aynaları
+  (kaynak repodan birebir; 2026-07-21 kullanıcı kararıyla A1'in "dev.db yok"
+  kararı revize edildi — lokal geliştirme dev.db ile). Bind stili her iki
+  yolda named (`:NAME`); sqlite3 da oracledb da dict bind kabul eder.
 
 SQL dosyaları `mevduat_panel/queries/*.sql` — kaynak reponun `queries/prod/`
 kopyası, `A16438.` şema prefix'i repo konvansiyonuyla (queries/deposits/)
-tutarlı olarak aynen korunur. Bind stili named (`:NAME`), weekly_rollings*
-DD/MM/YYYY string bind alır (SQL içindeki TO_DATE ile uyumlu).
+tutarlı olarak aynen korunur. weekly_rollings* DD/MM/YYYY string bind alır
+(prod SQL içindeki TO_DATE ile uyumlu; dev aynası aynı imzayı bekler).
 """
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
 from flask import current_app
 
 QUERIES_DIR = Path(__file__).parent / "queries"
+DEV_QUERIES_DIR = QUERIES_DIR / "dev"
+DEV_DB_PATH = Path(__file__).parent / "data" / "dev.db"
 
 #: Geçerli sorgu adları — path traversal ve yazım hatasına karşı kapı.
 QUERY_NAMES = frozenset(p.stem for p in QUERIES_DIR.glob("*.sql"))
 
 
-def _sql(name: str) -> str:
+def _sql(name: str, dev: bool = False) -> str:
     if name not in QUERY_NAMES:
         raise KeyError(f"Bilinmeyen sorgu: {name!r} (mevcut: {sorted(QUERY_NAMES)})")
-    return (QUERIES_DIR / f"{name}.sql").read_text(encoding="utf-8")
+    base = DEV_QUERIES_DIR if dev else QUERIES_DIR
+    return (base / f"{name}.sql").read_text(encoding="utf-8")
+
+
+def _load_sqlite(name: str, params: dict | None) -> pd.DataFrame:
+    """Kaynak `_load_sqlite` birebir: dev.db + SQLite lehçesi aynaları."""
+    with sqlite3.connect(DEV_DB_PATH) as conn:
+        return pd.read_sql_query(_sql(name, dev=True), conn, params=params or None)
 
 
 def load_dataframe(name: str, params: dict | None = None) -> pd.DataFrame:
@@ -39,9 +54,12 @@ def load_dataframe(name: str, params: dict | None = None) -> pd.DataFrame:
     """
     dc = current_app.config.get("DATA_CLIENT")
     if dc is None or not hasattr(dc, "edw_query_to_pandas"):
+        if DEV_DB_PATH.exists():
+            return _load_sqlite(name, params)
         raise RuntimeError(
-            "mevduat_panel prod DataClient gerektirir (DEV stub'ında Oracle yolu yok; "
-            "testler load_dataframe'i monkeypatch'ler)."
+            "mevduat_panel prod DataClient gerektirir ve data/dev.db bulunamadı "
+            "(DEV yolu için kaynak reponun dev.db'si mevduat_panel/data/ altına "
+            "konmalı; testler load_dataframe'i monkeypatch'ler)."
         )
     con = dc.get_connection_from_pool()
     try:
