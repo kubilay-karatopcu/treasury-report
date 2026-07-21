@@ -234,9 +234,13 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
   overlay + dark/light tema çalışıyor; stub hataları SPA'nın kendi hata
   banner'ında zarifçe görünüyor.
 
-### Faz A1 — Veri katmanı — ✅ TAMAMLANDI (revize)
-- Kullanıcı kararı: **dev.db yok, doğrudan prod.** `data_source.py` tek yol:
-  DataClient havuzu (`get_connection_from_pool` + `edw_query_to_pandas`).
+### Faz A1 — Veri katmanı — ✅ TAMAMLANDI (2× revize)
+- İlk karar "dev.db yok, doğrudan prod" idi; **2026-07-21'de revize edildi**
+  (kullanıcı lokal geliştirmeye geçti): `data_source.py` iki yol —
+  **PROD** DataClient havuzu (`get_connection_from_pool` +
+  `edw_query_to_pandas`), **DEV** (DataClient `edw_query_to_pandas` sunmuyorsa)
+  kaynağın sentetik SQLite'ı: `mevduat_panel/data/dev.db` +
+  `queries/dev/*.sql` aynaları (kaynak repodan birebir kopya).
   Kaynak `load_dataframe(name, params)` imzası korunur; testler monkeypatch'ler.
 - 12 prod SQL `mevduat_panel/queries/`'e birebir taşındı; `A16438.` prefix'i repo
   konvansiyonuyla (queries/deposits/) tutarlı, parametrize EDİLMEDİ.
@@ -325,7 +329,7 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 |------|-------|
 | **Modül/sayfa adı** | ✅ KARAR (2026-07-21): `mevduat_panel` / "Mevduat Paneli", URL `/mevduat-panel`, config `MEVDUAT_PANEL_*`. İlk öneri `nim_panel` idi; modül yalnız deposit tarafını taşıdığı için kullanıcı deposit-odaklı ismi seçti. Faz B (NII) gelirse ayrı modül ya da o gün yeniden adlandırma. |
 | **Plotly CDN erişimi (ofis proxy)** | cdnjs `@`'siz; yine de ofiste doğrulanmalı. Fallback: vendor dosyaları git'te (~5 MB). |
-| **dev.db lisans/boyut** | 8.9 MB SQLite git'e girecek (kaynakta da commitli). Sentetik + maskeli; PII yok. Onay gerekli. |
+| **dev.db lisans/boyut** | ✅ ONAYLANDI (2026-07-21): 8.9 MB sentetik SQLite `mevduat_panel/data/dev.db` olarak commitli (kaynakta da commitli; PII yok). Lokal geliştirme kararıyla birlikte geldi. |
 | **`oracledb` fetch farkı** | Kaynak `cursor.execute+fetchall` kullanıyor (pandas 2.0 uyumu); DataClient'ın `edw_query_to_pandas`'ı dtype davranışını değiştirirse DATE/NUMBER kolonlarında sapma olabilir → Faz A1'de dtype karşılaştırma testi. |
 | **Çok-worker cache tutarlılığı** | Engine cache'leri worker-lokal; veri güncellemesi "restart şart" (kaynakla aynı sözleşme). Kabul edilebilir mi? |
 | **BSC'nin NII slide'ları** | Faz B'ye kadar eksik — BSC deposit-only modda açılır. |
