@@ -2461,7 +2461,7 @@
     tl.cache = null;
     tl.union = null;
     tl.els.range.disabled = true;
-    tl.els.date.textContent = "Loading…";
+    tl.els.date.textContent = "Yükleniyor…";
     try {
       var r = await fetch("/api/bubble_series?source=" + (prefix === "ca-mon" ? "monthly" : "daily")
                           + "&date_0=" + encodeURIComponent(info.d0)
@@ -2515,7 +2515,7 @@
       '<span class="bub-minsize-label">Date</span>' +
       '<button type="button" id="' + prefix + '-tl-play" title="Play from the slider start to the selected date" style="' + btnCss + '">▶</button>' +
       '<input type="range" class="bub-minsize-range" id="' + prefix + '-tl-range" min="0" max="0" step="1" value="0" disabled>' +
-      '<span class="bub-minsize-val" id="' + prefix + '-tl-date">Loading…</span>' +
+      '<span class="bub-minsize-val" id="' + prefix + '-tl-date">Yükleniyor…</span>' +
       '<button type="button" id="' + prefix + '-tl-lock" title="Lock axes to the union of the full range (kept after settling)" style="' + btnCss + 'opacity:0.45;">🔒</button>';
     return bar;
   }
@@ -4549,12 +4549,12 @@
       + 'Daily Balance — <span style="color:var(--accent);">' + labelFull + '</span>'
       + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(' + dateRange + ')</span></div>'
       + '<div id="' + drillId + '-chart" style="height:260px;width:100%;display:flex;align-items:center;'
-      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Loading…</div>'
+      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Yükleniyor…</div>'
       + (showBar
           ? '<div style="height:1px;background:rgba(255,255,255,0.07);margin:10px 0;"></div>'
             + '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">' + breakTitle + '</div>'
             + '<div id="' + drillId + '-bar" style="min-height:80px;width:100%;display:flex;align-items:center;'
-            + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Loading…</div>'
+            + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Yükleniyor…</div>'
           : "");
     cardEl.insertAdjacentElement("afterend", drillRow);
     drillRow.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -5555,11 +5555,11 @@
       + 'Daily Interest Rate — <span style="color:var(--accent);">' + labelFull + '</span>'
       + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(' + dateRange + ')</span></div>'
       + '<div id="' + drillId + '-chart" style="height:260px;width:100%;display:flex;align-items:center;'
-      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Loading…</div>'
+      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Yükleniyor…</div>'
       + '<div style="height:1px;background:rgba(255,255,255,0.07);margin:10px 0;"></div>'
       + '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">' + breakLbl + ' Breakdown</div>'
       + '<div id="' + drillId + '-bar" style="min-height:80px;width:100%;display:flex;align-items:center;'
-      + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Loading…</div>';
+      + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Yükleniyor…</div>';
     cardEl.insertAdjacentElement("afterend", drillRow);
     drillRow.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
@@ -6573,7 +6573,7 @@
             '</div>' +
           '</div>' +
           '<div id="' + drillRowId + '-bar" style="min-height:80px;width:100%;display:flex;' +
-            'align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px;">Loading…</div>'
+            'align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px;">Yükleniyor…</div>'
         : "");
     anchorEl.insertAdjacentElement("afterend", drillRow);
 
@@ -7771,7 +7771,7 @@
     }
     var ep = slide.endpoint || "weekly_rollings";
     var ds = weeklyReportState.dateStart, de = weeklyReportState.dateEnd;
-    _setWeeklyStatus("Loading…");
+    _setWeeklyStatus("Yükleniyor…");
     fetch("/api/" + ep + "?date_start=" + encodeURIComponent(ds) +
           "&date_end=" + encodeURIComponent(de))
       .then(function(r){ return r.json(); })
@@ -7799,7 +7799,7 @@
     var slide = WEEKLY_SLIDES[idx];
 
     var lbl = document.getElementById("wr-slide-label");
-    if (lbl) lbl.textContent = "Slide " + (idx+1) + " / " + WEEKLY_SLIDES.length;
+    if (lbl) lbl.textContent = (idx+1) + " / " + WEEKLY_SLIDES.length;
     document.getElementById("wr-prev").disabled = (idx === 0);
     document.getElementById("wr-next").disabled = (idx >= WEEKLY_SLIDES.length - 1);
 
@@ -8246,7 +8246,7 @@
     if (ctx.cust_tp) subParts.push(ctx.cust_tp === "G" ? "Individual Customers" : "Corporate Customers");
     document.getElementById("wr-drill-title").textContent = "Cell Detail — " + dateLabel;
     document.getElementById("wr-drill-subtitle").textContent = subParts.join(" · ");
-    document.getElementById("wr-drill-count").textContent = "(loading…)";
+    document.getElementById("wr-drill-count").textContent = "(yükleniyor…)";
 
     var ds = weeklyReportState.dateStart, de = weeklyReportState.dateEnd;
     var url = "/api/weekly_drilldown?date_start=" + encodeURIComponent(ds)
@@ -8376,7 +8376,7 @@
 
   async function fetchSimulationResults() {
     showError("");
-    elSimStatus.textContent = "Loading...";
+    elSimStatus.textContent = "Yükleniyor...";
     try {
       const res = await fetch("/api/simulation_results");
       const data = await res.json();
@@ -8968,7 +8968,7 @@
     if (dc && dc.value) p.set("decomp",    dc.value);
     // Status feedback
     var statusEl = document.getElementById("np-vp-status");
-    if (statusEl) statusEl.textContent = "Loading...";
+    if (statusEl) statusEl.textContent = "Yükleniyor...";
     fetch("/api/np/aum_rate_chart?" + p.toString() + _npVpBubStateToQuery() + _npRvHmTenorParam())
       .then(function(r) { return r.json(); })
       .then(function(d) {
@@ -9374,7 +9374,7 @@
     _initNpVpFilters();
     _initNpRvHmControls();
     var statusEl = document.getElementById("np-vp-status");
-    if (statusEl) statusEl.textContent = "Loading...";
+    if (statusEl) statusEl.textContent = "Yükleniyor...";
     // Sayfa artık üç grafik: üstte heatmap, altında volume & rate combo, en altta
     // faiz × kümülatif hacim eğrisi.
     fetchNpRvHeatmap();
@@ -9418,7 +9418,7 @@
     if (key === _npBubLastKey && npVpBubFigs) { _renderNpVpBubbles(); return; }
     _npBubLastKey = key;
     var statusEl = document.getElementById("np-vp-bub-status");
-    if (statusEl) statusEl.textContent = "Loading...";
+    if (statusEl) statusEl.textContent = "Yükleniyor...";
     fetch("/api/np/rate_volume_bubble?t0=" + encodeURIComponent(t0)
           + "&t1=" + encodeURIComponent(t1)
           + "&freq=" + encodeURIComponent(freq) + tenorQ)
@@ -9457,7 +9457,7 @@
     var t0El = document.getElementById("np-vp-date0");
     var t1El = document.getElementById("np-vp-date1");
     var statusEl = document.getElementById("np-rvc-status");
-    if (statusEl) statusEl.textContent = "Loading...";
+    if (statusEl) statusEl.textContent = "Yükleniyor...";
     var p = new URLSearchParams();
     if (t0El && t0El.value) p.set("t0", t0El.value);
     if (t1El && t1El.value) p.set("t1", t1El.value);
@@ -9700,7 +9700,7 @@
     var t0El = document.getElementById("np-vp-date0");
     var t1El = document.getElementById("np-vp-date1");
     var statusEl = document.getElementById("np-rvhm-status");
-    if (statusEl) statusEl.textContent = "Loading...";
+    if (statusEl) statusEl.textContent = "Yükleniyor...";
 
     var p = new URLSearchParams();
     if (t0El && t0El.value) p.set("t0", t0El.value);
@@ -10359,7 +10359,7 @@
     var statusEl= document.getElementById("np-rvhm-combo-status");
     if (titleEl) titleEl.textContent = ch + " × " + au;
     if (panel) panel.style.display = "block";
-    if (statusEl) statusEl.textContent = "Loading...";
+    if (statusEl) statusEl.textContent = "Yükleniyor...";
 
     var t0 = document.getElementById("np-vp-date0");
     var t1 = document.getElementById("np-vp-date1");
@@ -10474,7 +10474,7 @@
     if (titleEl) titleEl.textContent = _dl(ch) + " × " + _dl(au);
     if (subEl) subEl.textContent = d0 + " → " + d1 + "  ·  booked deposits (new production)";
     if (modal) modal.classList.remove("hidden");
-    if (statusEl) statusEl.textContent = "Loading...";
+    if (statusEl) statusEl.textContent = "Yükleniyor...";
 
     var p = new URLSearchParams();
     p.set("channel", ch); p.set("aum", au);

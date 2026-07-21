@@ -78,8 +78,8 @@
 
       <!-- Sub-tab nav (mirrors .nim-tab-nav style) -->
       <div class="nim-tab-nav">
-        <button class="nim-tab-btn"        data-ca-tab="monthly-averages">Monthly Averages</button>
-        <button class="nim-tab-btn active" data-ca-tab="daily-evolution">Daily Evolution</button>
+        <button class="nim-tab-btn"        data-ca-tab="monthly-averages">Aylık Ortalamalar</button>
+        <button class="nim-tab-btn active" data-ca-tab="daily-evolution">Günlük Evrim</button>
       </div>
 
       <!-- ── Monthly Averages sub-tab ──────────────────────────────── -->
@@ -88,34 +88,34 @@
         <!-- Own date pickers (month-end dropdowns) + dimension toggles -->
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (Start)
+            Başlangıç
             <select id="ca-mon-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (End)
+            Bitiş
             <select id="ca-mon-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           </label>
-          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:8px;">Dimensions:</label>
-          <button class="ca-mon-dim-btn dd-dim-btn" data-dim="PRODUCT">PRODUCT</button>
-          <button class="ca-mon-dim-btn dd-dim-btn active" data-dim="SUBPRODUCT">SUBPRODUCT</button>
-          <button class="ca-mon-dim-btn dd-dim-btn active" data-dim="CUSTOMER_TYPE">CUSTOMER_TYPE</button>
+          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:8px;">Boyutlar:</label>
+          <button class="ca-mon-dim-btn dd-dim-btn" data-dim="PRODUCT">ÜRÜN</button>
+          <button class="ca-mon-dim-btn dd-dim-btn active" data-dim="SUBPRODUCT">ALT ÜRÜN</button>
+          <button class="ca-mon-dim-btn dd-dim-btn active" data-dim="CUSTOMER_TYPE">MÜŞTERİ TİPİ</button>
           <button class="ca-mon-dim-btn dd-dim-btn active" data-dim="AUM">AUM</button>
           <button class="ca-mon-dim-btn dd-dim-btn active" data-dim="SEGMENT">SEGMENT</button>
-          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:12px;" title="Breakdown dimension for waterfall/bar double-click drill">Detailed Dim:</label>
+          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:12px;" title="Breakdown dimension for waterfall/bar double-click drill">Detay Boyutu:</label>
           <select id="ca-mon-break-dim" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-            <option value="PRODUCT" selected>Product</option>
-            <option value="SUBPRODUCT">Sub-Product</option>
-            <option value="CUSTOMER_TYPE">Customer Type</option>
+            <option value="PRODUCT" selected>Ürün</option>
+            <option value="SUBPRODUCT">Alt Ürün</option>
+            <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
             <option value="AUM">AUM</option>
             <option value="SEGMENT">Segment</option>
-            <option value="TENOR">Tenor</option>
+            <option value="TENOR">Vade</option>
           </select>
           <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:12px;"
-                 title="Rate display type: each row converted with its own wavg tenor (act/365)">Rate Type:</label>
+                 title="Rate display type: each row converted with its own wavg tenor (act/365)">Oran Tipi:</label>
           <select id="ca-mon-rate-conv" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-            <option value="simple" selected>Simple</option>
-            <option value="on">O/N Equivalent</option>
-            <option value="compound">Annual Compound</option>
+            <option value="simple" selected>Basit</option>
+            <option value="on">O/N Eşleniği</option>
+            <option value="compound">Yıllık Bileşik</option>
           </select>
         </div>
 
@@ -166,28 +166,28 @@
           <div class="accordion-body" id="acc-body-ca-mon-rate-hm" style="max-height:none;overflow:visible;">
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
               <div class="hm-switch" id="ca-mon-rate-hm-switch" data-prefix="ca-mon" data-kind="rate">
-                <span class="hm-lbl active" data-mode="delta">Interest Rate Delta</span>
+                <span class="hm-lbl active" data-mode="delta">Faiz Farkı</span>
                 <div class="hm-toggle"><div class="hm-knob"></div></div>
-                <span class="hm-lbl" data-mode="abs">Interest Rate</span>
+                <span class="hm-lbl" data-mode="abs">Faiz</span>
               </div>
               <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:auto;">
-                Decomposition Dim
+                Ayrıştırma Boyutu
                 <select id="ca-mon-rate-decomp" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
                   <option value="SEGMENT">Segment</option>
                   <option value="AUM">AUM Band</option>
-                  <option value="PRODUCT">Product</option>
-                  <option value="SUBPRODUCT">Sub-Product</option>
-                  <option value="CUSTOMER_TYPE">Customer Type</option>
+                  <option value="PRODUCT">Ürün</option>
+                  <option value="SUBPRODUCT">Alt Ürün</option>
+                  <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
                 </select>
               </label>
               <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-                Second Dec. Dim
+                İkinci Boyut
                 <select id="ca-mon-rate-decomp2" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
                   <option value="SEGMENT">Segment</option>
                   <option value="AUM" selected>AUM Band</option>
-                  <option value="PRODUCT">Product</option>
-                  <option value="SUBPRODUCT">Sub-Product</option>
-                  <option value="CUSTOMER_TYPE">Customer Type</option>
+                  <option value="PRODUCT">Ürün</option>
+                  <option value="SUBPRODUCT">Alt Ürün</option>
+                  <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
                 </select>
               </label>
               <!-- Detail Dim (heatmap drill kırılımı) KALDIRILDI — artık üstteki
@@ -206,35 +206,35 @@
         <!-- Own date pickers (daily granularity) + dimension toggles -->
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (Start)
+            Başlangıç
             <input type="date" id="ddd-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (End)
+            Bitiş
             <input type="date" id="ddd-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
           <span id="ddd-date-hint" style="font-size:11px;color:var(--text-muted);"></span>
-          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:8px;">Dimensions:</label>
-          <button class="ddd-dim-btn dd-dim-btn" data-dim="PRODUCT">PRODUCT</button>
-          <button class="ddd-dim-btn dd-dim-btn active" data-dim="SUBPRODUCT">SUBPRODUCT</button>
-          <button class="ddd-dim-btn dd-dim-btn active" data-dim="CUSTOMER_TYPE">CUSTOMER_TYPE</button>
+          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:8px;">Boyutlar:</label>
+          <button class="ddd-dim-btn dd-dim-btn" data-dim="PRODUCT">ÜRÜN</button>
+          <button class="ddd-dim-btn dd-dim-btn active" data-dim="SUBPRODUCT">ALT ÜRÜN</button>
+          <button class="ddd-dim-btn dd-dim-btn active" data-dim="CUSTOMER_TYPE">MÜŞTERİ TİPİ</button>
           <button class="ddd-dim-btn dd-dim-btn active" data-dim="AUM">AUM</button>
           <button class="ddd-dim-btn dd-dim-btn active" data-dim="SEGMENT">SEGMENT</button>
-          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:12px;" title="Breakdown dimension for waterfall/bar double-click drill">Detailed Dim:</label>
+          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:12px;" title="Breakdown dimension for waterfall/bar double-click drill">Detay Boyutu:</label>
           <select id="ddd-break-dim" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-            <option value="PRODUCT" selected>Product</option>
-            <option value="SUBPRODUCT">Sub-Product</option>
-            <option value="CUSTOMER_TYPE">Customer Type</option>
+            <option value="PRODUCT" selected>Ürün</option>
+            <option value="SUBPRODUCT">Alt Ürün</option>
+            <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
             <option value="AUM">AUM</option>
             <option value="SEGMENT">Segment</option>
-            <option value="TENOR">Tenor</option>
+            <option value="TENOR">Vade</option>
           </select>
           <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;margin-left:12px;"
-                 title="Rate display type: each row converted with its own wavg tenor (act/365)">Rate Type:</label>
+                 title="Rate display type: each row converted with its own wavg tenor (act/365)">Oran Tipi:</label>
           <select id="ddd-rate-conv" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-            <option value="simple" selected>Simple</option>
-            <option value="on">O/N Equivalent</option>
-            <option value="compound">Annual Compound</option>
+            <option value="simple" selected>Basit</option>
+            <option value="on">O/N Eşleniği</option>
+            <option value="compound">Yıllık Bileşik</option>
           </select>
         </div>
 
@@ -287,28 +287,28 @@
           <div class="accordion-body" id="acc-body-ddd-rate-hm" style="max-height:none;overflow:visible;">
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
               <div class="hm-switch" id="ddd-rate-hm-switch" data-prefix="ddd" data-kind="rate">
-                <span class="hm-lbl active" data-mode="delta">Interest Rate Delta</span>
+                <span class="hm-lbl active" data-mode="delta">Faiz Farkı</span>
                 <div class="hm-toggle"><div class="hm-knob"></div></div>
-                <span class="hm-lbl" data-mode="abs">Interest Rate</span>
+                <span class="hm-lbl" data-mode="abs">Faiz</span>
               </div>
               <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:auto;">
-                Decomposition Dim
+                Ayrıştırma Boyutu
                 <select id="ddd-rate-decomp" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
                   <option value="SEGMENT">Segment</option>
                   <option value="AUM">AUM Band</option>
-                  <option value="PRODUCT">Product</option>
-                  <option value="SUBPRODUCT">Sub-Product</option>
-                  <option value="CUSTOMER_TYPE">Customer Type</option>
+                  <option value="PRODUCT">Ürün</option>
+                  <option value="SUBPRODUCT">Alt Ürün</option>
+                  <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
                 </select>
               </label>
               <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-                Second Dec. Dim
+                İkinci Boyut
                 <select id="ddd-rate-decomp2" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
                   <option value="SEGMENT">Segment</option>
                   <option value="AUM" selected>AUM Band</option>
-                  <option value="PRODUCT">Product</option>
-                  <option value="SUBPRODUCT">Sub-Product</option>
-                  <option value="CUSTOMER_TYPE">Customer Type</option>
+                  <option value="PRODUCT">Ürün</option>
+                  <option value="SUBPRODUCT">Alt Ürün</option>
+                  <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
                 </select>
               </label>
               <!-- Detail Dim (heatmap drill kırılımı) KALDIRILDI — artık üstteki
@@ -327,8 +327,8 @@
     <div id="balance-analysis-section" class="hidden">
 
       <div class="nim-tab-nav">
-        <button class="nim-tab-btn"        data-ba-tab="monthly-averages">Monthly Averages</button>
-        <button class="nim-tab-btn active" data-ba-tab="daily-evolution">Daily Evolution</button>
+        <button class="nim-tab-btn"        data-ba-tab="monthly-averages">Aylık Ortalamalar</button>
+        <button class="nim-tab-btn active" data-ba-tab="daily-evolution">Günlük Evrim</button>
       </div>
 
       <!-- ── Monthly Averages sub-tab ─────────────────────────────── -->
@@ -336,42 +336,42 @@
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (Start)
+            Başlangıç
             <select id="ba-mon-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (End)
+            Bitiş
             <select id="ba-mon-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Decomposition Dim
+            Ayrıştırma Boyutu
             <select id="ba-mon-decomp" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
               <option value="SEGMENT">Segment</option>
               <option value="AUM">AUM Band</option>
-              <option value="PRODUCT">Product</option>
-              <option value="SUBPRODUCT">Sub-Product</option>
-              <option value="CUSTOMER_TYPE">Customer Type</option>
+              <option value="PRODUCT">Ürün</option>
+              <option value="SUBPRODUCT">Alt Ürün</option>
+              <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
             </select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Second Dec. Dim
+            İkinci Boyut
             <select id="ba-mon-decomp2" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
               <option value="SEGMENT">Segment</option>
               <option value="AUM" selected>AUM Band</option>
-              <option value="PRODUCT">Product</option>
-              <option value="SUBPRODUCT">Sub-Product</option>
-              <option value="CUSTOMER_TYPE">Customer Type</option>
+              <option value="PRODUCT">Ürün</option>
+              <option value="SUBPRODUCT">Alt Ürün</option>
+              <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
             </select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Detail Dim
+            Detay Boyutu
             <select id="ba-mon-second" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
               <option value="SEGMENT">Segment</option>
               <option value="AUM">AUM Band</option>
-              <option value="PRODUCT" selected>Product</option>
-              <option value="SUBPRODUCT">Sub-Product</option>
-              <option value="CUSTOMER_TYPE">Customer Type</option>
-              <option value="TENOR">Tenor</option>
+              <option value="PRODUCT" selected>Ürün</option>
+              <option value="SUBPRODUCT">Alt Ürün</option>
+              <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
+              <option value="TENOR">Vade</option>
             </select>
           </label>
         </div>
@@ -419,11 +419,11 @@
               <span class="acc-icon">&#9654;</span> Balance / Customer Heatmap (Segment × AUM)
             </button>
             <div class="hm-metric-slider" id="ba-mon-metric-slider" data-prefix="ba-mon">
-              <span class="hm-ms-lbl active" data-metric="balance" role="button" tabindex="0">Balance</span>
+              <span class="hm-ms-lbl active" data-metric="balance" role="button" tabindex="0">Bakiye</span>
               <input type="range" class="hm-ms-range" id="ba-mon-metric-range"
                      min="0" max="1" step="1" value="0"
-                     aria-label="Balance ↔ Customer Number chart switch">
-              <span class="hm-ms-lbl" data-metric="customer" role="button" tabindex="0">Customer</span>
+                     aria-label="Bakiye ↔ Müşteri Sayısı grafik anahtarı">
+              <span class="hm-ms-lbl" data-metric="customer" role="button" tabindex="0">Müşteri</span>
             </div>
           </div>
           <div class="accordion-body" id="acc-body-ba-mon-heatmap" style="max-height:none;overflow:visible;">
@@ -433,9 +433,9 @@
                 <div class="hm-metric-panel">
                   <div style="margin-bottom:10px;">
                     <div class="hm-switch" id="ba-mon-hm-switch" data-prefix="ba-mon" data-kind="balance">
-                      <span class="hm-lbl active" data-mode="delta">Balance Delta</span>
+                      <span class="hm-lbl active" data-mode="delta">Bakiye Farkı</span>
                       <div class="hm-toggle"><div class="hm-knob"></div></div>
-                      <span class="hm-lbl" data-mode="abs">Balance</span>
+                      <span class="hm-lbl" data-mode="abs">Bakiye</span>
                     </div>
                   </div>
                   <div class="card"><div class="plot-container" id="ba-mon-heatmap"></div></div>
@@ -444,9 +444,9 @@
                 <div class="hm-metric-panel">
                   <div style="margin-bottom:10px;">
                     <div class="hm-switch" id="ba-mon-cust-hm-switch" data-prefix="ba-mon" data-kind="customer">
-                      <span class="hm-lbl active" data-mode="delta">Customer Delta</span>
+                      <span class="hm-lbl active" data-mode="delta">Müşteri Farkı</span>
                       <div class="hm-toggle"><div class="hm-knob"></div></div>
-                      <span class="hm-lbl" data-mode="abs">Customer Number</span>
+                      <span class="hm-lbl" data-mode="abs">Müşteri Sayısı</span>
                     </div>
                   </div>
                   <div class="card"><div class="plot-container" id="ba-mon-cust-heatmap"></div></div>
@@ -475,42 +475,42 @@
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (Start)
+            Başlangıç
             <input type="date" id="ba-dly-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (End)
+            Bitiş
             <input type="date" id="ba-dly-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Decomposition Dim
+            Ayrıştırma Boyutu
             <select id="ba-dly-decomp" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
               <option value="SEGMENT">Segment</option>
               <option value="AUM">AUM Band</option>
-              <option value="PRODUCT">Product</option>
-              <option value="SUBPRODUCT">Sub-Product</option>
-              <option value="CUSTOMER_TYPE">Customer Type</option>
+              <option value="PRODUCT">Ürün</option>
+              <option value="SUBPRODUCT">Alt Ürün</option>
+              <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
             </select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Second Dec. Dim
+            İkinci Boyut
             <select id="ba-dly-decomp2" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
               <option value="SEGMENT">Segment</option>
               <option value="AUM" selected>AUM Band</option>
-              <option value="PRODUCT">Product</option>
-              <option value="SUBPRODUCT">Sub-Product</option>
-              <option value="CUSTOMER_TYPE">Customer Type</option>
+              <option value="PRODUCT">Ürün</option>
+              <option value="SUBPRODUCT">Alt Ürün</option>
+              <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
             </select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Detail Dim
+            Detay Boyutu
             <select id="ba-dly-second" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
               <option value="SEGMENT">Segment</option>
               <option value="AUM">AUM Band</option>
-              <option value="PRODUCT" selected>Product</option>
-              <option value="SUBPRODUCT">Sub-Product</option>
-              <option value="CUSTOMER_TYPE">Customer Type</option>
-              <option value="TENOR">Tenor</option>
+              <option value="PRODUCT" selected>Ürün</option>
+              <option value="SUBPRODUCT">Alt Ürün</option>
+              <option value="CUSTOMER_TYPE">Müşteri Tipi</option>
+              <option value="TENOR">Vade</option>
             </select>
           </label>
           <span id="ba-dly-date-hint" style="font-size:11px;color:var(--text-muted);"></span>
@@ -561,11 +561,11 @@
               <span class="acc-icon">&#9654;</span> Balance / Customer Heatmap (Segment × AUM)
             </button>
             <div class="hm-metric-slider" id="ba-dly-metric-slider" data-prefix="ba-dly">
-              <span class="hm-ms-lbl active" data-metric="balance" role="button" tabindex="0">Balance</span>
+              <span class="hm-ms-lbl active" data-metric="balance" role="button" tabindex="0">Bakiye</span>
               <input type="range" class="hm-ms-range" id="ba-dly-metric-range"
                      min="0" max="1" step="1" value="0"
-                     aria-label="Balance ↔ Customer Number chart switch">
-              <span class="hm-ms-lbl" data-metric="customer" role="button" tabindex="0">Customer</span>
+                     aria-label="Bakiye ↔ Müşteri Sayısı grafik anahtarı">
+              <span class="hm-ms-lbl" data-metric="customer" role="button" tabindex="0">Müşteri</span>
             </div>
           </div>
           <div class="accordion-body" id="acc-body-ba-dly-heatmap" style="max-height:none;overflow:visible;">
@@ -575,9 +575,9 @@
                 <div class="hm-metric-panel">
                   <div style="margin-bottom:10px;">
                     <div class="hm-switch" id="ba-dly-hm-switch" data-prefix="ba-dly" data-kind="balance">
-                      <span class="hm-lbl active" data-mode="delta">Balance Delta</span>
+                      <span class="hm-lbl active" data-mode="delta">Bakiye Farkı</span>
                       <div class="hm-toggle"><div class="hm-knob"></div></div>
-                      <span class="hm-lbl" data-mode="abs">Balance</span>
+                      <span class="hm-lbl" data-mode="abs">Bakiye</span>
                     </div>
                   </div>
                   <div class="card"><div class="plot-container" id="ba-dly-heatmap"></div></div>
@@ -586,9 +586,9 @@
                 <div class="hm-metric-panel">
                   <div style="margin-bottom:10px;">
                     <div class="hm-switch" id="ba-dly-cust-hm-switch" data-prefix="ba-dly" data-kind="customer">
-                      <span class="hm-lbl active" data-mode="delta">Customer Delta</span>
+                      <span class="hm-lbl active" data-mode="delta">Müşteri Farkı</span>
                       <div class="hm-toggle"><div class="hm-knob"></div></div>
-                      <span class="hm-lbl" data-mode="abs">Customer Number</span>
+                      <span class="hm-lbl" data-mode="abs">Müşteri Sayısı</span>
                     </div>
                   </div>
                   <div class="card"><div class="plot-container" id="ba-dly-cust-heatmap"></div></div>
@@ -618,8 +618,8 @@
     <div id="tenor-analysis-section" class="hidden">
 
       <div class="nim-tab-nav">
-        <button class="nim-tab-btn"        data-ta-tab="monthly-averages">Monthly Averages</button>
-        <button class="nim-tab-btn active" data-ta-tab="daily-evolution">Daily Evolution</button>
+        <button class="nim-tab-btn"        data-ta-tab="monthly-averages">Aylık Ortalamalar</button>
+        <button class="nim-tab-btn active" data-ta-tab="daily-evolution">Günlük Evrim</button>
       </div>
 
       <!-- ── Monthly Averages sub-tab ─────────────────────────────── -->
@@ -628,11 +628,11 @@
         <!-- Date pickers -->
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (Start)
+            Başlangıç
             <select id="ta-mon-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (End)
+            Bitiş
             <select id="ta-mon-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           </label>
           <div class="hm-switch" id="ta-mon-mode-switch" data-kind="tamode" style="margin-left:8px;">
@@ -725,11 +725,11 @@
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (Start)
+            Başlangıç
             <input type="date" id="ta-dly-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-            Date (End)
+            Bitiş
             <input type="date" id="ta-dly-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
           <div class="hm-switch" id="ta-dly-mode-switch" data-kind="tamode" style="margin-left:8px;">
@@ -836,12 +836,12 @@
 
         <div style="display:flex;align-items:center;gap:12px;margin-left:auto;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);">
-            Date (Start)
+            Başlangıç
             <input type="text" id="wr-date-start" placeholder="GG/AA/YYYY" readonly
                    style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);width:110px;cursor:pointer;">
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);">
-            Date (End)
+            Bitiş
             <input type="text" id="wr-date-end" placeholder="GG/AA/YYYY" readonly
                    style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);width:110px;cursor:pointer;">
           </label>
@@ -849,9 +849,9 @@
 
         <div style="display:flex;align-items:center;gap:8px;padding-left:18px;border-left:1px solid var(--border-mid);">
           <!-- .wf-nav-btn 28px sabit ikon-buton: metinli kullanımda taşıyordu → width:auto -->
-          <button class="wf-nav-btn" id="wr-prev" disabled title="Previous slide" style="width:auto;padding:0 10px;">&#9664; Previous</button>
-          <span class="wf-slide-label" id="wr-slide-label">Slide 1 / 1</span>
-          <button class="wf-nav-btn" id="wr-next" disabled title="Sonraki slide" style="width:auto;padding:0 10px;">Sonraki &#9654;</button>
+          <button class="wf-nav-btn" id="wr-prev" disabled title="Önceki slayt" style="width:auto;padding:0 10px;">&#9664; Önceki</button>
+          <span class="wf-slide-label" id="wr-slide-label">1 / 1</span>
+          <button class="wf-nav-btn" id="wr-next" disabled title="Sonraki slayt" style="width:auto;padding:0 10px;">Sonraki &#9654;</button>
         </div>
       </div>
 
@@ -869,29 +869,29 @@
       <template id="wr-slide-1-tpl">
         <div data-slide="weekly-slide-1">
           <h3 style="margin:0 0 12px 0;font-size:15px;font-weight:500;color:var(--text-primary);">
-            Deposit Rollover Report
+            Mevduat Dönüş Raporu
           </h3>
           <div class="card" style="margin-bottom:14px;padding:12px 14px;">
             <div style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:8px;">
-              Weekly Rollings <span style="color:var(--text-muted);font-weight:400;">(mio TRY — TRY + FX)</span>
+              Haftalık Dönüşler <span style="color:var(--text-muted);font-weight:400;">(mio TRY — TRY + FX)</span>
             </div>
             <div id="wr-grid-1" class="ag-theme-alpine wr-ag-grid"></div>
           </div>
           <div class="card" style="margin-bottom:14px;padding:12px 14px;">
             <div style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:8px;">
-              TRY Standard Time Deposit Rollovers <span style="color:var(--text-muted);font-weight:400;">(mio TRY) — Individual</span>
+              TRY Standart Vadeli Mevduat Dönüşleri <span style="color:var(--text-muted);font-weight:400;">(mio TRY) — Bireysel</span>
             </div>
             <div id="wr-grid-2" class="ag-theme-alpine wr-ag-grid"></div>
           </div>
           <div class="card" style="margin-bottom:14px;padding:12px 14px;">
             <div style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:8px;">
-              TRY Standard Time Deposit Rollovers <span style="color:var(--text-muted);font-weight:400;">(mio TRY) — Corporate</span>
+              TRY Standart Vadeli Mevduat Dönüşleri <span style="color:var(--text-muted);font-weight:400;">(mio TRY) — Kurumsal</span>
             </div>
             <div id="wr-grid-3" class="ag-theme-alpine wr-ag-grid"></div>
           </div>
           <div class="card" style="padding:12px 14px;">
             <div style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:8px;">
-              Maturity Bucket Distribution <span style="color:var(--text-muted);font-weight:400;">(mio TRY) — by balance</span>
+              Vade Kovası Dağılımı <span style="color:var(--text-muted);font-weight:400;">(mio TRY) — bakiye bazında</span>
             </div>
             <div id="wr-s1-dtm" style="width:100%;min-height:280px;"></div>
           </div>
@@ -905,7 +905,7 @@
       <template id="wr-slide-3-tpl">
         <div data-slide="weekly-slide-3">
           <h3 style="margin:0 0 12px 0;font-size:15px;font-weight:500;color:var(--text-primary);">
-            Customer Segment
+            Müşteri Segmenti
           </h3>
           <div class="card" style="margin-bottom:14px;padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:14px;">
             <div id="wr-s3-donut"   style="min-height:320px;"></div>
@@ -914,10 +914,10 @@
           <div class="card" style="padding:14px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
               <div style="font-size:13px;font-weight:500;color:var(--text-primary);">
-                Customer List
+                Müşteri Listesi
                 <span style="font-weight:400;color:var(--text-muted);"> — </span>
                 <span id="wr-s3-date-label" style="color:var(--accent);font-weight:600;">—</span>
-                <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">(click a bar to change the date)</span>
+                <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">(tarihi değiştirmek için bir bara tıkla)</span>
               </div>
               <div id="wr-s3-hhi" style="font-size:12px;color:var(--text-muted);"></div>
             </div>
@@ -934,16 +934,16 @@
       <div class="card" style="padding:16px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);">
-            Sector Deposit Interest Rate (monthly, annualized)
+            Sektör Mevduat Faiz Oranı (aylık, yıllıklandırılmış)
           </div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted,#8B95A7);">
             RATE = (365 / days<sub>month</sub>) × InterestExpense / AvgBalance × 100&nbsp;&nbsp;|&nbsp;&nbsp;AvgBalance = (Balance<sub>month-end</sub> + Balance<sub>prev month</sub>) / 2&nbsp;&nbsp;<span style="opacity:.75;">(Act/Act; 366 in leap years)</span>
           </div>
         </div>
         <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-          Source: <b>BDDK_MALIYET</b> — Private Sector = domestic private + foreign banks (excl. state);
-          Total Sector = whole sector (incl. state). Interest expense = DATA_TIPI <b>Faiz Gideri</b>
-          (<b>cumulative</b> within the year; monthly expense = cumulative − previous month, <b>reset in January</b> → no subtraction).
+          Kaynak: <b>BDDK_MALIYET</b> — Özel Sektör = yurt içi özel + yabancı bankalar (kamu hariç);
+          Toplam Sektör = tüm sektör (kamu dahil). Faiz gideri = DATA_TIPI <b>Faiz Gideri</b>
+          (yıl içinde <b>kümülatif</b>; aylık gider = kümülatif − önceki ay, <b>Ocak'ta sıfırlanır</b> → çıkarma yok).
         </div>
         <div id="sector-cmp-grid" class="ag-theme-alpine" style="width:100%;height:560px;"></div>
         <!-- Tablo verisinden combo grafik: üstte faiz oranı çizgileri (Banka /
@@ -955,9 +955,9 @@
         <div id="sector-rate-wrap" style="position:relative;margin-top:14px;">
           <select id="sector-rate-conv" class="prisma-select"
                   style="position:absolute;top:6px;right:10px;z-index:5;">
-            <option value="simple" selected>Simple</option>
-            <option value="on">O/N Equivalent</option>
-            <option value="compound">Annual Compound</option>
+            <option value="simple" selected>Basit</option>
+            <option value="on">O/N Eşleniği</option>
+            <option value="compound">Yıllık Bileşik</option>
           </select>
           <div id="sector-rate-chart" style="width:100%;height:520px;"></div>
         </div>
@@ -965,25 +965,25 @@
 
       <div class="card" style="padding:16px;margin-top:16px;">
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">
-          TCMB Weighted Average Deposit Rates (by maturity)
+          TCMB Ağırlıklı Ortalama Mevduat Faizleri (vade bazında)
         </div>
         <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-          Source: <b>tcmb_deposit_rates</b> — raw data (no transformation). One column per maturity
-          band; rows are date × currency. Values are weighted average rates (%).
+          Kaynak: <b>tcmb_deposit_rates</b> — ham veri (dönüşümsüz). Her vade bandı bir kolon;
+          satırlar tarih × para birimi. Değerler ağırlıklı ortalama faizlerdir (%).
         </div>
         <div id="tcmb-rate-grid" class="ag-theme-alpine" style="width:100%;height:520px;"></div>
       </div>
 
       <div class="card" style="padding:16px;margin-top:16px;">
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">
-          Sector Blotter — Bank New-Prod (TCMB buckets) + TCMB Match
+          Sektör Blotter — Banka Yeni Üretim (TCMB kovaları) + TCMB Eşleşmesi
         </div>
         <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-          Sources: <b>daily_deposit</b> only VADE_BUCKET <b>1-3</b> (overnight/vault; compound =
-          AGIRLIKLI_ORT_FAIZ + TENOR) and <b>new_production</b> (TRY, excl. 01_1-3; compound =
-          WAVG_INTRST_RT + WAVG_DTM). Fine buckets are grouped into TCMB maturity buckets (1-3 and 4-31
-          merge balance-weighted into 0-1 M); rate and DTM are balance-weighted. TCMB is weekly —
-          the date is the last day of the week → VAL_DT matches the nearest forward observation (≤6 days).
+          Kaynaklar: <b>daily_deposit</b> yalnız VADE_BUCKET <b>1-3</b> (gecelik/kasa; bileşik =
+          AGIRLIKLI_ORT_FAIZ + TENOR) ve <b>new_production</b> (TRY, 01_1-3 hariç; bileşik =
+          WAVG_INTRST_RT + WAVG_DTM). İnce kovalar TCMB vade kovalarında gruplanır (1-3 ve 4-31,
+          bakiye ağırlıklı olarak 0-1 Ay'da birleşir); faiz ve DTM bakiye ağırlıklıdır. TCMB haftalıktır —
+          tarih haftanın son günüdür → VAL_DT en yakın ileri gözlemle eşleşir (≤6 gün).
         </div>
         <div id="sector-blotter-note" style="font-size:12px;color:var(--warn,#D4A574);margin-bottom:8px;display:none;"></div>
         <div id="sector-blotter-grid" class="ag-theme-alpine" style="width:100%;height:560px;"></div>
@@ -991,18 +991,18 @@
 
       <div class="card" style="padding:16px;margin-top:16px;">
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">
-          Day-by-Day Outstanding — Bank (Compound) vs TCMB Synthetic
+          Gün Gün Stok — Banka (Bileşik) vs TCMB Sentetik
         </div>
         <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-          Time-deposit flows (detailed VAL_DT × maturity NP blotter; excl. 01_1-3): each flow lives
-          in its [value date, maturity) window and carries the TCMB rate of its entry week. <b>1-3 day
-          stock</b> (daily_deposit): each day, that day's stock balance joins the living book with its
-          own weight, that day's compound rate and that week's TCMB 0-1 M rate. Balances are summed per
-          day and both rates are balance-weighted. The series <b>is cut at TCMB's last observation</b>.
-          <b>TCMB (BDDK Mix)</b>: the same bucket-based vintage rates, weighted with the <b>sector's</b>
-          maturity composition (BDDK_VADE, excl. demand deposits, normalized to the interest-bearing book);
-          the <b>latest available BDDK month-end is carried forward</b> per day (nowcast — the month used
-          is shown in "BDDK Mix Month", the weight share of buckets with a bank vintage in "Mix Coverage").
+          Vadeli mevduat akımları (detay VAL_DT × vade NP blotter'ı; 01_1-3 hariç): her akım kendi
+          [valör, vade) penceresinde yaşar ve giriş haftasının TCMB faizini taşır. <b>1-3 gün
+          stoku</b> (daily_deposit): her gün, o günün stok bakiyesi kendi ağırlığıyla, o günün
+          bileşik faizi ve o haftanın TCMB 0-1 Ay faiziyle yaşayan deftere katılır. Bakiyeler gün
+          bazında toplanır, iki faiz de bakiye ağırlıklıdır. Seri <b>TCMB'nin son gözleminde kesilir</b>.
+          <b>TCMB (BDDK Mix)</b>: aynı kova bazlı vintage faizler, <b>sektörün</b> vade
+          kompozisyonuyla ağırlıklanır (BDDK_VADE, vadesiz hariç, faiz getiren deftere normalize);
+          <b>mevcut son BDDK ay-sonu</b> gün bazında ileri taşınır (nowcast — kullanılan ay
+          "BDDK Mix Month" kolonunda, banka vintage'ı olan kovaların ağırlık payı "Mix Coverage" kolonunda).
         </div>
         <div id="sector-os-note" style="font-size:12px;color:var(--warn,#D4A574);margin-bottom:8px;display:none;"></div>
         <div id="sector-os-grid" class="ag-theme-alpine" style="width:100%;height:520px;"></div>
@@ -1010,12 +1010,12 @@
 
       <div class="card" style="padding:16px;margin-top:16px;">
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">
-          Monthly Outstanding Summary — Bank vs TCMB (balance-weighted)
+          Aylık Stok Özeti — Banka vs TCMB (bakiye ağırlıklı)
         </div>
         <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-          Monthly summary of the day-by-day series above: each rate is the average weighted by the
-          month's <b>daily balances</b>; Balance = the month's average daily balance; spreads are the
-          differences of monthly averages. Columns match the daily table, one row per month.
+          Yukarıdaki gün gün serinin aylık özeti: her faiz, ayın <b>günlük bakiyeleriyle</b>
+          ağırlıklı ortalamadır; Bakiye = ayın ortalama günlük bakiyesi; spread'ler aylık
+          ortalamaların farklarıdır. Kolonlar günlük tabloyla aynı, ay başına bir satır.
         </div>
         <div id="sector-os-mon-grid" class="ag-theme-alpine" style="width:100%;height:340px;"></div>
       </div>
@@ -1023,7 +1023,7 @@
       <div class="card" style="padding:16px;margin-top:16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);">
-            Mix Effect — Maturity Breakdown Contributions (monthly, bps)
+            Mix Etkisi — Vade Kırılımı Katkıları (aylık, bps)
           </div>
           <!-- Inline onclick = delegated .hm-switch handler'ına bağımlı olmayan
                fallback (manuel dosya dağıtımlarında script bölümü/sıra kayarsa
@@ -1033,22 +1033,22 @@
           <div class="hm-switch" id="sector-mix-mode-switch" data-kind="sectormix"
                style="display:flex;align-items:center;gap:8px;">
             <span class="hm-lbl active" data-mode="comp"
-                  onclick="if(window._setSectorMixMode){window._setSectorMixMode('comp');event.stopPropagation();}">Compound</span>
+                  onclick="if(window._setSectorMixMode){window._setSectorMixMode('comp');event.stopPropagation();}">Bileşik</span>
             <div class="hm-toggle"
                  onclick="if(window._toggleSectorMixMode){window._toggleSectorMixMode();event.stopPropagation();}"><div class="hm-knob"></div></div>
             <span class="hm-lbl" data-mode="simple"
-                  onclick="if(window._setSectorMixMode){window._setSectorMixMode('simple');event.stopPropagation();}">Simple</span>
+                  onclick="if(window._setSectorMixMode){window._setSectorMixMode('simple');event.stopPropagation();}">Basit</span>
           </div>
         </div>
         <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-          Bucket-level attribution of the gap between bank-mix TCMB and sector (BDDK)-mix TCMB:
-          contribution<sub>b</sub> = (W<sub>bank</sub> − W<sub>sector</sub>) × (R<sub>b</sub> − TCMB<sub>BDDK</sub>).
-          The buckets sum to the monthly mix effect (exact identity in Compound mode: R̄ = TCMB<sub>BDDK</sub>).
-          <b>In Simple mode</b> each bucket's rate is converted to simple <b>with its own average tenor</b>
-          (not the portfolio tenor — that would make the conversion a no-op in an overnight-heavy book);
-          the reference = sector-weighted bucket simple average, the total = bucket-level simple mix gap.
-          <b>Positive contribution</b> = the bank's maturity preference RAISES cost in that bucket vs the
-          sector (disadvantage); <b>negative</b> = advantage.
+          Banka-mix TCMB ile sektör (BDDK)-mix TCMB arasındaki farkın kova bazlı ayrıştırması:
+          katkı<sub>b</sub> = (W<sub>banka</sub> − W<sub>sektör</sub>) × (R<sub>b</sub> − TCMB<sub>BDDK</sub>).
+          Kovaların toplamı aylık mix etkisini verir (Bileşik modda tam kimlik: R̄ = TCMB<sub>BDDK</sub>).
+          <b>Basit modda</b> her kovanın faizi <b>kendi ortalama vadesiyle</b> basite çevrilir
+          (portföy vadesiyle değil — gecelik ağırlıklı defterde dönüşümü etkisiz kılardı);
+          referans = sektör ağırlıklı kova basit ortalaması, toplam = kova bazlı basit mix farkı.
+          <b>Pozitif katkı</b> = bankanın vade tercihi o kovada maliyeti sektöre göre YÜKSELTİYOR
+          (dezavantaj); <b>negatif</b> = avantaj.
         </div>
         <div id="sector-mix-chart" style="width:100%;height:380px;"></div>
         <div id="sector-mix-grid" class="ag-theme-alpine" style="width:100%;height:340px;margin-top:12px;"></div>
@@ -1057,32 +1057,32 @@
       <div class="card" style="padding:16px;margin-top:16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);">
-            Maturity Mix — Bank vs Sector (TP, interest-bearing book)
+            Vade Mix — Banka vs Sektör (TP, faiz getiren defter)
           </div>
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-            <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;color:var(--text-muted,#8B95A7);">DATE
+            <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;color:var(--text-muted,#8B95A7);">TARİH
               <select id="sector-vade-date" style="margin-left:6px;"></select>
             </label>
             <!-- Inline onclick fallback — bkz. sector-mix-mode-switch notu. -->
             <div class="hm-switch" id="sector-vade-mode-switch" data-kind="sectorvade"
                  style="display:flex;align-items:center;gap:8px;">
               <span class="hm-lbl active" data-mode="monthly"
-                    onclick="if(window._setSectorVadeMode){window._setSectorVadeMode('monthly');event.stopPropagation();}">Monthly Averages</span>
+                    onclick="if(window._setSectorVadeMode){window._setSectorVadeMode('monthly');event.stopPropagation();}">Aylık Ortalamalar</span>
               <div class="hm-toggle"
                    onclick="if(window._toggleSectorVadeMode){window._toggleSectorVadeMode();event.stopPropagation();}"><div class="hm-knob"></div></div>
               <span class="hm-lbl" data-mode="daily"
-                    onclick="if(window._setSectorVadeMode){window._setSectorVadeMode('daily');event.stopPropagation();}">Daily Evolution</span>
+                    onclick="if(window._setSectorVadeMode){window._setSectorVadeMode('daily');event.stopPropagation();}">Günlük Evrim</span>
             </div>
           </div>
         </div>
         <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-          Sources: <b>BDDK_VADE</b> (sector = all bank types, TP, excl. demand deposits — shares
-          normalized to the interest-bearing book) and <b>daily_deposit</b> (bank's TRY time-deposit
-          book; day buckets map to BDDK boundaries at 31/91/181/365). The date is picked from BDDK
-          month-ends in both modes. <b>Monthly Averages</b>: bank = daily balance average of the
-          selected month, sector = (selected + previous month-end)/2. <b>Daily Evolution</b>: bank =
-          nearest day to the selected date, sector = the selected month-end as-is. Bottom panel =
-          Bank − Sector (pts).
+          Kaynaklar: <b>BDDK_VADE</b> (sektör = tüm banka tipleri, TP, vadesiz hariç — paylar faiz
+          getiren deftere normalize) ve <b>daily_deposit</b> (bankanın TRY vadeli mevduat defteri;
+          gün kovaları 31/91/181/365 sınırlarında BDDK'ya eşlenir). Tarih iki modda da BDDK
+          ay-sonlarından seçilir. <b>Aylık Ortalamalar</b>: banka = seçili ayın günlük bakiye
+          ortalaması, sektör = (seçili + önceki ay-sonu)/2. <b>Günlük Evrim</b>: banka = seçili
+          tarihe en yakın gün, sektör = seçili ay-sonu olduğu gibi. Alt panel =
+          Banka − Sektör (puan).
         </div>
         <div id="sector-vade-note" style="font-size:12px;color:var(--warn,#D4A574);margin-bottom:8px;display:none;"></div>
         <div id="sector-vade-chart" style="width:100%;height:560px;"></div>
@@ -1103,20 +1103,20 @@
          style="position:fixed;inset:0;z-index:9999;background:var(--bg-base);display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;gap:14px;padding:10px 20px;border-bottom:1px solid var(--border-mid);flex-wrap:wrap;background:var(--bg-surface);">
         <button type="button" id="bsc-back"
-                style="background:none;border:1px solid var(--border-mid);border-radius:5px;color:var(--text-primary);cursor:pointer;padding:6px 14px;font-size:13px;">&#8592; Back</button>
-        <div class="bsc-title">BSC Presentation</div>
+                style="background:none;border:1px solid var(--border-mid);border-radius:5px;color:var(--text-primary);cursor:pointer;padding:6px 14px;font-size:13px;">&#8592; Geri</button>
+        <div class="bsc-title">BSC Sunumu</div>
         <div class="hm-switch" id="bsc-mode-switch" data-kind="bscmode" style="display:flex;align-items:center;gap:8px;margin-left:10px;">
-          <span class="hm-lbl active" data-mode="monthly">Monthly Averages</span>
+          <span class="hm-lbl active" data-mode="monthly">Aylık Ortalamalar</span>
           <div class="hm-toggle"><div class="hm-knob"></div></div>
-          <span class="hm-lbl" data-mode="daily">Daily Evolution</span>
+          <span class="hm-lbl" data-mode="daily">Günlük Evrim</span>
         </div>
         <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:10px;">
-          Date (Start)
+          Başlangıç
           <select id="bsc-date0-mon" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           <input type="date" id="bsc-date0-dly" class="hidden" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
         </label>
         <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-          Date (End)
+          Bitiş
           <select id="bsc-date1-mon" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           <input type="date" id="bsc-date1-dly" class="hidden" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
         </label>
@@ -1138,28 +1138,28 @@
         <div id="bsc-np-tbl-card" class="card hidden" style="padding:16px;margin-bottom:16px;">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
             <div style="font-size:14px;font-weight:600;color:var(--text-primary);">
-              Monthly New Business Rates — Bank vs TCMB Sector
+              Aylık Yeni Üretim Faizleri — Banka vs TCMB Sektör
             </div>
             <div class="hm-switch" id="bsc-np-tbl-switch" data-kind="bscnptbl"
                  style="display:flex;align-items:center;gap:8px;">
-              <span class="hm-lbl active" data-mode="m0_1">0-1 Month</span>
+              <span class="hm-lbl active" data-mode="m0_1">0-1 Ay</span>
               <div class="hm-toggle"><div class="hm-knob"></div></div>
-              <span class="hm-lbl" data-mode="m1_3">1-3 Months</span>
+              <span class="hm-lbl" data-mode="m1_3">1-3 Ay</span>
             </div>
           </div>
           <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-            Bank = monthly volume-weighted new-production rate for the bucket; Sector = monthly
-            average of TCMB weekly observations (compound by nature). Rates follow the Rate Type
-            above, converted with the bank's monthly weighted-average new-business tenor.
-            Spread = Bank − Sector.
+            Banka = kovanın aylık hacim ağırlıklı yeni üretim faizi; Sektör = TCMB haftalık
+            gözlemlerinin aylık ortalaması (doğası gereği bileşik). Oranlar üstteki Oran Tipi
+            seçimini izler, bankanın aylık ağırlıklı ortalama yeni üretim vadesiyle çevrilir.
+            Spread = Banka − Sektör.
           </div>
           <div style="display:flex;gap:16px;flex-wrap:wrap;">
             <div style="flex:1;min-width:380px;">
-              <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">0-1 Month</div>
+              <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">0-1 Ay</div>
               <div id="bsc-np-tbl-01" class="ag-theme-alpine" style="width:100%;height:340px;"></div>
             </div>
             <div style="flex:1;min-width:380px;">
-              <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">1-3 Months</div>
+              <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">1-3 Ay</div>
               <div id="bsc-np-tbl-13" class="ag-theme-alpine" style="width:100%;height:340px;"></div>
             </div>
           </div>
@@ -1171,13 +1171,13 @@
         <!-- Slide 4'e özel: prezentasyon varyantı vade dağılımı (kendi DOM'u; taşınmaz) -->
         <div id="bsc-vade-card" class="card hidden" style="padding:16px;margin-top:16px;">
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">
-            Maturity Mix — Bank vs Sector (TP, interest-bearing book)
+            Vade Mix — Banka vs Sektör (TP, faiz getiren defter)
           </div>
           <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-            Sector date = the BDDK month-end nearest to Date(End). The bank is shown with two dates:
-            the same date as the sector + the presentation's Date(End) (a single series if they resolve
-            to the same source). Monthly Averages: bank = monthly daily average, sector = averaged with
-            the previous month-end. Bottom panel = Bank − Sector (pts).
+            Sektör tarihi = Bitiş tarihine en yakın BDDK ay-sonu. Banka iki tarihle gösterilir:
+            sektörle aynı tarih + sunumun Bitiş tarihi (aynı kaynağa denk gelirlerse tek seri).
+            Aylık Ortalamalar: banka = aylık günlük ortalama, sektör = önceki ay-sonuyla
+            ortalanır. Alt panel = Banka − Sektör (puan).
           </div>
           <div id="bsc-vade-note" style="font-size:12px;color:var(--warn,#D4A574);margin-bottom:8px;display:none;"></div>
           <div id="bsc-vade-chart" style="width:100%;height:520px;"></div>
@@ -1188,13 +1188,13 @@
              vadesiyle client-side çevrilir. -->
         <div id="bsc-np-card" class="card hidden" style="padding:16px;margin-top:16px;">
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">
-            New Business Interest Rate — Bank vs TCMB 1-3M vs TLREF
+            Yeni Üretim Faiz Oranı — Banka vs TCMB 1-3A vs TLREF
           </div>
           <div style="font-size:12px;color:var(--text-muted,#8B95A7);margin-bottom:10px;">
-            Bank new-production weighted-avg rates (TRY, Weekly, maturity 32-45 + 46-91 days),
-            decomposed by the Decomp Dim above. TCMB 1-3M new-production rate (compound by
-            nature) and BIST TLREF (O/N by nature) are converted to the selected Rate Type
-            using the bank's weekly weighted-average new-business tenor.
+            Banka yeni üretim ağırlıklı ortalama faizleri (TRY, haftalık, vade 32-45 + 46-91 gün),
+            üstteki Ayrıştırma Boyutuna göre ayrıştırılır. TCMB 1-3A yeni üretim faizi (doğası
+            gereği bileşik) ve BIST TLREF (doğası gereği O/N), bankanın haftalık ağırlıklı
+            ortalama yeni üretim vadesiyle seçili Oran Tipine çevrilir.
           </div>
           <div id="bsc-np-chart" style="width:100%;height:520px;"></div>
         </div>
@@ -1208,7 +1208,7 @@
           <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;
                         text-transform:uppercase;color:var(--text-muted,#8B95A7);
                         display:flex;align-items:center;gap:6px;">
-            Date (Start)
+            Başlangıç
             <input type="date" id="np-vp-date0"
                    style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.05em;
                           padding:6px 10px;border:1px solid var(--border-mid,#252B3D);border-radius:2px;
@@ -1217,7 +1217,7 @@
           <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;
                         text-transform:uppercase;color:var(--text-muted,#8B95A7);
                         display:flex;align-items:center;gap:6px;">
-            Date (End)
+            Bitiş
             <input type="date" id="np-vp-date1"
                    style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.05em;
                           padding:6px 10px;border:1px solid var(--border-mid,#252B3D);border-radius:2px;
@@ -1226,13 +1226,13 @@
           <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;
                         text-transform:uppercase;color:var(--text-muted,#8B95A7);
                         display:flex;align-items:center;gap:6px;">
-            Data Type
+            Veri Tipi
             <select id="np-vp-freq"
                     style="font-family:'JetBrains Mono',monospace;font-size:11px;
                            padding:5px 8px;border:1px solid var(--border-mid,#252B3D);border-radius:2px;
                            background:var(--bg-input,#0D111C);color:var(--text-primary,#E8ECF1);">
-              <option value="W" selected>Weekly</option>
-              <option value="D">Daily</option>
+              <option value="W" selected>Haftalık</option>
+              <option value="D">Günlük</option>
             </select>
           </label>
         </div>
@@ -1256,9 +1256,9 @@
              / PRODUCT(=RELATED_PC). Toggle → bubble backend'de daha az/çok boyuta göre
              yeniden gruplanır (Δ hacim + Δ simple faiz aynen korunur). -->
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">Dimensions:</label>
+          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">Boyutlar:</label>
           <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="CCY_CODE">CCY</button>
-          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="CUST_TP">CUSTOMER_TYPE</button>
+          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="CUST_TP">MÜŞTERİ TİPİ</button>
           <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="AUM_BAND">AUM</button>
           <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="RELATED_PC">SEGMENT</button>
         </div>
@@ -1287,8 +1287,8 @@
             <span id="np-decomp-lbl">Decomp. Dim</span>
             <select id="np-vp-decomp" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border:1px solid var(--border-mid,#252B3D);border-radius:2px;background:var(--bg-input,#0D111C);color:var(--text-primary,#E8ECF1);">
               <option value="SUB_SEGMENT" selected>Segment</option>
-              <option value="CUST_TP">Customer Type</option>
-              <option value="TENOR_GRP">Tenor</option>
+              <option value="CUST_TP">Müşteri Tipi</option>
+              <option value="TENOR_GRP">Vade</option>
               <option value="AUM_BAND">AUM Band</option>
             </select>
           </label>
@@ -1296,8 +1296,8 @@
             <span id="np-decomp2-lbl">Second Dec. Dim</span>
             <select id="np-vp-decomp2" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border:1px solid var(--border-mid,#252B3D);border-radius:2px;background:var(--bg-input,#0D111C);color:var(--text-primary,#E8ECF1);">
               <option value="SUB_SEGMENT">Segment</option>
-              <option value="CUST_TP">Customer Type</option>
-              <option value="TENOR_GRP">Tenor</option>
+              <option value="CUST_TP">Müşteri Tipi</option>
+              <option value="TENOR_GRP">Vade</option>
               <option value="AUM_BAND" selected>AUM Band</option>
             </select>
           </label>
@@ -1308,25 +1308,25 @@
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
             <span style="font-family:'Cormorant Garamond',Georgia,serif;font-size:20px;font-weight:500;
                          color:var(--text-primary);letter-spacing:-0.01em;">
-              New Business Rate &#215; Volume Heatmap
+              Yeni Üretim Faiz &#215; Hacim Heatmap
             </span>
             <div style="margin-left:auto;display:inline-flex;align-items:center;gap:14px;flex-wrap:wrap;">
               <!-- Tarih (T1/T2), Data Type (Daily/Weekly) ve VADE (DTM) artık
                    sayfa üstündeki ORTAK filtrelerden okunur. Burada yalnız
-                   grafiğe özel Rate Δ / Rate Level modu kalır. -->
+                   grafiğe özel Rate Δ / Faiz Seviyesi modu kalır. -->
               <!-- Mode toggle -->
               <div style="display:inline-flex;border:1px solid var(--border-mid,#252B3D);border-radius:4px;overflow:hidden;">
                 <button id="np-rvhm-mode-delta" class="ios-seg-btn active"
                         style="padding:4px 10px;font-family:'JetBrains Mono',monospace;
                                font-size:10px;letter-spacing:0.1em;text-transform:uppercase;
                                background:var(--accent,#D4A574);color:var(--bg-base);border:none;cursor:pointer;">
-                  Rate &#916;
+                  Faiz &#916;
                 </button>
                 <button id="np-rvhm-mode-level" class="ios-seg-btn"
                         style="padding:4px 10px;font-family:'JetBrains Mono',monospace;
                                font-size:10px;letter-spacing:0.1em;text-transform:uppercase;
                                background:transparent;color:var(--text-muted,#8B95A7);border:none;cursor:pointer;">
-                  Rate Level
+                  Faiz Seviyesi
                 </button>
               </div>
             </div>
@@ -1351,7 +1351,7 @@
                 <span id="np-rvhm-combo-title"
                       style="font-family:'JetBrains Mono',monospace;font-size:11px;
                              font-weight:500;color:var(--text-primary,#E8ECF1);
-                             letter-spacing:0.03em;flex:1;">New Production</span>
+                             letter-spacing:0.03em;flex:1;">Yeni Üretim</span>
                 <button id="np-rvhm-combo-close"
                         style="background:transparent;border:1px solid var(--border-mid,#252B3D);
                                border-radius:2px;color:var(--text-muted,#8B95A7);cursor:pointer;
@@ -1383,7 +1383,7 @@
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
             <span style="font-family:'Cormorant Garamond',Georgia,serif;font-size:18px;font-weight:500;
                          color:var(--text-primary);letter-spacing:-0.01em;">
-              New Business Volume &amp; Interest Rate
+              Yeni Üretim Hacim &amp; Faiz Oranı
             </span>
             <div style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;
                         background:var(--bg-input,#0D111C);
@@ -1496,7 +1496,7 @@
           <!-- Mevduat dökümü tablosu -->
           <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-primary,#E8ECF1);
                       margin-bottom:6px;letter-spacing:0.05em;">
-            DEPOSIT BREAKDOWN <span id="np-drill-count" style="color:var(--text-muted,#8B95A7);"></span>
+            MEVDUAT KIRILIMI <span id="np-drill-count" style="color:var(--text-muted,#8B95A7);"></span>
           </div>
           <div id="np-drill-grid" class="ag-theme-alpine wr-ag-grid wr-cust-grid"
                style="width:100%;height:380px;"></div>
