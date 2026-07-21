@@ -40,6 +40,14 @@ def _sql(name: str, dev: bool = False) -> str:
     return (base / f"{name}.sql").read_text(encoding="utf-8")
 
 
+def is_dev() -> bool:
+    """DEV yolu aktif mi? — DataClient `edw_query_to_pandas` sunmuyorsa
+    sorgular dev.db'ye gider (bkz. load_dataframe). Tarih bind formatı gibi
+    lehçe-bağımlı kararlar için engine'ler bunu sorar (weekly._to_bind)."""
+    dc = current_app.config.get("DATA_CLIENT")
+    return (dc is None or not hasattr(dc, "edw_query_to_pandas")) and DEV_DB_PATH.exists()
+
+
 def _load_sqlite(name: str, params: dict | None) -> pd.DataFrame:
     """Kaynak `_load_sqlite` birebir: dev.db + SQLite lehçesi aynaları."""
     with sqlite3.connect(DEV_DB_PATH) as conn:
