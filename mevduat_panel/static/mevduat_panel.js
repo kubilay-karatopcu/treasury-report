@@ -7725,8 +7725,15 @@
       });
     });
 
-    document.getElementById("wr-prev").addEventListener("click", function(){ _navigateWeekly(-1); });
-    document.getElementById("wr-next").addEventListener("click", function(){ _navigateWeekly(+1); });
+    // P2 UX: ok navigasyonu yerine sekmeler (stok sayfalarındaki kalıp).
+    document.querySelectorAll("#wr-tabs .nim-tab-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var idx = parseInt(btn.dataset.wrslide, 10) || 0;
+        if (idx === weeklyReportState.slideIdx) return;
+        weeklyReportState.slideIdx = idx;
+        _ensureAndRenderSlide();
+      });
+    });
 
     _renderWeeklySlideHost();
     _fetchWeeklyData();
@@ -7779,22 +7786,14 @@
       .catch(function(e){ _setWeeklyStatus("Hata: " + (e.message || e)); });
   }
 
-  function _navigateWeekly(delta) {
-    var nextIdx = weeklyReportState.slideIdx + delta;
-    if (nextIdx < 0 || nextIdx >= WEEKLY_SLIDES.length) return;
-    weeklyReportState.slideIdx = nextIdx;
-    _ensureAndRenderSlide();
-  }
-
   function _renderWeeklySlideHost() {
     var idx = weeklyReportState.slideIdx;
     if (idx >= WEEKLY_SLIDES.length) idx = 0;
     var slide = WEEKLY_SLIDES[idx];
 
-    var lbl = document.getElementById("wr-slide-label");
-    if (lbl) lbl.textContent = (idx+1) + " / " + WEEKLY_SLIDES.length;
-    document.getElementById("wr-prev").disabled = (idx === 0);
-    document.getElementById("wr-next").disabled = (idx >= WEEKLY_SLIDES.length - 1);
+    document.querySelectorAll("#wr-tabs .nim-tab-btn").forEach(function (btn) {
+      btn.classList.toggle("active", parseInt(btn.dataset.wrslide, 10) === idx);
+    });
 
     // Mevcut AG Grid instance'larını yok et, DOM'u temizle.
     Object.keys(weeklyReportState.grids).forEach(function(id) {
@@ -10055,6 +10054,7 @@
            + ' data-ck="' + String(colL).replace(/"/g, "&quot;") + '"'
            + ' onmouseenter="_rvHmShowTip(this,event)"'
            + ' onmouseleave="_rvHmHideTip()"'
+           + ' onclick="_rvHmOpenCombo(this)"'
            + ' ondblclick="_rvHmOpenDrill(this)">'
            + txt + '</td>';
     }
@@ -10095,6 +10095,7 @@
            + ' data-ck="' + String(colL).replace(/"/g, "&quot;") + '"'
            + ' onmouseenter="_rvHmShowTip(this,event)"'
            + ' onmouseleave="_rvHmHideTip()"'
+           + ' onclick="_rvHmOpenCombo(this)"'
            + ' ondblclick="_rvHmOpenDrill(this)">'
            + txt + '</td>';
     }
@@ -10335,8 +10336,8 @@
     if (!el.dataset.tip) return;
     var mx = document.getElementById("np-rvhm-matrix");
     if (mx) mx.innerHTML = _rvHmMatrixShell(el.dataset.tip);
-    // Sağdaki combo: hover hücresinin YIL BAŞINDAN itibaren geçmişi (debounce'lu).
-    if (el.dataset.ch && el.dataset.au) _npHoverCombo(el.dataset.ch, el.dataset.au);
+    // P2 UX: combo artık hover'da DEĞİL, hücre TIKLAMASINDA açılır
+    // (_rvHmOpenCombo) — hover yalnız vurgu + tooltip matrisi.
   };
   window._rvHmHideTip = function() {
     if (_rvHmHoverEl) { _rvHmHoverEl.style.boxShadow = ""; _rvHmHoverEl = null; }

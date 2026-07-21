@@ -637,7 +637,7 @@
             Bitiş
             <select id="ta-mon-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
           </label>
-          <div class="hm-switch" id="ta-mon-mode-switch" data-kind="tamode" style="margin-left:8px;">
+          <div class="hm-switch" id="ta-mon-mode-switch" data-kind="tamode" style="margin-left:auto;">
             <span class="hm-lbl active" data-mode="tenor">TENOR</span>
             <div class="hm-toggle"><div class="hm-knob"></div></div>
             <span class="hm-lbl" data-mode="dtm">DTM</span>
@@ -734,7 +734,7 @@
             Bitiş
             <input type="date" id="ta-dly-date1" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
-          <div class="hm-switch" id="ta-dly-mode-switch" data-kind="tamode" style="margin-left:8px;">
+          <div class="hm-switch" id="ta-dly-mode-switch" data-kind="tamode" style="margin-left:auto;">
             <span class="hm-lbl active" data-mode="tenor">TENOR</span>
             <div class="hm-toggle"><div class="hm-knob"></div></div>
             <span class="hm-lbl" data-mode="dtm">DTM</span>
@@ -833,8 +833,14 @@
     <div id="weekly-report-section" class="hidden">
 
       <!-- Sayfa başlığı + global tarih seçici + slider navigasyonu -->
-      <div class="card mv-page-filters" style="margin-bottom:14px;padding:16px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
-        <h2 class="dashboard-title" style="margin:0;font-size:18px;">Future Deposit Rollings</h2>
+      <!-- P2 UX: slayt gezintisi ok yerine stok sayfalarındaki sekme kalıbı;
+           "Future Deposit Rollings" başlık kutusu kaldırıldı (sayfa başlığı
+           zaten üstte). Tarihler dock'a taşınır. -->
+      <div class="mv-page-filters" style="margin-bottom:14px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+        <div class="nim-tab-nav" id="wr-tabs" style="margin:0;border-bottom:none;">
+          <button class="nim-tab-btn active" data-wrslide="0">Mevduat Dönüş Raporu</button>
+          <button class="nim-tab-btn" data-wrslide="1">Müşteri Segmenti</button>
+        </div>
 
         <div style="display:flex;align-items:center;gap:12px;margin-left:auto;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);">
@@ -847,13 +853,6 @@
             <input type="date" id="wr-date-end"
                    style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:8px;padding-left:18px;border-left:1px solid var(--border-mid);">
-          <!-- .wf-nav-btn 28px sabit ikon-buton: metinli kullanımda taşıyordu → width:auto -->
-          <button class="wf-nav-btn" id="wr-prev" disabled title="Önceki slayt" style="width:auto;padding:0 10px;">&#9664; Önceki</button>
-          <span class="wf-slide-label" id="wr-slide-label">1 / 1</span>
-          <button class="wf-nav-btn" id="wr-next" disabled title="Sonraki slayt" style="width:auto;padding:0 10px;">Sonraki &#9654;</button>
         </div>
       </div>
 
@@ -1239,6 +1238,15 @@
           </label>
         </div>
 
+        <!-- P2 UX: boyut pill'leri chip filtrelerinin ÜSTÜNDE (stok kalıbı). -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">Boyutlar:</label>
+          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="CCY_CODE">CCY</button>
+          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="CUST_TP">MÜŞTERİ TİPİ</button>
+          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="AUM_BAND">AUM</button>
+          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="RELATED_PC">SEGMENT</button>
+        </div>
+
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;">
           <div id="np-vp-bub-filters" class="bub-filter-panel" style="margin:0;"></div>
           <!-- Grafik-üstü VADE (DTM) grouped multi-select → ortak tenor filtresi
@@ -1252,18 +1260,7 @@
 
         <span id="np-vp-status" class="status-text" style="display:block;margin-bottom:8px;"></span>
 
-        <!-- ── Bubble Analysis EN ÜSTTE. Hemen üstündeki "Dimensions" toggle'ı bubble
-             kırılımını (grouping granularity) belirler — Cost Analysis muadili, NP'nin
-             5 boyutu: CCY / CUSTOMER_TYPE(=CUST_TP) / AUM(=AUM_BAND) / SEGMENT(=SUB_SEGMENT)
-             / PRODUCT(=RELATED_PC). Toggle → bubble backend'de daha az/çok boyuta göre
-             yeniden gruplanır (Δ hacim + Δ simple faiz aynen korunur). -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-          <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">Boyutlar:</label>
-          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="CCY_CODE">CCY</button>
-          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="CUST_TP">MÜŞTERİ TİPİ</button>
-          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="AUM_BAND">AUM</button>
-          <button class="np-vp-dim-btn dd-dim-btn active" data-npdim="RELATED_PC">SEGMENT</button>
-        </div>
+        <!-- Boyut pill'leri P2 UX'te ortak filtre şeridine (üstte) taşındı. -->
         <div class="accordion">
           <button class="accordion-header open" id="acc-btn-np-vp-bub">
             <span class="acc-icon">&#9654;</span> Bubble Analysis
