@@ -98,3 +98,124 @@ body.prisma { display: block; }
   display: inline-flex;
   position: static;
 }
+
+/* ═══ Faz P2a — Kontrol homojenleştirme (görsel katman) ═══════════════════
+   Davranış sözleşmelerine dokunulmaz: hm-switch etiketleri data-mode ile
+   zaten tıklanabilir (delegated handler), knob salt görseldi. */
+
+/* ── 5a. İkili mod anahtarları: knob toggle → segmented control ────────────
+   Tek standart: çerçeveli kapsül, aktif seçenek gold dolgulu (editor
+   .width-picker dili). !important'lar BSC instance'ındaki inline
+   gap/padding'i ezmek için (index.html:1108). */
+.hm-switch {
+  padding: 0 !important;
+  gap: 0 !important;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.hm-switch .hm-toggle { display: none; }
+.hm-switch .hm-lbl {
+  padding: 5px 12px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-mute);
+  transition: background 0.15s, color 0.15s;
+}
+.hm-switch .hm-lbl.active {
+  background: var(--gold);
+  color: var(--bg-0);
+  font-weight: 600;
+}
+.hm-switch .hm-lbl:not(.active):hover { background: var(--bg-2); color: var(--ink); }
+
+/* ── 5b. Aylık/Günlük alt-sekmeleri → PRISMA PageTabs dili ────────────────
+   (editor .page-tabs: alt çizgili satır, aktif sekme üstten gold vurgu.) */
+.nim-tab-nav {
+  gap: 2px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 16px;
+}
+.nim-tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  padding: 7px 14px;
+  color: var(--ink-mute);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+.nim-tab-btn:hover { background: var(--bg-2); color: var(--ink); border-color: transparent; }
+.nim-tab-btn.active {
+  background: var(--bg-1);
+  color: var(--gold);
+  border-color: var(--border-soft);
+  box-shadow: inset 0 2px 0 var(--gold);
+}
+
+/* ── 5c. Tarih/filtre alanları tek dil ─────────────────────────────────────
+   4 widget ailesi (ay-sonu select, native date, flatpickr, tekil select)
+   mekanik olarak kalır (value formatları motor sözleşmesi), görsel tek:
+   bg-2 zemin, hairline çerçeve, mono metin, gold focus. */
+.filters select,
+.filters input[type="date"],
+.filters input[type="text"],
+.mevduat-mount select,
+.mevduat-mount input[type="date"] {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.filters select:hover,
+.mevduat-mount select:hover,
+.mevduat-mount input[type="date"]:hover { border-color: var(--border); background: var(--bg-2); }
+.filters select:focus,
+.mevduat-mount select:focus,
+.mevduat-mount input[type="date"]:focus,
+.mevduat-mount input[type="text"]:focus { outline: none; border-color: var(--gold); }
+/* Native date picker ikonu tema izler */
+.mevduat-mount input[type="date"] { color-scheme: dark; }
+body.light-mode .mevduat-mount input[type="date"] { color-scheme: light; }
+
+/* ── 5d. Light modda aktif pill kontrastı ─────────────────────────────────
+   Panel CSS'i AA için #96700A hardcode ediyordu; PRISMA'nın light gold'u
+   (--gold, #B07A2A) zaten AA-ayarlı — token'a bağla. */
+body.light-mode .wf-nav-btn.active,
+body.light-mode .dd-dim-btn.active,
+body.light-mode .bse-cur-btn.active {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #FFFEFA;
+}
+body.light-mode .nim-tab-btn.active {
+  background: var(--bg-1);
+  border-color: var(--border-soft);
+  color: var(--gold);
+}
+body.light-mode .hm-switch .hm-lbl.active { background: var(--gold); color: #FFFEFA; }
+
+/* ── 5e. Kapat/geri butonları standardı ───────────────────────────────────
+   Hepsi ghost kalıbı: hairline çerçeve, 4px radius, gold hover. Inline
+   style taşıyan eski butonlarda radius için !important gerekir. */
+.chart-fs-close,
+#np-drill-close,
+#np-rvhm-combo-close,
+#wr-drill-close,
+#bsc-back {
+  border-radius: 4px !important;
+}
+.chart-fs-close:hover,
+#np-drill-close:hover,
+#np-rvhm-combo-close:hover,
+#wr-drill-close:hover,
+#bsc-back:hover {
+  border-color: var(--gold) !important;
+  color: var(--gold) !important;
+  background: transparent !important;
+}
