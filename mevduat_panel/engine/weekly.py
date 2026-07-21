@@ -85,10 +85,13 @@ class WeeklyRollingsEngine:
 
     @classmethod
     def _to_bind(cls, ddmmyyyy: str) -> str:
-        """DD/MM/YYYY → SQL bind formatı. PROD_DB: aynen geçirir (TO_DATE
-        format string ile uyumlu). DEV (SQLite TEXT compare): YYYY-MM-DD'ye
-        çevirir."""
-        if _ENV == "DEVELOPMENT":
+        """DD/MM/YYYY → SQL bind formatı. PROD: aynen geçirir (TO_DATE format
+        string ile uyumlu). DEV (SQLite TEXT compare): YYYY-MM-DD'ye çevirir.
+        dev.db eklendiğinde (A1 2. revize) sabit _ENV yerine data_source
+        yoluna bakılır — aksi halde DEV'de DD/MM/YYYY string'i ISO kolonla
+        karşılaştırılıp weekly HER pencerede boş dönüyordu."""
+        from ..data_source import is_dev
+        if is_dev():
             return pd.to_datetime(ddmmyyyy, format="%d/%m/%Y").strftime("%Y-%m-%d")
         return ddmmyyyy
 

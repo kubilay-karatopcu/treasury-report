@@ -103,13 +103,29 @@
         lab.replaceChild(span, n);
         return;
       }
+      // NP deseni: metin doğrudan text-node değil, <span id=...-lbl> içinde.
+      if (n.nodeType === 1 && n.tagName === "SPAN" &&
+          !n.querySelector("select, input") && n.textContent.trim()) {
+        n.classList.add("mv-dock-key");
+        return;
+      }
     }
   }
 
   function titleOf(item) {
-    var lab = item.nodes[0];
-    var t = (lab && lab.tagName === "LABEL") ? lab.textContent : "";
-    return (t || item.ctrl.id || "").trim().replace(/:\s*$/, "");
+    // YALNIZ etiket metni — label.textContent değil (sarmalayan label'larda
+    // select option metinleri de textContent'e sızıp başlığı çöplüyordu).
+    for (var i = 0; i < item.nodes.length; i++) {
+      var n = item.nodes[i];
+      if (n.tagName !== "LABEL") continue;
+      var key = n.querySelector(".mv-dock-key");
+      if (key) return key.textContent.trim().replace(/:\s*$/, "");
+    }
+    var sib = item.nodes[0];
+    if (sib && sib.tagName === "LABEL" && !sib.querySelector("select, input")) {
+      return sib.textContent.trim().replace(/:\s*$/, "");
+    }
+    return (item.ctrl.id || "").replace(/[-_]/g, " ");
   }
 
   function moveNodes(item, into) {

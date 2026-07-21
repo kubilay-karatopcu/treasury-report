@@ -1237,7 +1237,8 @@
   // başına 0-100 arası yüzde. Bu bir VERİ filtresi DEĞİL: sadece hangi bubble'ın
   // ÇİZİLECEĞİNİ belirler; WAvg gibi tüm hesaplar filtrelenmemiş TÜM noktalar
   // üzerinden yapılır. Slider sürüklenirken input event'leri rAF ile birleştirilir.
-  var _bubMinSize = { "dd": 0, "ca-mon": 0, "ddd": 0, "np-vp": 0 };
+  // P2 UX: varsayılan eşik %10 — küçük bubble gürültüsü açılışta gizli.
+  var _bubMinSize = { "dd": 10, "ca-mon": 10, "ddd": 10, "np-vp": 10 };
 
   // ── Bubble SEÇİM + per-bubble SPLIT (yalnız Outstanding Cost: ca-mon / ddd) ──
   // Tek tık = seç (parlar; diğerleri söner). Çift tık = drill (eski davranış).
@@ -4720,8 +4721,9 @@
         xaxis: { title: "Composition (%)", ticksuffix: "%", range: [0, 100] },
         yaxis: { title: "", type: "category", categoryorder: "array",
                  categoryarray: [lbl1, lbl0], automargin: true },
-        margin: { l: 110, r: 20, t: 10, b: 50 },
-        legend: { orientation: "h", x: 0, y: -0.5 },
+        // P2 UX: legend plotun ÜSTÜNDE, makul boşlukla (altta kopuk duruyordu).
+        margin: { l: 110, r: 20, t: 34, b: 50 },
+        legend: { orientation: "h", x: 0, y: 1.22, yanchor: "bottom" },
       },
     }, 220);
     // Composition: dbl-click on a segment trace → drill into that category
@@ -6039,8 +6041,9 @@
           categoryarray: [lbl1, lbl0],
           automargin: true,
         },
-        margin: { l: 110, r: 20, t: 10, b: 50 },
-        legend: { orientation: "h", x: 0, y: -0.5 },
+        // P2 UX: legend plotun ÜSTÜNDE, makul boşlukla (altta kopuk duruyordu).
+        margin: { l: 110, r: 20, t: 34, b: 50 },
+        legend: { orientation: "h", x: 0, y: 1.22, yanchor: "bottom" },
       },
     }, 220);
 
@@ -6575,7 +6578,11 @@
           '<div id="' + drillRowId + '-bar" style="min-height:80px;width:100%;display:flex;' +
             'align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px;">Yükleniyor…</div>'
         : "");
-    anchorEl.insertAdjacentElement("afterend", drillRow);
+    // P2 UX: bubble grid'inin İÇİNE değil, bloğun EN ALTINA tam genişlik
+    // (iki bubble yan yana + slider + altta geniş detay düzeni bozulmasın).
+    var _drillHost = anchorEl.closest(".accordion-body");
+    if (_drillHost) _drillHost.appendChild(drillRow);
+    else anchorEl.insertAdjacentElement("afterend", drillRow);
 
     // Kırılım slider'ı (Balance Δ ↔ Rate Δ) + ilk render.
     if (showBreak) {
@@ -6836,29 +6843,15 @@
       btn.addEventListener("click", _close);
       topbar.appendChild(btn);
       overlay.appendChild(topbar);
-      // Cost sekmelerinde sayfa-üstü Detailed Dim / Rate Type seçicilerini
-      // overlay'e TAŞI (klon değil — aynı elemanlar; değişim sayfa state'ini de
-      // günceller, refetch mevcut listener'larla tetiklenir ve id'ler moved
-      // elemanları hedeflediğinden açık grafik/heatmap yerinde yenilenir).
+      // P2 UX kararı: tam ekran SALT GÖRÜNTÜLEMEDİR — Detay Boyutu / Oran
+      // Tipi seçicileri ve SUBPRODUCT chip'i overlay'e taşınmaz (kullanıcı
+      // filtre/detay işlemlerini sayfada yapar). Yalnız BSC sunumundan
+      // açılan bubble'ın metrik anahtarı taşınır (grafik türü seçimi).
       var ctrls = [];
       var pfx = _costPrefixOf(el);
       var wantSubprod = false;
       if (pfx) {
         var strip = document.createElement("div"); strip.className = "chart-fs-ctrls";
-        [pfx + "-break-dim", pfx + "-rate-conv"].forEach(function (sid) {
-          var sel = document.getElementById(sid);
-          if (!sel) return;
-          var lab = sel.previousElementSibling;
-          var nodes = (lab && lab.tagName === "LABEL") ? [lab, sel] : [sel];
-          nodes.forEach(function (n) {
-            var cph = document.createElement("span"); cph.style.display = "none";
-            n.parentNode.insertBefore(cph, n);
-            strip.appendChild(n);
-            ctrls.push({ node: n, ph: cph });
-          });
-        });
-        // Sunum slide 2'den açıldıysa Delta Interest Rate ↔ Delta Balance
-        // toggle'ı da şeride taşınır (tam-ekranda grafik türü değiştirilebilir).
         var mSw = document.getElementById("bsc-bub-metric-switch");
         if (mSw && el.closest && el.closest("#bsc-pres")) {
           var mph = document.createElement("span");
@@ -6867,18 +6860,7 @@
           strip.appendChild(mSw);
           ctrls.push({ node: mSw, ph: mph });
         }
-        // Bubble tam-ekranında Rate Type'ın sağına SUBPRODUCT filtresi (sayfa
-        // paneliyle aynı state'e bağlı ikinci chip — overlay eklendikten sonra
-        // render edilir; refetch sonrası fetch'ler yeniden bağlar).
-        if (/-bub-(bal|rate)$/.test(el.id || "")) {
-          wantSubprod = true;
-          var sHost = document.createElement("span");
-          sHost.id = "chart-fs-subprod";
-          sHost.dataset.prefix = pfx;
-          sHost.style.cssText = "display:inline-flex;align-items:center;";
-          strip.appendChild(sHost);
-        }
-        if (ctrls.length || wantSubprod) overlay.appendChild(strip);
+        if (ctrls.length) overlay.appendChild(strip);
       }
       // Bubble grafiğiyse min-size slider barını da overlay'e taşı (topbar altına).
       var sliderBar = isContainer ? null : _bubSliderBarFor(el), sliderPh = null;
@@ -7728,20 +7710,20 @@
       weeklyReportState.dateEnd   = _wrFmt(wb[1]);
     }
 
-    var fpShared = {
-      dateFormat: "d/m/Y",
-      allowInput: false,
-      locale: { firstDayOfWeek: 1 },
-      onChange: function() {
-        weeklyReportState.dateStart = document.getElementById("wr-date-start").value;
-        weeklyReportState.dateEnd   = document.getElementById("wr-date-end").value;
+    // P2 UX: flatpickr yerine diğer sayfalarla AYNI native date input.
+    // State DD/MM/YYYY kalır (API sözleşmesi); input sınırında ISO çevrimi.
+    function _isoToDmy(v) { var m = (v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? (m[3] + "/" + m[2] + "/" + m[1]) : ""; }
+    function _dmyToIso(v) { var m = (v || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? (m[3] + "-" + m[2] + "-" + m[1]) : ""; }
+    ["wr-date-start", "wr-date-end"].forEach(function (id, i) {
+      var inp = document.getElementById(id);
+      if (!inp) return;
+      inp.value = _dmyToIso(i === 0 ? weeklyReportState.dateStart : weeklyReportState.dateEnd);
+      inp.addEventListener("change", function () {
+        weeklyReportState.dateStart = _isoToDmy(document.getElementById("wr-date-start").value);
+        weeklyReportState.dateEnd   = _isoToDmy(document.getElementById("wr-date-end").value);
         _fetchWeeklyData();
-      }
-    };
-    flatpickr(document.getElementById("wr-date-start"),
-      Object.assign({}, fpShared, { defaultDate: weeklyReportState.dateStart }));
-    flatpickr(document.getElementById("wr-date-end"),
-      Object.assign({}, fpShared, { defaultDate: weeklyReportState.dateEnd }));
+      });
+    });
 
     document.getElementById("wr-prev").addEventListener("click", function(){ _navigateWeekly(-1); });
     document.getElementById("wr-next").addEventListener("click", function(){ _navigateWeekly(+1); });
@@ -8870,13 +8852,21 @@
   // hâlâ DOM'daysa aynı bağlamla yeniden çağrılır (break-dim taze okunur).
   var _lastRateDrill = {};     // prefix -> [prefix, anchorId, rowVal, colVal]
   var _lastDepositDrill = {};  // prefix -> { args, opts }
+  var _showBalanceDrillBase = _showBalanceDrill;
+  _showBalanceDrill = function () {
+    if (document.querySelector(".chart-fs-overlay")) return;
+    return _showBalanceDrillBase.apply(null, arguments);
+  };
   var _showRateDrillBase = _showRateDrill;
   _showRateDrill = function (prefix, anchorId, rowVal, colVal) {
+    // P2 UX: tam ekran salt görüntüleme — modal açıkken drill açılmaz.
+    if (document.querySelector(".chart-fs-overlay")) return;
     _lastRateDrill[prefix] = [prefix, anchorId, rowVal, colVal];
     return _showRateDrillBase(prefix, anchorId, rowVal, colVal);
   };
   var _showDepositDrillDownBase = _showDepositDrillDown;
   _showDepositDrillDown = function (drillRowId, product, d0, d1, dims, triggerEl, opts) {
+    if (document.querySelector(".chart-fs-overlay")) return;
     var pfx = (opts && opts.prefix) || "";
     if (pfx && opts && opts.breakDim) {
       _lastDepositDrill[pfx] = { args: [drillRowId, product, d0, d1, dims, triggerEl], opts: opts };

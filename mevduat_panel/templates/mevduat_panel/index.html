@@ -153,7 +153,7 @@
             <!-- Min bubble slider'ı plotların ALTINDA (P2 UX geri bildirimi) -->
             <div class="bub-minsize-bar" id="ca-mon-bub-minsize-bar" style="margin-top:12px;">
               <span class="bub-minsize-label">Min bubble size</span>
-              <input type="range" class="bub-minsize-range" id="ca-mon-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('ca-mon', this.value)">
+              <input type="range" class="bub-minsize-range" id="ca-mon-bub-minsize" min="0" max="100" step="1" value="10" oninput="_onBubMinSize('ca-mon', this.value)">
               <span class="bub-minsize-val" id="ca-mon-bub-minsize-val">All</span>
             </div>
           </div>
@@ -275,7 +275,7 @@
             <!-- Min bubble slider'ı plotların ALTINDA (P2 UX geri bildirimi) -->
             <div class="bub-minsize-bar" id="ddd-bub-minsize-bar" style="margin-top:12px;">
               <span class="bub-minsize-label">Min bubble size</span>
-              <input type="range" class="bub-minsize-range" id="ddd-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('ddd', this.value)">
+              <input type="range" class="bub-minsize-range" id="ddd-bub-minsize" min="0" max="100" step="1" value="10" oninput="_onBubMinSize('ddd', this.value)">
               <span class="bub-minsize-val" id="ddd-bub-minsize-val">All</span>
             </div>
           </div>
@@ -839,13 +839,13 @@
         <div style="display:flex;align-items:center;gap:12px;margin-left:auto;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);">
             Başlangıç
-            <input type="text" id="wr-date-start" placeholder="GG/AA/YYYY" readonly
-                   style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);width:110px;cursor:pointer;">
+            <input type="date" id="wr-date-start"
+                   style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);">
             Bitiş
-            <input type="text" id="wr-date-end" placeholder="GG/AA/YYYY" readonly
-                   style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);width:110px;cursor:pointer;">
+            <input type="date" id="wr-date-end"
+                   style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
           </label>
         </div>
 
@@ -1277,7 +1277,7 @@
             <!-- Min bubble slider'ı plotların ALTINDA (P2 UX geri bildirimi) -->
             <div class="bub-minsize-bar" id="np-vp-bub-minsize-bar" style="margin-top:12px;">
               <span class="bub-minsize-label">Min bubble size</span>
-              <input type="range" class="bub-minsize-range" id="np-vp-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('np-vp', this.value)">
+              <input type="range" class="bub-minsize-range" id="np-vp-bub-minsize" min="0" max="100" step="1" value="10" oninput="_onBubMinSize('np-vp', this.value)">
               <span class="bub-minsize-val" id="np-vp-bub-minsize-val">All</span>
             </div>
           </div>
@@ -1287,7 +1287,7 @@
              (üstteki ortak bardan buraya taşındı). Aynı id'ler (np-vp-decomp/decomp2). -->
         <div style="display:flex;align-items:center;gap:12px;margin:16px 0 0;flex-wrap:wrap;">
           <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-muted,#8B95A7);display:flex;align-items:center;gap:6px;">
-            <span id="np-decomp-lbl">Decomp. Dim</span>
+            <span id="np-decomp-lbl">Ayrıştırma Boyutu</span>
             <select id="np-vp-decomp" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border:1px solid var(--border-mid,#252B3D);border-radius:2px;background:var(--bg-input,#0D111C);color:var(--text-primary,#E8ECF1);">
               <option value="SUB_SEGMENT" selected>Segment</option>
               <option value="CUST_TP">Müşteri Tipi</option>
@@ -1296,7 +1296,7 @@
             </select>
           </label>
           <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-muted,#8B95A7);display:flex;align-items:center;gap:6px;">
-            <span id="np-decomp2-lbl">Second Dec. Dim</span>
+            <span id="np-decomp2-lbl">İkinci Boyut</span>
             <select id="np-vp-decomp2" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border:1px solid var(--border-mid,#252B3D);border-radius:2px;background:var(--bg-input,#0D111C);color:var(--text-primary,#E8ECF1);">
               <option value="SUB_SEGMENT">Segment</option>
               <option value="CUST_TP">Müşteri Tipi</option>
