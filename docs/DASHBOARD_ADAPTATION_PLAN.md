@@ -309,6 +309,55 @@ taşınabilir; bundle politikasına aykırı değil çünkü build gerektirmez).
 - Scenario/Cross-Scenario/Results Comparison + BS Evolution + BSC'nin NII
   slide'ları. ALM pickle bağımlılığı nedeniyle ayrı değerlendirme gerekir.
 
+## 6.5 Faz P — Uzman entegrasyonu + PRISMA redesign (2026-07-21 pivotu)
+
+Kullanıcı kararı: manuel panolar ayrı "Panolar" menüsü olarak DEĞİL, uzman
+("X Uzmanı", Phase 10) altında süreçler olarak yaşar. UI, PRISMA design
+sistemine homojenleştirilir ("PRISMA ile üretilmiş gibi"); PRISMA'da
+karşılığı olmayan fonksiyonaliteler birebir korunur.
+
+**Kilit kararlar (K3/K4 revizyonları dahil):**
+
+| # | Karar | Not |
+|---|-------|-----|
+| P1 | Panolar canonical `dep` (Mevduat Uzmanı) altına bağlanır; landing'deki elle yazılmış "Panolar" bölümü kalkar. `Expert.bound_content.processes` gerçek şekil kazanır (`{label, endpoint, page, desc}`) ve `expert.html`'de "Süreçler" bölümü render edilir. | Uzman şeması bugün sayfa linki ifade edemiyor; `processes` alanı bunun için rezerve (Phase 11/12 notu). |
+| P2 | Frontend: SPA vanilla kalır + PRISMA token köprüsüyle boyanır (`editor_dark.css` kalıbı). React'e port YOK — K3'ün "yeniden yazılmaz" kısmı korunur; "görsel birebir" kısmı revize: UI PRISMA'ya homojenleşir. | Kanıt kalıbı: `editor_dark.css` 6.9k satırlık editor CSS'ini token köprüsüyle boyuyor. |
+| P3 | Chart: **hibrit Apex** (K4 revize). ~14 kolay + ~8 orta chart Apex'e geçer (`chartHelpers.js` konvansiyonları); interaktif heatmap'ler NP'nin kanıtlı el-yapımı DOM kalıbına taşınır (Plotly'siz, etkileşim birebir); bubble split/merge animasyonu + maturity ladder + Sector Vade subplot'u Plotly kalır, PRISMA temasına boyanır. Fonksiyon kaybı sıfır. | Modebar zaten her yerde kapalı; waterfall/bridge/combo ailesi zaten Apex'te. |
+| P4 | Dil: tüm arayüz etiketleri Türkçe (TR/EN karışımı biter). | PRISMA kabuğu TR ağırlıklı. |
+
+**Homojenleştirme hedefleri** (keşif bulgusu — aynı iş, farklı widget):
+tarih seçimi 4 widget ailesi → tek kalıp; ikili mod geçişi 3 stil
+(`.hm-switch` 6 anlama overload + `.ios-seg-btn` + slider-as-toggle) → tek
+segmented kalıp; Monthly/Daily 2 mekanizma (tab vs knob) → PageTabs kalıbı;
+modal kapat butonları → tek standart; decomposition pill/dropdown ikiliği →
+tek kalıp; `_renderNpRvHmTenorFilter` duplikasyonu → paylaşılan chip
+component'e katlanır.
+
+**Korunan özgün widget'lar** (PRISMA'da karşılığı yok, birebir kalır):
+merge hafızalı chip filtre (`sharedDimMerges`), bubble timeline
+(slider+play+axis-lock), `.hm-metric-slider` chart-strip kaydırıcı,
+canlı-kontrol taşıyan fullscreen overlay, BSC sunum kabuğu, NP hover-linked
+heatmap.
+
+**Alt fazlar** (her biri deploy edilebilir biter):
+
+- **P0 — Uzman bağlama:** `dep` uzmanı (DEV: `dev_data/experts/dep.yaml`;
+  PROD: Atölye create endpoint'i ofiste), `processes` render'ı
+  (`expert.html` "Süreçler" bölümü), SPA `?page=` deep-link, landing
+  "Panolar" söküm.
+- **P1 — Kabuk:** PRISMA topbar/tema entegrasyonu, sol nav'ın PRISMA
+  sidebar diline geçişi (nav korunur), token köprüsü CSS.
+- **P2 — Kontrol homojenleştirme:** FilterBar kalıbı, segmented toggle
+  standardı, PageTabs, modal standardı, TR etiketler.
+- **P3 — Chart dalga 1:** 14 kolay chart Apex'e.
+- **P4 — Chart dalga 2:** 8 orta chart Apex'e + heatmap'lerin DOM kalıbına
+  taşınması.
+- **P5 — Cila:** kalan Plotly'lerin PRISMA teması, BSC overlay/topbar tema
+  uzlaşması, `jspdf` ölü vendor sökümü, görsel tur.
+
+Ofis A7 kalanları (Oracle smoke, gerçek veri turu) Faz P'den bağımsız
+geçerliliğini korur.
+
 ## 7. Test stratejisi
 
 1. **Kaynak-eşdeğerlik (en önemlisi):** kaynak repo testleri
