@@ -8865,6 +8865,41 @@
     _syncBaSecondDim(pfx + "-rate");
   });
 
+  // Faz P2 UX: "Detay Boyutu" (break-dim) değişince AÇIK drill panelleri de
+  // tazelenir. Açıcılar son argümanlarıyla kaydedilir; select değişiminde panel
+  // hâlâ DOM'daysa aynı bağlamla yeniden çağrılır (break-dim taze okunur).
+  var _lastRateDrill = {};     // prefix -> [prefix, anchorId, rowVal, colVal]
+  var _lastDepositDrill = {};  // prefix -> { args, opts }
+  var _showRateDrillBase = _showRateDrill;
+  _showRateDrill = function (prefix, anchorId, rowVal, colVal) {
+    _lastRateDrill[prefix] = [prefix, anchorId, rowVal, colVal];
+    return _showRateDrillBase(prefix, anchorId, rowVal, colVal);
+  };
+  var _showDepositDrillDownBase = _showDepositDrillDown;
+  _showDepositDrillDown = function (drillRowId, product, d0, d1, dims, triggerEl, opts) {
+    var pfx = (opts && opts.prefix) || "";
+    if (pfx && opts && opts.breakDim) {
+      _lastDepositDrill[pfx] = { args: [drillRowId, product, d0, d1, dims, triggerEl], opts: opts };
+    }
+    return _showDepositDrillDownBase(drillRowId, product, d0, d1, dims, triggerEl, opts);
+  };
+  ["ca-mon", "ddd"].forEach(function (pfx) {
+    var bd = document.getElementById(pfx + "-break-dim");
+    if (!bd) return;
+    bd.addEventListener("change", function () {
+      var rd = _lastRateDrill[pfx];
+      if (rd && document.getElementById("rate-drill-" + rd[1].replace(/[^a-zA-Z0-9]/g, "-"))) {
+        _showRateDrill.apply(null, rd);
+      }
+      var dd = _lastDepositDrill[pfx];
+      if (dd && document.getElementById(dd.args[0])) {
+        var opts2 = Object.assign({}, dd.opts, { breakDim: bd.value || dd.opts.breakDim });
+        dd.opts = opts2;
+        _showDepositDrillDown.apply(null, dd.args.concat([opts2]));
+      }
+    });
+  });
+
   // (Ranked Growth grafiği kaldırıldı → sort-toggle wiring'i de gitti.)
 
 
@@ -8876,11 +8911,19 @@
   // Port: NII tarafi kaldirildi — acilis ?page= deep-link'i (uzman sayfasindaki
   // "Surecler" kartlari, Faz P0) veya deposit tarafinin ilk sayfasi.
   var _bootPage = new URLSearchParams(window.location.search).get("page") || "";
+  // BSC navdan kaldırıldı ama uzman süreç kartından deep-link ile açılır
+  // (nav tıklamasındaki özel dalın eşleniği: sayfa + overlay).
   if (!/^[a-z-]+$/.test(_bootPage) ||
-      !document.querySelector('.sidebar-nav a[data-page="' + _bootPage + '"]')) {
+      (_bootPage !== "bsc-presentation" &&
+       !document.querySelector('.sidebar-nav a[data-page="' + _bootPage + '"]'))) {
     _bootPage = "cost-analysis";
   }
-  setPage(_bootPage);
+  if (_bootPage === "bsc-presentation") {
+    setPage("cost-analysis");
+    try { _bscOpen(); } catch (e) {}
+  } else {
+    setPage(_bootPage);
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // NEW PRODUCTION DASHBOARD

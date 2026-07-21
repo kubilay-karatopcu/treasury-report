@@ -89,29 +89,66 @@
     sel.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function makeRow(item) {
-    var row = el("div", "mv-dock-row" + (item.isDate ? " mv-dock-row--date" : ""));
-    var sel = (item.ctrl.tagName === "SELECT" && !item.isDate) ? item.ctrl : null;
-    if (sel) {
-      var prev = el("button", "mv-dock-arrow", "◀");
-      prev.type = "button";
-      prev.addEventListener("click", function (e) { e.stopPropagation(); stepSelect(sel, -1); });
-      row.appendChild(prev);
+  // Label'ın baştaki metin düğümünü span.mv-dock-key'e sarar (idempotent) —
+  // tarih satırlarında sabit genişlikle hizalama, dim satırlarında gizleme
+  // için gerekir. Span sayfaya dönünce de kalır ama görünümü değiştirmez
+  // (inline, stiller yalnız .mv-dock kapsamında).
+  function ensureKeySpan(lab) {
+    if (lab.querySelector(":scope > .mv-dock-key")) return;
+    for (var i = 0; i < lab.childNodes.length; i++) {
+      var n = lab.childNodes[i];
+      if (n.nodeType === 3 && n.textContent.trim()) {
+        var span = el("span", "mv-dock-key", null);
+        span.textContent = n.textContent.trim();
+        lab.replaceChild(span, n);
+        return;
+      }
     }
+  }
+
+  function titleOf(item) {
+    var lab = item.nodes[0];
+    var t = (lab && lab.tagName === "LABEL") ? lab.textContent : "";
+    return (t || item.ctrl.id || "").trim().replace(/:\s*$/, "");
+  }
+
+  function moveNodes(item, into) {
     item.nodes.forEach(function (n) {
       var ph = el("span", "");
       ph.style.display = "none";
       n.parentNode.insertBefore(ph, n);
       moved.push({ node: n, ph: ph });
-      row.appendChild(n);
+      into.appendChild(n);
     });
+  }
+
+  function makeRow(item) {
+    item.nodes.forEach(function (n) { if (n.tagName === "LABEL") ensureKeySpan(n); });
+    if (item.isDate) {
+      var row = el("div", "mv-dock-row mv-dock-row--date");
+      moveNodes(item, row);
+      return row;
+    }
+    // Boyut/görünüm satırı: üstte ortalı başlık, altta ◀ [seçici-pill] ▶.
+    var wrap = el("div", "mv-dock-row mv-dock-row--dim");
+    wrap.appendChild(el("div", "mv-dock-dimhead", null)).textContent = titleOf(item);
+    var line = el("div", "mv-dock-dimline");
+    var sel = item.ctrl.tagName === "SELECT" ? item.ctrl : null;
+    if (sel) {
+      var prev = el("button", "mv-dock-arrow", "◀");
+      prev.type = "button";
+      prev.addEventListener("click", function (e) { e.stopPropagation(); stepSelect(sel, -1); });
+      line.appendChild(prev);
+    }
+    moveNodes(item, line);
     if (sel) {
       var next = el("button", "mv-dock-arrow", "▶");
       next.type = "button";
       next.addEventListener("click", function (e) { e.stopPropagation(); stepSelect(sel, 1); });
-      row.appendChild(next);
+      line.appendChild(next);
     }
-    return row;
+    wrap.appendChild(line);
+    return wrap;
   }
 
   function restoreAll() {

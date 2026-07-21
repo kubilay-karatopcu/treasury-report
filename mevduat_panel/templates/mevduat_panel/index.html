@@ -50,7 +50,8 @@
           <li><a href="#" data-page="balance-analysis"><span class="snav-icon">&#9776;</span>Stok Bakiye Analizi</a></li>
           <li><a href="#" data-page="tenor-analysis"><span class="snav-icon">&#9201;</span>Stok Vade Analizi</a></li>
           <li><a href="#" data-page="weekly-report"><span class="snav-icon">&#9636;</span>Haftalık Mevduat Dönüşleri</a></li>
-          <li><a href="#" data-page="bsc-presentation"><span class="snav-icon">&#9640;</span>BSC Sunumu</a></li>
+          <!-- BSC Sunumu navdan kaldırıldı (P2 UX); uzman süreç kartındaki
+               ?page=bsc-presentation deep-link'i çalışmaya devam eder. -->
         </ul>
 
         <ul class="sidebar-nav" id="np-nav" style="margin-top:4px;">
@@ -85,7 +86,7 @@
       <div id="ca-mon-section" class="hidden">
 
         <!-- Own date pickers (month-end dropdowns) + dimension toggles -->
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+        <div class="mv-page-filters" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
             Başlangıç
             <select id="ca-mon-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
@@ -116,6 +117,7 @@
             <option value="on">O/N Eşleniği</option>
             <option value="compound">Yıllık Bileşik</option>
           </select>
+          <div style="flex-basis:100%;"><div id="ca-mon-bub-filters" class="bub-filter-panel"></div></div>
         </div>
 
         <div class="accordion">
@@ -139,7 +141,6 @@
         </div>
 
         <!-- Bubble Analysis: filter panel + charts -->
-        <div id="ca-mon-bub-filters" class="bub-filter-panel"></div>
         <div class="accordion">
           <button class="accordion-header open" id="acc-btn-ca-mon-bub">
             <span class="acc-icon">&#9654;</span> Bubble Analysis
@@ -203,7 +204,7 @@
       <div id="ddd-section">
 
         <!-- Own date pickers (daily granularity) + dimension toggles -->
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+        <div class="mv-page-filters" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
             Başlangıç
             <input type="date" id="ddd-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
@@ -235,6 +236,7 @@
             <option value="on">O/N Eşleniği</option>
             <option value="compound">Yıllık Bileşik</option>
           </select>
+          <div style="flex-basis:100%;"><div id="ddd-bub-filters" class="bub-filter-panel"></div></div>
         </div>
 
         <div id="ddd-warning" class="hidden" style="margin-bottom:12px;padding:10px 14px;background:rgba(184,130,107,0.08);border:1px solid rgba(184,130,107,0.25);border-radius:4px;color:#B8826B;font-size:13px;font-weight:500;"></div>
@@ -260,7 +262,6 @@
         </div>
 
         <!-- Bubble Analysis: filter panel + charts -->
-        <div id="ddd-bub-filters" class="bub-filter-panel"></div>
         <div class="accordion">
           <button class="accordion-header open" id="acc-btn-ddd-bub">
             <span class="acc-icon">&#9654;</span> Bubble Analysis
@@ -333,7 +334,7 @@
       <!-- ── Monthly Averages sub-tab ─────────────────────────────── -->
       <div id="ba-mon-section" class="hidden">
 
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <div class="mv-page-filters" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
             Başlangıç
             <select id="ba-mon-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
@@ -373,9 +374,9 @@
               <option value="TENOR">Vade</option>
             </select>
           </label>
+          <div style="flex-basis:100%;"><div id="ba-mon-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div></div>
         </div>
 
-        <div id="ba-mon-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div>
 
         <!-- KPI strip -->
         <div id="ba-mon-kpi" class="card" style="margin-bottom:14px;padding:16px 20px;display:flex;align-items:center;gap:32px;flex-wrap:wrap;">
@@ -472,7 +473,7 @@
       <!-- ── Daily Evolution sub-tab ──────────────────────────────── -->
       <div id="ba-dly-section">
 
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <div class="mv-page-filters" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
             Başlangıç
             <input type="date" id="ba-dly-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
@@ -513,9 +514,9 @@
             </select>
           </label>
           <span id="ba-dly-date-hint" style="font-size:11px;color:var(--text-muted);"></span>
+          <div style="flex-basis:100%;"><div id="ba-dly-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div></div>
         </div>
 
-        <div id="ba-dly-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div>
 
         <div id="ba-dly-warning" class="hidden" style="margin-bottom:12px;padding:10px 14px;background:rgba(184,130,107,0.08);border:1px solid rgba(184,130,107,0.25);border-radius:4px;color:#B8826B;font-size:13px;font-weight:500;"></div>
 
@@ -625,7 +626,7 @@
       <div id="ta-mon-section" class="hidden">
 
         <!-- Date pickers -->
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <div class="mv-page-filters" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
             Başlangıç
             <select id="ta-mon-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);"></select>
@@ -639,10 +640,10 @@
             <div class="hm-toggle"><div class="hm-knob"></div></div>
             <span class="hm-lbl" data-mode="dtm">DTM</span>
           </div>
+          <div style="flex-basis:100%;"><div id="ta-mon-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div></div>
         </div>
 
         <!-- Bubble-style filter panel (PRODUCT / CUSTOMER_TYPE / AUM / SEGMENT / MATURITY_BUCKET) -->
-        <div id="ta-mon-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div>
 
         <!-- Drop warning -->
         <div id="ta-mon-warning" class="hidden" style="margin-bottom:12px;padding:10px 14px;background:rgba(184,130,107,0.08);border:1px solid rgba(184,130,107,0.25);border-radius:4px;color:#B8826B;font-size:13px;font-weight:500;"></div>
@@ -722,7 +723,7 @@
       <!-- ── Daily Evolution sub-tab ──────────────────────────────── -->
       <div id="ta-dly-section">
 
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <div class="mv-page-filters" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
             Başlangıç
             <input type="date" id="ta-dly-date0" style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
@@ -737,9 +738,9 @@
             <span class="hm-lbl" data-mode="dtm">DTM</span>
           </div>
           <span id="ta-dly-date-hint" style="font-size:11px;color:var(--text-muted);"></span>
+          <div style="flex-basis:100%;"><div id="ta-dly-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div></div>
         </div>
 
-        <div id="ta-dly-filters" class="bub-filter-panel" style="margin-bottom:12px;"></div>
 
         <div id="ta-dly-warning" class="hidden" style="margin-bottom:12px;padding:10px 14px;background:rgba(184,130,107,0.08);border:1px solid rgba(184,130,107,0.25);border-radius:4px;color:#B8826B;font-size:13px;font-weight:500;"></div>
 
@@ -830,7 +831,7 @@
     <div id="weekly-report-section" class="hidden">
 
       <!-- Sayfa başlığı + global tarih seçici + slider navigasyonu -->
-      <div class="card" style="margin-bottom:14px;padding:16px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+      <div class="card mv-page-filters" style="margin-bottom:14px;padding:16px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
         <h2 class="dashboard-title" style="margin:0;font-size:18px;">Future Deposit Rollings</h2>
 
         <div style="display:flex;align-items:center;gap:12px;margin-left:auto;flex-wrap:wrap;">
@@ -1202,7 +1203,7 @@
 
     <div id="np-section" class="hidden">
       <!-- ── ORTAK Filtre Paneli — 3 New Business sayfası için tek panel ────── -->
-      <div id="np-shared-filters">
+      <div id="np-shared-filters" class="mv-page-filters">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
           <label style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;
                         text-transform:uppercase;color:var(--text-muted,#8B95A7);

@@ -580,3 +580,81 @@ body.light-mode .mv-dock { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
   color: var(--ink-dim);
   cursor: default;
 }
+
+/* ═══ 9. UX ikinci tur: nav ayrıştırma, sticky filtre şeridi, dock düzeni ══ */
+
+/* 9a. Alt panolar "·" işaretiyle grup başlığından ayrışır. */
+.mevduat-mount .sidebar-nav a::before {
+  content: "·";
+  display: inline-block;
+  width: 14px;
+  color: var(--gold-dim);
+  font-weight: 600;
+}
+.mevduat-mount .sidebar-nav a { padding-left: 26px; }
+.mevduat-mount .sidebar-nav a.active { padding-left: 24px; }
+
+/* 9b. Filtre şeridi her sayfada EN TEPEDE ve yapışkan — kaydırırken kalır.
+   (Chip panelleri de şeride taşındı; popup'lar üstte kalsın diye z-index.) */
+.mevduat-mount .mv-page-filters {
+  position: sticky;
+  top: -28px;                    /* .main üst padding'ini yut — tam tepeye yapış */
+  z-index: 80;
+  background: rgba(10, 14, 26, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 6px !important;
+}
+body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250, 0.94); }
+.mevduat-mount .mv-page-filters .bub-filter-panel {
+  margin: 0;
+  border: none;
+  background: transparent;
+  padding: 6px 0 0;
+}
+
+/* 9c. Dock — tarih hizalama + boyut satırı yeni düzeni. */
+.mv-dock-row--date label { justify-content: flex-start; }
+.mv-dock-row--date .mv-dock-key {
+  flex: 0 0 72px;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+.mv-dock-row--dim {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  margin-top: 2px;
+}
+.mv-dock-dimhead {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.mv-dock-dimline { display: flex; align-items: center; gap: 8px; }
+.mv-dock-dimline label { flex: 1; margin: 0 !important; }
+/* Seçici, sayfa üstündeki boyut pill'leri gibi görünür; tıklayınca native
+   liste açılır, oklar da gezdirir. */
+.mv-dock-row--dim select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  text-align: center;
+  text-align-last: center;
+  cursor: pointer;
+  padding: 6px 10px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+.mv-dock-row--dim select:hover { border-color: var(--gold); color: var(--gold); }
+/* Kardeş-label'lı kontrollerde başlığı dimhead taşır — orijinal label gizli;
+   sarmalayan-label'larda yalnız içindeki metin (key) gizlenir. */
+.mv-dock-row--dim label:not(:has(select, input)) { display: none; }
+.mv-dock-row--dim .mv-dock-key { display: none; }
