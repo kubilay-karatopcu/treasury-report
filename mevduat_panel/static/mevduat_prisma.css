@@ -38,7 +38,8 @@ body.light-mode {
   --text-muted:     var(--ink-soft);
   --text-secondary: var(--ink-mute);
   --text-tertiary:  var(--ink-faint);
-  --text-faint:     var(--ink-dim);
+  /* ink-dim DEĞİL: light'ta #CBD5E1 beyaz üstünde okunmuyor (kontrast 1.4) */
+  --text-faint:     var(--ink-faint);
 
   /* Tipografi: PRISMA tek ailedir — serif başlıklar Inter'e katlanır
      (Inter 200/300 başlık ağırlıkları prisma.css konvansiyonu). */
@@ -218,4 +219,63 @@ body.light-mode .hm-switch .hm-lbl.active { background: var(--gold); color: #FFF
   border-color: var(--gold) !important;
   color: var(--gold) !important;
   background: transparent !important;
+}
+
+/* ═══ 6. Dark okunabilirlik + boşluk + tipografi ═══════════════════════════
+   KÖK NEDEN: canvas_bleed kabuğu .canvas'a light içerik varsayımıyla
+   color:#1e293b verir (prisma.css:427) ve prisma reset'i button'lara
+   color:inherit uygular (0,1,1) — sınıf kuralları (0,1,0) yenilir, buton/
+   span metinleri dark zeminde light mürekkeple görünmez olur. Çözüm: mount
+   köküne token rengi + (0,2,0) scoped kurallar. */
+
+/* 6a. Miras kökü + buton güvenlik ağı */
+.mevduat-mount { color: var(--ink); }
+.mevduat-mount button { color: inherit; }
+
+/* 6b. Kontrol renkleri — orijinal niyet (text-secondary tonu) geri gelir */
+.mevduat-mount .nim-tab-btn { color: var(--ink-mute); }
+.mevduat-mount .nim-tab-btn:hover { color: var(--ink); }
+.mevduat-mount .nim-tab-btn.active { color: var(--gold); }
+.mevduat-mount .dd-dim-btn { color: var(--ink-mute); }
+.mevduat-mount .dd-dim-btn:hover { color: var(--ink); }
+.mevduat-mount .dd-dim-btn.active { color: var(--bg-0); }
+.mevduat-mount .wf-nav-btn { color: var(--ink-mute); }
+.mevduat-mount .wf-nav-btn:hover:not(:disabled) { color: var(--ink); }
+.mevduat-mount .wf-nav-btn.active { color: var(--bg-0); }
+.mevduat-mount .accordion-header { color: var(--ink); }
+body.light-mode .mevduat-mount .dd-dim-btn.active,
+body.light-mode .mevduat-mount .wf-nav-btn.active { color: #FFFEFA; }
+body.light-mode .mevduat-mount .nim-tab-btn.active { color: var(--gold); }
+
+/* 6c. Select açılır listeleri — dark'ta OS popup'ı okunur olsun */
+.mevduat-mount select { color-scheme: dark; }
+body.light-mode .mevduat-mount select { color-scheme: light; }
+.mevduat-mount option { background: var(--bg-1); color: var(--ink); }
+
+/* 6d. Boşluk: sağdaki scrollbar 15px yer yiyip sol/sağ dengesini bozuyordu —
+   ince PRISMA scrollbar + simetrik iç boşluk. */
+.mevduat-mount .main { padding: 24px 24px 36px; }
+.mevduat-mount .main::-webkit-scrollbar,
+.mevduat-mount .sidebar::-webkit-scrollbar { width: 8px; }
+.mevduat-mount .main::-webkit-scrollbar-track,
+.mevduat-mount .sidebar::-webkit-scrollbar-track { background: transparent; }
+.mevduat-mount .main::-webkit-scrollbar-thumb,
+.mevduat-mount .sidebar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.mevduat-mount .main::-webkit-scrollbar-thumb:hover { background: var(--ink-dim); }
+
+/* 6e. Tipografi homojenleştirme
+   Ölçüm (7 sayfa): gövde 14/300 baskın (doğru, PRISMA Inter light);
+   ama vurgu 600/700 karışık, AG başlıkları 700, büyük başlıklar 24-27px
+   dağınık. Tek skala: başlık 22/300, kart/bölüm başlığı 14/600, vurgu 600. */
+.mevduat-mount b, .mevduat-mount strong { font-weight: 600; }
+.mevduat-mount .ag-header-cell-text { font-weight: 600; }
+.mevduat-mount .dashboard-title,
+.mevduat-mount .bsc-title,
+.mevduat-mount #bsc-slide-title {
+  font-size: 22px !important;   /* bsc-slide-title inline 24px taşır */
+  font-weight: 300 !important;
+  letter-spacing: 0.01em;
 }
