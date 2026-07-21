@@ -146,14 +146,15 @@
             <span class="acc-icon">&#9654;</span> Bubble Analysis
           </button>
           <div class="accordion-body" id="acc-body-ca-mon-bub" style="max-height:none;overflow:visible;">
-            <div class="bub-minsize-bar" id="ca-mon-bub-minsize-bar">
-              <span class="bub-minsize-label">Min bubble size</span>
-              <input type="range" class="bub-minsize-range" id="ca-mon-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('ca-mon', this.value)">
-              <span class="bub-minsize-val" id="ca-mon-bub-minsize-val">All</span>
-            </div>
             <div class="charts-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
               <div class="card"><div class="plot-container" id="ca-mon-bub-bal"></div></div>
               <div class="card"><div class="plot-container" id="ca-mon-bub-rate"></div></div>
+            </div>
+            <!-- Min bubble slider'ı plotların ALTINDA (P2 UX geri bildirimi) -->
+            <div class="bub-minsize-bar" id="ca-mon-bub-minsize-bar" style="margin-top:12px;">
+              <span class="bub-minsize-label">Min bubble size</span>
+              <input type="range" class="bub-minsize-range" id="ca-mon-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('ca-mon', this.value)">
+              <span class="bub-minsize-val" id="ca-mon-bub-minsize-val">All</span>
             </div>
           </div>
         </div>
@@ -267,14 +268,15 @@
             <span class="acc-icon">&#9654;</span> Bubble Analysis
           </button>
           <div class="accordion-body" id="acc-body-ddd-bub" style="max-height:none;overflow:visible;">
-            <div class="bub-minsize-bar" id="ddd-bub-minsize-bar">
-              <span class="bub-minsize-label">Min bubble size</span>
-              <input type="range" class="bub-minsize-range" id="ddd-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('ddd', this.value)">
-              <span class="bub-minsize-val" id="ddd-bub-minsize-val">All</span>
-            </div>
             <div class="charts-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
               <div class="card"><div class="plot-container" id="ddd-bub-bal"></div></div>
               <div class="card"><div class="plot-container" id="ddd-bub-rate"></div></div>
+            </div>
+            <!-- Min bubble slider'ı plotların ALTINDA (P2 UX geri bildirimi) -->
+            <div class="bub-minsize-bar" id="ddd-bub-minsize-bar" style="margin-top:12px;">
+              <span class="bub-minsize-label">Min bubble size</span>
+              <input type="range" class="bub-minsize-range" id="ddd-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('ddd', this.value)">
+              <span class="bub-minsize-val" id="ddd-bub-minsize-val">All</span>
             </div>
           </div>
         </div>
@@ -1267,15 +1269,16 @@
             <span class="acc-icon">&#9654;</span> Bubble Analysis
           </button>
           <div class="accordion-body" id="acc-body-np-vp-bub" style="max-height:none;overflow:visible;">
-            <div class="bub-minsize-bar" id="np-vp-bub-minsize-bar">
-              <span class="bub-minsize-label">Min bubble size</span>
-              <input type="range" class="bub-minsize-range" id="np-vp-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('np-vp', this.value)">
-              <span class="bub-minsize-val" id="np-vp-bub-minsize-val">All</span>
-            </div>
             <span id="np-vp-bub-status" class="status-text" style="display:block;margin-bottom:6px;"></span>
             <div class="charts-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
               <div class="card"><div class="plot-container" id="np-vp-bub-bal"></div></div>
               <div class="card"><div class="plot-container" id="np-vp-bub-rate"></div></div>
+            </div>
+            <!-- Min bubble slider'ı plotların ALTINDA (P2 UX geri bildirimi) -->
+            <div class="bub-minsize-bar" id="np-vp-bub-minsize-bar" style="margin-top:12px;">
+              <span class="bub-minsize-label">Min bubble size</span>
+              <input type="range" class="bub-minsize-range" id="np-vp-bub-minsize" min="0" max="100" step="1" value="0" oninput="_onBubMinSize('np-vp', this.value)">
+              <span class="bub-minsize-val" id="np-vp-bub-minsize-val">All</span>
             </div>
           </div>
         </div>

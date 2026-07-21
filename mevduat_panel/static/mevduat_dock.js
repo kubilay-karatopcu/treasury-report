@@ -175,6 +175,14 @@
 
   function updateDock() {
     if (!dock) return;
+    // Titreme önleyici: sayfada YENİ aday yoksa ve dock'takilerin yuvası
+    // (placeholder'ın kabı) hâlâ görünür sayfadaysa yeniden kurma —
+    // ikinci geçiş kontrolleri bir anlığına şeride geri koyup titretiyordu.
+    var probe = collectControls();
+    var stale = moved.some(function (m) {
+      return !m.ph.parentNode || !m.ph.parentNode.offsetParent;
+    });
+    if (!probe.length && moved.length && !stale) { updateDates(); return; }
     restoreAll();
     var items = collectControls();
     var dates = items.filter(function (i) { return i.isDate; });
@@ -199,9 +207,13 @@
       var t = ev.target;
       if (!t || !t.closest) return;
       if (t.closest(".sidebar-nav a[data-page], .nim-tab-btn, #bsc-back")) {
-        setTimeout(updateDock, 420);
+        // Hemen kur (setPage senkron — kontroller tepede görünüp kaybolmasın),
+        // geç render olan şeritler için imza-korumalı ikinci geçiş.
+        setTimeout(updateDock, 0);
+        setTimeout(updateDock, 450);
       }
     });
+    setTimeout(updateDock, 0);
     setTimeout(updateDock, 700);
   });
 })();
