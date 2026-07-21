@@ -279,3 +279,73 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
   font-weight: 300 !important;
   letter-spacing: 0.01em;
 }
+
+/* ═══ 7. Görsel defect + ferahlık turu ════════════════════════════════════ */
+
+/* 7a. Chart eksen/legend yazıları — denetim bulgusu: tick fill'leri köprüden
+   geçmeyen eski literal (#7A8399, 27 chart) + 11/12px karışımı + tek chart'ta
+   light palet kalıntısı. JS inline stillerini !important ile tek standarda
+   bağla (chartHelpers konvansiyonu: 11px, ink-mute). Heatmap hücre metinleri
+   ve bar içi değerler KAPSANMAZ (yalnız tick/başlık/legend seçicileri). */
+.mevduat-mount .js-plotly-plot .xtick text,
+.mevduat-mount .js-plotly-plot .ytick text {
+  fill: var(--ink-mute) !important;
+  font-size: 11px !important;
+}
+.mevduat-mount .js-plotly-plot .g-xtitle text,
+.mevduat-mount .js-plotly-plot .g-ytitle text {
+  fill: var(--ink-soft) !important;
+  font-size: 12px !important;
+}
+.mevduat-mount .js-plotly-plot .legend text {
+  fill: var(--ink-mute) !important;
+  font-size: 11px !important;
+}
+.mevduat-mount .apexcharts-xaxis text,
+.mevduat-mount .apexcharts-yaxis text {
+  fill: var(--ink-mute) !important;
+  font-size: 11px !important;
+}
+.mevduat-mount .apexcharts-legend-text {
+  color: var(--ink-mute) !important;
+  font-size: 11px !important;
+}
+/* fullscreen overlay body'ye asılır — aynı kurallar orada da geçerli */
+.chart-fs-overlay .js-plotly-plot .xtick text,
+.chart-fs-overlay .js-plotly-plot .ytick text { fill: var(--ink-mute) !important; }
+
+/* 7b. Ferahlık — PRISMA sunum hissi: geniş dış boşluk, bloklar arası nefes,
+   içerik ultra-geniş ekranda ortalanır. */
+.mevduat-mount .main {
+  padding: 28px 40px 56px;
+  gap: 30px;
+  align-items: center;
+}
+.mevduat-mount .main > * {
+  width: 100%;
+  max-width: 1560px;
+}
+.mevduat-mount .card { padding: 18px 20px !important; }
+.mevduat-mount .main .card[style*="margin-top"] { margin-top: 28px !important; }
+.mevduat-mount .charts-grid { gap: 24px; }
+.mevduat-mount .filters { padding: 14px 18px; row-gap: 12px; }
+.mevduat-mount .accordion-header { padding-top: 13px; padding-bottom: 13px; }
+.mevduat-mount .nim-tab-nav { margin-bottom: 20px; }
+
+/* 7c. Kenarlıksız butonlar — dim pill'leri ve gezinme okları kart zemininde
+   kayboluyordu: koyu kuyu zemin (bg-0) + görünür hairline + gold hover. */
+.mevduat-mount .dd-dim-btn {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+}
+.mevduat-mount .dd-dim-btn:hover { border-color: var(--gold); background: var(--bg-0); }
+.mevduat-mount .dd-dim-btn.active { background: var(--gold); border-color: var(--gold); }
+.mevduat-mount .wf-nav-btn {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+}
+.mevduat-mount .wf-nav-btn:hover:not(:disabled) { border-color: var(--gold); background: var(--bg-0); }
+.mevduat-mount .hm-switch { background: var(--bg-0); }
+.mevduat-mount .filters select,
+.mevduat-mount .filters input[type="date"],
+.mevduat-mount .filters input[type="text"] { background: var(--bg-0); }

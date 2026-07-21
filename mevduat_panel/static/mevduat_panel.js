@@ -4744,7 +4744,7 @@
       }],
       layout: {
         height: 260,
-        xaxis: { tickangle: -30, automargin: true },
+        xaxis: { tickangle: -30, automargin: true, nticks: 16 },
         yaxis: { title: "Δ Composition (%)", ticksuffix: "%" },
         margin: { l: 60, r: 20, t: 40, b: 80 },
         title: { text: "Composition Change (" + lbl0 + " → " + lbl1 + ")", font: { size: 14 } },
@@ -4975,7 +4975,7 @@
         height: Math.max(280, allY.length * 36 + 80),
         paper_bgcolor: "transparent", plot_bgcolor: "transparent",
         font: { family: "JetBrains Mono, monospace", size: 12, color: _th.axis },
-        xaxis: { title: { text: _colLbl, font: { size: 12 } }, tickangle: -30, automargin: true, tickfont: { size: 11 } },
+        xaxis: { title: { text: _colLbl, font: { size: 12 } }, tickangle: -30, automargin: true, tickfont: { size: 11 }, nticks: 16 },
         yaxis: { title: { text: _rowLbl, font: { size: 12 } }, automargin: true, type: "category", tickfont: { size: 12 } },
         coloraxis: { colorbar: { tickfont: { size: 11, color: _th.axis },
                                  title: { font: { size: 11, color: _th.axis } } } },
@@ -5157,7 +5157,7 @@
         height: Math.max(280, allY.length * 36 + 80),
         paper_bgcolor: "transparent", plot_bgcolor: "transparent",
         font: { family: "JetBrains Mono, monospace", size: 12, color: _th.axis },
-        xaxis: { title: { text: _colLbl, font: { size: 12 } }, tickangle: -30, automargin: true, tickfont: { size: 11 } },
+        xaxis: { title: { text: _colLbl, font: { size: 12 } }, tickangle: -30, automargin: true, tickfont: { size: 11 }, nticks: 16 },
         yaxis: { title: { text: _rowLbl, font: { size: 12 } }, automargin: true, type: "category", tickfont: { size: 12 } },
         margin: { l: 80, r: 40, t: 30, b: 80 },
         title: {
