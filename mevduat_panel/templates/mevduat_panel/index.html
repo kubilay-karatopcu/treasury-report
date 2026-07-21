@@ -38,7 +38,6 @@
     </svg>
   </button>
   <aside class="sidebar">
-    <div class="sidebar-brand">Mevduat Paneli</div>
     <!-- ── Mevduat panoları grubu ───────────────────────────────────── -->
     <div class="sidebar-group" id="grp-deposit">
       <div class="sidebar-group-header" data-group="deposit">
@@ -1517,4 +1516,5 @@
   };
 </script>
 <script src="{{ url_for('mevduat_panel.static', filename='mevduat_panel.js') }}?v={{ mevduat_version }}"></script>
+<script src="{{ url_for('mevduat_panel.static', filename='mevduat_dock.js') }}?v={{ mevduat_version }}"></script>
 {% endblock %}

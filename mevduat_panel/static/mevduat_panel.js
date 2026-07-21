@@ -796,8 +796,8 @@
         var checked = rows.filter(function(v) { return state[dim][v] !== false; }).length;
         var sub;
         if (rows.length === 0)            sub = "—";
-        else if (checked === rows.length) sub = "All (" + rows.length + ")";
-        else if (checked === 0)           sub = "None";
+        else if (checked === rows.length) sub = "Tümü (" + rows.length + ")";
+        else if (checked === 0)           sub = "Hiçbiri";
         else                              sub = checked + " / " + rows.length;
         btn.innerHTML = '<span><b>' + dim + ':</b> ' + sub + '</span><span class="caret">▾</span>';
       }
@@ -820,14 +820,14 @@
         var actions = document.createElement("div");
         actions.className = "bub-filter-dd-actions";
         var allLink = document.createElement("a");
-        allLink.textContent = "All";
+        allLink.textContent = "Tümü";
         allLink.addEventListener("click", function(ev) {
           ev.preventDefault();
           effectiveEntries().forEach(function(v) { state[dim][v] = true; });
           rebuild(); updateBtnLabel(); onChange();
         });
         var noneLink = document.createElement("a");
-        noneLink.textContent = "None";
+        noneLink.textContent = "Hiçbiri";
         noneLink.addEventListener("click", function(ev) {
           ev.preventDefault();
           effectiveEntries().forEach(function(v) { state[dim][v] = false; });
@@ -854,7 +854,7 @@
           });
           checkboxes[v] = cb;
           lblEl.appendChild(cb);
-          lblEl.appendChild(document.createTextNode(" " + (v || "(empty)")));
+          lblEl.appendChild(document.createTextNode(" " + (v || "(boş)")));
           popup.appendChild(lblEl);
         });
 
@@ -862,7 +862,7 @@
         var groupBtn = document.createElement("button");
         groupBtn.type = "button";
         groupBtn.className = "bub-filter-dd-groupbtn";
-        groupBtn.textContent = "➕ Group Selected";
+        groupBtn.textContent = "＋ Seçilenleri Grupla";
         function updateGroupBtn() {
           var selected = availableVals.filter(function(v) { return state[dim][v] !== false; });
           // For AUM: need ≥ 2 parseable; for others ≥ 2 raw vals
@@ -6933,7 +6933,11 @@
         : (function () { var c = ti.closest(".apexcharts-canvas"); return c ? c.parentNode : null; })();
     }
     document.addEventListener("click", function (ev) {
-      if (_fs) return;
+      if (_fs) {
+        // Modal davranışı: overlay dışına (karartılmış zemine) tıklanınca kapan.
+        if (ev.target && ev.target.closest && !ev.target.closest(".chart-fs-overlay")) _close();
+        return;
+      }
       var t = ev.target;
       if (!t) return;
       // (1) İç grafik başlığı — Plotly (.gtitle) / Apex (.apexcharts-title-text).
@@ -6977,12 +6981,19 @@
       // varsa o açılır; birden fazla (bubble/composition) → iç başlıklar hallediyor.
       var hdr = t.closest(".accordion-header");
       if (!hdr) return;
-      if (/-wf$/.test(hdr.id || "")) return;
       if (hdr.closest("#std-section")) return;
+      // Waterfall carousel başlığı: tek grafik yerine TÜM slider bloğu tam
+      // ekrana (başlıklar artık collapse etmiyor — tek işlev tam ekran).
+      if (/-wf$/.test(hdr.id || "")) {
+        var wfBody2 = document.getElementById((hdr.id || "").replace("acc-btn", "acc-body"));
+        if (wfBody2) _open(wfBody2, true);
+        return;
+      }
       var acc = hdr.closest(".accordion");
       if (!acc) return;
       var vis = _visibleCharts(acc);
       if (vis.length === 1) _open(vis[0]);
+      else if (vis.length > 1) _open(hdr.nextElementSibling || acc, true);
     });
   })();
 
