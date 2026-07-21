@@ -11,20 +11,29 @@
     if (typeof url === "string" && url.indexOf("/api/") === 0) url = base + url;
     return origFetch(url, opts);
   };
-  // Tema koprusu: PRISMA kabugu localStorage("prisma-theme") kullanir;
-  // SPA body.light-mode + #theme-toggle ile calisir. Iki yonlu esitleme.
+  // Tema koprusu (Faz P1): esas toggle PRISMA topbar'inda — <html data-theme>
+  // degisimini MutationObserver izler, SPA'nin body.light-mode + chart sweep
+  // mekanizmasini kendi (gizli) butonuyla tetikler. SPA butonu yalniz BSC
+  // overlay'inde gorunur; oradan tiklanirsa data-theme geri yazilir (iki yon).
   document.addEventListener("DOMContentLoaded", function () {
+    var htmlEl = document.documentElement;
+    function spaIsLight()    { return document.body.classList.contains("light-mode"); }
+    function prismaIsLight() { return htmlEl.getAttribute("data-theme") === "light"; }
+    function syncFromPrisma() {
+      var btn = document.getElementById("theme-toggle");
+      if (btn && spaIsLight() !== prismaIsLight()) btn.click();
+    }
+    syncFromPrisma();
+    new MutationObserver(syncFromPrisma)
+      .observe(htmlEl, { attributes: true, attributeFilter: ["data-theme"] });
     var btn = document.getElementById("theme-toggle");
-    try {
-      if (localStorage.getItem("prisma-theme") === "light" &&
-          !document.body.classList.contains("light-mode") && btn) btn.click();
-    } catch (e) {}
     if (btn) btn.addEventListener("click", function () {
       setTimeout(function () {
-        try {
-          localStorage.setItem("prisma-theme",
-            document.body.classList.contains("light-mode") ? "light" : "dark");
-        } catch (e) {}
+        var want = spaIsLight() ? "light" : "dark";
+        if (htmlEl.getAttribute("data-theme") !== want) {
+          htmlEl.setAttribute("data-theme", want);
+          try { localStorage.setItem("prisma-theme", want); } catch (e) {}
+        }
       }, 0);
     });
   });
@@ -8420,21 +8429,23 @@
     }
   }
 
+  // Faz P1 (dil karari: TR) — sidebar etiketleriyle ve uzman surec
+  // kartlariyla (prisma_home/processes.py) birebir ayni adlar.
   var NP_PAGE_TITLES = {
-    "np-volume-pricing":   "New Business — Volume & Pricing",
-    "sector-comparison":   "Sector Comparison",
+    "np-volume-pricing":   "Yeni Üretim — Hacim & Fiyatlama",
+    "sector-comparison":   "Sektör Karşılaştırması",
   };
 
   var DEPOSIT_PAGE_TITLES = {
-    "cost-analysis":    "Outstanding Cost Analysis",
-    "balance-analysis": "Outstanding Balance Analysis",
-    "tenor-analysis":   "Outstanding Tenor Analysis",
-    "weekly-report":    "Future Deposit Rollings",
+    "cost-analysis":    "Stok Maliyet Analizi",
+    "balance-analysis": "Stok Bakiye Analizi",
+    "tenor-analysis":   "Stok Vade Analizi",
+    "weekly-report":    "Haftalık Mevduat Dönüşleri",
   };
 
   function updateTitle() {
     singleTitle.textContent = NP_PAGE_TITLES[currentPage] ||
-      DEPOSIT_PAGE_TITLES[currentPage] || "Deposit Dashboard";
+      DEPOSIT_PAGE_TITLES[currentPage] || "Mevduat Paneli";
   }
 
   function setPage(pageName) {

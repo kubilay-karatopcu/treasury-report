@@ -1,12 +1,10 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Mevduat Paneli</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set crumb = "Uzmanlar · Mevduat · Panolar" %}
+{% set canvas_bleed = True %}
+{% block title %}Mevduat Paneli — PRISMA{% endblock %}
+
+{% block head %}
   <script src="{{ url_for('mevduat_panel.static', filename='vendor/apexcharts.min.js') }}"></script>
   <script src="{{ url_for('mevduat_panel.static', filename='vendor/plotly.min.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid.css') }}">
@@ -15,11 +13,21 @@
   <script src="{{ url_for('mevduat_panel.static', filename='vendor/jspdf.umd.min.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/flatpickr.min.css') }}">
   <script src="{{ url_for('mevduat_panel.static', filename='vendor/flatpickr.min.js') }}"></script>
-    <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_panel.css') }}?v={{ mevduat_version }}">
-</head>
-<body>
-  <!-- Tema toggle: güneş/ay — sağ üst köşe, her sayfada erişilebilir. Her
-       oturum dark başlar (localStorage yok, session-scope bilinçli karar). -->
+  <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_panel.css') }}?v={{ mevduat_version }}">
+  {# Faz P1 — PRISMA token köprüsü; mevduat_panel.css'ten SONRA yüklenmeli
+     (editor_dark.css deseni). #}
+  <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_prisma.css') }}?v={{ mevduat_version }}">
+  <style>
+    .dev-banner { display: none !important; }
+    html, body { margin: 0 !important; overflow: hidden !important; }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="mevduat-mount">
+  <!-- Tema toggle: Faz P1'de PRISMA topbar toggle'ına köprülendi; buton
+       normalde gizli, yalnız BSC tam-ekran overlay'inde (#bsc-theme-host,
+       topbar'ı örter) görünür kalır. -->
   <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme (dark/light)">
     <svg class="theme-icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -30,29 +38,28 @@
     </svg>
   </button>
   <aside class="sidebar">
-    <div class="sidebar-brand">Deposit Dashboard</div>
-    <a class="masa-link" href="{{ masa_url }}">&#8592; Masa</a>
-    <!-- ── Deposit Dashboard group ──────────────────────────────────── -->
+    <div class="sidebar-brand">Mevduat Paneli</div>
+    <!-- ── Mevduat panoları grubu ───────────────────────────────────── -->
     <div class="sidebar-group" id="grp-deposit">
       <div class="sidebar-group-header" data-group="deposit">
-        Deposit Dashboard
+        Mevduat Panoları
         <span class="sidebar-group-icon">&#9660;</span>
       </div>
       <div class="sidebar-group-body">
         <ul class="sidebar-nav" id="deposit-nav">
-          <li><a href="#" data-page="cost-analysis"><span class="snav-icon">₺</span>Outstanding Cost Analysis</a></li>
-          <li><a href="#" data-page="balance-analysis"><span class="snav-icon">&#9776;</span>Outstanding Balance Analysis</a></li>
-          <li><a href="#" data-page="tenor-analysis"><span class="snav-icon">&#9201;</span>Outstanding Tenor Analysis</a></li>
-          <li><a href="#" data-page="weekly-report"><span class="snav-icon">&#9636;</span>Future Deposit Rollings</a></li>
-          <li><a href="#" data-page="bsc-presentation"><span class="snav-icon">&#9640;</span>BSC Presentation</a></li>
+          <li><a href="#" data-page="cost-analysis"><span class="snav-icon">₺</span>Stok Maliyet Analizi</a></li>
+          <li><a href="#" data-page="balance-analysis"><span class="snav-icon">&#9776;</span>Stok Bakiye Analizi</a></li>
+          <li><a href="#" data-page="tenor-analysis"><span class="snav-icon">&#9201;</span>Stok Vade Analizi</a></li>
+          <li><a href="#" data-page="weekly-report"><span class="snav-icon">&#9636;</span>Haftalık Mevduat Dönüşleri</a></li>
+          <li><a href="#" data-page="bsc-presentation"><span class="snav-icon">&#9640;</span>BSC Sunumu</a></li>
         </ul>
 
         <ul class="sidebar-nav" id="np-nav" style="margin-top:4px;">
-          <li><a href="#" data-page="np-volume-pricing"><span class="snav-icon">&#9656;</span>New Business - Volume &amp; Pricing</a></li>
+          <li><a href="#" data-page="np-volume-pricing"><span class="snav-icon">&#9656;</span>Yeni Üretim — Hacim &amp; Fiyatlama</a></li>
         </ul>
 
         <ul class="sidebar-nav" id="sector-nav" style="margin-top:4px;">
-          <li><a href="#" data-page="sector-comparison"><span class="snav-icon">&#9878;</span>Sector Comparison</a></li>
+          <li><a href="#" data-page="sector-comparison"><span class="snav-icon">&#9878;</span>Sektör Karşılaştırması</a></li>
         </ul>
       </div>
     </div>
@@ -61,7 +68,7 @@
   <main class="main">
     <div id="err" class="error-msg hidden"></div>
 
-    <h2 class="dashboard-title" id="single-title">Deposit Dashboard</h2>
+    <h2 class="dashboard-title" id="single-title">Mevduat Paneli</h2>
 
     <!-- ================================================================
          Cost Analysis page (under Deposit Dashboard)
@@ -1498,7 +1505,10 @@
     </div>
 
   </main>
+</div>
+{% endblock %}
 
+{% block scripts %}
 <script>
   // Port bootstrap konfigurasyonu — mevduat_panel.js bunu okur.
   window.MEVDUAT_CONFIG = {
@@ -1507,5 +1517,4 @@
   };
 </script>
 <script src="{{ url_for('mevduat_panel.static', filename='mevduat_panel.js') }}?v={{ mevduat_version }}"></script>
-</body>
-</html>
+{% endblock %}
