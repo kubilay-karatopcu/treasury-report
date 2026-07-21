@@ -429,6 +429,14 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
   border: 1px solid var(--border) !important;
   box-shadow: 0 0 0 200vmax rgba(6, 9, 18, 0.72), 0 24px 64px rgba(0, 0, 0, 0.5) !important;
 }
+/* İçerik modal içinde ortalanır: kısa içerik dikeyde de ortada durur
+   (margin:auto), uzun içerik kayar; genişlik makul sınırda tutulur. */
+.chart-fs-overlay .chart-fs-body { display: flex; flex-direction: column; }
+.chart-fs-overlay .chart-fs-body > * {
+  margin: auto;
+  width: 100%;
+  max-width: 1500px;
+}
 
 /* 8d. Sağ-alt kontrol dock'u — PRISMA kart dili, drawer. */
 .mv-dock {
@@ -655,6 +663,8 @@ body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250
 }
 .mv-dock-row--dim select:hover { border-color: var(--gold); color: var(--gold); }
 /* Kardeş-label'lı kontrollerde başlığı dimhead taşır — orijinal label gizli;
-   sarmalayan-label'larda yalnız içindeki metin (key) gizlenir. */
-.mv-dock-row--dim label:not(:has(select, input)) { display: none; }
-.mv-dock-row--dim .mv-dock-key { display: none; }
+   sarmalayan-label'larda yalnız içindeki metin (key) gizlenir. !important:
+   üstteki genel .mv-dock-row label { display:flex !important } kuralını ezer
+   (aksi halde boş label flex:1 alıp pill'i sağa itiyordu). */
+.mv-dock-row--dim label:not(:has(select, input)) { display: none !important; }
+.mv-dock-row--dim .mv-dock-key { display: none !important; }
