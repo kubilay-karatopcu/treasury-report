@@ -90,7 +90,9 @@ class BlockSummary:
             title=block.title,
             description=block.description or "",
             tags=list(block.tags),
-            visualization_type=block.visualization.type,
+            # custom blocks carry no standard visualization → report their kind
+            # so library listings stay None-safe.
+            visualization_type=(block.visualization.type if block.visualization else block.kind),
             owner=block.owner,
             created_at=block.created_at.isoformat(),
             updated_at=block.updated_at.isoformat() if block.updated_at else None,
@@ -292,7 +294,7 @@ def _block_matches_filters(
             return False
     if tag and tag not in block.tags:
         return False
-    if viz_type and block.visualization.type != viz_type:
+    if viz_type and (block.visualization is None or block.visualization.type != viz_type):
         return False
     if search:
         needle = search.lower()
