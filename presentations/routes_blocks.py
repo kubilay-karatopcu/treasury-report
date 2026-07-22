@@ -361,7 +361,21 @@ def api_list_blocks():
         search=request.args.get("q") or None,
         include_deprecated=(request.args.get("include_deprecated") == "1"),
     )
-    return _json([s.to_dict() for s in items])
+    out = [s.to_dict() for s in items]
+    # W1 (Süreç Düzenlileştirme): süreçlerin kind:custom bileşen blokları da
+    # aynı filtrelerle listeye eklenir (listing-merge — atolye_bloklar ile aynı).
+    try:
+        from prisma_home.processes import list_component_block_summaries
+
+        out.extend(list_component_block_summaries(
+            team=request.args.get("team") or None,
+            tag=request.args.get("tag") or None,
+            viz_type=request.args.get("viz_type") or None,
+            search=request.args.get("q") or None,
+        ))
+    except Exception:
+        log.exception("api_list_blocks: custom process block listing failed")
+    return _json(out)
 
 
 @presentations_bp.route("/blocks/api/<team>/<block_id>", methods=["DELETE"])
