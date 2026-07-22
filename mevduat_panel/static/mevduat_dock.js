@@ -32,12 +32,12 @@
     dock.id = "mv-dock";
     body = el("div", "mv-dock-body");
     var head = el("div", "mv-dock-head");
-    head.appendChild(el("span", "mv-dock-eyebrow", "Kontroller"));
+    head.appendChild(el("span", "mv-dock-eyebrow", "Controls"));
     dateLabel = el("span", "mv-dock-dates", "—");
     head.appendChild(dateLabel);
     toggleBtn = el("button", "mv-dock-toggle", "▾");
     toggleBtn.type = "button";
-    toggleBtn.title = "Paneli aç/kapat";
+    toggleBtn.title = "Toggle panel";
     head.appendChild(toggleBtn);
     dock.appendChild(body);
     dock.appendChild(head);
@@ -184,12 +184,18 @@
     body.innerHTML = "";
   }
 
+  // ISO (yyyy-mm-dd) → gün.ay.yıl (kullanıcı kararı 2026-07-22: kontrol panelinde
+  // tarih gün-ay-yıl gösterilsin). Diğer formatlar dokunulmadan geçer.
+  function _fmtDmy(v) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || "");
+    return m ? m[3] + "." + m[2] + "." + m[1] : v;
+  }
   function updateDates() {
     var vals = [];
     body.querySelectorAll(".mv-dock-row--date select, .mv-dock-row--date input").forEach(function (c) {
       if (c.value) {
         var opt = c.tagName === "SELECT" && c.selectedOptions[0];
-        vals.push(opt ? opt.textContent.trim() : c.value);
+        vals.push(opt ? opt.textContent.trim() : _fmtDmy(c.value));
       }
     });
     dateLabel.textContent = vals.length ? vals.join(" → ") : "—";
@@ -210,11 +216,11 @@
     var dates = items.filter(function (i) { return i.isDate; });
     var dims = items.filter(function (i) { return !i.isDate; });
     if (dates.length) {
-      body.appendChild(el("div", "mv-dock-label", "Tarih Aralığı"));
+      body.appendChild(el("div", "mv-dock-label", "Date Range"));
       dates.forEach(function (i) { body.appendChild(makeRow(i)); });
     }
     if (dims.length) {
-      body.appendChild(el("div", "mv-dock-label", "Boyutlar & Görünüm"));
+      body.appendChild(el("div", "mv-dock-label", "Dimensions & View"));
       dims.forEach(function (i) { body.appendChild(makeRow(i)); });
     }
     dock.style.display = items.length ? "" : "none";
