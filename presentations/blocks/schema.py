@@ -237,6 +237,26 @@ class Visualization(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
+# ── Custom render target (Process Regularization plan §2.2) ────────────────
+
+class CustomRender(BaseModel):
+    """Render target for a ``kind="custom"`` block.
+
+    A custom block wraps an interactive component that lives in a hand-built
+    SPA (today: ``mevduat_panel``) rather than the standard SQL+viz renderer.
+    It carries no ``query``/``visualization``; instead it points at the SPA
+    page/section so the library can document and reference it without a
+    rewrite. Module isolation is preserved: ``endpoint`` is resolved as a
+    string (never imported). See docs/PROCESS_REGULARIZATION_PLAN.md.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = Field(min_length=1, max_length=120)
+    page: str | None = None
+    anchor: str | None = None
+
+
 # ── Block (root) ──────────────────────────────────────────────────────────
 
 _DAY_CODES = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
@@ -373,12 +393,18 @@ class Block(BaseModel):
     # Phase 6.5 = single SQL block (default). Phase 12.container = composite
     # blocks (carousel/canvas): no SQL of their own — they hold child blocks
     # verbatim (manifest sub-block shape) so the library can store & re-insert
-    # a whole container. `kind` discriminates; `_check_kind_shape` enforces it.
-    kind: Literal["single", "composite"] = "single"
+    # a whole container. Process Regularization = custom blocks: no SQL, no
+    # standard viz — they wrap a hand-built SPA component via `custom_render`
+    # (documentation + reference only). `kind` discriminates; `_check_kind_shape`
+    # enforces it. See docs/PROCESS_REGULARIZATION_PLAN.md §2.2.
+    kind: Literal["single", "composite", "custom"] = "single"
     query: str = ""
     children: list[dict[str, Any]] | None = None
     variables: list[Variable] = Field(default_factory=list)
-    visualization: Visualization
+    # Optional so custom blocks (no standard viz) validate; single/composite
+    # still require it via `_check_kind_shape`.
+    visualization: Visualization | None = None
+    custom_render: CustomRender | None = None
 
     # Phase B — opt-in shared cache for library blocks; default keeps pre-B behaviour.
     refresh_policy: RefreshPolicy | None = None
@@ -407,19 +433,31 @@ class Block(BaseModel):
 
     @model_validator(mode="after")
     def _check_kind_shape(self) -> "Block":
-        """single → needs a non-empty query, no children.
-        composite → needs children, a container viz type, no SQL."""
+        """single → non-empty query + visualization, no children.
+        composite → children + a container visualization, no SQL.
+        custom → custom_render only; no query/children/visualization."""
         if self.kind == "composite":
             if not self.children:
                 raise ValueError("composite block must carry a non-empty 'children' list")
             for i, c in enumerate(self.children):
                 if not isinstance(c, dict) or not isinstance(c.get("type"), str) or not c.get("type"):
                     raise ValueError(f"children[{i}] must be a dict with a non-empty string 'type'")
-            if self.visualization.type not in ("carousel", "canvas"):
+            if self.visualization is None or self.visualization.type not in ("carousel", "canvas"):
                 raise ValueError(
                     "composite block visualization.type must be 'carousel' or 'canvas'"
                 )
+        elif self.kind == "custom":
+            if self.custom_render is None:
+                raise ValueError("custom block requires 'custom_render'")
+            if (self.query or "").strip():
+                raise ValueError("custom block must not carry 'query'")
+            if self.children:
+                raise ValueError("custom block must not carry 'children'")
+            if self.visualization is not None:
+                raise ValueError("custom block must not carry 'visualization' (use custom_render)")
         else:
+            if self.visualization is None:
+                raise ValueError("single block requires a 'visualization'")
             if not (self.query or "").strip():
                 raise ValueError("single block requires a non-empty 'query'")
             if self.children:

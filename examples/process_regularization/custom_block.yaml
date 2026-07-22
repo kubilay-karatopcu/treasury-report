@@ -1,0 +1,28 @@
+# Süreç Düzenlileştirme (docs/PROCESS_REGULARIZATION_PLAN.md §2.2) — örnek
+# kind:"custom" blok. Standart SQL+viz YOK; render hedefi bir SPA bileşenidir,
+# dökümantasyon dört alanla taşınır. presentations/blocks/schema.py::Block'a karşı
+# doğrulanır (visualization None; custom_render zorunlu; query/children yasak).
+block:
+  id: camon_bubble
+  version: 1
+  title: "Cost Bubble — Balance × Rate"
+  team: dep
+  owner: A16438
+  created_at: "2026-07-22T10:00:00Z"
+  tags: ["bubble", "cost", "custom", "mevduat"]
+  kind: custom
+  custom_render:
+    endpoint: mevduat_panel.index
+    page: cost-analysis
+    anchor: ca-mon-bub-bal
+  documentation:
+    purpose: >-
+      Ürün×vade baloncuklarında bakiye (boyut) ile faiz (eksen) ilişkisini
+      gösterir; merge hafızalı chip filtresiyle gruplanır.
+    business_context: >-
+      Maliyetin hangi ürün/segmentte yoğunlaştığını görsel olarak ayırır.
+    decision_support: >-
+      Pahalı fonlanan kümeleri tek bakışta işaretler.
+    known_limitations: >-
+      Split/merge animasyonu ve seçim etkileşimi standart blok render'ında yok
+      (SPA'ya özgü) — bu yüzden kind:custom.
