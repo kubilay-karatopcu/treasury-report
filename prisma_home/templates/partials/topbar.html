@@ -24,6 +24,10 @@
        - On the consumer Masa side (mode != atolye) → "Atölyeye geç →"
        Single pill is easier to read at a glance than two equal-weight chips
        and the arrow tells the user where they're going. #}
+    {# hide_mode_switch: süreç/pano görünümünde (mevduat panel) mod-geçiş p'ilini
+       gizler — kullanıcı kararı 2026-07-22: bir sürece tıkladığımda sağ üstte
+       "Atölyeye geç" olmasın. #}
+    {% if not hide_mode_switch %}
     {% if request.endpoint == 'prisma_home.atolye_home' %}
       <a class="mode-back" id="modeBack"
          href="{{ url_for('prisma_home.landing') }}"
@@ -39,6 +43,7 @@
          href="{{ url_for('prisma_home.atolye_home') }}"
          data-target="atolye"
          title="Atölye / Üretim ekranına geç">Atölyeye geç →</a>
+    {% endif %}
     {% endif %}
     {# Phase 12.light — theme toggle. Sun shows in light mode (click to
        go dark), Moon shows in dark mode (click to go light). The visible

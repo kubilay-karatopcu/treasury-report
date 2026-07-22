@@ -3,15 +3,52 @@
 
 {% block head %}
 <style>
-  /* Landing-only tweaks. The shared .expert-featured / .experts-grid /
-     .expert-cell classes from prisma.css carry the prototype's design. */
-  .landing-featured-tone {
-    /* The .expert-featured component has a hardcoded `border-left: 2px solid var(--liq)`
-       in prisma.css. We override per-expert via a CSS custom prop. */
-    border-left-color: var(--landing-featured-accent, var(--liq)) !important;
+  /* ── Öne çıkan uzman kartı — Tasarım C ("uzmanın sesi önde"), 2026-07-22.
+     Aksan rengi uzmanın alanından (--efc-accent, ör. dep=yeşil). ─────────── */
+  .expert-featured-c {
+    display: grid;
+    grid-template-columns: 1fr auto;   /* rail yoksa (metrik yok) sağ kolon çöker */
+    gap: 36px;
+    padding: 32px 36px;
+    background: linear-gradient(135deg, var(--bg-2), var(--bg-1));
+    border: 1px solid var(--border-soft);
+    border-left: 2px solid var(--efc-accent, var(--gold));
+    transition: transform 0.3s, border-color 0.3s;
   }
-  .landing-featured-tone .glyph .domain-letters {
-    color: var(--landing-featured-accent, var(--liq));
+  .expert-featured-c:hover { transform: translateX(2px); border-color: var(--border); }
+  .efc-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+  .efc-badge {
+    width: 46px; height: 46px; border-radius: 10px; flex: none;
+    display: grid; place-items: center;
+    border: 1px solid var(--efc-accent, var(--gold));
+    background: rgba(255,255,255,0.03);
+    background: color-mix(in srgb, var(--efc-accent, var(--gold)) 12%, transparent);
+    font-family: var(--mono); font-size: 14px; letter-spacing: 0.04em;
+    color: var(--efc-accent, var(--gold));
+  }
+  .efc-who .efc-name { display: block; font-size: 20px; font-weight: 300; color: var(--ink); letter-spacing: -0.01em; }
+  .efc-who .efc-dom { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); margin-top: 4px; }
+  .efc-quote {
+    font-family: var(--serif); font-size: 21px; font-weight: 200; font-style: italic;
+    line-height: 1.5; letter-spacing: -0.005em; color: var(--ink); margin: 0;
+  }
+  .efc-quote::before {
+    content: "\201C"; color: var(--efc-accent, var(--gold)); font-size: 46px;
+    font-style: normal; line-height: 0; vertical-align: -16px;
+    margin-right: 6px; margin-left: -6px; opacity: 0.7;
+  }
+  .efc-status { margin-top: 22px; display: inline-flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--efc-accent, var(--gold)); }
+  .efc-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--efc-accent, var(--gold)); }
+  .efc-cta { display: block; margin-top: 18px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); transition: color 0.2s; }
+  .expert-featured-c:hover .efc-cta { color: var(--efc-accent, var(--gold)); }
+  .efc-rail { width: 212px; display: flex; flex-direction: column; gap: 16px; justify-content: center; border-left: 1px solid var(--border-soft); padding-left: 28px; }
+  .efc-rail .efc-m .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
+  .efc-rail .efc-m .v { display: block; font-size: 22px; font-weight: 200; margin-top: 3px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .efc-rail .efc-m .v.neg { color: var(--red-soft); }
+  .efc-rail .efc-m .v.pos { color: var(--efc-accent, var(--gold)); }
+  @media (max-width: 900px) {
+    .expert-featured-c { grid-template-columns: 1fr; gap: 22px; }
+    .efc-rail { border-left: none; border-top: 1px solid var(--border-soft); padding-left: 0; padding-top: 20px; flex-direction: row; flex-wrap: wrap; gap: 28px; }
   }
 </style>
 {% endblock %}
@@ -25,15 +62,9 @@
     {% endif %}
     <h1>
       Günaydın{% if current_user.is_authenticated %},
-      <span class="accent">{{ current_user.name.split(' ')[0] }}</span>{% endif %}.<br>
-      Uzmanların <span class="accent">seni bekliyor.</span>
+      <span class="accent">{{ current_user.name.split(' ')[0] }}</span>{% endif %}.
     </h1>
-    {% if featured_expert %}
-    <p class="sub">
-      Altı uzman, kurumun günlük hazine resmini farklı pencerelerden çekiyor.
-      Bu sabah için {{ featured_expert.domain_label }} öne çıkıyor; diğerleri sakin.
-    </p>
-    {% else %}
+    {% if not featured_expert and not other_experts %}
     <p class="sub">Henüz uzman tanımlanmamış — Atölye'den ekleyebilirsin.</p>
     {% endif %}
     <span class="gold-rule"></span>
@@ -43,50 +74,40 @@
   {# ── Featured expert ────────────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">01</span>
-    <span class="section-title">Senin İçin Bu Sabah</span>
+    <span class="section-title">Uzmanların</span>
     <span class="section-tail"></span>
   </div>
 
-  <a class="expert-featured landing-featured-tone"
+  {# Tasarım C — "uzmanın sesi önde" (kullanıcı seçimi 2026-07-22). #}
+  <a class="expert-featured-c"
      href="{{ url_for('prisma_home.expert_detail', code=featured_expert.id) }}"
-     style="--landing-featured-accent: {{ featured_expert.ui.accent_color }};
+     style="--efc-accent: {{ featured_expert.ui.accent_color }};
             text-decoration: none; color: inherit;">
-    <div>
-      <div class="glyph"><span class="domain-letters">{{ featured_expert.code }}</span></div>
-      <div class="glyph-meta">
-        <span class="name">{{ featured_expert.name }}</span>
-        <span>{{ featured_snapshots|length }} kaynakça</span>
-      </div>
-    </div>
-
-    <div>
-      <p class="voice">
-        {% if featured_expert.persona.voice_examples %}{{ featured_expert.persona.voice_examples[0] }}{% endif %}
-      </p>
-      {% if featured_snapshots %}
-      <div class="footnotes">
-        <span class="footnote-label">Kaynakça</span>
-        {% for snap in featured_snapshots[:4] %}
-          <span class="cite">{{ snap.title[:32] if snap.title else snap.snapshot_id[-6:] }}</span>
-        {% endfor %}
-      </div>
-      {% endif %}
-    </div>
-
-    <div class="rail">
-      {% if featured_briefing.metrics %}
-        {% for m in featured_briefing.metrics[:4] %}
-        <div class="rail-item">
-          <span class="k">{{ m.k }}</span>
-          <span class="v {% if m.tone == 'neg' %}neg{% elif m.tone == 'pos' %}pos{% endif %}">
-            {{ m.v }}{% if m.delta %} <span class="unit">{{ m.delta }}</span>{% endif %}
-          </span>
+    <div class="efc-main">
+      <div class="efc-head">
+        <div class="efc-badge">{{ featured_expert.code }}</div>
+        <div class="efc-who">
+          <span class="efc-name">{{ featured_expert.name }}</span>
+          <span class="efc-dom">{{ featured_expert.domain_label }}</span>
         </div>
-        {% endfor %}
-      {% endif %}
+      </div>
+      <p class="efc-quote">
+        {% if featured_expert.persona.voice_examples %}{{ featured_expert.persona.voice_examples[0] }}{% else %}{{ featured_expert.short_description }}{% endif %}
+      </p>
+      <span class="efc-status"><span class="dot"></span>Öne çıkan</span>
+      <span class="efc-cta">Uzmana bak →</span>
     </div>
 
-    <span class="expert-cta">Brifingi aç</span>
+    {% if featured_briefing.metrics %}
+    <div class="efc-rail">
+      {% for m in featured_briefing.metrics[:3] %}
+      <div class="efc-m">
+        <span class="k">{{ m.k }}</span>
+        <span class="v {% if m.tone == 'neg' %}neg{% elif m.tone == 'pos' %}pos{% endif %}">{{ m.v }}{% if m.delta %} {{ m.delta }}{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </a>
   {% endif %}
 
