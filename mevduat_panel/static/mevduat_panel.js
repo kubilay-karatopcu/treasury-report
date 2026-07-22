@@ -7940,7 +7940,13 @@
       domLayout: "autoHeight",
       suppressHorizontalScroll: false,
       suppressCellFocus: false,
-      defaultColDef: { resizable: true, sortable: false, filter: false },
+      defaultColDef: { resizable: true, sortable: false, filter: false, minWidth: 60 },
+      // Kolonlar blok genişliğine yayılsın (sabit genişlikler blok dar kalıp
+      // sağda boşluk bırakıyordu — kullanıcı kararı 2026-07-22). Fit hem açılışta
+      // hem kap yeniden boyutlanınca uygulanır; oranlar korunarak genişletilir.
+      onGridReady: function(e) { try { e.api.sizeColumnsToFit(); } catch (err) {} },
+      onGridSizeChanged: function(e) { try { e.api.sizeColumnsToFit(); } catch (err) {} },
+      onFirstDataRendered: function(e) { try { e.api.sizeColumnsToFit(); } catch (err) {} },
       onCellClicked: function(e) {
         if (!e.data) return;
         // Drill-down açan hücreler: b0..bN (belirli AUM band) veya _total
@@ -8210,6 +8216,10 @@
   function _openWeeklyDrill(ctx) {
     var modal = document.getElementById("wr-drill-modal");
     if (!modal) return;
+    // Modal .main içinde yaşıyordu → position:fixed ata kabuk bağlamına düşüp
+    // solda yarım açılıyordu. chart-fs-overlay'in kanıtlı kalıbı gibi body'ye
+    // taşınır (CSS değişkenleri :root'ta, renkler korunur) → viewport ortalı.
+    if (modal.parentNode !== document.body) document.body.appendChild(modal);
     modal.classList.remove("hidden");
     document.getElementById("wr-drill-close").onclick = function(){
       modal.classList.add("hidden");
@@ -8620,21 +8630,11 @@
     if (el) el.addEventListener("change", pair[1]);
   });
 
-  // Daily Deposit Detail accordion toggle
-  document.getElementById("acc-btn-ddd-wf").addEventListener("click", function() {
-    dddWfOpen = !dddWfOpen;
-    this.classList.toggle("open", dddWfOpen);
-    var body = document.getElementById("acc-body-ddd-wf");
-    if (dddWfOpen) {
-      // Use "none" so newly-shown companions can grow the box freely.
-      body.style.maxHeight = "none";
-      body.style.overflow  = "visible";
-      if (dddFigs) renderDddSlide(dddSlide);
-    } else {
-      body.style.maxHeight = "0";
-      body.style.overflow  = "hidden";
-    }
-  });
+  // Blok kapat/aç (collapse) özelliği KALDIRILDI (kullanıcı kararı 2026-07-22):
+  // başlığa tıklama yalnız tam-ekran açar. Eski manuel toggle, waterfall
+  // başlığına basınca hem fullscreen hem collapse tetikliyor, fullscreen'den
+  // çıkınca blok gizli kalıyordu. Blok HTML'de açık başlar (open + maxHeight:none);
+  // veri gelince auto-open zaten açık tutar.
 
   // Daily Deposit Detail carousel prev/next
   document.getElementById("ddd-prev").addEventListener("click", function() {
@@ -10382,7 +10382,8 @@
          + inner + '</div>';
   }
 
-  // ── Çift-tık combo chart: hücrenin new-prod zaman serisi (heatmap'in sağında) ──
+  // ── Hücre-tık combo chart: hücrenin new-prod zaman serisi (heatmap'in ALTINDA,
+  //    tam genişlik — 2026-07-22 UX kararı) ──
   var _npRvHmComboChart = null;
   var _npRvHmComboOk    = false;
   function _initNpRvHmCombo() {
@@ -10518,6 +10519,8 @@
     var _dl = function(v) { return v === "__ALL__" ? "ALL" : v; };
     if (titleEl) titleEl.textContent = _dl(ch) + " × " + _dl(au);
     if (subEl) subEl.textContent = d0 + " → " + d1 + "  ·  booked deposits (new production)";
+    // wr-drill-modal ile aynı düzeltme: body'ye taşı → viewport ortalı fixed.
+    if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
     if (modal) modal.classList.remove("hidden");
     if (statusEl) statusEl.textContent = "Yükleniyor...";
 

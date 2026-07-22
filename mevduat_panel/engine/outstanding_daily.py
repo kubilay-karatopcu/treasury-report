@@ -180,6 +180,12 @@ def load_outstanding_daily() -> pd.DataFrame:
     return _OD_CACHE
 
 
+def reset_caches() -> None:
+    """Process-ömrü cache'ini boşaltır (data-refresh endpoint'i çağırır)."""
+    global _OD_CACHE
+    _OD_CACHE = None
+
+
 # ── Aggregation ──────────────────────────────────────────────────────────────
 
 def aggregate_outstanding(

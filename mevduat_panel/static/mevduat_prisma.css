@@ -75,6 +75,9 @@ body.prisma { display: block; }
   min-width: 240px;
   background: var(--bg-1);
   border-right: 1px solid var(--border-soft);
+  /* Flex column: kontrol dock'u (mv-dock, margin-top:auto) en alta otursun. */
+  display: flex;
+  flex-direction: column;
 }
 .mevduat-mount .sidebar-brand {
   font-family: var(--sans);
@@ -316,9 +319,12 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
 
 /* 7b. Ferahlık — PRISMA sunum hissi: geniş dış boşluk, bloklar arası nefes,
    içerik ultra-geniş ekranda ortalanır. */
+/* Responsive dış boşluk (2026-07-22): sağ/sol margin ve bloklar arası vertical
+   boşluk viewport'a göre ölçeklenir — küçük ekrana geçince 40px'e düşüp
+   "kaybolmasın". Yatay: 24px → 72px; vertical gap: 30px → 48px. */
 .mevduat-mount .main {
-  padding: 28px 40px 56px;
-  gap: 30px;
+  padding: clamp(24px, 3vh, 34px) clamp(24px, 4.5vw, 72px) 56px;
+  gap: clamp(30px, 4vh, 48px);
   align-items: center;
 }
 .mevduat-mount .main > * {
@@ -326,7 +332,7 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
   max-width: 1560px;
 }
 .mevduat-mount .card { padding: 18px 20px !important; }
-.mevduat-mount .main .card[style*="margin-top"] { margin-top: 28px !important; }
+.mevduat-mount .main .card[style*="margin-top"] { margin-top: clamp(28px, 4vh, 44px) !important; }
 .mevduat-mount .charts-grid { gap: 24px; }
 .mevduat-mount .filters { padding: 14px 18px; row-gap: 12px; }
 .mevduat-mount .accordion-header { padding-top: 13px; padding-bottom: 13px; }
@@ -380,7 +386,7 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
   border-radius: 0;
   overflow: visible;
   counter-increment: mvsec;
-  margin-top: 34px;
+  margin-top: clamp(34px, 4.5vh, 52px);
 }
 .mevduat-mount .accordion:first-of-type { margin-top: 0; }
 .mevduat-mount .accordion-header {
@@ -421,6 +427,39 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
   margin-top: 14px;
 }
 
+/* 8d. Haftalık tablo başlıkları → diğer sayfaların numaralı PRISMA bölüm başlığı
+   dili (mvsec sayacı #weekly-report-section'da reset'lenir). Küçük düz başlıklar
+   yerine gold numara + caps + hairline. */
+.mevduat-mount .wr-sec-head {
+  counter-increment: mvsec;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.mevduat-mount .wr-sec-head::before {
+  content: counter(mvsec, decimal-leading-zero);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--gold);
+  letter-spacing: 0.1em;
+}
+.mevduat-mount .wr-sec-head .wr-sec-sub {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-faint);
+  font-weight: 400;
+  font-size: 12px;
+}
+
 /* 8c. Tam ekran: ekranı komple kaplamak yerine kenarlardan boşluklu modal;
    arkası karartılır, dışarı tıklayınca kapanır (JS). */
 .chart-fs-overlay {
@@ -439,16 +478,18 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
 }
 
 /* 8d. Sağ-alt kontrol dock'u — PRISMA kart dili, drawer. */
+/* Sol navbar (sidebar) alt kontrol paneli — 2026-07-22: fixed sağ-alt yerine
+   sidebar akışının en altına oturur (plot'ların üstüne binmez). Sidebar flex
+   column + margin-top:auto ile en alta itilir; sticky bottom ile nav kayarken
+   görünür kalır. */
 .mv-dock {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 900;
-  width: 320px;
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  width: 100%;
   background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -474,12 +515,12 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
 .mv-dock-dates {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10px;
   color: var(--gold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 190px;
+  max-width: 118px;
 }
 .mv-dock-toggle {
   background: none;
@@ -551,8 +592,6 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
 /* BSC sunumu ya da tam ekran açıkken dock gizlenir. */
 body:has(#bsc-pres:not(.hidden)) .mv-dock,
 body:has(.chart-fs-overlay) .mv-dock { display: none !important; }
-/* Light modda gölge yumuşar. */
-body.light-mode .mv-dock { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
 
 /* 8e. Filtre şeridi okunabilirliği + Grupla butonu. */
 .mevduat-mount .main label { font-size: 13px; }
