@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from itertools import groupby
 from typing import Any
 
-from flask import Response, current_app, redirect, render_template, request, url_for
+from flask import Response, abort, current_app, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from presentations import presentations_bp
@@ -732,6 +732,45 @@ def atolye_sablonlar():
         templates=templates,
         expert_index=expert_index,
         total=len(templates),
+    )
+
+
+# ── Süreç Düzenlileştirme — custom süreç kütüphanesi + dökümantasyon ───────
+# docs/PROCESS_REGULARIZATION_PLAN.md. prisma_home.processes lazy import
+# edilir (prisma_home ↔ presentations döngüsel importunu önlemek için —
+# routes_library.py'daki `from prisma_home.experts import Expert` ile aynı desen).
+
+
+@presentations_bp.route("/atolye/surec-katalog")
+@login_required
+def atolye_surec_katalog():
+    """Kütüphane / Süreçler — uzmanların canlı panoları (custom süreçler),
+    dökümantasyon durumuyla listelenir."""
+    from prisma_home.processes import list_processes
+
+    procs = list_processes()
+    documented_total = sum(1 for p in procs if p.get("documented"))
+    return render_template(
+        "presentations/atolye/surec_katalog.html",
+        processes=procs,
+        total=len(procs),
+        documented_total=documented_total,
+    )
+
+
+@presentations_bp.route("/atolye/surec/<pid>")
+@login_required
+def atolye_surec_detay(pid):
+    """Tek sürecin dökümantasyon ekranı (amaç/iş bağlamı/karar desteği/sınırlar
+    + bileşen custom blokları)."""
+    from prisma_home.processes import get_process
+
+    process = get_process(pid)
+    if process is None:
+        abort(404)
+    return render_template(
+        "presentations/atolye/surec_detay.html",
+        process=process,
     )
 
 

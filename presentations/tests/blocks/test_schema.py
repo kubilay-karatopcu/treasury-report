@@ -262,3 +262,53 @@ class TestCompositeBlock:
                 visualization={"type": "kpi", "config": {}},
                 children=[{"id": "c", "type": "kpi"}],
             )
+
+
+class TestCustomBlock:
+    """Süreç Düzenlileştirme — kind:'custom' blok: SQL/viz yok, custom_render var
+    (docs/PROCESS_REGULARIZATION_PLAN.md §2.2)."""
+
+    def _custom(self, **over):
+        kw = dict(
+            id="camon_bubble", version=1, title="Cost Bubble",
+            team="dep", owner="A16438", created_at="2026-07-22T10:00:00Z",
+            kind="custom",
+            custom_render={"endpoint": "mevduat_panel.index",
+                           "page": "cost-analysis", "anchor": "ca-mon-bub-bal"},
+        )
+        kw.update(over)
+        return Block(**kw)
+
+    def test_custom_parses(self):
+        b = self._custom()
+        assert b.kind == "custom"
+        assert b.visualization is None
+        assert b.query == ""
+        assert b.custom_render.endpoint == "mevduat_panel.index"
+        assert b.custom_render.anchor == "ca-mon-bub-bal"
+
+    def test_custom_round_trip(self):
+        b = self._custom(documentation={"purpose": "test"})
+        reparsed = load_block_from_dict(block_to_dict(b))
+        assert reparsed.kind == "custom"
+        assert reparsed.custom_render.page == "cost-analysis"
+        assert reparsed.documentation.purpose == "test"
+
+    def test_custom_requires_custom_render(self):
+        with pytest.raises(ValidationError):
+            Block(
+                id="camon_bubble", version=1, title="x", team="dep", owner="x",
+                created_at="2026-07-22T10:00:00Z", kind="custom",
+            )
+
+    def test_custom_rejects_query(self):
+        with pytest.raises(ValidationError):
+            self._custom(query="SELECT 1")
+
+    def test_custom_rejects_visualization(self):
+        with pytest.raises(ValidationError):
+            self._custom(visualization={"type": "kpi", "config": {}})
+
+    def test_custom_rejects_children(self):
+        with pytest.raises(ValidationError):
+            self._custom(children=[{"id": "c", "type": "kpi"}])

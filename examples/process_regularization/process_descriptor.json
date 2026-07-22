@@ -1,0 +1,25 @@
+{
+  "_comment": "Süreç Düzenlileştirme (docs/PROCESS_REGULARIZATION_PLAN.md §2.1) — örnek Process Descriptor. Bugün prisma_home/processes.py::PROCESS_REGISTRY bu şekli taşır; versiyonlu store D1'de gelir. list_processes()/get_process() bu descriptor'ı okur.",
+  "id": "mevduat.maliyet",
+  "title": "Outstanding Cost Analysis",
+  "summary": "Monthly averages & daily evolution · bubble · rate heatmap",
+  "owner": "A16438",
+  "source_kind": "custom",
+  "expert": "dep",
+  "render": {
+    "endpoint": "mevduat_panel.index",
+    "page": "cost-analysis",
+    "config_flag": "MEVDUAT_PANEL_ENABLED"
+  },
+  "documentation": {
+    "purpose": "TL mevduat stoğunun ağırlıklı ortalama maliyetini aylık ortalama ve günlük evrim ekseninde izler; maliyetin kırılımını ayrıştırır.",
+    "business_context": "Fonlama maliyeti hazine NIM'inin en oynak kalemi; artışın kampanya/mix/piyasa kaynaklı olduğunu waterfall gösterir.",
+    "decision_support": "Fiyatlama komitesine 'maliyet nereden bozuldu' sorusunun kırılımlı cevabını verir.",
+    "known_limitations": "Etkileşimli drill/bubble SPA'ya özgü; veri kaynağı bugün canlı Oracle (ETL mart devri D3)."
+  },
+  "blocks": ["camon_wf", "camon_bubble", "camon_ratehm"],
+  "data_sources": [],
+  "concept_bindings": {},
+  "snapshot_ref": null,
+  "descriptor_version": "proc-1"
+}
