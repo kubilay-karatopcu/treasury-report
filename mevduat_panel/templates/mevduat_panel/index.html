@@ -24,7 +24,10 @@
 {% endblock %}
 
 {% block content %}
-<div class="mevduat-mount">
+<!-- lang="en": PRISMA kabuğu <html lang="tr"> → CSS text-transform:uppercase
+     İngilizce 'i'yi Türkçe 'İ'ye çeviriyordu (ör. DIMENSIONS & VIEW). Panel
+     arayüzü İngilizce olduğundan casing İngilizce kurallarıyla yapılsın. -->
+<div class="mevduat-mount" lang="en">
   <!-- Tema toggle: Faz P1'de PRISMA topbar toggle'ına köprülendi; buton
        normalde gizli, yalnız BSC tam-ekran overlay'inde (#bsc-theme-host,
        topbar'ı örter) görünür kalır. -->
@@ -1469,11 +1472,14 @@
           <span id="np-drill-status" class="status-text" style="display:block;margin-bottom:8px;"></span>
           <!-- KPI şeridi -->
           <div id="np-drill-kpis" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;"></div>
-          <!-- Grafikler: fiyat histogram | dtm histogram | zaman serisi combo -->
+          <!-- Grafikler: fiyat histogram | dtm histogram | zaman serisi combo.
+               min-width:0 ŞART: grid item varsayılan min-width:auto olduğundan
+               Plotly/Apex grafiği fraction'dan geniş render edilince kolon büyüyüp
+               grafikler modal dışına taşıyordu (2026-07-22 fix). -->
           <div style="display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:14px;margin-bottom:14px;">
-            <div class="card" style="margin:0;padding:8px;"><div id="np-drill-rate-hist" style="min-height:240px;"></div></div>
-            <div class="card" style="margin:0;padding:8px;"><div id="np-drill-dtm-hist" style="min-height:240px;"></div></div>
-            <div class="card" style="margin:0;padding:8px;"><div id="np-drill-combo" style="min-height:240px;"></div></div>
+            <div class="card" style="margin:0;padding:8px;min-width:0;overflow:hidden;"><div id="np-drill-rate-hist" style="min-height:240px;width:100%;"></div></div>
+            <div class="card" style="margin:0;padding:8px;min-width:0;overflow:hidden;"><div id="np-drill-dtm-hist" style="min-height:240px;width:100%;"></div></div>
+            <div class="card" style="margin:0;padding:8px;min-width:0;overflow:hidden;"><div id="np-drill-combo" style="min-height:240px;width:100%;"></div></div>
           </div>
           <!-- Mevduat dökümü tablosu -->
           <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-primary,#E8ECF1);
