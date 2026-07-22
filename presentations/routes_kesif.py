@@ -759,9 +759,16 @@ def atolye_surec_detay(pid):
     process = get_process(pid)
     if process is None:
         abort(404)
+    # ?blok=<id> → bloğa odaklı görünüm: başlıkta bloğun KENDİ adı (Bloklar
+    # kütüphanesindeki karttan gelindiğinde süreç adı değil).
+    focus_id = request.args.get("blok")
+    focus_block = next(
+        (b for b in process.get("blocks", []) if b.get("id") == focus_id), None,
+    ) if focus_id else None
     return render_template(
         "presentations/atolye/surec_detay.html",
         process=process,
+        focus_block=focus_block,
         edit_mode=request.args.get("edit") == "1",
     )
 
