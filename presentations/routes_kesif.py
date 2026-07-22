@@ -717,32 +717,9 @@ def atolye_sablonlar():
     contract (immutable, versioned, separate from snapshots); for now we
     surface what the user already has so the page isn't a dead stub.
     """
-    snapshot_store = current_app.config.get("SNAPSHOT_STORE")
-    expert_store = current_app.config.get("EXPERT_STORE")
-    try:
-        all_meta = snapshot_store.list_all_meta() if snapshot_store else []
-    except Exception:
-        log.exception("atolye_sablonlar: snapshot list_all_meta failed")
-        all_meta = []
-
-    # Only snapshots bound to an expert qualify as templates — gives the
-    # page a coherent shape (otherwise every ad-hoc snapshot leaks in).
-    templates = [m for m in all_meta if m.get("bound_experts")]
-    templates.sort(key=lambda m: m.get("created_at", ""), reverse=True)
-    templates = templates[:24]  # keep it tight
-
-    # Lookup expert metadata (code + accent color) for the badge column.
-    expert_index = {}
-    if expert_store is not None:
-        for e in expert_store.list_all():
-            expert_index[e.id] = {"code": e.code, "color": e.ui.get("accent_color", "#6B8AFD")}
-
-    return render_template(
-        "presentations/atolye/sablonlar.html",
-        templates=templates,
-        expert_index=expert_index,
-        total=len(templates),
-    )
+    # W2 (Süreç Düzenlileştirme): snapshot-tabanlı liste kaldırıldı — 'her şey
+    # bir süreçtir'. Eski yer imleri birleşik Süreçler kataloğuna yönlenir.
+    return redirect(url_for("presentations.atolye_surec_katalog"))
 
 
 # ── Süreç Düzenlileştirme — custom süreç kütüphanesi + dökümantasyon ───────
@@ -756,9 +733,13 @@ def atolye_sablonlar():
 def atolye_surec_katalog():
     """Kütüphane / Süreçler — uzmanların canlı panoları (custom süreçler),
     dökümantasyon durumuyla listelenir."""
-    from prisma_home.processes import list_processes
+    from prisma_home.processes import list_pipeline_processes, list_processes
 
-    procs = list_processes()
+    # W2: custom + pipeline (yayınlanmış sunumlar) tek katalogda — 'her şey
+    # bir süreçtir'. Numara birleşik listede yeniden atanır.
+    procs = list_processes() + list_pipeline_processes()
+    for i, p in enumerate(procs, start=1):
+        p["num"] = f"{i:02d}"
     documented_total = sum(1 for p in procs if p.get("documented"))
     return render_template(
         "presentations/atolye/surec_katalog.html",

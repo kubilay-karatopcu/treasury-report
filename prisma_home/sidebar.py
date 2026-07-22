@@ -35,9 +35,8 @@ SIDEBAR_GROUPS = [
             {"key": "surec_katalog", "num": "∎", "label": "Süreçler", "route": "presentations.atolye_surec_katalog"},
             {"key": "uzmanlar",  "num": "✦", "label": "Uzmanlar",  "route": "presentations.atolye_uzmanlar"},
             {"key": "taslaklar", "num": "◇", "label": "Şablonlar", "route": "presentations.atolye_taslaklar"},
-            # Eski snapshot-tabanlı "Süreçler" → dürüst ad: "Snapshot'lar"
-            # (custom süreçler artık üstteki surec_katalog'da; tek gerçeklik).
-            {"key": "sablonlar", "num": "◫", "label": "Snapshot'lar", "route": "presentations.atolye_sablonlar"},
+            # W2: Snapshot'lar item'ı kaldırıldı — yayınlar Süreçler kataloğunda
+            # 'pipeline' rozetiyle listelenir (route redirect ile yaşıyor).
         ],
     },
     {
