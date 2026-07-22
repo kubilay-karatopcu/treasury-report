@@ -437,8 +437,10 @@
     const desc = m.description ? `<div class="bc-desc">${escapeHtml(m.description)}</div>` : '';
     const dateStr = (m.updated_at || m.created_at || '').slice(0, 10);
 
-    return `
-      <a class="blk-card" href="${editUrl(m.team, m.id)}">
+    // W1 (Süreç Düzenlileştirme): custom süreç bileşeni — kart süreç detayına
+    // gider; store kaydı olmadığından önizle/sil aksiyonları gösterilmez.
+    const href = m.custom_href || editUrl(m.team, m.id);
+    const actions = m.custom_href ? '' : `
         <div class="blk-card-actions">
           <button type="button" class="blk-card-action js-preview"
                   data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
@@ -448,7 +450,11 @@
                   data-team="${escapeHtml(m.team)}" data-id="${escapeHtml(m.id)}"
                   data-title="${escapeHtml(m.title)}"
                   title="Sil (deprecate)">🗑</button>
-        </div>
+        </div>`;
+
+    return `
+      <a class="blk-card" href="${href}">
+        ${actions}
         <div class="bc-pill">${icon} ${escapeHtml(typeLabel)}</div>
         <div class="bc-title">${escapeHtml(m.title)}</div>
         ${desc}

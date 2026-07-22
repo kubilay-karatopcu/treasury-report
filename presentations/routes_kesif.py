@@ -203,6 +203,16 @@ def atolye_bloklar():
         log.exception("atolye_bloklar: BlockStore listing failed")
         blocks_initial = []
 
+    # W1 (Süreç Düzenlileştirme): süreçlerin kind:custom bileşen blokları da
+    # listede görünür (listing-merge; store'a kopyalanmaz, kart süreç detayına
+    # gider). Hata olursa liste normal bloklarla devam eder.
+    try:
+        from prisma_home.processes import list_component_block_summaries
+
+        blocks_initial.extend(list_component_block_summaries())
+    except Exception:
+        log.exception("atolye_bloklar: custom process block listing failed")
+
     return render_template(
         "presentations/atolye/bloklar.html",
         blocks_initial=blocks_initial,
@@ -762,7 +772,7 @@ def atolye_surec_katalog():
 @login_required
 def atolye_surec_detay(pid):
     """Tek sürecin dökümantasyon ekranı (amaç/iş bağlamı/karar desteği/sınırlar
-    + bileşen custom blokları)."""
+    + bileşen custom blokları). ?edit=1 → düzenleme formu."""
     from prisma_home.processes import get_process
 
     process = get_process(pid)
@@ -771,7 +781,55 @@ def atolye_surec_detay(pid):
     return render_template(
         "presentations/atolye/surec_detay.html",
         process=process,
+        edit_mode=request.args.get("edit") == "1",
     )
+
+
+_PROC_DOC_FIELDS = ("purpose", "business_context", "decision_support", "known_limitations")
+
+
+@presentations_bp.route("/atolye/surec/<pid>/docs", methods=["POST"])
+@login_required
+def atolye_surec_docs_save(pid):
+    """W1 — süreç + blok dökümantasyonunu kaydeder (yeni overlay versiyonu).
+
+    Form alanları: ``doc__<field>`` (süreç) ve ``blockdoc__<block_id>__<field>``.
+    Boş alan overlay'e yazılmaz → okuma anında registry seed'i görünür kalır.
+    """
+    from prisma_home.processes import PROCESS_REGISTRY
+
+    if pid not in PROCESS_REGISTRY:
+        abort(404)
+    store = current_app.config.get("PROCESS_STORE")
+    if store is None:
+        abort(503, description="PROCESS_STORE yapılandırılmamış")
+
+    documentation = {
+        f: (request.form.get(f"doc__{f}") or "").strip() or None
+        for f in _PROC_DOC_FIELDS
+    }
+    blocks_doc: dict[str, dict] = {}
+    valid_block_ids = {b.get("id") for b in PROCESS_REGISTRY[pid].get("blocks") or []}
+    for key, val in request.form.items():
+        if not key.startswith("blockdoc__"):
+            continue
+        try:
+            _, bid, field = key.split("__", 2)
+        except ValueError:
+            continue
+        if bid not in valid_block_ids or field not in _PROC_DOC_FIELDS:
+            continue
+        cleaned = (val or "").strip()
+        if cleaned:
+            blocks_doc.setdefault(bid, {})[field] = cleaned
+
+    store.save_new_version({
+        "process_id": pid,
+        "updated_by": getattr(current_user, "sicil", "") or "",
+        "documentation": documentation,
+        "blocks_documentation": blocks_doc,
+    })
+    return redirect(url_for("presentations.atolye_surec_detay", pid=pid))
 
 
 # ── Phase 12.workshops — Şablonlar (in-progress workshops) ────────────────
