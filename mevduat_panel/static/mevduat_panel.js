@@ -8621,7 +8621,7 @@
       dddDims[dim] = !dddDims[dim];
       btn.classList.toggle("active", dddDims[dim]);
       _applyProductSubMutex(dim, dddDims, ".ddd-dim-btn");
-      fetchDailyDepositWaterfalls();
+      _keepMainScroll(function() { return fetchDailyDepositWaterfalls(); });
     });
   });
 
@@ -8631,7 +8631,7 @@
    ["ddd",    function() { fetchDailyDepositWaterfalls(); _fetchCaRateHeatmap("ddd"); }]
   ].forEach(function(pair) {
     var el = document.getElementById(pair[0] + "-rate-conv");
-    if (el) el.addEventListener("change", pair[1]);
+    if (el) el.addEventListener("change", function() { _keepMainScroll(pair[1]); });
   });
 
   // Blok kapat/aç (collapse) özelliği KALDIRILDI (kullanıcı kararı 2026-07-22):
@@ -8729,7 +8729,7 @@
       caMonDims[dim] = !caMonDims[dim];
       btn.classList.toggle("active", caMonDims[dim]);
       _applyProductSubMutex(dim, caMonDims, ".ca-mon-dim-btn");
-      fetchCaMonWaterfalls();
+      _keepMainScroll(function() { return fetchCaMonWaterfalls(); });
     });
   });
 
@@ -8847,11 +8847,17 @@
     var top = main ? main.scrollTop : 0;
     var restore = function() { if (main) main.scrollTop = top; };
     var ret = fn();
+    // Tam-sayfa re-render (waterfall+bubble+heatmap+drill) çok aşamalı reflow
+    // + Plotly render + drill scrollIntoView(smooth) yapar → yerleşim ~600ms'ye
+    // yayılabilir. Kısa bir pencerede tekrar tekrar geri koy (dim değişiminde
+    // kullanıcı zaten kaydırmıyor; buton tıkladı).
     requestAnimationFrame(function() { restore(); requestAnimationFrame(restore); });
-    // Plotly render/reflow bir tık geç oturabilir → küçük gecikmeli ikinci geçiş.
-    setTimeout(restore, 80);
+    [60, 150, 300, 500, 750].forEach(function(ms) { setTimeout(restore, ms); });
     if (ret && typeof ret.then === "function") {
-      ret.then(function() { requestAnimationFrame(restore); setTimeout(restore, 60); });
+      ret.then(function() {
+        requestAnimationFrame(restore);
+        [60, 200, 400].forEach(function(ms) { setTimeout(restore, ms); });
+      });
     }
     return ret;
   }
@@ -8898,16 +8904,20 @@
     var bd = document.getElementById(pfx + "-break-dim");
     if (!bd) return;
     bd.addEventListener("change", function () {
-      var rd = _lastRateDrill[pfx];
-      if (rd && document.getElementById("rate-drill-" + rd[1].replace(/[^a-zA-Z0-9]/g, "-"))) {
-        _showRateDrill.apply(null, rd);
-      }
-      var dd = _lastDepositDrill[pfx];
-      if (dd && document.getElementById(dd.args[0])) {
-        var opts2 = Object.assign({}, dd.opts, { breakDim: bd.value || dd.opts.breakDim });
-        dd.opts = opts2;
-        _showDepositDrillDown.apply(null, dd.args.concat([opts2]));
-      }
+      // Açık drill'ler yeniden çizilirken scrollIntoView (smooth) tetiklenir →
+      // sayfa zıplıyordu. Scroll'u koru (kullanıcı bulunduğu yerde kalsın).
+      _keepMainScroll(function () {
+        var rd = _lastRateDrill[pfx];
+        if (rd && document.getElementById("rate-drill-" + rd[1].replace(/[^a-zA-Z0-9]/g, "-"))) {
+          _showRateDrill.apply(null, rd);
+        }
+        var dd = _lastDepositDrill[pfx];
+        if (dd && document.getElementById(dd.args[0])) {
+          var opts2 = Object.assign({}, dd.opts, { breakDim: bd.value || dd.opts.breakDim });
+          dd.opts = opts2;
+          _showDepositDrillDown.apply(null, dd.args.concat([opts2]));
+        }
+      });
     });
   });
 
@@ -9411,7 +9421,7 @@
         if (npVpDims[dim] && active.length === 1) return;   // sonuncuyu kapatma
         npVpDims[dim] = !npVpDims[dim];
         btn.classList.toggle("active", npVpDims[dim]);
-        _renderNpVpBubbles();   // CLIENT-side yeniden gruplama (refetch YOK, anlık)
+        _keepMainScroll(function() { _renderNpVpBubbles(); });   // CLIENT-side yeniden gruplama
       });
     });
     _syncNpDecomp2();
@@ -10587,7 +10597,7 @@
         ["Customers", (k.customer_count != null ? k.customer_count : "—")],
         ["Total Balance", fmtMn(k.total_balance_m)],
         ["WAvg Rate", k.wavg_rate != null ? k.wavg_rate.toFixed(2) + "%" : "—"],
-        ["WAvg Maturity", k.wavg_dtm != null ? Math.round(k.wavg_dtm) + " g" : "—"],
+        ["WAvg Maturity", k.wavg_dtm != null ? Math.round(k.wavg_dtm) + " d" : "—"],
         ["Campaign", k.kampanya_pct != null ? k.kampanya_pct + "%" : "—"],
       ];
       if (k.yeni_para_m != null) cards.push(["New Money", fmtMn(k.yeni_para_m)]);
@@ -10608,7 +10618,7 @@
     _renderNpDrillGrid(dd.deposits || []);
     var cnt = document.getElementById("np-drill-count");
     if (cnt) cnt.textContent = "(" + (dd.row_count || 0) + " records"
-           + ((dd.deposits || []).length < (dd.row_count || 0) ? ", ilk " + dd.deposits.length + " shown)" : ")");
+           + ((dd.deposits || []).length < (dd.row_count || 0) ? ", first " + dd.deposits.length + " shown)" : ")");
   }
 
   function _npDrillBar(elId, hist, title, color) {
