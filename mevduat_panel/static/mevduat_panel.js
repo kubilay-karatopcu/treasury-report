@@ -8221,7 +8221,7 @@
     // taşınır (CSS değişkenleri :root'ta, renkler korunur) → viewport ortalı.
     if (modal.parentNode !== document.body) document.body.appendChild(modal);
     modal.classList.remove("hidden");
-    document.getElementById("wr-drill-close").onclick = function(){
+    function _closeWrDrill(){
       modal.classList.add("hidden");
       // Modal kapanırken AG Grid instance'ını destroy et
       if (weeklyReportState.grids["wr-drill-cust-grid"]) {
@@ -8230,7 +8230,11 @@
       }
       ["wr-drill-cust-grid","wr-drill-rate-hist","wr-drill-dtm-hist","wr-drill-segments"]
         .forEach(function(id){ var el = document.getElementById(id); if (el) el.innerHTML = ""; });
-    };
+    }
+    document.getElementById("wr-drill-close").onclick = _closeWrDrill;
+    // Karartılmış zemine (backdrop) tıklayınca da kapan — panel içindeki
+    // tıklamalar kapatmaz (chart-fs-overlay ile aynı modal davranışı).
+    modal.onclick = function(e){ if (e.target === modal) _closeWrDrill(); };
 
     // Başlık: Tarih (boşsa "Dönem Geneli")
     var dateLabel;
@@ -8835,14 +8839,32 @@
   // belirlenir; kart içindeki ayrı "Detail Dim" (rate-second) kaldırıldı. Decomp veya
   // Second Dec. değişince heatmap yeniden kurulur; _syncBaSecondDim decomp2'yi
   // decomp'tan ayrık tutar (rate-second artık yok → onu sessizce atlar).
+  // Heatmap yeniden çizilince (boyut değişimi) satır sayısı değişip yükseklik
+  // düşüyor → sayfa yukarı (bubble analysis'e) zıplıyordu. .main scroll'unu
+  // render boyunca koru (kullanıcı kararı 2026-07-22: bulunulan yerde kalsın).
+  function _keepMainScroll(fn) {
+    var main = document.querySelector(".mevduat-mount .main");
+    var top = main ? main.scrollTop : 0;
+    var restore = function() { if (main) main.scrollTop = top; };
+    var ret = fn();
+    requestAnimationFrame(function() { restore(); requestAnimationFrame(restore); });
+    // Plotly render/reflow bir tık geç oturabilir → küçük gecikmeli ikinci geçiş.
+    setTimeout(restore, 80);
+    if (ret && typeof ret.then === "function") {
+      ret.then(function() { requestAnimationFrame(restore); setTimeout(restore, 60); });
+    }
+    return ret;
+  }
   ["ca-mon", "ddd"].forEach(function(pfx) {
     var dsel  = document.getElementById(pfx + "-rate-decomp");
     var d2sel = document.getElementById(pfx + "-rate-decomp2");
     if (dsel) dsel.addEventListener("change", function() {
       _syncBaSecondDim(pfx + "-rate");
-      _fetchCaRateHeatmap(pfx);
+      _keepMainScroll(function() { return _fetchCaRateHeatmap(pfx); });
     });
-    if (d2sel) d2sel.addEventListener("change", function() { _fetchCaRateHeatmap(pfx); });
+    if (d2sel) d2sel.addEventListener("change", function() {
+      _keepMainScroll(function() { return _fetchCaRateHeatmap(pfx); });
+    });
     _syncBaSecondDim(pfx + "-rate");
   });
 
@@ -10054,7 +10076,6 @@
            + ' data-ck="' + String(colL).replace(/"/g, "&quot;") + '"'
            + ' onmouseenter="_rvHmShowTip(this,event)"'
            + ' onmouseleave="_rvHmHideTip()"'
-           + ' onclick="_rvHmOpenCombo(this)"'
            + ' ondblclick="_rvHmOpenDrill(this)">'
            + txt + '</td>';
     }
@@ -10095,7 +10116,6 @@
            + ' data-ck="' + String(colL).replace(/"/g, "&quot;") + '"'
            + ' onmouseenter="_rvHmShowTip(this,event)"'
            + ' onmouseleave="_rvHmHideTip()"'
-           + ' onclick="_rvHmOpenCombo(this)"'
            + ' ondblclick="_rvHmOpenDrill(this)">'
            + txt + '</td>';
     }
@@ -10336,8 +10356,10 @@
     if (!el.dataset.tip) return;
     var mx = document.getElementById("np-rvhm-matrix");
     if (mx) mx.innerHTML = _rvHmMatrixShell(el.dataset.tip);
-    // P2 UX: combo artık hover'da DEĞİL, hücre TIKLAMASINDA açılır
-    // (_rvHmOpenCombo) — hover yalnız vurgu + tooltip matrisi.
+    // Hover combo GERİ GETİRİLDİ (kullanıcı kararı 2026-07-22): hücre üstünde
+    // gezerken sağdaki "Cell history" combo'su (np-rvhm-hover-combo) + soldaki
+    // matris birlikte güncellenir. Combo yalnız veri hücrelerinde (ch+au) çeker.
+    if (el.dataset.ch && el.dataset.au) _npHoverCombo(el.dataset.ch, el.dataset.au);
   };
   window._rvHmHideTip = function() {
     if (_rvHmHoverEl) { _rvHmHoverEl.style.boxShadow = ""; _rvHmHoverEl = null; }
@@ -10382,8 +10404,9 @@
          + inner + '</div>';
   }
 
-  // ── Hücre-tık combo chart: hücrenin new-prod zaman serisi (heatmap'in ALTINDA,
-  //    tam genişlik — 2026-07-22 UX kararı) ──
+  // ── (Legacy) hücre-tık combo paneli — 2026-07-22'de kaldırıldı: etkileşim
+  //    yeniden HOVER'a döndü (bkz. _rvHmShowTip → _npHoverCombo). Bu fonksiyonlar
+  //    artık çağrılmıyor; getElementById guard'ları null panele karşı korur. ──
   var _npRvHmComboChart = null;
   var _npRvHmComboOk    = false;
   function _initNpRvHmCombo() {
