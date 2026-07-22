@@ -498,4 +498,12 @@ _WEEKLY_AGG_DF_CACHE:  Dict[Tuple[str, str], pd.DataFrame] = {}
 _WEEKLY_FULL_DF_CACHE: Dict[Tuple[str, str], pd.DataFrame] = {}
 
 
+def reset_caches() -> None:
+    """Tarih-anahtarlı haftalık cache'leri boşaltır (data-refresh çağırır)."""
+    WEEKLY_CACHE.clear()
+    WEEKLY_SEGMENTS_CACHE.clear()
+    _WEEKLY_AGG_DF_CACHE.clear()
+    _WEEKLY_FULL_DF_CACHE.clear()
+
+
 

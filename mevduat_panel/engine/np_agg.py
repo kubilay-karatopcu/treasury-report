@@ -192,6 +192,13 @@ def load_np_data() -> pd.DataFrame:
     return _NP_CACHE
 
 
+def reset_caches() -> None:
+    """Process-ömrü cache'ini boşaltır — sonraki load_np_data yeniden çeker.
+    Data-refresh endpoint'i (prewarm.refresh_all) çağırır."""
+    global _NP_CACHE
+    _NP_CACHE = None
+
+
 # ── Filter ─────────────────────────────────────────────────────────────────────
 
 def apply_filters(

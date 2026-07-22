@@ -7,9 +7,11 @@ catch-all'dan once eslesir, stub'a dokunmak gerekmez).
 from __future__ import annotations
 
 import json
+import os
+import threading
 
-from flask import Blueprint, Response, current_app, render_template, url_for
-from flask_login import login_required
+from flask import Blueprint, Response, current_app, render_template, request, url_for
+from flask_login import current_user, login_required
 
 mevduat_panel_bp = Blueprint(
     "mevduat_panel",
@@ -49,6 +51,56 @@ def index() -> Response:
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+
+def _refresh_authorized() -> bool:
+    """Data-refresh yetkisi: token varsa token, yoksa oturum.
+
+    ODH cronjob'u başlıksız/oturumsuz curl atar → `MEVDUAT_PANEL_REFRESH_TOKEN`
+    (config veya env) ayarlıysa `X-Refresh-Token` başlığı ya da `?token=` ile
+    eşleşme aranır. Token hiç ayarlanmamışsa endpoint yalnız oturumlu kullanıcıya
+    açıktır (yanlışlıkla herkese açık kalmasın)."""
+    expected = current_app.config.get("MEVDUAT_PANEL_REFRESH_TOKEN") or os.environ.get(
+        "MEVDUAT_PANEL_REFRESH_TOKEN"
+    )
+    if expected:
+        supplied = request.headers.get("X-Refresh-Token") or request.args.get("token", "")
+        return bool(supplied) and supplied == expected
+    return bool(getattr(current_user, "is_authenticated", False))
+
+
+@mevduat_panel_bp.route("/admin/refresh", methods=["POST"])
+def admin_refresh() -> Response:
+    """Motor cache'lerini boşalt + yeniden ısıt (ODH cronjob tazeleme kancası).
+
+    `?async=1` → arka planda koşar, hemen 202 döner (cronjob worker'ı bekletmez).
+    Varsayılan senkron: tazeleme özeti ({ok, steps, elapsed_s}) döner."""
+    if not _refresh_authorized():
+        return Response(
+            json.dumps({"ok": False, "error": "yetkisiz"}),
+            status=401,
+            mimetype="application/json",
+        )
+
+    from .prewarm import refresh_all
+
+    app = current_app._get_current_object()
+    if request.args.get("async") in ("1", "true", "yes"):
+        threading.Thread(
+            target=refresh_all, args=(app,), name="mevduat-panel-refresh", daemon=True
+        ).start()
+        return Response(
+            json.dumps({"ok": True, "status": "started"}),
+            status=202,
+            mimetype="application/json",
+        )
+
+    summary = refresh_all(app)
+    return Response(
+        json.dumps(summary),
+        status=200 if summary.get("ok") else 500,
+        mimetype="application/json",
+    )
 
 
 @mevduat_panel_bp.route("/api/<path:subpath>")

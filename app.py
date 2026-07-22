@@ -552,7 +552,9 @@ try:
 
     app.register_blueprint(mevduat_panel_bp, url_prefix="/mevduat-panel")
     app.config["MEVDUAT_PANEL_ENABLED"] = True
-    if os.environ.get("MEVDUAT_PANEL_PREWARM") == "1":
+    # Prewarm varsayilan ACIK (kullanici karari 2026-07-22: pod acilisinda
+    # tum motorlar RAM'e isinir). MEVDUAT_PANEL_PREWARM=0 ile kapatilir.
+    if os.environ.get("MEVDUAT_PANEL_PREWARM", "1").strip().lower() not in ("0", "false", "no"):
         from mevduat_panel.prewarm import start_background_prewarm
 
         start_background_prewarm(app)
