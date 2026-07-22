@@ -127,6 +127,40 @@
     border: 1px solid var(--gold); border-radius: 4px; padding: 10px 22px;
   }
   .sd-save-bar button:hover { background: var(--gold-soft); border-color: var(--gold-soft); }
+
+  /* ── W3: LLM taslak önerisi ─────────────────────────────────────────── */
+  .sd-propose-bar { display: flex; align-items: center; gap: 12px; margin: 4px 0 18px; }
+  .sd-propose-btn {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+    text-transform: uppercase; cursor: pointer;
+    background: transparent; color: var(--gold);
+    border: 1px solid var(--gold); border-radius: 4px; padding: 8px 16px;
+    transition: background 0.2s, color 0.2s;
+  }
+  .sd-propose-btn:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+  .sd-propose-btn:disabled { opacity: 0.5; cursor: wait; }
+  .sd-propose-status { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+  .sd-propose-status.err { color: var(--red-soft); }
+  .doc-proposal {
+    margin-top: 8px; padding: 10px 12px;
+    border: 1px dashed var(--gold-dim); border-radius: 6px;
+    background: color-mix(in srgb, var(--gold) 6%, transparent);
+  }
+  .doc-proposal .dp-label {
+    font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--gold); margin-bottom: 6px;
+  }
+  .doc-proposal .dp-text {
+    font-family: var(--serif); font-size: 13px; line-height: 1.55;
+    color: var(--ink-soft); margin-bottom: 8px; white-space: pre-wrap;
+  }
+  .doc-proposal .dp-use {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em;
+    text-transform: uppercase; cursor: pointer;
+    background: transparent; color: var(--gold);
+    border: 1px solid var(--gold-dim); border-radius: 3px; padding: 4px 10px;
+  }
+  .doc-proposal .dp-use:hover { background: var(--gold); color: var(--bg-0); }
 </style>
 {% endblock %}
 
@@ -169,6 +203,15 @@
          overlay'e yazılmaz → registry seed'i görünür kalır. ══ #}
     <form method="post"
           action="{{ url_for('presentations.atolye_surec_docs_save', pid=process.id) }}">
+      {# W3 — LLM taslağı: efemer öneri, alan alan 'Taslağı kullan' ile forma
+         dolar; kalıcılık yalnız normal Kaydet'le (yeni overlay versiyonu). #}
+      <div class="sd-propose-bar">
+        <button type="button" class="sd-propose-btn" id="sd-propose"
+                data-url="{{ url_for('presentations.atolye_surec_propose_doc', pid=process.id) }}">
+          ✦ LLM ile taslak üret
+        </button>
+        <span class="sd-propose-status" id="sd-propose-status"></span>
+      </div>
       {% for field in _fields %}
         <div class="props-section">
           <div class="props-section__title">{{ _labels[field] }}</div>
@@ -208,6 +251,81 @@
         </span>
       </div>
     </form>
+
+    <script>
+    (function () {
+      // W3 — LLM taslak akışı. Öneri hiçbir yere otomatik yazılmaz: her alanın
+      // altında kesikli kutuda gösterilir; 'Taslağı kullan' textarea'yı doldurur,
+      // kalıcılık yalnız formun normal Kaydet'iyle olur.
+      var btn = document.getElementById('sd-propose');
+      var status = document.getElementById('sd-propose-status');
+      if (!btn) return;
+
+      function clearProposals() {
+        document.querySelectorAll('.doc-proposal').forEach(function (n) { n.remove(); });
+      }
+
+      function attachProposal(textarea, text) {
+        if (!textarea || !text) return;
+        var box = document.createElement('div');
+        box.className = 'doc-proposal';
+        var lab = document.createElement('div');
+        lab.className = 'dp-label'; lab.textContent = 'LLM taslağı';
+        var body = document.createElement('div');
+        body.className = 'dp-text'; body.textContent = text;
+        var use = document.createElement('button');
+        use.type = 'button'; use.className = 'dp-use'; use.textContent = 'Taslağı kullan';
+        use.addEventListener('click', function () {
+          textarea.value = text;
+          box.remove();
+        });
+        box.appendChild(lab); box.appendChild(body); box.appendChild(use);
+        textarea.insertAdjacentElement('afterend', box);
+      }
+
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        status.classList.remove('err');
+        status.textContent = 'Taslak isteniyor…';
+        clearProposals();
+        fetch(btn.dataset.url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+            btn.disabled = false;
+            if (!res.ok || res.d.error) {
+              status.classList.add('err');
+              status.textContent = res.d.error || 'Taslak alınamadı.';
+              return;
+            }
+            var n = 0;
+            var doc = res.d.documentation || {};
+            Object.keys(doc).forEach(function (f) {
+              if (!doc[f]) return;
+              var ta = document.querySelector('textarea[name="doc__' + f + '"]');
+              if (ta) { attachProposal(ta, doc[f]); n++; }
+            });
+            var bd = res.d.blocks_documentation || {};
+            Object.keys(bd).forEach(function (bid) {
+              Object.keys(bd[bid] || {}).forEach(function (f) {
+                if (!bd[bid][f]) return;
+                var ta = document.querySelector(
+                  'textarea[name="blockdoc__' + bid + '__' + f + '"]');
+                if (ta) { attachProposal(ta, bd[bid][f]); n++; }
+              });
+            });
+            status.textContent = n
+              ? n + ' alan için taslak geldi' + (res.d.source === 'stub' ? ' (DEV stub)' : '') +
+                ' — beğendiğini "Taslağı kullan" ile al, sonra Kaydet.'
+              : 'LLM bu süreç için taslak üretmedi.';
+          })
+          .catch(function (e) {
+            btn.disabled = false;
+            status.classList.add('err');
+            status.textContent = 'Hata: ' + (e.message || e);
+          });
+      });
+    })();
+    </script>
 
     {% else %}
     {# ══ OKUMA MODU ══ #}
