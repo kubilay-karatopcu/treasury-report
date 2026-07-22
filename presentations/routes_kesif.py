@@ -832,6 +832,32 @@ def atolye_surec_docs_save(pid):
     return redirect(url_for("presentations.atolye_surec_detay", pid=pid))
 
 
+@presentations_bp.route("/atolye/surec/<pid>/propose-doc", methods=["POST"])
+@login_required
+def atolye_surec_propose_doc(pid):
+    """W3 — LLM dökümantasyon taslağı (efemer; hiçbir yere yazılmaz).
+
+    Düzenleme formu bu JSON'u alır, alan alan gösterir; kullanıcı 'Taslağı
+    kullan' dedikçe textarea dolar ve normal W1 kaydıyla kalıcılaşır.
+    Auto-publish yok. DEV'de (FakeLLM) deterministik stub döner."""
+    from prisma_home.processes import get_process
+    from presentations.process.proposer import propose_documentation
+
+    process = get_process(pid)
+    if process is None:
+        abort(404)
+    llm = current_app.config.get("LLM_CLIENT")
+    if llm is None:
+        return Response(json.dumps({"error": "LLM_CLIENT yapılandırılmamış"}),
+                        status=503, mimetype="application/json")
+    result = propose_documentation(
+        llm, process, dev_mode=bool(current_app.config.get("DEV_MODE")),
+    )
+    status = 502 if "error" in result else 200
+    return Response(json.dumps(result, ensure_ascii=False),
+                    status=status, mimetype="application/json")
+
+
 # ── Phase 12.workshops — Şablonlar (in-progress workshops) ────────────────
 
 
