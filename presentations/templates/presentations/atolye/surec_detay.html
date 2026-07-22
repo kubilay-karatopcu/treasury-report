@@ -1,0 +1,169 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{% set crumb = "Atölye · Kütüphane · Süreçler · " ~ process.label %}
+{% set sidebar_active = "surec_katalog" %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}{{ process.label }} — Süreç — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  .sd-page { padding: 28px 28px 64px; max-width: 1080px; }
+  .doc-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 24px; margin-bottom: 12px;
+  }
+  .doc-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.30em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 12px;
+  }
+  .doc-head h2 {
+    font-size: 32px; font-weight: 200; letter-spacing: -0.015em;
+    color: var(--ink); margin: 0 0 8px;
+  }
+  .doc-head .sub {
+    font-family: var(--serif); font-style: italic; font-size: 14px;
+    color: var(--ink-mute); line-height: 1.5; max-width: 640px;
+  }
+  .doc-btn {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-mute);
+    border: 1px solid var(--border-soft); border-radius: 4px;
+    padding: 8px 14px; text-decoration: none; white-space: nowrap;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .doc-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+  .sd-status {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; margin: 14px 0 28px;
+  }
+  .sd-status .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .sd-status.is-doc { color: var(--green); }
+  .sd-status.is-doc .dot { background: var(--green); }
+  .sd-status.is-draft { color: var(--ink-faint); }
+  .sd-status.is-draft .dot { background: var(--ink-faint); }
+  .sd-status .kindtag {
+    color: var(--ink-faint); border: 1px solid var(--border-soft);
+    border-radius: 999px; padding: 2px 8px; letter-spacing: 0.14em;
+  }
+
+  .props-section {
+    border-top: 1px solid var(--border-soft);
+    padding: 22px 0;
+  }
+  .props-section__title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.20em;
+    text-transform: uppercase; color: var(--gold); margin-bottom: 12px;
+  }
+  .props-section__body {
+    font-family: var(--serif); font-size: 15.5px; line-height: 1.7;
+    color: var(--ink-soft); font-weight: 300; max-width: 68ch;
+  }
+  .props-section__body.empty {
+    font-style: italic; color: var(--ink-faint); font-size: 13.5px;
+  }
+
+  /* Bileşen (custom blok) kartları */
+  .sd-blocks { border-top: 1px solid var(--border-soft); padding-top: 26px; margin-top: 8px; }
+  .sd-blocks h3 {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.20em;
+    text-transform: uppercase; color: var(--gold); margin: 0 0 16px;
+  }
+  .blk-row {
+    border: 1px solid var(--border-soft); border-radius: 6px;
+    padding: 16px 18px; margin-bottom: 12px; background: var(--bg-1);
+  }
+  .blk-row .br-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .blk-row .br-kind {
+    font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-faint);
+    border: 1px solid var(--border-soft); border-radius: 999px; padding: 2px 8px;
+  }
+  .blk-row .br-title { font-size: 15px; font-weight: 400; color: var(--ink); }
+  .blk-row .br-doc-badge { margin-left: auto; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .blk-row .br-doc-badge.is-doc { color: var(--green); }
+  .blk-row .br-doc-badge.is-draft { color: var(--ink-faint); }
+  .blk-row .br-purpose { font-family: var(--serif); font-size: 13.5px; line-height: 1.6; color: var(--ink-mute); }
+  .blk-row .br-target {
+    font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint);
+    letter-spacing: 0.04em; margin-top: 8px;
+  }
+  .blk-row .br-target a { color: var(--gold); text-decoration: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="sd-page">
+    <div class="doc-head">
+      <div>
+        <div class="eyebrow">∎ · Süreç</div>
+        <h2>{{ process.label }}</h2>
+        <p class="sub">{{ process.desc }}</p>
+      </div>
+      <a class="doc-btn" href="{{ url_for('presentations.atolye_surec_katalog') }}">← Süreçler</a>
+    </div>
+
+    {% if process.documented %}
+      <span class="sd-status is-doc"><span class="dot"></span>Documented · {{ process.doc_fields }}/4 alan
+        <span class="kindtag">{{ process.source_kind }}</span></span>
+    {% else %}
+      <span class="sd-status is-draft"><span class="dot"></span>Taslak · dökümante edilmedi
+        <span class="kindtag">{{ process.source_kind }}</span></span>
+    {% endif %}
+
+    {# ── Süreç dökümantasyonu (BlockDocumentation dili) ─────────────────── #}
+    {% set _labels = {
+        'purpose': 'Amaç',
+        'business_context': 'İş Bağlamı',
+        'decision_support': 'Karar Desteği',
+        'known_limitations': 'Bilinen Sınırlar'
+    } %}
+    {% for field in ['purpose', 'business_context', 'decision_support', 'known_limitations'] %}
+      <div class="props-section">
+        <div class="props-section__title">{{ _labels[field] }}</div>
+        {% if process.documentation[field] %}
+          <div class="props-section__body">{{ process.documentation[field] }}</div>
+        {% else %}
+          <div class="props-section__body empty">— henüz yazılmadı</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    {# ── Bileşen blokları (kind:custom) ─────────────────────────────────── #}
+    {% if process.blocks %}
+    <div class="sd-blocks">
+      <h3>Bloklar · {{ process.blocks|length }}</h3>
+      {% for b in process.blocks %}
+        <div class="blk-row">
+          <div class="br-top">
+            <span class="br-kind">{{ b.kind }}</span>
+            <span class="br-title">{{ b.title }}</span>
+            {% if b.documented %}
+              <span class="br-doc-badge is-doc">doc {{ b.doc_fields }}/4</span>
+            {% else %}
+              <span class="br-doc-badge is-draft">taslak</span>
+            {% endif %}
+          </div>
+          {% if b.documentation and b.documentation.purpose %}
+            <div class="br-purpose">{{ b.documentation.purpose }}</div>
+          {% endif %}
+          {% if b.custom_render %}
+            <div class="br-target">
+              render →
+              {% if b.render_url %}
+                <a href="{{ b.render_url }}">{{ b.custom_render.page or b.custom_render.endpoint }}</a>
+              {% else %}
+                {{ b.custom_render.page or b.custom_render.endpoint }}
+              {% endif %}
+              {% if b.custom_render.anchor %} · #{{ b.custom_render.anchor }}{% endif %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+{% endblock %}

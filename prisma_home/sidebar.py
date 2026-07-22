@@ -32,9 +32,12 @@ SIDEBAR_GROUPS = [
             {"key": "tablolar",   "num": "⊟", "label": "Tablolar",   "route": "presentations.atolye_tablolar"},
             {"key": "konseptler", "num": "◈", "label": "Konseptler", "route": "presentations.atolye_konseptler"},
             {"key": "bloklar",    "num": "▦", "label": "Bloklar",    "route": "presentations.atolye_bloklar"},
+            {"key": "surec_katalog", "num": "∎", "label": "Süreçler", "route": "presentations.atolye_surec_katalog"},
             {"key": "uzmanlar",  "num": "✦", "label": "Uzmanlar",  "route": "presentations.atolye_uzmanlar"},
             {"key": "taslaklar", "num": "◇", "label": "Şablonlar", "route": "presentations.atolye_taslaklar"},
-            {"key": "sablonlar", "num": "∎", "label": "Süreçler",  "route": "presentations.atolye_sablonlar"},
+            # Eski snapshot-tabanlı "Süreçler" → dürüst ad: "Snapshot'lar"
+            # (custom süreçler artık üstteki surec_katalog'da; tek gerçeklik).
+            {"key": "sablonlar", "num": "◫", "label": "Snapshot'lar", "route": "presentations.atolye_sablonlar"},
         ],
     },
     {

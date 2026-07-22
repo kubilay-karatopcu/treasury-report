@@ -1,0 +1,153 @@
+{% extends "home/_base_prisma.html" %}
+{% set mode = "atolye" %}
+{# Süreç Düzenlileştirme (docs/PROCESS_REGULARIZATION_PLAN.md): custom süreçlerin
+   (uzmanların canlı panoları) kütüphane listesi. Snapshot-tabanlı eski "Süreçler"
+   sayfası "Snapshot'lar" olarak yeniden adlandırıldı. #}
+{% set crumb = "Atölye · Kütüphane · Süreçler" %}
+{% set sidebar_active = "surec_katalog" %}
+{% if sidebar is not defined or sidebar is none %}
+  {% set sidebar = [] %}
+{% endif %}
+{% block title %}Atölye / Süreçler — PRISMA{% endblock %}
+
+{% block head %}
+<style>
+  .sk-page { padding: 28px 28px 64px; }
+  .sk-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 36px; gap: 32px;
+  }
+  .sk-head h2 {
+    font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+    color: var(--ink); margin: 0 0 6px;
+  }
+  .sk-head .eyebrow {
+    font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: 14px;
+  }
+  .sk-head .sub {
+    font-family: var(--serif); font-style: italic;
+    font-size: 14px; color: var(--ink-mute);
+    line-height: 1.55; max-width: 600px;
+  }
+  .sk-meta {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em; white-space: nowrap;
+  }
+
+  .sk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1px;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+  }
+  .sk-card {
+    background: var(--bg-1);
+    padding: 24px 22px 20px;
+    transition: background 0.2s;
+    position: relative;
+    min-height: 210px;
+    display: flex; flex-direction: column;
+    text-decoration: none; color: inherit;
+  }
+  .sk-card:hover { background: var(--bg-2); }
+  .sk-card .sc-top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .sk-card .sc-num {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.04em; color: var(--gold);
+  }
+  .sk-card .sc-kind {
+    font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-faint);
+    border: 1px solid var(--border-soft); border-radius: 999px; padding: 2px 8px;
+  }
+  .sk-card .sc-name {
+    font-size: 18px; font-weight: 300;
+    letter-spacing: -0.005em; color: var(--ink);
+    margin-bottom: 8px; line-height: 1.3;
+  }
+  .sk-card .sc-desc {
+    font-family: var(--serif); font-style: italic;
+    font-size: 12.5px; line-height: 1.5;
+    color: var(--ink-mute); margin-bottom: 18px; flex: 1;
+  }
+  .sk-card .sc-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 9.5px;
+    color: var(--ink-faint); letter-spacing: 0.04em;
+    padding-top: 14px; border-top: 1px solid var(--border-soft);
+  }
+  /* Dökümantasyon durum rozeti */
+  .doc-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .doc-badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .doc-badge.is-doc { color: var(--green); }
+  .doc-badge.is-doc .dot { background: var(--green); }
+  .doc-badge.is-draft { color: var(--ink-faint); }
+  .doc-badge.is-draft .dot { background: var(--ink-faint); }
+  .sk-card .sc-disabled {
+    color: var(--red-soft); font-size: 9px; letter-spacing: 0.1em;
+  }
+
+  .empty-state {
+    padding: 64px 24px; text-align: center;
+    border: 1px solid var(--border-soft); color: var(--ink-faint);
+  }
+  .empty-state h3 { font-size: 18px; font-weight: 300; color: var(--ink-soft); margin: 0 0 10px; }
+  .empty-state p { font-family: var(--serif); font-style: italic; font-size: 13px; line-height: 1.6; max-width: 540px; margin: 0 auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="sk-page">
+    <div class="sk-head">
+      <div>
+        <div class="eyebrow">A · Kütüphane · ∎</div>
+        <h2>Süreçler</h2>
+        <p class="sub">
+          Uzmanların canlı panoları — elle inşa edilmiş (custom) süreçler.
+          Her süreç bloklarına ayrılır ve dökümante edilir; hedef, pipeline'dan
+          üretilmiş süreçlerle aynı gerçeklikte, "documented" hale gelmeleri.
+          (docs/PROCESS_REGULARIZATION_PLAN.md)
+        </p>
+      </div>
+      <div class="sk-meta">
+        {{ total }} süreç · {{ documented_total }} documented
+      </div>
+    </div>
+
+    {% if processes %}
+      <div class="sk-grid">
+        {% for p in processes %}
+          <a class="sk-card" href="{{ url_for('presentations.atolye_surec_detay', pid=p.id) }}">
+            <div class="sc-top">
+              <span class="sc-num">{{ p.num }}</span>
+              <span class="sc-kind">{{ p.source_kind }}</span>
+            </div>
+            <div class="sc-name">{{ p.label }}</div>
+            <div class="sc-desc">{{ p.desc or 'Açıklama yok.' }}</div>
+            <div class="sc-foot">
+              <span>{{ p.block_count }} blok
+                {%- if not p.enabled %} · <span class="sc-disabled">modül kapalı</span>{% endif %}
+              </span>
+              {% if p.documented %}
+                <span class="doc-badge is-doc"><span class="dot"></span>Documented {{ p.doc_fields }}/4</span>
+              {% else %}
+                <span class="doc-badge is-draft"><span class="dot"></span>Taslak</span>
+              {% endif %}
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>Henüz süreç yok</h3>
+        <p>Uzmanlara bağlı canlı pano (custom süreç) tanımlanmamış.</p>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}
