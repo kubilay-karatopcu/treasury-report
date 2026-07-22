@@ -263,15 +263,27 @@ Sıra: W1 → W3 → W2 → W4.
 - Acceptance: kullanıcı dökümantasyonu ekrandan yazıp kaydediyor (versiyonlu);
   custom bloklar Bloklar'da "custom" rozetiyle listeleniyor.
 
-### W2 — Snapshot'ın TAMAMEN sökülmesi *(~1–1.5 hafta)*
-- "Snapshot Al" → "Süreç olarak yayınla": sunum yayını bir pipeline Process
-  Descriptor üretir; kütüphane Süreçler'de `pipeline` rozetiyle görünür.
-- Paylaşım linki yerine **tek-sayfa HTML dışa aktarma** (self-contained,
-  indirilebilir). `create/view/delete_snapshot` route'ları, Snapshot'lar
-  sayfası, `SNAPSHOT_STORE`, uzman `bound_content.snapshots` ve brifing
-  motorunun snapshot bağı sökülür (bound_content.processes'e migration).
-- Acceptance: kod tabanında kullanıcıya görünen "snapshot" kavramı kalmaz;
-  dışa aktarma HTML'i tek dosya olarak açılıyor.
+### W2 — Snapshot'ın TAMAMEN sökülmesi *(iki dilim)*
+
+**W2a — kütüphane birleşmesi + HTML export (UYGULANDI — 2026-07-22):**
+- Yayınlanmış sunumlar (uzmana bağlı snapshot'lar) Süreçler kataloğunda
+  `pipeline` rozetiyle custom süreçlerin yanında listelenir
+  (`list_pipeline_processes`); kart süreç görünümüne (view_snapshot) gider.
+- Sidebar "Snapshot'lar" item'ı kaldırıldı; `atolye_sablonlar` route'u
+  kataloğa redirect (yer imleri yaşar); `sablonlar.html` silindi.
+- **Tek-sayfa HTML dışa aktarma:** `GET /presentations/snapshot/<sid>/export`
+  — bundle.js + editor.css + editor_dark.css inline, manifest/meta gömülü,
+  `Content-Disposition: attachment`. Tek dış bağımlılık AG Grid CSS'leri
+  (data_table blokları; onaylı jsdelivr). Süreç görünümünde "⭳ HTML indir".
+
+**W2b — fiziksel söküm (ofis build'i gerekir; sonraki dilim):**
+- Editör React bundle'ındaki "Snapshot Al" metni → "Süreç olarak yayınla"
+  (bundle rebuild + commit — ofis).
+- `create/view/delete_snapshot` adlandırması "yayın/süreç" diline; uzman
+  `bound_content.snapshots` → `processes` migration'ı; brifing motorunun
+  snapshot bağının koparılması; `SNAPSHOT_STORE`'un iç "yayın deposu" olarak
+  yeniden adlandırılması (fiziksel depolama kalır — donmuş veri hâlâ burada).
+- Acceptance: kullanıcıya görünen "snapshot" kelimesi kalmaz.
 
 ### W3 — LLM doc-proposer *(UYGULANDI — 2026-07-22)*
 - `prompts/doc_proposal.txt` + `POST /atolye/surec/<pid>/propose-doc` (süreç +

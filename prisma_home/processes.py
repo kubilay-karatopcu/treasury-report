@@ -295,6 +295,13 @@ def _safe_url(endpoint: str | None, page: str | None) -> str | None:
         return None
 
 
+def _snapshot_url(sid: str) -> str | None:
+    try:
+        return url_for("presentations.view_snapshot", sid=sid)
+    except BuildError:
+        return None
+
+
 def _load_overlay(pid: str) -> dict | None:
     """W1: PROCESS_STORE'daki dökümantasyon overlay'i (kullanıcı metni).
 
@@ -347,6 +354,45 @@ def list_processes() -> list[dict]:
             "doc_fields": _doc_filled_count(doc),
             "doc_version": (overlay or {}).get("version"),
             "enabled": bool(current_app.config.get(flag)) if flag else True,
+        })
+    return out
+
+
+def list_pipeline_processes() -> list[dict]:
+    """W2: yayınlanmış sunumlar (uzmana bağlı snapshot'lar) = pipeline süreçleri.
+
+    'Her şey bir süreçtir' kararı (plan §3.5 W2): eski Snapshot'lar sayfası
+    kaldırıldı; yayınlar Süreçler kataloğunda ``pipeline`` rozetiyle custom
+    süreçlerin yanında listelenir. Kart, süreç görünümüne (view_snapshot —
+    W2b'de 'süreç görünümü' olarak yeniden adlandırılacak) gider.
+    Store yoksa/hata verirse boş liste (katalog custom'larla yaşar)."""
+    store = current_app.config.get("SNAPSHOT_STORE")
+    if store is None:
+        return []
+    try:
+        metas = [m for m in (store.list_all_meta() or []) if m.get("bound_experts")]
+    except Exception:
+        log.exception("pipeline süreç listesi: snapshot meta okunamadı")
+        return []
+    metas.sort(key=lambda m: m.get("created_at", ""), reverse=True)
+    out = []
+    for m in metas:
+        sid = m.get("snapshot_id")
+        if not sid:
+            continue
+        out.append({
+            "id": f"pipeline.{sid}",
+            "num": "",                      # numara katalogda birleşik atanır
+            "label": m.get("title") or "Başlıksız yayın",
+            "desc": m.get("description") or "",
+            "source_kind": "pipeline",
+            "owner": m.get("owner_id", ""),
+            "block_count": None,
+            "documented": False,            # pipeline doc ekranı W2b/W4
+            "doc_fields": 0,
+            "enabled": True,
+            "href": _snapshot_url(sid),
+            "created_at": m.get("created_at", ""),
         })
     return out
 

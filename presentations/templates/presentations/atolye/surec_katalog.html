@@ -123,7 +123,9 @@
     {% if processes %}
       <div class="sk-grid">
         {% for p in processes %}
-          <a class="sk-card" href="{{ url_for('presentations.atolye_surec_detay', pid=p.id) }}">
+          {# custom → dökümantasyon detayı; pipeline → süreç görünümü (href). #}
+          <a class="sk-card"
+             href="{{ p.href or url_for('presentations.atolye_surec_detay', pid=p.id) }}">
             <div class="sc-top">
               <span class="sc-num">{{ p.num }}</span>
               <span class="sc-kind">{{ p.source_kind }}</span>

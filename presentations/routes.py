@@ -468,6 +468,69 @@ def view_snapshot(sid: str):
     )
 
 
+@presentations_bp.route("/snapshot/<sid>/export")
+@login_required
+def export_snapshot_html(sid: str):
+    """W2 — tek-sayfa, kendi kendine yeten HTML dışa aktarma (indirilebilir).
+
+    Paylaşım linkinin yerini alır: kullanıcı donmuş süreç görünümünü tek .html
+    dosyası olarak indirir; dosya sunucusuz açılır (bundle.js + editor CSS'leri
+    inline). Tek dış bağımlılık AG Grid CSS'leri (data_table blokları) —
+    snapshot.html'deki onaylı jsdelivr linkleri korunur; tablo yoksa dosya
+    tamamen çevrimdışı çalışır.
+    """
+    store = current_app.config["SNAPSHOT_STORE"]
+    payload = store.load(sid)
+    if payload is None:
+        return Response("Yayın bulunamadı.", status=404)
+
+    manifest = payload["manifest"]
+    base = Path(__file__).parent
+    try:
+        editor_css = (base / "static" / "css" / "editor.css").read_text(encoding="utf-8")
+        bundle_js = (base / "static" / "js" / "bundle.js").read_text(encoding="utf-8")
+    except OSError as exc:
+        return Response(f"Export varlıkları okunamadı: {exc}", status=500)
+    try:
+        dark_css = (base.parent / "prisma_home" / "static" / "css" / "editor_dark.css"
+                    ).read_text(encoding="utf-8")
+    except OSError:
+        dark_css = ""  # koyu tema köprüsü opsiyonel — açık temayla düşer
+
+    # </script> kaçışları: JSON'da </ → <\/ ; bundle içinde olası literal
+    # </script> aynı anlamlı <\/script> yazımına çevrilir (JS semantiği aynı).
+    manifest_json = json.dumps(manifest, ensure_ascii=False).replace("</", "<\\/")
+    meta_json = json.dumps(payload["meta"], ensure_ascii=False, default=str).replace("</", "<\\/")
+    bundle_js = bundle_js.replace("</script>", "<\\/script>")
+
+    title = (manifest.get("meta") or {}).get("title") or "surec"
+    html = (
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+        f"<title>{title} — PRISMA Yayın</title>\n"
+        "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css\">\n"
+        "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css\">\n"
+        "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine-dark.css\">\n"
+        f"<style>{editor_css}</style>\n"
+        f"<style>{dark_css}</style>\n"
+        "<style>html,body{margin:0;overflow:auto !important;}"
+        ".presentations-editor-mount{position:fixed;inset:0;width:100vw;height:100vh;"
+        "overflow:hidden;background:#fff;}</style>\n"
+        "</head>\n<body>\n"
+        f"<div id=\"presentation-root\" class=\"presentations-editor-mount\" "
+        f"data-presentation-id=\"{manifest.get('id', '')}\" data-mode=\"snapshot\" "
+        f"data-snapshot-id=\"{sid}\"></div>\n"
+        f"<script id=\"initial-manifest\" type=\"application/json\">{manifest_json}</script>\n"
+        f"<script id=\"snapshot-meta\" type=\"application/json\">{meta_json}</script>\n"
+        f"<script>{bundle_js}</script>\n"
+        "</body>\n</html>\n"
+    )
+
+    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", title).strip("_") or "surec"
+    resp = Response(html, mimetype="text/html; charset=utf-8")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{safe_name}.html"'
+    return resp
+
+
 @presentations_bp.route("/snapshot/<sid>", methods=["DELETE"])
 @login_required
 def delete_snapshot(sid: str):
