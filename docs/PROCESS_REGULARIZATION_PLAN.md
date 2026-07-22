@@ -273,11 +273,17 @@ Sıra: W1 → W3 → W2 → W4.
 - Acceptance: kod tabanında kullanıcıya görünen "snapshot" kavramı kalmaz;
   dışa aktarma HTML'i tek dosya olarak açılıyor.
 
-### W3 — LLM doc-proposer *(~1 hafta)*
-- `prompts/doc_proposal.txt` + `POST /atolye/surec/<pid>/propose-doc` (süreç ve
-  blok bazlı). Bağlam: descriptor + blok bilgisi + tablo dokümanları (ileride
-  mart CEC). Çıktı `documentation_proposed` gölge alanına; W1 formu "taslağı
-  göster → alan alan kabul et" akışı kazanır. Asla auto-publish yok. DEV stub.
+### W3 — LLM doc-proposer *(UYGULANDI — 2026-07-22)*
+- `prompts/doc_proposal.txt` + `POST /atolye/surec/<pid>/propose-doc` (süreç +
+  blok bazlı tek çağrı). Bağlam: descriptor + blok bilgisi + mevcut dökümanlar
+  (ileride mart CEC / tablo dokümanları).
+- **Uygulama sapması (basitleştirme):** öneri kalıcı `documentation_proposed`
+  gölge alanına YAZILMAZ — **efemerdir**: W1 düzenleme formunda alanın altında
+  kesikli kutuda gösterilir, "Taslağı kullan" textarea'yı doldurur, kalıcılık
+  yalnız normal Kaydet'le (yeni overlay versiyonu). İnsan-onay kapısı aynı,
+  depolama karmaşası yok. Asla auto-publish yok.
+- DEV: FakeLLM boş/çöp dönerse deterministik "(DEV taslağı)" stub'ı — onay
+  akışı offline test edilebilir. Prod: hata dürüstçe forma yansır.
 
 ### W4 — Uzmanı konuşturma *(~1.5–2 hafta)*
 - **W4a — Uzman Yorumu:** uzman personası bağlı süreçlerin dökümantasyonundan
