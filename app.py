@@ -37,6 +37,7 @@ from presentations.session import SessionRegistry
 from presentations.store import S3SnapshotStore, S3DashboardStore
 from presentations.scope.store import S3ScopeStore
 from presentations.blocks.store import S3BlockStore, LocalBlockStore
+from presentations.process.store import S3ProcessStore, LocalProcessStore
 from presentations.table_docs.store import (
     S3TableDocStore, LocalTableDocStore, CachedTableDocStore,
 )
@@ -359,6 +360,7 @@ if DEV_MODE:
     app.config["SNAPSHOT_STORE"]  = LocalSnapshotStore(base_dir=_DUCK_BASE_DIR / "snapshots")
     app.config["DASHBOARD_STORE"] = LocalDashboardStore(base_dir=_DUCK_BASE_DIR / "dashboards")
     app.config["BLOCK_STORE"]     = LocalBlockStore(base_dir=_DUCK_BASE_DIR / "v2_blocks")
+    app.config["PROCESS_STORE"]   = LocalProcessStore(base_dir=_DUCK_BASE_DIR / "processes")
     app.config["SCOPE_STORE"]     = LocalScopeStore(base_dir=_DUCK_BASE_DIR / "scopes")
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(
         LocalTableDocStore(base_dir=Path(__file__).parent / "dev_data" / "table_docs")
@@ -375,6 +377,7 @@ else:
     app.config["SNAPSHOT_STORE"]  = S3SnapshotStore(dc=dc)
     app.config["DASHBOARD_STORE"] = S3DashboardStore(dc=dc)
     app.config["BLOCK_STORE"]     = S3BlockStore(dc=dc)
+    app.config["PROCESS_STORE"]   = S3ProcessStore(dc=dc)
     app.config["SCOPE_STORE"]     = S3ScopeStore(dc=dc)
     app.config["TABLE_DOC_STORE"] = CachedTableDocStore(S3TableDocStore(dc=dc))
 
