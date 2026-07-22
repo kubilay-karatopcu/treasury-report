@@ -1,4 +1,6 @@
-/* mevduat_dock.js — sağ-alt sabit kontrol paneli (Faz P2 UX turu).
+/* mevduat_dock.js — sol navbar (sidebar) alt kontrol paneli (Faz P2 UX turu;
+   2026-07-22 pivotu: sağ-alt fixed'ten sol-alt sidebar-docked'a taşındı ki
+   plot'ların üstüne binmesin).
 
    PRISMA sunum modundaki sabit tarih göstergesi deseninin panel uyarlaması:
    aktif sayfanın üst-şerit kontrolleri (tarih + tekil boyut/görünüm
@@ -39,7 +41,11 @@
     head.appendChild(toggleBtn);
     dock.appendChild(body);
     dock.appendChild(head);
-    document.body.appendChild(dock);
+    // Sol navbarın (sidebar) altına yerleşir — plot'ların üstüne binmesin
+    // (kullanıcı kararı 2026-07-22). Sidebar server-render'da hazır; yoksa
+    // (beklenmedik) body'ye düşülür.
+    var host = document.querySelector(".mevduat-mount .sidebar") || document.body;
+    host.appendChild(dock);
     head.addEventListener("click", function () {
       dock.classList.toggle("is-collapsed");
       toggleBtn.textContent = dock.classList.contains("is-collapsed") ? "▴" : "▾";
