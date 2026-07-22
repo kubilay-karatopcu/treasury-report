@@ -25,15 +25,9 @@
     {% endif %}
     <h1>
       Günaydın{% if current_user.is_authenticated %},
-      <span class="accent">{{ current_user.name.split(' ')[0] }}</span>{% endif %}.<br>
-      Uzmanların <span class="accent">seni bekliyor.</span>
+      <span class="accent">{{ current_user.name.split(' ')[0] }}</span>{% endif %}.
     </h1>
-    {% if featured_expert %}
-    <p class="sub">
-      Altı uzman, kurumun günlük hazine resmini farklı pencerelerden çekiyor.
-      Bu sabah için {{ featured_expert.domain_label }} öne çıkıyor; diğerleri sakin.
-    </p>
-    {% else %}
+    {% if not featured_expert and not other_experts %}
     <p class="sub">Henüz uzman tanımlanmamış — Atölye'den ekleyebilirsin.</p>
     {% endif %}
     <span class="gold-rule"></span>
@@ -43,7 +37,7 @@
   {# ── Featured expert ────────────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">01</span>
-    <span class="section-title">Senin İçin Bu Sabah</span>
+    <span class="section-title">Uzmanların</span>
     <span class="section-tail"></span>
   </div>
 
@@ -86,7 +80,7 @@
       {% endif %}
     </div>
 
-    <span class="expert-cta">Brifingi aç</span>
+    <span class="expert-cta">Uzmana bak</span>
   </a>
   {% endif %}
 
