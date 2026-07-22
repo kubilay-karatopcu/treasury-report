@@ -1340,30 +1340,10 @@
                       font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-primary);
                       box-shadow:0 4px 12px rgba(0,0,0,0.5);">
           </div>
-          <!-- Heatmap (üstte, tam genişlik) + hücre-tık combo chart paneli (altta,
-               tam genişlik). 2026-07-22: panel eskiden sağda açılıp tabloyu
-               daraltıyordu; kullanıcı kararı ile alta alındı, tablo hep tam genişlik. -->
-          <div style="display:flex;flex-direction:column;gap:14px;align-items:stretch;">
-            <div id="np-rvhm-wrap" style="overflow-x:auto;width:100%;min-width:0;"></div>
-            <div id="np-rvhm-chart-panel"
-                 style="display:none;width:100%;box-sizing:border-box;background:var(--bg-input,#0D111C);
-                        border:1px solid var(--border-mid,#252B3D);border-radius:3px;
-                        padding:10px 12px;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                <span id="np-rvhm-combo-title"
-                      style="font-family:'JetBrains Mono',monospace;font-size:11px;
-                             font-weight:500;color:var(--text-primary,#E8ECF1);
-                             letter-spacing:0.03em;flex:1;">Yeni Üretim</span>
-                <button id="np-rvhm-combo-close"
-                        style="background:transparent;border:1px solid var(--border-mid,#252B3D);
-                               border-radius:2px;color:var(--text-muted,#8B95A7);cursor:pointer;
-                               font-family:'JetBrains Mono',monospace;font-size:12px;
-                               line-height:1;padding:3px 7px;">&#10005;</button>
-              </div>
-              <span id="np-rvhm-combo-status" class="status-text" style="display:block;font-size:10px;margin-bottom:4px;"></span>
-              <div id="np-rvhm-combo" style="min-height:320px;"></div>
-            </div>
-          </div>
+          <!-- Heatmap (tam genişlik). 2026-07-22: hücre-tık ayrı combo paneli
+               kaldırıldı; hücre üstünde gezmek (hover) alttaki matris + "Cell
+               history" combo'sunu tazeler (kullanıcı kararı — eski hover davranışı). -->
+          <div id="np-rvhm-wrap" style="overflow-x:auto;width:100%;min-width:0;"></div>
           <!-- Detay: solda T1/T2/Δ matrisi, sağda hover hücresinin yıl-başından
                itibaren combo (bar=bağlanan, line=faiz, seçili frekans). -->
           <div style="display:flex;gap:14px;align-items:flex-start;margin-top:14px;flex-wrap:wrap;">
