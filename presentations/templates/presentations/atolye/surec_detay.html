@@ -92,6 +92,41 @@
     letter-spacing: 0.04em; margin-top: 8px;
   }
   .blk-row .br-target a { color: var(--gold); text-decoration: none; }
+
+  /* ── W1: dökümantasyon düzenleme formu ─────────────────────────────── */
+  .doc-actions { display: flex; gap: 10px; align-items: center; }
+  .doc-btn--gold { border-color: var(--gold); color: var(--gold); }
+  .doc-btn--gold:hover { background: var(--gold); color: var(--bg-0); }
+  .doc-textarea {
+    width: 100%; min-height: 92px; resize: vertical;
+    background: var(--bg-0); color: var(--ink);
+    border: 1px solid var(--border-soft); border-radius: 6px;
+    padding: 10px 12px; font-family: var(--sans); font-size: 13.5px;
+    line-height: 1.6; box-sizing: border-box;
+  }
+  .doc-textarea:focus { outline: none; border-color: var(--gold); }
+  .doc-form-meta {
+    font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint);
+    letter-spacing: 0.04em; margin-top: 6px;
+  }
+  .blk-doc-fields { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .blk-doc-fields label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--gold); display: block; margin-bottom: 4px;
+  }
+  .blk-doc-fields .doc-textarea { min-height: 56px; }
+  .sd-save-bar {
+    position: sticky; bottom: 0; margin-top: 26px; padding: 14px 0;
+    background: linear-gradient(transparent, var(--bg-0) 30%);
+    display: flex; gap: 12px; align-items: center;
+  }
+  .sd-save-bar button {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+    text-transform: uppercase; cursor: pointer;
+    background: var(--gold); color: var(--bg-0);
+    border: 1px solid var(--gold); border-radius: 4px; padding: 10px 22px;
+  }
+  .sd-save-bar button:hover { background: var(--gold-soft); border-color: var(--gold-soft); }
 </style>
 {% endblock %}
 
@@ -103,7 +138,13 @@
         <h2>{{ process.label }}</h2>
         <p class="sub">{{ process.desc }}</p>
       </div>
-      <a class="doc-btn" href="{{ url_for('presentations.atolye_surec_katalog') }}">← Süreçler</a>
+      <div class="doc-actions">
+        {% if not edit_mode %}
+          <a class="doc-btn doc-btn--gold"
+             href="{{ url_for('presentations.atolye_surec_detay', pid=process.id, edit=1) }}">Düzenle</a>
+        {% endif %}
+        <a class="doc-btn" href="{{ url_for('presentations.atolye_surec_katalog') }}">← Süreçler</a>
+      </div>
     </div>
 
     {% if process.documented %}
@@ -114,14 +155,63 @@
         <span class="kindtag">{{ process.source_kind }}</span></span>
     {% endif %}
 
-    {# ── Süreç dökümantasyonu (BlockDocumentation dili) ─────────────────── #}
     {% set _labels = {
         'purpose': 'Amaç',
         'business_context': 'İş Bağlamı',
         'decision_support': 'Karar Desteği',
         'known_limitations': 'Bilinen Sınırlar'
     } %}
-    {% for field in ['purpose', 'business_context', 'decision_support', 'known_limitations'] %}
+    {% set _fields = ['purpose', 'business_context', 'decision_support', 'known_limitations'] %}
+
+    {% if edit_mode %}
+    {# ══ W1 — DÜZENLEME MODU: süreç + blok dökümantasyonu tek formda.
+         Kayıt = yeni overlay versiyonu (PROCESS_STORE). Boş bırakılan alan
+         overlay'e yazılmaz → registry seed'i görünür kalır. ══ #}
+    <form method="post"
+          action="{{ url_for('presentations.atolye_surec_docs_save', pid=process.id) }}">
+      {% for field in _fields %}
+        <div class="props-section">
+          <div class="props-section__title">{{ _labels[field] }}</div>
+          <textarea class="doc-textarea" name="doc__{{ field }}"
+                    placeholder="— {{ _labels[field] | lower }} yazın">{{ process.documentation[field] or '' }}</textarea>
+        </div>
+      {% endfor %}
+
+      {% if process.blocks %}
+      <div class="sd-blocks">
+        <h3>Bloklar · {{ process.blocks|length }}</h3>
+        {% for b in process.blocks %}
+          <div class="blk-row">
+            <div class="br-top">
+              <span class="br-kind">{{ b.kind }}</span>
+              <span class="br-title">{{ b.title }}</span>
+            </div>
+            <div class="blk-doc-fields">
+              {% for field in _fields %}
+                <div>
+                  <label>{{ _labels[field] }}</label>
+                  <textarea class="doc-textarea" name="blockdoc__{{ b.id }}__{{ field }}"
+                  >{{ b.documentation[field] or '' }}</textarea>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="sd-save-bar">
+        <button type="submit">Kaydet — yeni versiyon</button>
+        <a class="doc-btn" href="{{ url_for('presentations.atolye_surec_detay', pid=process.id) }}">Vazgeç</a>
+        <span class="doc-form-meta">
+          {% if process.doc_version %}mevcut v{{ process.doc_version }}{% else %}ilk kayıt v1 olacak{% endif %}
+        </span>
+      </div>
+    </form>
+
+    {% else %}
+    {# ══ OKUMA MODU ══ #}
+    {% for field in _fields %}
       <div class="props-section">
         <div class="props-section__title">{{ _labels[field] }}</div>
         {% if process.documentation[field] %}
@@ -131,6 +221,14 @@
         {% endif %}
       </div>
     {% endfor %}
+
+    {% if process.doc_version %}
+      <div class="doc-form-meta">
+        dökümantasyon v{{ process.doc_version }}
+        {%- if process.doc_updated_by %} · {{ process.doc_updated_by }}{% endif %}
+        {%- if process.doc_updated_at %} · {{ process.doc_updated_at[:19] }}{% endif %}
+      </div>
+    {% endif %}
 
     {# ── Bileşen blokları (kind:custom) ─────────────────────────────────── #}
     {% if process.blocks %}
@@ -164,6 +262,7 @@
         </div>
       {% endfor %}
     </div>
+    {% endif %}
     {% endif %}
   </div>
 {% endblock %}

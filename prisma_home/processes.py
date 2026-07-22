@@ -295,15 +295,46 @@ def _safe_url(endpoint: str | None, page: str | None) -> str | None:
         return None
 
 
+def _load_overlay(pid: str) -> dict | None:
+    """W1: PROCESS_STORE'daki dökümantasyon overlay'i (kullanıcı metni).
+
+    Store yoksa/hata verirse None — registry seed'i tek başına kullanılır
+    (purely additive; store'suz ortam eski davranışta)."""
+    store = current_app.config.get("PROCESS_STORE")
+    if store is None:
+        return None
+    try:
+        return store.load_latest(pid)
+    except Exception:
+        log.exception("process overlay okunamadı: %s", pid)
+        return None
+
+
+def _merged_doc(meta: dict, overlay: dict | None) -> dict:
+    """Süreç dökümantasyonu: overlay'de dolu alan seed'i (registry) ezer."""
+    seed = meta.get("documentation") or {}
+    ov = (overlay or {}).get("documentation") or {}
+    return {f: (ov.get(f) or seed.get(f)) for f in _DOC_FIELDS}
+
+
+def _merged_block_doc(block: dict, overlay: dict | None) -> dict:
+    seed = block.get("documentation") or {}
+    ov = ((overlay or {}).get("blocks_documentation") or {}).get(block.get("id"), {})
+    return {f: (ov.get(f) or seed.get(f)) for f in _DOC_FIELDS}
+
+
 def list_processes() -> list[dict]:
     """Kütüphane 'Süreçler' listesi için tüm kayıtlı süreçlerin özeti.
 
     Config bayrağına bakılmaz (kütüphane, modül kapalı olsa da süreci
     dökümantasyon amacıyla gösterir); ``enabled`` alanı bayrağı yansıtır.
+    W1: store'daki dökümantasyon overlay'i seed'in üstüne bindirilir.
     """
     out: list[dict] = []
     for i, (pid, meta) in enumerate(PROCESS_REGISTRY.items(), start=1):
         flag = meta.get("config_flag")
+        overlay = _load_overlay(pid)
+        doc = _merged_doc(meta, overlay)
         out.append({
             "id": pid,
             "num": f"{i:02d}",
@@ -312,10 +343,59 @@ def list_processes() -> list[dict]:
             "source_kind": meta.get("source_kind", "custom"),
             "owner": meta.get("owner", ""),
             "block_count": len(meta.get("blocks") or []),
-            "documented": _is_documented(meta),
-            "doc_fields": _doc_filled_count(meta.get("documentation")),
+            "documented": bool((doc.get("purpose") or "").strip()),
+            "doc_fields": _doc_filled_count(doc),
+            "doc_version": (overlay or {}).get("version"),
             "enabled": bool(current_app.config.get(flag)) if flag else True,
         })
+    return out
+
+
+def list_component_block_summaries(
+    *, team: str | None = None, tag: str | None = None,
+    viz_type: str | None = None, search: str | None = None,
+) -> list[dict]:
+    """W1: süreçlerin ``kind:"custom"`` bileşen bloklarını Bloklar kütüphanesi
+    listesine ek satır olarak üretir (BlockSummary.to_dict şekli + ``custom_href``).
+
+    BLOCK_STORE'a KOPYALANMAZ (drift yok) — liste birleştirme (listing-merge,
+    plan §3.5 W1). Kart tıklaması ``custom_href`` ile süreç detayına gider.
+    Filtre semantiği blok store'unkiyle hizalı (team substring, tag üyelik,
+    viz_type eşitlik, q başlık/açıklama/tag araması).
+    """
+    if viz_type and viz_type != "custom":
+        return []
+    out: list[dict] = []
+    for pid, meta in PROCESS_REGISTRY.items():
+        p_team = pid.split(".", 1)[0]
+        if team and team.lower() not in p_team:
+            continue
+        overlay = _load_overlay(pid)
+        for b in meta.get("blocks") or []:
+            bdoc = _merged_block_doc(b, overlay)
+            tags = ["custom", pid]
+            if tag and tag not in tags:
+                continue
+            title = b.get("title", b.get("id", ""))
+            desc = bdoc.get("purpose") or ""
+            if search:
+                hay = " ".join([title, desc, " ".join(tags)]).lower()
+                if search.lower() not in hay:
+                    continue
+            out.append({
+                "team": p_team,
+                "id": b.get("id", ""),
+                "version": (overlay or {}).get("version") or 1,
+                "title": title,
+                "description": desc,
+                "tags": tags,
+                "visualization_type": "custom",
+                "owner": meta.get("owner", ""),
+                "created_at": "",
+                "updated_at": (overlay or {}).get("updated_at"),
+                "deprecated": False,
+                "custom_href": url_for("presentations.atolye_surec_detay", pid=pid),
+            })
     return out
 
 
@@ -325,13 +405,15 @@ def get_process(pid: str) -> dict | None:
     meta = PROCESS_REGISTRY.get(pid)
     if meta is None:
         return None
-    doc = meta.get("documentation") or {}
+    overlay = _load_overlay(pid)
+    doc = _merged_doc(meta, overlay)
     blocks = []
     for b in meta.get("blocks") or []:
-        bdoc = b.get("documentation") or {}
+        bdoc = _merged_block_doc(b, overlay)
         cr = b.get("custom_render") or {}
         blocks.append({
             **b,
+            "documentation": bdoc,
             "documented": bool((bdoc.get("purpose") or "").strip()),
             "doc_fields": _doc_filled_count(bdoc),
             # Render hedefi URL'i burada güvenle çözülür: mevduat_panel blueprint
@@ -344,9 +426,12 @@ def get_process(pid: str) -> dict | None:
         "desc": meta.get("desc", ""),
         "source_kind": meta.get("source_kind", "custom"),
         "owner": meta.get("owner", ""),
-        "documentation": {f: doc.get(f) for f in _DOC_FIELDS},
-        "documented": _is_documented(meta),
+        "documentation": doc,
+        "documented": bool((doc.get("purpose") or "").strip()),
         "doc_fields": _doc_filled_count(doc),
+        "doc_version": (overlay or {}).get("version"),
+        "doc_updated_by": (overlay or {}).get("updated_by"),
+        "doc_updated_at": (overlay or {}).get("updated_at"),
         "blocks": blocks,
         "page": meta.get("page"),
         "endpoint": meta.get("endpoint"),
