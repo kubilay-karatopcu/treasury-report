@@ -112,6 +112,57 @@
     align-items: center;
   }
   .engine-meta .source { color: var(--gold); }
+
+  /* ── Süreç kartları (canlı panolar) — 2026-07-22: eski dar 5'li experts-grid
+     yerine geniş, kenarlıklı, açıklamalı kartlar. ────────────────────────── */
+  .process-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+    margin-top: 4px;
+  }
+  .process-cell {
+    display: flex;
+    flex-direction: column;
+    padding: 22px 24px 20px;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--bg-1);
+    transition: border-color 0.2s, background 0.2s;
+    min-height: 150px;
+  }
+  .process-cell:hover { border-color: var(--gold); background: var(--bg-2); }
+  .process-cell .proc-code {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--gold);
+    margin-bottom: 12px;
+  }
+  .process-cell .proc-name {
+    font-family: var(--serif);
+    font-size: 19px;
+    font-weight: 300;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+  }
+  .process-cell .proc-desc {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink-mute);
+    flex: 1;
+  }
+  .process-cell .proc-cta {
+    margin-top: 16px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    transition: color 0.2s;
+  }
+  .process-cell:hover .proc-cta { color: var(--gold); }
 </style>
 {% endblock %}
 
@@ -178,9 +229,8 @@
       {% elif briefing.prose_html %}
         {# ── Fallback: Phase 10C static prose ─────────────────────────── #}
         {{ briefing.prose_html | safe }}
-      {% else %}
-        <p class="briefing-empty">Brifing henüz hazır değil.</p>
       {% endif %}
+      {# Brifing boş-durum metni kaldırıldı (ilk aşamada brifing üretilmiyor). #}
     </div>
 
     <aside class="expert-sidebar">
@@ -213,38 +263,28 @@
   </div>
 
   {% if processes %}
-  {# ── Faz P0: uzmanın canlı panoları (bound_content.processes) ─────────── #}
+  {# ── Faz P0: uzmanın canlı panoları (bound_content.processes). Numara 01 —
+       tek gerçeklik süreçlerdir (Kaynakça/Snapshot bölümü kaldırıldı). ────── #}
   <div class="section-head">
-    <span class="section-num">02</span>
+    <span class="section-num">01</span>
     <span class="section-title">Süreçler · Canlı Panolar</span>
     <span class="section-tail"></span>
   </div>
 
-  <div class="experts-grid">
+  <div class="process-grid">
     {% for p in processes %}
-    <a class="expert-cell" href="{{ p.url }}"
+    <a class="process-cell" href="{{ p.url }}"
        style="text-decoration: none; color: inherit;">
-      <div class="code">{{ p.num }}</div>
-      <div class="name">{{ p.label }}</div>
-      <div class="role">{{ p.desc }}</div>
+      <div class="proc-code">{{ p.num }}</div>
+      <div class="proc-name">{{ p.label }}</div>
+      <div class="proc-desc">{{ p.desc }}</div>
+      <span class="proc-cta">Panoyu aç →</span>
     </a>
     {% endfor %}
   </div>
   {% endif %}
 
-  <div class="section-head">
-    <span class="section-num">03</span>
-    <span class="section-title">Tüm Kaynakça · Dayanak Snapshot'lar</span>
-    <span class="section-tail"></span>
-  </div>
-
-  {% include "home/partials/citation_grid.html" %}
-
-  <div class="expert-question">
-    <span class="label">{{ expert.code }}'ye sor</span>
-    <input type="text"
-           placeholder="örneğin: bu çıkışlar haftalık ortalamayla kıyaslayınca neredeyiz?"
-           disabled
-           title="Phase 10E sonrasında aktif olacak">
-  </div>
+  {# Kaynakça · Dayanak Snapshot'lar bölümü kaldırıldı: bu panolar birer süreç
+     olduğundan üstteki "Süreçler" bölümü tek gerçekliktir. "…'ye sor" (LLM)
+     alanı da gizlendi — masa tarafında ilk aşamada LLM kullanılmıyor. #}
 {% endblock %}
