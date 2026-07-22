@@ -796,8 +796,8 @@
         var checked = rows.filter(function(v) { return state[dim][v] !== false; }).length;
         var sub;
         if (rows.length === 0)            sub = "—";
-        else if (checked === rows.length) sub = "Tümü (" + rows.length + ")";
-        else if (checked === 0)           sub = "Hiçbiri";
+        else if (checked === rows.length) sub = "All (" + rows.length + ")";
+        else if (checked === 0)           sub = "None";
         else                              sub = checked + " / " + rows.length;
         btn.innerHTML = '<span><b>' + dim + ':</b> ' + sub + '</span><span class="caret">▾</span>';
       }
@@ -820,14 +820,14 @@
         var actions = document.createElement("div");
         actions.className = "bub-filter-dd-actions";
         var allLink = document.createElement("a");
-        allLink.textContent = "Tümü";
+        allLink.textContent = "All";
         allLink.addEventListener("click", function(ev) {
           ev.preventDefault();
           effectiveEntries().forEach(function(v) { state[dim][v] = true; });
           rebuild(); updateBtnLabel(); onChange();
         });
         var noneLink = document.createElement("a");
-        noneLink.textContent = "Hiçbiri";
+        noneLink.textContent = "None";
         noneLink.addEventListener("click", function(ev) {
           ev.preventDefault();
           effectiveEntries().forEach(function(v) { state[dim][v] = false; });
@@ -854,7 +854,7 @@
           });
           checkboxes[v] = cb;
           lblEl.appendChild(cb);
-          lblEl.appendChild(document.createTextNode(" " + (v || "(boş)")));
+          lblEl.appendChild(document.createTextNode(" " + (v || "(empty)")));
           popup.appendChild(lblEl);
         });
 
@@ -862,7 +862,7 @@
         var groupBtn = document.createElement("button");
         groupBtn.type = "button";
         groupBtn.className = "bub-filter-dd-groupbtn";
-        groupBtn.textContent = "＋ Seçilenleri Grupla";
+        groupBtn.textContent = "＋ Group Selected";
         function updateGroupBtn() {
           var selected = availableVals.filter(function(v) { return state[dim][v] !== false; });
           // For AUM: need ≥ 2 parseable; for others ≥ 2 raw vals
@@ -898,7 +898,7 @@
           popup.appendChild(sep);
           var hdr = document.createElement("div");
           hdr.className = "bub-filter-dd-grp-hdr";
-          hdr.textContent = "Gruplar (" + mergedGroups.length + ")";
+          hdr.textContent = "Groups (" + mergedGroups.length + ")";
           popup.appendChild(hdr);
           mergedGroups.slice().forEach(function(g) {
             var row = document.createElement("div");
@@ -2462,7 +2462,7 @@
     tl.cache = null;
     tl.union = null;
     tl.els.range.disabled = true;
-    tl.els.date.textContent = "Yükleniyor…";
+    tl.els.date.textContent = "Loading…";
     try {
       var r = await fetch("/api/bubble_series?source=" + (prefix === "ca-mon" ? "monthly" : "daily")
                           + "&date_0=" + encodeURIComponent(info.d0)
@@ -2516,7 +2516,7 @@
       '<span class="bub-minsize-label">Date</span>' +
       '<button type="button" id="' + prefix + '-tl-play" title="Play from the slider start to the selected date" style="' + btnCss + '">▶</button>' +
       '<input type="range" class="bub-minsize-range" id="' + prefix + '-tl-range" min="0" max="0" step="1" value="0" disabled>' +
-      '<span class="bub-minsize-val" id="' + prefix + '-tl-date">Yükleniyor…</span>' +
+      '<span class="bub-minsize-val" id="' + prefix + '-tl-date">Loading…</span>' +
       '<button type="button" id="' + prefix + '-tl-lock" title="Lock axes to the union of the full range (kept after settling)" style="' + btnCss + 'opacity:0.45;">🔒</button>';
     return bar;
   }
@@ -4545,17 +4545,17 @@
     drillRow.innerHTML =
       '<button onclick="document.getElementById(\'' + drillId + '\').remove()" '
       + 'style="position:absolute;top:8px;right:10px;background:none;border:none;'
-      + 'cursor:pointer;font-size:16px;color:var(--text-secondary);z-index:2;" title="Kapat">✕</button>'
+      + 'cursor:pointer;font-size:16px;color:var(--text-secondary);z-index:2;" title="Close">✕</button>'
       + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">'
       + 'Daily Balance — <span style="color:var(--accent);">' + labelFull + '</span>'
       + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(' + dateRange + ')</span></div>'
       + '<div id="' + drillId + '-chart" style="height:260px;width:100%;display:flex;align-items:center;'
-      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Yükleniyor…</div>'
+      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Loading…</div>'
       + (showBar
           ? '<div style="height:1px;background:rgba(255,255,255,0.07);margin:10px 0;"></div>'
             + '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">' + breakTitle + '</div>'
             + '<div id="' + drillId + '-bar" style="min-height:80px;width:100%;display:flex;align-items:center;'
-            + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Yükleniyor…</div>'
+            + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Loading…</div>'
           : "");
     cardEl.insertAdjacentElement("afterend", drillRow);
     drillRow.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -5552,16 +5552,16 @@
     drillRow.innerHTML =
       '<button onclick="document.getElementById(\'' + drillId + '\').remove()" '
       + 'style="position:absolute;top:8px;right:10px;background:none;border:none;'
-      + 'cursor:pointer;font-size:16px;color:var(--text-secondary);z-index:2;" title="Kapat">✕</button>'
+      + 'cursor:pointer;font-size:16px;color:var(--text-secondary);z-index:2;" title="Close">✕</button>'
       + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">'
       + 'Daily Interest Rate — <span style="color:var(--accent);">' + labelFull + '</span>'
       + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(' + dateRange + ')</span></div>'
       + '<div id="' + drillId + '-chart" style="height:260px;width:100%;display:flex;align-items:center;'
-      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Yükleniyor…</div>'
+      + 'justify-content:center;color:var(--text-secondary);font-size:13px;">Loading…</div>'
       + '<div style="height:1px;background:rgba(255,255,255,0.07);margin:10px 0;"></div>'
       + '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">' + breakLbl + ' Breakdown</div>'
       + '<div id="' + drillId + '-bar" style="min-height:80px;width:100%;display:flex;align-items:center;'
-      + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Yükleniyor…</div>';
+      + 'justify-content:center;color:var(--text-secondary);font-size:12px;">Loading…</div>';
     cardEl.insertAdjacentElement("afterend", drillRow);
     drillRow.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
@@ -5865,7 +5865,7 @@
       });
     };
     var _depHov = function(lbl) {
-      return "<b>%{x}</b><br>" + lbl + ": %{y:,.0f} ₺M<br>WAvg Faiz: %{customdata[1]:.2f}%"
+      return "<b>%{x}</b><br>" + lbl + ": %{y:,.0f} ₺M<br>WAvg Rate: %{customdata[1]:.2f}%"
            + "<br>WAvg " + tenLabel + ": %{customdata[0]:,.0f} days<extra></extra>";
     };
     var ladderData = [
@@ -6561,7 +6561,7 @@
     drillRow.innerHTML =
       '<button onclick="document.getElementById(\'' + drillRowId + '\').remove()"' +
         ' style="position:absolute;top:8px;right:10px;background:none;border:none;' +
-        'cursor:pointer;font-size:16px;color:var(--text-secondary);z-index:2;" title="Kapat">✕</button>' +
+        'cursor:pointer;font-size:16px;color:var(--text-secondary);z-index:2;" title="Close">✕</button>' +
       '<div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">' +
         'Daily Detail — ' + product + '</div>' +
       '<div id="' + drillChartId + '" style="height:340px;"></div>' +
@@ -6576,7 +6576,7 @@
             '</div>' +
           '</div>' +
           '<div id="' + drillRowId + '-bar" style="min-height:80px;width:100%;display:flex;' +
-            'align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px;">Yükleniyor…</div>'
+            'align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px;">Loading…</div>'
         : "");
     // P2 UX: bubble grid'inin İÇİNE değil, bloğun EN ALTINA tam genişlik
     // (iki bubble yan yana + slider + altta geniş detay düzeni bozulmasın).
@@ -6839,7 +6839,7 @@
       var topbar = document.createElement("div"); topbar.className = "chart-fs-topbar";
       var btn = document.createElement("button");
       btn.className = "chart-fs-close"; btn.type = "button";
-      btn.innerHTML = "&#10005;"; btn.title = "Kapat (Esc)";
+      btn.innerHTML = "&#10005;"; btn.title = "Close (Esc)";
       btn.addEventListener("click", _close);
       topbar.appendChild(btn);
       overlay.appendChild(topbar);
@@ -7771,19 +7771,19 @@
     }
     var ep = slide.endpoint || "weekly_rollings";
     var ds = weeklyReportState.dateStart, de = weeklyReportState.dateEnd;
-    _setWeeklyStatus("Yükleniyor…");
+    _setWeeklyStatus("Loading…");
     fetch("/api/" + ep + "?date_start=" + encodeURIComponent(ds) +
           "&date_end=" + encodeURIComponent(de))
       .then(function(r){ return r.json(); })
       .then(function(j){
-        if (!j.ok) { _setWeeklyStatus("Hata: " + (j.error || "?")); return; }
+        if (!j.ok) { _setWeeklyStatus("Error: " + (j.error || "?")); return; }
         weeklyReportState[slide.stateKey] = j;
         _setWeeklyStatus(j.row_count > 0
-          ? ("Veri: " + j.row_count + " rows.")
+          ? ("Data: " + j.row_count + " rows.")
           : "No data found in the selected date range.");
         _renderWeeklySlideHost();
       })
-      .catch(function(e){ _setWeeklyStatus("Hata: " + (e.message || e)); });
+      .catch(function(e){ _setWeeklyStatus("Error: " + (e.message || e)); });
   }
 
   function _renderWeeklySlideHost() {
@@ -8172,7 +8172,7 @@
         { field: "segment",  headerName: "Segment", width: 110,
           suppressMovable: true, sortable: true,
           cellRenderer: _wrSegmentChip },
-        { field: "volume_m", headerName: "Hacim (mio)", width: 130,
+        { field: "volume_m", headerName: "Volume (mio)", width: 130,
           suppressMovable: true, sortable: true, type: "numericColumn",
           cellClass: "wr-num-accent",
           valueFormatter: function(p){ return _wrFmt2(p.value); } },
@@ -8252,7 +8252,7 @@
     if (ctx.cust_tp) subParts.push(ctx.cust_tp === "G" ? "Individual Customers" : "Corporate Customers");
     document.getElementById("wr-drill-title").textContent = "Cell Detail — " + dateLabel;
     document.getElementById("wr-drill-subtitle").textContent = subParts.join(" · ");
-    document.getElementById("wr-drill-count").textContent = "(yükleniyor…)";
+    document.getElementById("wr-drill-count").textContent = "(loading…)";
 
     var ds = weeklyReportState.dateStart, de = weeklyReportState.dateEnd;
     var url = "/api/weekly_drilldown?date_start=" + encodeURIComponent(ds)
@@ -8263,7 +8263,7 @@
             + (ctx.cust_tp   ? "&cust_tp="   + encodeURIComponent(ctx.cust_tp)   : "");
     fetch(url).then(function(r){return r.json();}).then(function(j){
       if (!j.ok) {
-        document.getElementById("wr-drill-count").textContent = "Hata: " + (j.error || "?");
+        document.getElementById("wr-drill-count").textContent = "Error: " + (j.error || "?");
         return;
       }
       document.getElementById("wr-drill-count").textContent =
@@ -8309,7 +8309,7 @@
       // ── Müşteri grid'i (Prisma stilinde, Slide 2 ile aynı görsel dil) ──
       _wrRenderDrillCustomerGrid(j.customers || []);
     }).catch(function(e){
-      document.getElementById("wr-drill-count").textContent = "Hata: " + (e.message || e);
+      document.getElementById("wr-drill-count").textContent = "Error: " + (e.message || e);
     });
   }
 
@@ -8339,7 +8339,7 @@
         { field: "segment",  headerName: "Segment", width: 110,
           suppressMovable: true, sortable: true,
           cellRenderer: _wrSegmentChip },
-        { field: "volume_m", headerName: "Hacim (mio)", width: 130,
+        { field: "volume_m", headerName: "Volume (mio)", width: 130,
           suppressMovable: true, sortable: true, type: "numericColumn",
           cellClass: "wr-num-accent",
           valueFormatter: function(p){ return _wrFmt2(p.value); } },
@@ -8382,7 +8382,7 @@
 
   async function fetchSimulationResults() {
     showError("");
-    elSimStatus.textContent = "Yükleniyor...";
+    elSimStatus.textContent = "Loading...";
     try {
       const res = await fetch("/api/simulation_results");
       const data = await res.json();
@@ -8435,23 +8435,23 @@
     }
   }
 
-  // Faz P1 (dil karari: TR) — sidebar etiketleriyle ve uzman surec
-  // kartlariyla (prisma_home/processes.py) birebir ayni adlar.
+  // Sayfa başlıkları sidebar etiketleriyle birebir aynı adları taşır
+  // (2026-07-22: arayüz dili İngilizceye döndü — sidebar ile eşleşir).
   var NP_PAGE_TITLES = {
-    "np-volume-pricing":   "Yeni Üretim — Hacim & Fiyatlama",
-    "sector-comparison":   "Sektör Karşılaştırması",
+    "np-volume-pricing":   "New Production — Volume & Pricing",
+    "sector-comparison":   "Sector Comparison",
   };
 
   var DEPOSIT_PAGE_TITLES = {
-    "cost-analysis":    "Stok Maliyet Analizi",
-    "balance-analysis": "Stok Bakiye Analizi",
-    "tenor-analysis":   "Stok Vade Analizi",
-    "weekly-report":    "Haftalık Mevduat Dönüşleri",
+    "cost-analysis":    "Outstanding Cost Analysis",
+    "balance-analysis": "Outstanding Balance Analysis",
+    "tenor-analysis":   "Outstanding Tenor Analysis",
+    "weekly-report":    "Weekly Deposit Rollovers",
   };
 
   function updateTitle() {
     singleTitle.textContent = NP_PAGE_TITLES[currentPage] ||
-      DEPOSIT_PAGE_TITLES[currentPage] || "Mevduat Paneli";
+      DEPOSIT_PAGE_TITLES[currentPage] || "Deposit Panel";
   }
 
   function setPage(pageName) {
@@ -9033,16 +9033,16 @@
     if (dc && dc.value) p.set("decomp",    dc.value);
     // Status feedback
     var statusEl = document.getElementById("np-vp-status");
-    if (statusEl) statusEl.textContent = "Yükleniyor...";
+    if (statusEl) statusEl.textContent = "Loading...";
     fetch("/api/np/aum_rate_chart?" + p.toString() + _npVpBubStateToQuery() + _npRvHmTenorParam())
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (statusEl) statusEl.textContent = "";
-        if (!d.ok) { if (statusEl) statusEl.textContent = "Hata: " + d.error; return; }
+        if (!d.ok) { if (statusEl) statusEl.textContent = "Error: " + d.error; return; }
         renderNpAumChart(d, fr ? fr.value : "W");
       })
       .catch(function(e) {
-        if (statusEl) statusEl.textContent = "Hata: " + (e.message || e);
+        if (statusEl) statusEl.textContent = "Error: " + (e.message || e);
         console.error("AUM chart error:", e);
       });
   }
@@ -9439,7 +9439,7 @@
     _initNpVpFilters();
     _initNpRvHmControls();
     var statusEl = document.getElementById("np-vp-status");
-    if (statusEl) statusEl.textContent = "Yükleniyor...";
+    if (statusEl) statusEl.textContent = "Loading...";
     // Sayfa artık üç grafik: üstte heatmap, altında volume & rate combo, en altta
     // faiz × kümülatif hacim eğrisi.
     fetchNpRvHeatmap();
@@ -9483,7 +9483,7 @@
     if (key === _npBubLastKey && npVpBubFigs) { _renderNpVpBubbles(); return; }
     _npBubLastKey = key;
     var statusEl = document.getElementById("np-vp-bub-status");
-    if (statusEl) statusEl.textContent = "Yükleniyor...";
+    if (statusEl) statusEl.textContent = "Loading...";
     fetch("/api/np/rate_volume_bubble?t0=" + encodeURIComponent(t0)
           + "&t1=" + encodeURIComponent(t1)
           + "&freq=" + encodeURIComponent(freq) + tenorQ)
@@ -9522,7 +9522,7 @@
     var t0El = document.getElementById("np-vp-date0");
     var t1El = document.getElementById("np-vp-date1");
     var statusEl = document.getElementById("np-rvc-status");
-    if (statusEl) statusEl.textContent = "Yükleniyor...";
+    if (statusEl) statusEl.textContent = "Loading...";
     var p = new URLSearchParams();
     if (t0El && t0El.value) p.set("t0", t0El.value);
     if (t1El && t1El.value) p.set("t1", t1El.value);
@@ -9581,7 +9581,7 @@
         x: s.x, y: s.y, type: "scatter", mode: "lines",
         name: _lbl(s, i),
         line: { color: COLORS[i % COLORS.length], width: 2, shape: "vh" },
-        hovertemplate: "Volume: %{x:.1f}%<br>Faiz: %{y:.2f}%<extra></extra>",
+        hovertemplate: "Volume: %{x:.1f}%<br>Rate: %{y:.2f}%<extra></extra>",
       };
     });
     var lt = (typeof _hmLight === "function") ? _hmLight() : false;
@@ -9765,7 +9765,7 @@
     var t0El = document.getElementById("np-vp-date0");
     var t1El = document.getElementById("np-vp-date1");
     var statusEl = document.getElementById("np-rvhm-status");
-    if (statusEl) statusEl.textContent = "Yükleniyor...";
+    if (statusEl) statusEl.textContent = "Loading...";
 
     var p = new URLSearchParams();
     if (t0El && t0El.value) p.set("t0", t0El.value);
@@ -9962,7 +9962,7 @@
       { h: "Simple",    t0: fmtPct(cell.t0_simple),   t1: fmtPct(cell.t1_simple),   d: dBps(cell.t1_simple, cell.t0_simple) },
       { h: "Compound",  t0: fmtPct(cell.t0_compound), t1: fmtPct(cell.t1_compound), d: dBps(cell.t1_compound, cell.t0_compound) },
       { h: "Tenor",     t0: fmtDay(cell.t0_tenor),    t1: fmtDay(cell.t1_tenor),    d: dDay(cell.t1_tenor, cell.t0_tenor) },
-      { h: "OS Bakiye", t0: fmtVol(cell.t0_os),       t1: fmtVol(cell.t1_os),       d: dVol(cell.t1_os, cell.t0_os) },
+      { h: "OS Balance", t0: fmtVol(cell.t0_os),       t1: fmtVol(cell.t1_os),       d: dVol(cell.t1_os, cell.t0_os) },
       { h: "OS Rate",   t0: fmtPct(cell.t0_os_rate),  t1: fmtPct(cell.t1_os_rate),  d: dBps(cell.t1_os_rate, cell.t0_os_rate) },
       { h: "Booked",  t0: fmtVol(cell.t0_np_vol),   t1: fmtVol(cell.t1_np_vol),   d: dVol(cell.t1_np_vol, cell.t0_np_vol) },
     ];
@@ -10428,7 +10428,7 @@
     var statusEl= document.getElementById("np-rvhm-combo-status");
     if (titleEl) titleEl.textContent = ch + " × " + au;
     if (panel) panel.style.display = "block";
-    if (statusEl) statusEl.textContent = "Yükleniyor...";
+    if (statusEl) statusEl.textContent = "Loading...";
 
     var t0 = document.getElementById("np-vp-date0");
     var t1 = document.getElementById("np-vp-date1");
@@ -10442,12 +10442,12 @@
     fetch(url, { cache: "no-store" })
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        if (!d.ok) { if (statusEl) statusEl.textContent = "Hata: " + d.error; return; }
+        if (!d.ok) { if (statusEl) statusEl.textContent = "Error: " + d.error; return; }
         if (statusEl) statusEl.textContent = (d.records || []).length
           ? "" : "No new-prod data in this cell.";
         _renderNpRvHmCombo(d);
       })
-      .catch(function(e) { if (statusEl) statusEl.textContent = "Hata: " + (e.message || e); });
+      .catch(function(e) { if (statusEl) statusEl.textContent = "Error: " + (e.message || e); });
   };
   var _npComboCharts = {};
   function _renderNpRvHmCombo(d, elId) {
@@ -10475,7 +10475,7 @@
     _npComboCharts[elId] = new ApexCharts(el, {
       series: [
         { name: "Booked (mn)", type: "column", data: bal },
-        { name: "WAvg Faiz (%)", type: "line",   data: rate },
+        { name: "WAvg Rate (%)", type: "line",   data: rate },
       ],
       chart: { type: "line", height: 320, toolbar: { show: false }, zoom: { enabled: false },
                animations: { enabled: false }, background: "transparent",
@@ -10493,8 +10493,8 @@
           title: { text: "Booked (mn)", style: { color: "#8B95A7", fontSize: "11px" } },
           labels: { style: { colors: "#8B95A7", fontSize: "11px" },
                     formatter: function(v) { return v != null ? Math.round(v) : ""; } } },
-        { seriesName: "WAvg Faiz (%)", opposite: true, min: Math.max(0, rMin - rPad), max: rMax + rPad,
-          title: { text: "WAvg Faiz (%)", style: { color: "#D4A574", fontSize: "11px" } },
+        { seriesName: "WAvg Rate (%)", opposite: true, min: Math.max(0, rMin - rPad), max: rMax + rPad,
+          title: { text: "WAvg Rate (%)", style: { color: "#D4A574", fontSize: "11px" } },
           labels: { style: { colors: "#D4A574", fontSize: "11px" },
                     formatter: function(v) { return v != null ? v.toFixed(1) : ""; } } },
       ],
@@ -10545,7 +10545,7 @@
     // wr-drill-modal ile aynı düzeltme: body'ye taşı → viewport ortalı fixed.
     if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
     if (modal) modal.classList.remove("hidden");
-    if (statusEl) statusEl.textContent = "Yükleniyor...";
+    if (statusEl) statusEl.textContent = "Loading...";
 
     var p = new URLSearchParams();
     p.set("channel", ch); p.set("aum", au);
@@ -10558,10 +10558,10 @@
       .then(function(r) { return r.json(); })
       .then(function(dd) {
         if (statusEl) statusEl.textContent = "";
-        if (!dd.ok) { if (statusEl) statusEl.textContent = "Hata: " + dd.error; return; }
+        if (!dd.ok) { if (statusEl) statusEl.textContent = "Error: " + dd.error; return; }
         _renderNpDrill(dd);
       })
-      .catch(function(e) { if (statusEl) statusEl.textContent = "Hata: " + (e.message || e); });
+      .catch(function(e) { if (statusEl) statusEl.textContent = "Error: " + (e.message || e); });
 
     // 2) Zaman serisi (combo) — ayrı endpoint
     var pc = new URLSearchParams();
