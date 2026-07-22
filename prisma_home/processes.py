@@ -77,18 +77,39 @@ PROCESS_REGISTRY: dict[str, dict] = {
                     "acc-btn-ca-mon-wf",
                     "Dönem faiz maliyetini başlangıç→bitiş arasında bileşenlere "
                     "ayıran kümülatif waterfall (Detay Boyutu'na göre kırılır).",
-                    decision_support="Maliyet değişiminin sürükleyici kırılımını "
-                    "tek bakışta verir."),
+                    business_context="Maliyet değişiminin fiyat etkisi mi (aynı "
+                    "ürünün faizi değişti) mix etkisi mi (pahalı ürüne kayış) "
+                    "olduğu, fiyatlama aksiyonunun hedefini belirler.",
+                    decision_support="Yorum kuralı: en büyük pozitif çubuk maliyet "
+                    "artışının ana sürükleyicisidir; fiyat kaynaklıysa oran "
+                    "aksiyonu, mix kaynaklıysa ürün yönlendirmesi gerekir.",
+                    known_limitations="Çubuklar seçili tarih aralığına ve aktif "
+                    "boyut/filtre setine bağlıdır; tekil büyük müşteri hareketleri "
+                    "çubuğu domine edebilir (drill ile doğrulanmalı)."),
             _cblock("camon_bubble", "Cost Bubble — Balance × Rate", "cost-analysis",
                     "ca-mon-bub-bal",
                     "Ürün×vade baloncuklarında bakiye (boyut) ile faiz (eksen) "
                     "ilişkisi; merge hafızalı chip filtresiyle gruplanır.",
+                    business_context="Fonlamanın nerede pahalı yoğunlaştığını "
+                    "gösterir: büyük VE yüksek-faizli baloncuk = en maliyetli küme.",
+                    decision_support="Yorum kuralı: sağ-üstteki (yüksek faiz) "
+                    "büyük baloncuklar yeniden fiyatlama adayıdır; küçük ama çok "
+                    "sayıda yüksek-faizli baloncuk kampanya taramasını işaret eder.",
                     known_limitations="Split/merge animasyonu ve seçim etkileşimi "
-                    "standart blok render'ında yok."),
+                    "standart blok render'ında yok; baloncuk konumu ağırlıklı "
+                    "ortalamadır, uç değerleri gizleyebilir."),
             _cblock("camon_ratehm", "Interest Rate Heatmap", "cost-analysis",
                     "ca-mon-rate-hm",
                     "Ayrıştırma × İkinci Boyut matrisinde faiz Δ/seviyesi ısı "
-                    "haritası; hücre drill'i satır seviyesine iner."),
+                    "haritası; hücre drill'i satır seviyesine iner.",
+                    business_context="Faiz değişiminin hangi segment×boyut "
+                    "kesişiminde yoğunlaştığını tek matriste gösterir.",
+                    decision_support="Yorum kuralı: koyu (yüksek Δ) hücreler "
+                    "anomali adayıdır; satır/sütun boyunca yayılmışsa yapısal, "
+                    "tekil hücreyse müşteri-özel harekettir.",
+                    known_limitations="Δ modu iki tarih arasındaki farktır — ara "
+                    "dönem salınımını göstermez; seyrek hücrelerde küçük bakiye "
+                    "büyük Δ üretebilir."),
         ],
     },
     "mevduat.bakiye": {
@@ -110,11 +131,26 @@ PROCESS_REGISTRY: dict[str, dict] = {
         "blocks": [
             _cblock("bamon_bridge", "Balance Bridge", "balance-analysis",
                     "acc-btn-ba-mon-bridge",
-                    "Bakiye değişimini başlangıç→bitiş bileşenlerine ayıran köprü."),
+                    "Bakiye değişimini başlangıç→bitiş bileşenlerine ayıran köprü.",
+                    business_context="Büyümenin kaynağını (hangi segment/ürün "
+                    "ekledi, hangisi kaybetti) net değişimden ayrıştırır.",
+                    decision_support="Yorum kuralı: net büyüme pozitifken büyük "
+                    "negatif çubuk varsa churn maskeleniyor demektir — o segmente "
+                    "tutundurma aksiyonu gerekir.",
+                    known_limitations="Köprü nominal TL'dir; kur ve enflasyon "
+                    "etkisi ayrıştırılmaz."),
             _cblock("bamon_heatmap", "Balance / Customer Heatmap", "balance-analysis",
                     "acc-btn-ba-mon-heatmap",
                     "Bakiye veya müşteri sayısı metriğiyle segment×boyut ısı "
-                    "haritası (metrik slider'ıyla seçilir)."),
+                    "haritası (metrik slider'ıyla seçilir).",
+                    business_context="Bakiye ve müşteri sayısı birlikte okununca "
+                    "büyümenin yaygın mı (çok müşteri) yoğunlaşmış mı (az büyük "
+                    "müşteri) olduğu görülür.",
+                    decision_support="Yorum kuralı: bakiye artıp müşteri sayısı "
+                    "düşen hücre yoğunlaşma riskidir; ikisi birlikte artıyorsa "
+                    "sağlıklı büyümedir.",
+                    known_limitations="Hover-bağlı ikiz heatmap etkileşimi SPA'ya "
+                    "özgüdür; iki metrik farklı ölçeklerde renklenir."),
         ],
     },
     "mevduat.vade": {
@@ -135,10 +171,25 @@ PROCESS_REGISTRY: dict[str, dict] = {
         "blocks": [
             _cblock("tamon_ladder", "Balance vs Hedge Ladder", "tenor-analysis",
                     "acc-btn-ta-mon-ladder",
-                    "Vade kovalarında bakiye vs swap hedge merdiveni + Δ bakiye."),
+                    "Vade kovalarında bakiye vs swap hedge merdiveni + Δ bakiye.",
+                    business_context="Mevduatın vade dağılımı ile hedge örtüsü "
+                    "arasındaki açık, faiz ve likidite riskinin kaynağıdır.",
+                    decision_support="Yorum kuralı: bakiyenin hedge'i belirgin "
+                    "aştığı kova net açık pozisyondur — swap/vade uzatma aksiyonu "
+                    "önceliği oraya verilir.",
+                    known_limitations="Merdiven anlık stok fotoğrafıdır; dönüş "
+                    "(rollover) davranışı varsayılmaz, Weekly Rollovers ile "
+                    "birlikte okunmalıdır."),
             _cblock("tamon_curve", "Term-Structure Curve", "tenor-analysis",
                     "acc-btn-ta-mon-curve",
-                    "Vade yapısı boyunca ağırlıklı ortalama faiz eğrisi."),
+                    "Vade yapısı boyunca ağırlıklı ortalama faiz eğrisi.",
+                    business_context="Bankanın kendi mevduat verim eğrisi — vade "
+                    "uzadıkça ödenen prim fiyatlama disiplinini gösterir.",
+                    decision_support="Yorum kuralı: eğride ters eğim ya da tümsek "
+                    "(kısa vadeye uzundan fazla ödeme) fiyatlama anomalisidir; "
+                    "kampanya/istisnaların taranmasını tetikler.",
+                    known_limitations="Seyrek kovalar eğriyi oynatabilir; eğri "
+                    "yeni üretimi değil stoğu yansıtır."),
         ],
     },
     "mevduat.donusler": {
@@ -162,10 +213,25 @@ PROCESS_REGISTRY: dict[str, dict] = {
             _cblock("wr_rollovers", "Weekly Rollovers Table", "weekly-report",
                     "wr-grid-1",
                     "AUM bandı × tarih matrisinde haftalık dönüş tutarları "
-                    "(mio TRY); hücre → müşteri drill."),
+                    "(mio TRY); hücre → müşteri drill.",
+                    business_context="Dönüş günü hem yeniden fiyatlama fırsatı "
+                    "hem çıkış riskidir; hacmin hangi band/güne yığıldığı haftanın "
+                    "operasyon planını belirler.",
+                    decision_support="Yorum kuralı: büyük bandlarda (200M+) "
+                    "yoğunlaşan dönüş günleri proaktif müşteri teması ister; "
+                    "hücre drill'i temas listesini verir.",
+                    known_limitations="Tutarlar sözleşme vadesine göredir; erken "
+                    "kapama/kısmi çekim öngörülmez."),
             _cblock("wr_dtm", "Maturity Bucket Distribution", "weekly-report",
                     "wr-s1-dtm",
-                    "Bakiye bazında vade kovası dağılımı histogramı."),
+                    "Bakiye bazında vade kovası dağılımı histogramı.",
+                    business_context="Dönen hacmin hangi yeni vadeye yazıldığı, "
+                    "ortalama vadenin yönünü (uzama/kısalma) gösterir.",
+                    decision_support="Yorum kuralı: dağılım kısa kovalara "
+                    "kayıyorsa fonlama kısalıyor demektir — vade teşviki "
+                    "değerlendirilir.",
+                    known_limitations="Histogram seçili tarih aralığının "
+                    "toplamıdır; hafta içi kompozisyon değişimi görünmez."),
         ],
     },
     "mevduat.yeni_uretim": {
@@ -188,10 +254,28 @@ PROCESS_REGISTRY: dict[str, dict] = {
             _cblock("np_rvhm", "Rate × Volume Heatmap", "np-volume-pricing",
                     "np-rvhm-wrap",
                     "Faiz × kümülatif hacim ısı haritası; hover → 'Cell history' "
-                    "combo + matris, çift-tık → müşteri drill."),
+                    "combo + matris, çift-tık → müşteri drill.",
+                    business_context="Yeni işin kanal×AUM kesişiminde hangi "
+                    "faizden yazıldığını gösterir — yarının stok maliyetinin "
+                    "erken göstergesi.",
+                    decision_support="Yorum kuralı: koyu (yüksek Δ) hücreler "
+                    "fiyat artışının yazıldığı yerdir; yüksek faiz + yüksek hacim "
+                    "hücresi marj baskısının kaynağıdır, istisna onay listesiyle "
+                    "karşılaştırılır.",
+                    known_limitations="Yalnız yeni üretim (booked) — stok "
+                    "yeniden fiyatlaması burada görünmez; hücre değeri ağırlıklı "
+                    "ortalamadır."),
             _cblock("np_aumcombo", "AUM Volume & Rate Combo", "np-volume-pricing",
                     None,
-                    "AUM bandı bazında hacim (bar) + ağırlıklı faiz (line) combo."),
+                    "AUM bandı bazında hacim (bar) + ağırlıklı faiz (line) combo.",
+                    business_context="Band büyüklüğü ile ödenen faiz ilişkisi "
+                    "fiyatlama merdiveninin (büyüğe daha çok) çalışıp "
+                    "çalışmadığını gösterir.",
+                    decision_support="Yorum kuralı: küçük banda büyük banddan "
+                    "yüksek faiz ödeniyorsa merdiven bozulmuştur — kampanya "
+                    "sızıntısı aranır.",
+                    known_limitations="Bandlar arası geçişkenlik (müşterinin "
+                    "band değiştirmesi) seri kırılması yaratabilir."),
         ],
     },
     "mevduat.sektor": {
@@ -214,7 +298,14 @@ PROCESS_REGISTRY: dict[str, dict] = {
             _cblock("sec_mix", "Maturity Mix — Bank vs Sector", "sector-comparison",
                     None,
                     "Banka-mix TCMB ile sektör-mix TCMB arasındaki farkın vade "
-                    "kovası bazında attribution'ı."),
+                    "kovası bazında attribution'ı.",
+                    business_context="Banka-sektör faiz farkının 'pahalı mı "
+                    "fonlanıyoruz yoksa vade mixi mi farklı' sorusunu ayrıştırır.",
+                    decision_support="Yorum kuralı: fark mix kaynaklıysa fiyat "
+                    "değil vade stratejisi tartışılır; fiyat kaynaklıysa banda/"
+                    "kanala inen fiyatlama gözden geçirilir.",
+                    known_limitations="BDDK/TCMB verisi yayın takvimiyle gecikir; "
+                    "sektör ortalaması banka kompozisyon farklarını düzler."),
         ],
     },
     "mevduat.bsc": {
@@ -440,7 +531,10 @@ def list_component_block_summaries(
                 "created_at": "",
                 "updated_at": (overlay or {}).get("updated_at"),
                 "deprecated": False,
-                "custom_href": url_for("presentations.atolye_surec_detay", pid=pid),
+                # Blok kartı bloğa ODAKLI açılır (?blok=): başlıkta bloğun kendi
+                # adı görünür (süreç adı değil — kullanıcı geri bildirimi).
+                "custom_href": url_for("presentations.atolye_surec_detay",
+                                       pid=pid, blok=b.get("id")),
             })
     return out
 

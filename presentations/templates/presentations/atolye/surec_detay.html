@@ -168,9 +168,16 @@
   <div class="sd-page">
     <div class="doc-head">
       <div>
-        <div class="eyebrow">∎ · Süreç</div>
-        <h2>{{ process.label }}</h2>
-        <p class="sub">{{ process.desc }}</p>
+        {% if focus_block %}
+          {# Bloklar kütüphanesinden gelindi: başlık bloğun KENDİ adı. #}
+          <div class="eyebrow">▦ · Blok · {{ process.label }}</div>
+          <h2>{{ focus_block.title }}</h2>
+          <p class="sub">{{ focus_block.documentation.purpose or process.desc }}</p>
+        {% else %}
+          <div class="eyebrow">∎ · Süreç</div>
+          <h2>{{ process.label }}</h2>
+          <p class="sub">{{ process.desc }}</p>
+        {% endif %}
       </div>
       <div class="doc-actions">
         {% if not edit_mode %}
