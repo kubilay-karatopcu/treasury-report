@@ -1955,3 +1955,11 @@ def _build_balance_payload(df0: pd.DataFrame, df1: pd.DataFrame, decomp_col: str
 # AUM band map, and red-line rules.
 # ════════════════════════════════════════════════════════════════════════════
 
+
+def reset_caches() -> None:
+    """Bu modüldeki process-ömrü cache'lerini boşaltır (data-refresh çağırır).
+    Sonraki _load()'lar SQL'i yeniden koşar."""
+    _DD_CACHE.clear()
+    _DAILY_DD_CACHE.clear()
+    _SWAP_CACHE.clear()
+

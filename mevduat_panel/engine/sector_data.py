@@ -1620,3 +1620,15 @@ def warm_all() -> dict:
         "tcmb_deposit_rates": len(load_tcmb_deposit_rates()),
         "bist_tlref":         len(load_bist_tlref()),
     }
+
+
+def reset_caches() -> None:
+    """Bu modüldeki tüm process-ömrü cache'lerini (baz + türetilmiş) boşaltır;
+    data-refresh endpoint'i çağırır. Sonraki load_*'lar SQL'i yeniden koşar."""
+    global _AMT_CACHE, _VADE_CACHE, _MALIYET_CACHE, _TCMB_CACHE, _TLREF_CACHE
+    global _RATE_SERIES_CACHE, _BLOTTER_CACHE, _DETAIL_CACHE, _OUTSTANDING_CACHE
+    global _OUTSTANDING_MONTHLY_CACHE, _BANK_VADE_CACHE
+    _AMT_CACHE = _VADE_CACHE = _MALIYET_CACHE = _TCMB_CACHE = _TLREF_CACHE = None
+    _RATE_SERIES_CACHE = _BLOTTER_CACHE = _DETAIL_CACHE = _OUTSTANDING_CACHE = None
+    _OUTSTANDING_MONTHLY_CACHE = _BANK_VADE_CACHE = None
+    _HARM_BUCKET_CACHE.clear()
