@@ -243,6 +243,52 @@ Code temposuna kaba tahmin.
 
 ---
 
+## §3.5 — W serisi: Dökümantasyon Yazımı + Uzman Konuşması (2026-07-22 kararları)
+
+Kullanıcı kararları: **(1)** Snapshot kavramı VE mekanizması tamamen sökülür —
+paylaşım linki yerine tek-sayfa HTML indirme; frozen paylaşım ihtiyacı = süreç
+olarak paylaş (verisi ETL martlarıyla zaten deterministik olacak). **(2)** D2'nin
+"custom bloklar Bloklar kütüphanesinde görünsün" maddesi W1'e alındı. **(3)**
+Sıra: W1 → W3 → W2 → W4.
+
+### W1 — Process store + dökümantasyon YAZIMI + Bloklar görünürlüğü *(~1 hafta)*
+- Versiyonlu process store (block store deseni: Local + S3, atomic bump).
+  Registry seed fallback: store'da kayıt yoksa `PROCESS_REGISTRY` okunur; ilk
+  kayıt (edit) store'a v1 yazar. Okuma yolu `current_app.config["PROCESS_STORE"]`.
+- `surec_detay` ekranına düzenleme formu: süreç + blok dökümantasyonunun 4 alanı
+  server-side form ile yazılır; kayıt = yeni versiyon. Saf Jinja.
+- Süreçlerin `kind:"custom"` bileşen blokları **Kütüphane > Bloklar** listesinde
+  görünür (listing-merge: BLOCK_STORE'a kopyalanmaz — drift yok; liste + API
+  process kayıtlarından ek satır üretir, kart tıklaması süreç detayına gider).
+- Acceptance: kullanıcı dökümantasyonu ekrandan yazıp kaydediyor (versiyonlu);
+  custom bloklar Bloklar'da "custom" rozetiyle listeleniyor.
+
+### W2 — Snapshot'ın TAMAMEN sökülmesi *(~1–1.5 hafta)*
+- "Snapshot Al" → "Süreç olarak yayınla": sunum yayını bir pipeline Process
+  Descriptor üretir; kütüphane Süreçler'de `pipeline` rozetiyle görünür.
+- Paylaşım linki yerine **tek-sayfa HTML dışa aktarma** (self-contained,
+  indirilebilir). `create/view/delete_snapshot` route'ları, Snapshot'lar
+  sayfası, `SNAPSHOT_STORE`, uzman `bound_content.snapshots` ve brifing
+  motorunun snapshot bağı sökülür (bound_content.processes'e migration).
+- Acceptance: kod tabanında kullanıcıya görünen "snapshot" kavramı kalmaz;
+  dışa aktarma HTML'i tek dosya olarak açılıyor.
+
+### W3 — LLM doc-proposer *(~1 hafta)*
+- `prompts/doc_proposal.txt` + `POST /atolye/surec/<pid>/propose-doc` (süreç ve
+  blok bazlı). Bağlam: descriptor + blok bilgisi + tablo dokümanları (ileride
+  mart CEC). Çıktı `documentation_proposed` gölge alanına; W1 formu "taslağı
+  göster → alan alan kabul et" akışı kazanır. Asla auto-publish yok. DEV stub.
+
+### W4 — Uzmanı konuşturma *(~1.5–2 hafta)*
+- **W4a — Uzman Yorumu:** uzman personası bağlı süreçlerin dökümantasyonundan
+  kısa yorum üretir (brifing motorunun süreç-tabanlı yeniden doğuşu). Uzman
+  sayfasında süreç kartlarının üstünde 2-3 cümlelik yorum.
+- **W4b — Veri + "…'ye sor":** süreç başına opsiyonel metrik sağlayıcı kontratı
+  `{k, v, delta, tone}` (expert kartı rail şekli); custom süreç için
+  mevduat_panel engine cache'lerinden KPI özeti, pipeline için manifest KPI'ları.
+  Masa'daki gizli "…'ye sor" alanı geri açılır — `/<pid>/chat` SSE deseninin
+  uzman muadili, `QwenClient.complete` üzerinden.
+
 ## §4 — Riskler ve açık sorular
 
 | Risk / soru | Etki | Öneri |
