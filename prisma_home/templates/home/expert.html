@@ -176,6 +176,41 @@
     color: var(--ink-soft);
   }
 
+  /* ── W6a: exec summary maddeleri + Brifingi al butonu. ───────────────── */
+  .brief-headlines {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .brief-headlines li {
+    position: relative;
+    padding: 7px 0 7px 22px;
+  }
+  .brief-headlines li + li { border-top: 1px dashed var(--border-soft); }
+  .brief-headlines li::before {
+    content: "—";
+    position: absolute;
+    left: 0;
+    color: var(--gold);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .brief-take {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: transparent;
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 6px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .brief-take:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+  .brief-take:disabled { opacity: 0.45; cursor: default; }
+
   /* ── W5c: atıf çipleri + kaynakça + blok modalı (chart-fs deseni). ───── */
   .cite-chip {
     display: inline-block;
@@ -404,23 +439,42 @@
   <div style="margin: 0 0 20px; padding: 16px 20px;
               border-left: 2px solid {{ expert.ui.accent_color }};
               background: var(--bg-1); border-radius: 0 8px 8px 0;">
-    <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
-                text-transform: uppercase; color: {{ expert.ui.accent_color }};
-                margin-bottom: 8px;">{{ expert.code }} · uzman brifingi</div>
+    {% macro cite_chips(cites) -%}
+      {%- for c in cites %}{% if c in cite_meta -%}
+        <sup class="cite-chip" role="button" tabindex="0"
+             data-url="{{ cite_meta[c].url }}"
+             data-title="{{ cite_meta[c].title }}"
+             title="{{ cite_meta[c].title }} — {{ cite_meta[c].process }}"
+             >{{ cite_meta[c].num }}</sup>
+      {%- endif %}{% endfor -%}
+    {%- endmacro %}
+    <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px;">
+      <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
+                  text-transform: uppercase; color: {{ expert.ui.accent_color }};
+                  flex: 1;">{{ expert.code }} · exec summary</div>
+      {% if commentary_rec and commentary_rec.headlines %}
+      {# W6a — buton yeri; sunum modalı W6c'de bağlanacak. #}
+      <button type="button" class="brief-take" id="brief-take-btn" disabled
+              title="Sunum modu yakında (W6c)">▶ Brifingi al</button>
+      {% endif %}
+    </div>
     <div style="font-family: var(--serif); font-size: 15.5px; font-weight: 300;
-                font-style: italic; line-height: 1.65; color: var(--ink-soft);">
-      {%- if commentary_rec and commentary_rec.segments -%}
+                line-height: 1.65; color: var(--ink-soft);">
+      {%- if commentary_rec and commentary_rec.headlines -%}
+        {# W6a — exec summary maddeleri: madde başına metin + atıf çipleri. #}
+        <ul class="brief-headlines">
+          {%- for h in commentary_rec.headlines %}
+          <li>{{ h.text }}{{ cite_chips(h.cites) }}</li>
+          {%- endfor %}
+        </ul>
+      {%- elif commentary_rec and commentary_rec.segments -%}
+        <span style="font-style: italic;">
         {%- for seg in commentary_rec.segments -%}
-          {{ seg.text }}{% for c in seg.cites %}{% if c in cite_meta -%}
-            <sup class="cite-chip" role="button" tabindex="0"
-                 data-url="{{ cite_meta[c].url }}"
-                 data-title="{{ cite_meta[c].title }}"
-                 title="{{ cite_meta[c].title }} — {{ cite_meta[c].process }}"
-                 >{{ cite_meta[c].num }}</sup>
-          {%- endif %}{% endfor %}{{ ' ' }}
+          {{ seg.text }}{{ cite_chips(seg.cites) }}{{ ' ' }}
         {%- endfor -%}
+        </span>
       {%- else -%}
-        {{ commentary }}
+        <span style="font-style: italic;">{{ commentary }}</span>
       {%- endif -%}
     </div>
   </div>
