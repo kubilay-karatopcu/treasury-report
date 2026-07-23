@@ -12,6 +12,7 @@ import pytest
 from flask import Flask
 
 from prisma_home import commentary, evaluation
+from prisma_home.expert_views import LEGACY_KEY, legacy_view
 
 
 class _CountingLLM:
@@ -163,7 +164,7 @@ class TestExpertBriefing:
         app = _mk_app(llm=llm, digests=_DIGESTS)
         commentary.refresh_pipeline(app)
 
-        rec = commentary.get_commentary_record("dep")
+        rec = commentary.get_commentary_record("dep", LEGACY_KEY)
         assert rec is not None
         assert rec["cites"] == ["camon_wf", "camon_bubble"]
         assert "sahte_id" not in str(rec["cites"])
@@ -180,13 +181,13 @@ class TestExpertBriefing:
             "- Isı haritasında yayılım yok [[blok:camon_ratehm]].")
         app = _mk_app(llm=llm, digests=_DIGESTS)
         commentary.refresh_pipeline(app)
-        rec = commentary.get_commentary_record("dep")
+        rec = commentary.get_commentary_record("dep", LEGACY_KEY)
         assert rec["headlines"] and len(rec["headlines"]) == 2
         assert rec["headlines"][0]["cites"] == ["camon_wf"]
         assert rec["cites"] == ["camon_wf", "camon_ratehm"]
         # get_commentary düz metni maddelerin birleşimi olarak döner.
         with app.test_request_context():
-            assert "Maliyet baskısı" in commentary.get_commentary(_StubExpert())
+            assert "Maliyet baskısı" in commentary.get_commentary(_StubExpert(), legacy_view(_StubExpert()))
 
     def test_fabricated_number_bullet_dropped_end_to_end(self):
         """W7a — brifingde digest'te olmayan sayı içeren madde düşer.
@@ -204,7 +205,7 @@ class TestExpertBriefing:
             "- Faiz +58 bps fırladı [[blok:camon_wf]].")
         app = _mk_app(llm=llm, digests=digests)
         commentary.refresh_pipeline(app)
-        rec = commentary.get_commentary_record("dep")
+        rec = commentary.get_commentary_record("dep", LEGACY_KEY)
         assert rec["headlines"] is not None
         joined = " ".join(h["text"] for h in rec["headlines"])
         assert "42" in joined and "58" not in joined
@@ -224,7 +225,7 @@ class TestExpertBriefing:
             id = "dep2"   # arka plan thread'i "dep" kaydını ezmesin (izolasyon)
         app = _mk_app()  # LLM yok, digest yok
         with app.test_request_context():
-            text = commentary.get_commentary(_OtherExpert())
+            text = commentary.get_commentary(_OtherExpert(), legacy_view(_OtherExpert()))
         assert text and "hazırlanıyor" in text
 
         # Piramit koşunca istek yolu cache'lenen kaydı döner.
@@ -232,8 +233,8 @@ class TestExpertBriefing:
         app2 = _mk_app(llm=llm, digests=_DIGESTS)
         commentary.refresh_pipeline(app2)
         with app2.test_request_context():
-            text2 = commentary.get_commentary(_StubExpert())
-        assert text2 == commentary.get_commentary_record("dep")["text"]
+            text2 = commentary.get_commentary(_StubExpert(), legacy_view(_StubExpert()))
+        assert text2 == commentary.get_commentary_record("dep", LEGACY_KEY)["text"]
 
     def test_broken_llm_every_stage_falls_back(self):
         class _Broken:
@@ -243,7 +244,7 @@ class TestExpertBriefing:
         commentary.refresh_pipeline(app)
         b = evaluation.get_block_evaluation("camon_wf")
         p = evaluation.get_process_evaluation("mevduat.maliyet")
-        c = commentary.get_commentary_record("dep")
+        c = commentary.get_commentary_record("dep", LEGACY_KEY)
         assert b and len(b["text"]) > 20 and b["is_fallback"]
         assert p and len(p["text"]) > 20 and p["cites"] == []
         assert c and len(c["text"]) > 20 and c["cites"] == []
@@ -265,12 +266,12 @@ class TestExpertBriefing:
         llm = _Flaky()
         app = _mk_app(llm=llm, digests=_DIGESTS)
         commentary.refresh_pipeline(app)          # tüm aşamalar fallback
-        assert commentary.get_commentary_record("dep")["is_fallback"]
+        assert commentary.get_commentary_record("dep", LEGACY_KEY)["is_fallback"]
 
         llm.fail = False
         commentary.refresh_pipeline(app)          # girdi hash'leri AYNI
         b = evaluation.get_block_evaluation("camon_wf")
-        c = commentary.get_commentary_record("dep")
+        c = commentary.get_commentary_record("dep", LEGACY_KEY)
         assert not b["is_fallback"] and "gerçek bulgu" in b["text"]
         assert not c["is_fallback"] and c["cites"] == ["camon_wf"]
 

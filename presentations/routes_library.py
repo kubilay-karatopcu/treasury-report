@@ -603,6 +603,15 @@ def uzman_edit(expert_id: str):
     except Exception:
         log.warning("uzman_edit: block listing failed", exc_info=True)
 
+    # W8 — departman bakışı editörü için süreç id referansı (yazar kopyalar).
+    process_choices: list[dict] = []
+    try:
+        from prisma_home.processes import list_processes
+        process_choices = [{"id": p["id"], "label": p.get("label", "")}
+                           for p in list_processes()]
+    except Exception:
+        log.warning("uzman_edit: process listing failed", exc_info=True)
+
     return render_template(
         "presentations/atolye/uzman_edit.html",
         expert=expert,
@@ -610,6 +619,7 @@ def uzman_edit(expert_id: str):
         form=form,
         form_json=json.dumps(form, ensure_ascii=False, default=str),
         block_choices=block_choices,
+        process_choices=process_choices,
         can_edit=can_edit,
     )
 
@@ -658,6 +668,11 @@ def _expert_to_form(expert) -> dict:
             "accent_color": ui.get("accent_color") or "#6B8AFD",
             "glyph": ui.get("glyph") or "",
         },
+        # W8 — departman bakışları YAML editörü (sections_yaml deseni).
+        "department_views_yaml": yaml.safe_dump(
+            list(getattr(expert, "department_views", None) or []),
+            allow_unicode=True, sort_keys=False, default_flow_style=False,
+        ).rstrip("\n"),
     }
 
 
@@ -817,6 +832,14 @@ def uzman_save(expert_id: str):
         old_snapshot_ids=(existing.bound_content or {}).get("snapshots") or [],
         new_snapshot_ids=(rebuilt.bound_content or {}).get("snapshots") or [],
     )
+
+    # W8 — bakışlar/süreçler değişmiş olabilir: bu uzmanın TÜM bakış brifing
+    # kayıtlarını düş, sonraki piramit turu yeniden üretsin. (Best-effort.)
+    try:
+        from prisma_home.commentary import invalidate as _brief_invalidate
+        _brief_invalidate(rebuilt.id)
+    except Exception:
+        log.warning("uzman_save: brifing cache invalidation atlandı", exc_info=True)
 
     return _json({
         "ok": True,
@@ -986,6 +1009,9 @@ def _form_to_expert_dict(expert_id: str, form: dict) -> dict:
         "glyph":        (ui_in.get("glyph") or "").strip(),
     }
 
+    # W8 — departman bakışları: YAML editöründen parse + doğrula.
+    department_views = _parse_department_views(form.get("department_views_yaml") or "")
+
     return {
         "id": expert_id.lower(),
         "version": version,
@@ -999,4 +1025,49 @@ def _form_to_expert_dict(expert_id: str, form: dict) -> dict:
         "briefing_recipe": briefing_recipe,
         "access_scope": access_scope,
         "ui": ui,
+        "department_views": department_views,
     }
+
+
+def _parse_department_views(text: str) -> list:
+    """W8 — 'department_views_yaml' → doğrulanmış liste (boşsa []).
+
+    Şema: [{departments: [str], label?, briefing_focus?,
+            topics: [{title, processes: [pid]}]}]. Yapı hatası ValueError."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Departman bakışları YAML parse hatası: {exc}")
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        raise ValueError("department_views bir liste olmalı.")
+    out = []
+    for i, v in enumerate(data, start=1):
+        if not isinstance(v, dict):
+            raise ValueError(f"Bakış #{i} bir nesne olmalı.")
+        depts = [d for d in (v.get("departments") or []) if isinstance(d, str) and d.strip()]
+        if not depts:
+            raise ValueError(f"Bakış #{i}: en az bir departman gerekli.")
+        topics_in = v.get("topics") or []
+        if not isinstance(topics_in, list) or not topics_in:
+            raise ValueError(f"Bakış #{i}: en az bir topic gerekli.")
+        topics = []
+        for j, t in enumerate(topics_in, start=1):
+            if not isinstance(t, dict):
+                raise ValueError(f"Bakış #{i} topic #{j} bir nesne olmalı.")
+            pids = [p for p in (t.get("processes") or []) if isinstance(p, str) and p.strip()]
+            if not pids:
+                raise ValueError(f"Bakış #{i} topic #{j}: en az bir süreç gerekli.")
+            topics.append({"title": (t.get("title") or "").strip() or "Süreçler",
+                           "processes": pids})
+        entry = {"departments": depts, "topics": topics}
+        if (v.get("label") or "").strip():
+            entry["label"] = v["label"].strip()
+        if (v.get("briefing_focus") or "").strip():
+            entry["briefing_focus"] = v["briefing_focus"].strip()
+        out.append(entry)
+    return out

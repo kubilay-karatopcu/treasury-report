@@ -380,9 +380,34 @@
           </div>
         </section>
 
+        <!-- ── W8: Departman Bakışları ───────────────────────────── -->
+        <section class="form-section">
+          <h3>Departman Bakışları</h3>
+          <div class="field">
+            <label>Bakışlar (YAML)</label>
+            <textarea rows="14" data-form="department_views_yaml" spellcheck="false">{{ form.department_views_yaml }}</textarea>
+            <small class="lbl" style="text-transform:none; letter-spacing:0; font-family: var(--serif); font-style: italic; color: var(--ink-faint);">
+              Her bakış bir departman grubuna özel süreç seti + brifing merceği tanımlar.
+              <strong>Dolu ise erişim SIKIdır</strong>: yalnız listelenen departmanlar uzmanı görür.
+              Boş bırakılırsa uzman eski davranışta (Erişim &gt; Read) kalır. Şema:
+              <br><code>- departments: [Bilanço]</code>
+              <br><code>&nbsp;&nbsp;briefing_focus: "bilanço yönetimi açısından…"</code>
+              <br><code>&nbsp;&nbsp;topics:</code>
+              <br><code>&nbsp;&nbsp;&nbsp;&nbsp;- title: Stok Analizi</code>
+              <br><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;processes: [mevduat.maliyet, mevduat.bakiye]</code>
+            </small>
+            {% if process_choices %}
+            <div style="margin-top:8px; font-family: var(--mono); font-size:11px; color: var(--ink-faint);">
+              Süreç id'leri:
+              {% for p in process_choices %}<code title="{{ p.label }}">{{ p.id }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </section>
+
         <!-- ── Access scope ──────────────────────────────────────── -->
         <section class="form-section">
-          <h3>Erişim</h3>
+          <h3>Erişim <small style="font-weight:400; color:var(--ink-faint);">(yalnız departman bakışı boşken geçerli)</small></h3>
           <div class="form-grid">
             <div class="field">
               <label>Read (departmanlar, * = herkes)</label>

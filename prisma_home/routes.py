@@ -86,11 +86,14 @@ def expert_detail(code: str):
     if expert is None:
         abort(404)
 
-    # Access check — symmetric with /api/experts/<id> JSON endpoint.
-    read = expert.access_scope.get("read") or []
+    # W8 — departman bakışı: erişim + süreç seti + topic gruplama tek yerden.
+    from prisma_home.expert_views import legacy_view, resolve_view
+
     dept = getattr(current_user, "department", None) or ""
-    if "*" not in read and dept not in read:
-        abort(403)
+    r = resolve_view(expert, dept)
+    if not r["granted"]:
+        abort(403)          # SIKI: bu departmana açık bakış yok.
+    view = r["view"] if not r["legacy"] else legacy_view(expert)
 
     # Phase 10E — engine drives the briefing. Falls back to the static
     # markdown internally when the LLM is unavailable, so 10C behaviour
@@ -99,28 +102,32 @@ def expert_detail(code: str):
     if engine is not None:
         briefing = engine.render_briefing(expert)
     else:
-        # Engine wasn't wired (test context with minimal app) — fall back
-        # to the Phase 10C static loader so the template still renders.
         briefing = load_static_briefing(expert.id)
 
     snapshot_store = current_app.config.get("SNAPSHOT_STORE")
     bound = find_snapshots_bound_to(snapshot_store, expert.id) if snapshot_store else []
 
-    processes = resolve_processes((expert.bound_content or {}).get("processes"))
+    # Bakışın süreçleri (flat) + topic gruplaması (render için).
+    processes = resolve_processes(view["process_ids"])
+    card_by_id = {c["id"]: c for c in processes}
+    topics = []
+    for t in view["topics"]:
+        cards = [card_by_id[pid] for pid in t["process_ids"] if pid in card_by_id]
+        if cards:
+            topics.append({"title": t["title"], "processes": cards})
 
-    # W4a→W5b — uzman brifingi: piramit Aşama-C kaydı. İSTEK YOLU BLOKLANMAZ:
-    # get_commentary sıcak cache'i (ya da ucuz fallback'i) anında döner;
-    # tazelik refresh_pipeline'da hash'lerle yönetilir. Bkz. commentary.py.
+    # W4a→W8 — uzman brifingi: (uzman, bakış) Aşama-C kaydı. İSTEK YOLU
+    # BLOKLANMAZ: get_commentary sıcak cache'i/fallback'i anında döner.
     try:
         from prisma_home.commentary import get_commentary, get_commentary_record
-        commentary = get_commentary(expert) if processes else None
-        commentary_rec = get_commentary_record(expert.id) if processes else None
+        commentary = get_commentary(expert, view) if processes else None
+        commentary_rec = (get_commentary_record(expert.id, view["key"])
+                          if processes else None)
     except Exception:
         current_app.logger.exception("uzman yorumu üretilemedi: %s", expert.id)
         commentary, commentary_rec = None, None
 
-    # W5c — atıf çipleri + kaynakça + süreç kartlarına Aşama-B metni. Hepsi
-    # savunmacı: piramit hiç koşmadıysa boş kalır, şablon çipsiz render eder.
+    # W5c — atıf çipleri + kaynakça + süreç kartlarına Aşama-B metni.
     cite_meta: dict = {}
     citations: list = []
     proc_evals: dict = {}
@@ -138,7 +145,6 @@ def expert_detail(code: str):
     except Exception:
         current_app.logger.exception("atıf verisi hazırlanamadı: %s", expert.id)
 
-    # W6c — sunum slide'ları: madde + o maddenin atıf blokları (state'li URL).
     brief_slides = _brief_slides(commentary_rec, cite_meta)
 
     return render_template(
@@ -150,6 +156,8 @@ def expert_detail(code: str):
         briefing=briefing,
         snapshots=bound,
         processes=processes,
+        topics=topics,
+        view_label=view.get("label") or "",
         commentary=commentary,
         commentary_rec=commentary_rec,
         cite_meta=cite_meta,
@@ -240,18 +248,22 @@ def expert_ask(code: str):
     expert = store.load(code.lower()) if store else None
     if expert is None:
         abort(404)
-    read = expert.access_scope.get("read") or []
+    # W8 — bakış erişimi + kapsam: cevap yalnız bu departmanın süreçlerine dayanır.
+    from prisma_home.expert_views import legacy_view, resolve_view
+
     dept = getattr(current_user, "department", None) or ""
-    if "*" not in read and dept not in read:
+    r = resolve_view(expert, dept)
+    if not r["granted"]:
         abort(403)
+    view = r["view"] if not r["legacy"] else legacy_view(expert)
     from prisma_home.commentary import answer_question
 
     payload = request.get_json(silent=True) or {}
-    # W6c — sunum modalından slide bağlamı: {slide_text, block_id}. Dict
-    # değilse yok sayılır (answer_question içi de savunmacı).
     context = payload.get("context")
-    answer = answer_question(expert, payload.get("question", ""),
-                             context=context if isinstance(context, dict) else None)
+    answer = answer_question(
+        expert, payload.get("question", ""),
+        context=context if isinstance(context, dict) else None,
+        process_ids=view["process_ids"])
     return jsonify({"answer": answer})
 
 
@@ -372,10 +384,11 @@ def api_get_expert(expert_id: str):
     if expert is None:
         return _json({"error": f"Uzman bulunamadı: {expert_id!r}"}, status=404)
 
-    # Access check — '*' or department match.
-    read = expert.access_scope.get("read") or []
+    # W8 — bakış varsa sıkı, yoksa legacy access_scope (can_access tek karar).
+    from prisma_home.expert_views import can_access
+
     dept = getattr(current_user, "department", None) or ""
-    if "*" not in read and dept not in read:
+    if not can_access(expert, dept):
         return _json({"error": "Bu uzmana erişim yetkin yok."}, status=403)
 
     return _json(expert.to_dict())

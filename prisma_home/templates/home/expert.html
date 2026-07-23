@@ -164,6 +164,25 @@
   }
   .process-cell:hover .proc-cta { color: var(--gold); }
 
+  /* ── W8: topic başlığı (departman bakışında yazarın gruplaması) + bakış etiketi. */
+  .topic-head {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--gold-dim);
+    margin: 26px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .view-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: none;
+    color: var(--gold-dim);
+  }
+
   /* ── W5c: süreç kartında güncel Aşama-B değerlendirmesi. ─────────────── */
   .process-cell .proc-eval {
     margin-top: 12px;
@@ -579,11 +598,11 @@
   </div>
 
   {% if processes %}
-  {# ── Faz P0: uzmanın canlı panoları (bound_content.processes). Numara 01 —
-       tek gerçeklik süreçlerdir (Kaynakça/Snapshot bölümü kaldırıldı). ────── #}
+  {# ── W8: departman bakışının süreçleri, topic başlıkları altında. ─────── #}
   <div class="section-head">
     <span class="section-num">01</span>
-    <span class="section-title">Süreçler · Canlı Panolar</span>
+    <span class="section-title">Süreçler · Canlı Panolar{% if view_label %}
+      <span class="view-label">· {{ view_label }}</span>{% endif %}</span>
     <span class="section-tail"></span>
   </div>
 
@@ -654,8 +673,9 @@
   {% endif %}
   {% endif %}
 
-  <div class="process-grid">
-    {% for p in processes %}
+  {# W8 — süreçler topic gruplarına bölünür (yazar tanımlar). topics yoksa
+     (beklenmez) tek grupta tüm süreçler. #}
+  {% macro proc_card(p) -%}
     <a class="process-cell" href="{{ p.url }}"
        style="text-decoration: none; color: inherit;">
       <div class="proc-code">{{ p.num }}</div>
@@ -666,8 +686,15 @@
       {% endif %}
       <span class="proc-cta">Panoyu aç →</span>
     </a>
-    {% endfor %}
-  </div>
+  {%- endmacro %}
+  {% for topic in (topics if topics else [{"title": "", "processes": processes}]) %}
+    {% if topic.title %}
+    <div class="topic-head">{{ topic.title }}</div>
+    {% endif %}
+    <div class="process-grid">
+      {% for p in topic.processes %}{{ proc_card(p) }}{% endfor %}
+    </div>
+  {% endfor %}
   {% endif %}
 
   {% if brief_slides %}
