@@ -366,10 +366,14 @@ uzman sayfası (atıf çipleri + kaynakça + blok modalı)
 
 **Alt fazlar:**
 
-- **W5a — Digest katmanı + blok değerlendirmesi:** `block_digests.py` (12
-  fonksiyon) + config kaydı + `block_evaluation.txt` prompt'u + hash'li cache.
-  Kabul: her dökümante blok için digest ≤15 satır döner; DEV'de FakeLLM
-  deterministik stub üretir; digest değişmeden ikinci tur 0 LLM çağrısı.
+- **W5a — Digest katmanı + blok değerlendirmesi** *(UYGULANDI — 2026-07-23)*:
+  `mevduat_panel/block_digests.py` (12 fonksiyon; soğuk cache'te [] — Oracle
+  ASLA tetiklenmez) + app.py `PROCESS_BLOCK_DIGESTS` kaydı +
+  `prisma_home/prompts/block_evaluation.txt` + `prisma_home/evaluation.py`
+  (hash'li Aşama-A cache; commentary refresher döngüsüne bağlı). Kabul: her
+  dökümante blok için digest ≤15 satır döner; DEV'de FakeLLM deterministik
+  stub üretir; digest değişmeden ikinci tur 0 LLM çağrısı
+  (`tests/test_block_evaluation.py`, `mevduat_panel/tests/test_block_digests.py`).
 - **W5b — Süreç değerlendirmesi + uzman anlatısı:** `process_evaluation.txt`
   + `expert_commentary.txt` yeniden yazımı (atıf token'lı) + token doğrulayıcı
   + refresh_all tetikleyicisi. Kabul: uydurma blok id'si düşer; uzman sayfası
