@@ -32,7 +32,7 @@ export default function ShareModal() {
     <div className="save-modal-backdrop" onClick={close}>
       <div className="save-modal" onClick={(e) => e.stopPropagation()}>
         <div className="save-modal-header">
-          <h3>Snapshot Hazır</h3>
+          <h3>Süreç Yayınlandı</h3>
           <button className="save-modal-close" onClick={close} aria-label="Kapat">
             <X size={16} strokeWidth={2} />
           </button>
@@ -40,9 +40,9 @@ export default function ShareModal() {
 
         <div className="save-modal-body">
           <p className="save-tab-desc">
-            Sunum'un v{info.manifest_version} haline ait dondurulmuş bir kopya
-            oluşturuldu. Aşağıdaki bağlantıyı paylaşabilirsin — açan kişi
-            mevcut görünümü değiştiremez.
+            Sunum'un v{info.manifest_version} hali süreç olarak yayınlandı —
+            Kütüphane &gt; Süreçler'de görünür. Aşağıdaki görünüm salt-okunurdur;
+            dışarı vermek için tek dosyalık HTML indir.
           </p>
 
           <div className="share-url-row">
@@ -69,6 +69,13 @@ export default function ShareModal() {
           </div>
 
           <div className="save-action-row" style={{ marginTop: 16 }}>
+            <a
+              href={`${info.url}/export`}
+              className="save-btn save-btn--ghost"
+            >
+              <Copy size={13} strokeWidth={2} />
+              <span>HTML indir (tek dosya)</span>
+            </a>
             <a
               href={info.url}
               target="_blank"
