@@ -138,6 +138,9 @@ def expert_detail(code: str):
     except Exception:
         current_app.logger.exception("atıf verisi hazırlanamadı: %s", expert.id)
 
+    # W6c — sunum slide'ları: madde + o maddenin atıf blokları (state'li URL).
+    brief_slides = _brief_slides(commentary_rec, cite_meta)
+
     return render_template(
         "home/expert.html",
         mode="consumer",
@@ -152,7 +155,23 @@ def expert_detail(code: str):
         cite_meta=cite_meta,
         citations=citations,
         proc_evals=proc_evals,
+        brief_slides=brief_slides,
     )
+
+
+def _brief_slides(record: dict | None, cite_meta: dict) -> list[dict]:
+    """W6c — headline kaydını sunum slide'larına çevirir.
+
+    Slide = {"text": madde, "blocks": [cite_meta girdisi]}. Atıfsız madde
+    blocks=[] ile gelir (yalnız-metin slide'ı). Headline yoksa boş liste —
+    "Brifingi al" butonu render edilmez."""
+    if not record or not record.get("headlines"):
+        return []
+    slides = []
+    for h in record["headlines"]:
+        blocks = [cite_meta[c] for c in h.get("cites") or [] if c in cite_meta]
+        slides.append({"text": h.get("text") or "", "blocks": blocks})
+    return [s for s in slides if s["text"]]
 
 
 def _view_state_param(view: dict | None) -> str:
@@ -228,7 +247,11 @@ def expert_ask(code: str):
     from prisma_home.commentary import answer_question
 
     payload = request.get_json(silent=True) or {}
-    answer = answer_question(expert, payload.get("question", ""))
+    # W6c — sunum modalından slide bağlamı: {slide_text, block_id}. Dict
+    # değilse yok sayılır (answer_question içi de savunmacı).
+    context = payload.get("context")
+    answer = answer_question(expert, payload.get("question", ""),
+                             context=context if isinstance(context, dict) else None)
     return jsonify({"answer": answer})
 
 

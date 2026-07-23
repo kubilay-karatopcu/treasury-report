@@ -463,9 +463,19 @@ da genel soru sorar.
   testleri: `test_block_digests.py` (view değerleri), `test_block_evaluation.py`
   (dict sözleşme + view passthrough), `test_citation_ui.py` (state URL
   roundtrip; view'sız blok eski davranış).
-- **W6c — Sunum modalı + chat:** modal + ←/→ akış + slide iframe + chat
-  şeridi + expert_ask bağlam genişletmesi. Kabul: ok tuşlarıyla akış;
-  chat cevabı slide bağlamını kullanır; modal kapatınca iframe boşalır.
+- **W6c — Sunum modalı + chat** *(UYGULANDI — 2026-07-23)*: "Brifingi al" →
+  tam ekran sunum (`#brief-pres`, z-index blok modalının üstünde): slide =
+  madde metni (büyük serif) + blok seçici chip'leri (çoklu atıf) + state
+  label + atıf bloğunun embed iframe'i (lazy — yalnız URL değişince yüklenir;
+  kapanışta about:blank). ←/→ klavye (input odaklıyken devre dışı) + ekran
+  okları + ilerleme (2/5); atıfsız madde yalnız-metin slide'ı. Altta chat:
+  `expert_ask`'a `context={slide_text, block_id}` gider; `answer_question`
+  prompt'a "ŞU AN GÖSTERİLEN SLAYT" + bloğun güncel Aşama-A değerlendirmesini
+  ekler (SORU sonda; bilinmeyen block_id yok sayılır); `expert_ask.txt`'e
+  slayt-önceliği kuralı eklendi. Route `_brief_slides` headline kaydını slide
+  listesine çevirir (bilinmeyen atıf düşer; paragraf kaydında buton yok).
+  Kabul testleri: `TestBriefSlides` + `test_slide_context_reaches_prompt` +
+  `test_garbage_context_ignored`.
 
 **Not (uygulandı — 2026-07-23):** fallback kilidi düzeltildi: geçici LLM
 hatasında fallback kaydı `is_fallback` işaretlenir ve LLM denenebilir

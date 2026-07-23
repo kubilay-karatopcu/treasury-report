@@ -341,12 +341,14 @@ def invalidate(expert_id: str | None = None) -> None:
 _ASK_PROMPT_PATH = Path(__file__).parent / "prompts" / "expert_ask.txt"
 
 
-def answer_question(expert, question: str) -> str:
-    """W4b→W5c — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
+def answer_question(expert, question: str, context: dict | None = None) -> str:
+    """W4b→W6c — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
 
     Bağlam = persona + süreç dökümanları + metrikler + GÜNCEL Aşama-B süreç
-    değerlendirmeleri (W5c yükseltmesi — cevaplar bugünün verisine dayanır);
-    sayı kısıtı prompt'ta. LLM yoksa/hata: dürüst yönlendirme."""
+    değerlendirmeleri; sayı kısıtı prompt'ta. W6c: sunum modalından gelen
+    ``context = {slide_text, block_id}`` prompt'a "ŞU AN GÖSTERİLEN SLAYT"
+    bölümü olarak eklenir (+ bloğun güncel Aşama-A değerlendirmesi) — cevap
+    izlenen slide'a odaklanabilir. LLM yoksa/hata: dürüst yönlendirme."""
     question = (question or "").strip()[:500]
     if not question:
         return "Soru boş görünüyor."
@@ -370,6 +372,18 @@ def answer_question(expert, question: str) -> str:
             if eval_lines:
                 user += ("\n\nSÜREÇ DEĞERLENDİRMELERİ (güncel — sayı için "
                          "bunları da kullanabilirsin):\n" + "\n".join(eval_lines))
+            # W6c — sunum modalı bağlamı: izlenen slide + bloğun güncel
+            # Aşama-A değerlendirmesi. SORU her zaman en sonda kalır.
+            if isinstance(context, dict):
+                slide_text = str(context.get("slide_text") or "").strip()[:500]
+                block_id = str(context.get("block_id") or "").strip()[:64]
+                if slide_text:
+                    user += f"\n\nŞU AN GÖSTERİLEN SLAYT: {slide_text}"
+                if block_id:
+                    brec = evaluation.get_block_evaluation(block_id)
+                    if brec:
+                        user += (f"\nSlayttaki blok: {brec.get('title', block_id)}"
+                                 f" — güncel değerlendirmesi: {brec.get('text')}")
             user += f"\n\nSORU: {question}"
             raw = (llm.complete(_ASK_PROMPT_PATH.read_text(encoding="utf-8"),
                                 user, max_tokens=500, temperature=0.3) or "").strip()

@@ -94,6 +94,32 @@ class _CapturingLLM:
         return "Cevap: maliyet baskısı mix kaynaklı görünüyor."
 
 
+class TestBriefSlides:
+    """W6c — _brief_slides: headline kaydı → sunum slide listesi."""
+
+    def test_slides_with_and_without_blocks(self):
+        from prisma_home.routes import _brief_slides
+
+        meta = {"camon_wf": {"id": "camon_wf", "num": 1, "title": "WF",
+                             "url": "/x?embed=1", "state_label": "Dönem: X",
+                             "process": "Cost"}}
+        record = {"headlines": [
+            {"text": "Madde bir.", "cites": ["camon_wf", "bilinmeyen"]},
+            {"text": "Genel bağlam.", "cites": []},
+        ]}
+        slides = _brief_slides(record, meta)
+        assert len(slides) == 2
+        assert slides[0]["blocks"][0]["id"] == "camon_wf"
+        assert len(slides[0]["blocks"]) == 1        # bilinmeyen düştü
+        assert slides[1]["blocks"] == []            # yalnız-metin slide'ı
+
+    def test_paragraph_record_yields_no_slides(self):
+        from prisma_home.routes import _brief_slides
+
+        assert _brief_slides({"headlines": None}, {}) == []
+        assert _brief_slides(None, {}) == []
+
+
 class TestAskContextUpgrade:
     @pytest.fixture(autouse=True)
     def _clean(self):
@@ -125,3 +151,47 @@ class TestAskContextUpgrade:
         assert "Maliyet artışı +42 bps" in llm.last_user
         # SORU her zaman bağlamın en sonunda.
         assert llm.last_user.rstrip().endswith("SORU: maliyet ne durumda?")
+
+    def test_slide_context_reaches_prompt(self):
+        """W6c — sunum chat'i: slide metni + bloğun güncel A değerlendirmesi
+        prompt'a girer; SORU yine en sonda."""
+        class _Expert:
+            id = "dep"
+            name = "Mevduat Uzmanı"
+            domain_label = "Mevduat"
+            short_description = ""
+            bound_content = {"processes": ["mevduat.maliyet"]}
+
+        llm = _CapturingLLM()
+        app = Flask(__name__)
+        app.config["LLM_CLIENT"] = llm
+        evaluation._EVAL["camon_wf"] = {
+            "text": "Mix etkisi +42 bps ile ana sürükleyici.",
+            "title": "Deposit Rate Waterfall", "view": None,
+        }
+        with app.test_request_context():
+            commentary.answer_question(
+                _Expert(), "bu neden oldu?",
+                context={"slide_text": "Maliyet baskısı mix kaynaklı.",
+                         "block_id": "camon_wf"})
+        assert "ŞU AN GÖSTERİLEN SLAYT: Maliyet baskısı mix kaynaklı." in llm.last_user
+        assert "Deposit Rate Waterfall" in llm.last_user
+        assert "Mix etkisi +42 bps" in llm.last_user
+        assert llm.last_user.rstrip().endswith("SORU: bu neden oldu?")
+
+    def test_garbage_context_ignored(self):
+        class _Expert:
+            id = "dep"
+            name = "U"
+            domain_label = "Mevduat"
+            short_description = ""
+            bound_content = {"processes": ["mevduat.maliyet"]}
+
+        llm = _CapturingLLM()
+        app = Flask(__name__)
+        app.config["LLM_CLIENT"] = llm
+        with app.test_request_context():
+            commentary.answer_question(_Expert(), "soru?",
+                                       context={"block_id": "olmayan_blok"})
+        assert "ŞU AN GÖSTERİLEN SLAYT" not in llm.last_user
+        assert "Slayttaki blok" not in llm.last_user
