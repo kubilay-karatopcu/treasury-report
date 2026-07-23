@@ -22,7 +22,7 @@ import useStore from '../lib/store.js';
 // Mirror of presentations.variables.semantic_tags.SEMANTIC_TAGS_V0.
 // Ordered with 'other' last (escape hatch).
 const SEMANTIC_TAGS = [
-  { tag: 'as_of_time',      label: 'Snapshot zamanı (as-of)' },
+  { tag: 'as_of_time',      label: 'Veri zamanı (as-of)' },
   { tag: 'trade_time',      label: 'İşlem zamanı' },
   { tag: 'value_time',      label: 'Valör zamanı' },
   { tag: 'settle_time',     label: 'Takas zamanı' },

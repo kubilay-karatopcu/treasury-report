@@ -40,7 +40,7 @@ export default function SaveModal() {
             onClick={() => setTab('snapshot')}
           >
             <Link2 size={13} strokeWidth={1.9} />
-            <span>Snapshot</span>
+            <span>Süreç Yayınla</span>
           </button>
           {canDashboard && (
             <button
@@ -180,7 +180,7 @@ function SnapshotForm({ manifest, onClose, onSaved }) {
           className="save-field-input"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder={manifestTitle || 'Snapshot başlığı'}
+          placeholder={manifestTitle || 'Yayın başlığı'}
         />
       </label>
 
@@ -191,7 +191,7 @@ function SnapshotForm({ manifest, onClose, onSaved }) {
           rows={2}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Bu snapshot ne için? (örn. sabah toplantısı, çeyrek kapanış)"
+          placeholder="Bu yayın ne için? (örn. sabah toplantısı, çeyrek kapanış)"
           style={{ resize: 'vertical', minHeight: 50, fontFamily: 'inherit' }}
         />
       </label>
@@ -214,7 +214,7 @@ function SnapshotForm({ manifest, onClose, onSaved }) {
           fontSize: 12, color: '#64748b', margin: '0 0 10px',
           fontStyle: 'italic', lineHeight: 1.5,
         }}>
-          Bu snapshot hangi uzman(lar)ın kaynakçasında görünmeli? Seçtiğin uzmanlar
+          Bu süreç hangi uzman(lar)a bağlanmalı? Seçtiğin uzmanlar
           ana ekranda kullanıcılara bu içerikten yararlanarak brifing verebilir.
         </p>
 
