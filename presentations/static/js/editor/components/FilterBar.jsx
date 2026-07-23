@@ -308,7 +308,7 @@ const SEMANTIC_TAGS = [
 ];
 
 const SEMANTIC_TAG_LABELS = {
-  as_of_time:     'Snapshot zamanı',
+  as_of_time:     'Veri zamanı',
   trade_time:     'İşlem zamanı',
   value_time:     'Valör zamanı',
   settle_time:    'Takas zamanı',
