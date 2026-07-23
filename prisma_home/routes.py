@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from flask import render_template, redirect, url_for, Response, current_app, abort, request
+from flask import render_template, redirect, url_for, Response, current_app, abort, request, jsonify
 from flask_login import login_required, current_user
 
 from . import prisma_home_bp
@@ -127,6 +127,27 @@ def expert_detail(code: str):
         processes=processes,
         commentary=commentary,
     )
+
+
+@prisma_home_bp.route("/uzmanlar/<code>/sor", methods=["POST"])
+@login_required
+def expert_ask(code: str):
+    """W4b — "…'ye sor": senkron JSON cevap (persona + doküman + metrik).
+
+    Erişim kuralları expert_detail ile aynı."""
+    store = current_app.config.get("EXPERT_STORE")
+    expert = store.load(code.lower()) if store else None
+    if expert is None:
+        abort(404)
+    read = expert.access_scope.get("read") or []
+    dept = getattr(current_user, "department", None) or ""
+    if "*" not in read and dept not in read:
+        abort(403)
+    from prisma_home.commentary import answer_question
+
+    payload = request.get_json(silent=True) or {}
+    answer = answer_question(expert, payload.get("question", ""))
+    return jsonify({"answer": answer})
 
 
 @prisma_home_bp.route("/uzmanlar/<code>/briefing")
