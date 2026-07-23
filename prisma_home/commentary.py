@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -123,12 +124,49 @@ def _build_briefing_prompt(expert, proc_evals: dict[str, dict],
     return "\n".join(lines)
 
 
+#: W6a — madde satırı: "- ", "• " ya da "* " ile başlar.
+_BULLET_RE = re.compile(r"^\s*[-•*]\s+")
+
+
+def _parse_briefing(raw: str, allowed: set) -> dict:
+    """W6a — ham LLM brifingini yapılandırır.
+
+    ≥2 madde satırı varsa headline modu: her madde ayrı parse edilir →
+    {"headlines": [{text, cites}], "segments", "cites", "text"}. Madde
+    formatı yoksa (eski prompt çıktısı / format tutmayan model) paragraf
+    yolu: parse_citations sonucu + headlines=None — şablon paragraf render
+    eder, geriye uyum korunur."""
+    from prisma_home.citations import parse_citations
+
+    lines = [l for l in (raw or "").splitlines() if l.strip()]
+    bullets = [l for l in lines if _BULLET_RE.match(l)]
+    if len(bullets) >= 2:
+        headlines: list[dict] = []
+        segments: list[dict] = []
+        cites: list[str] = []
+        for line in bullets:
+            parsed = parse_citations(_BULLET_RE.sub("", line, count=1), allowed)
+            if not parsed["text"]:
+                continue
+            headlines.append({"text": parsed["text"], "cites": parsed["cites"]})
+            segments.extend(parsed["segments"])
+            for c in parsed["cites"]:
+                if c not in cites:
+                    cites.append(c)
+        if headlines:
+            return {"text": " ".join(h["text"] for h in headlines),
+                    "segments": segments, "cites": cites,
+                    "headlines": headlines}
+    parsed = parse_citations(raw, allowed)
+    parsed["headlines"] = None
+    return parsed
+
+
 def _compute_and_store(app, expert) -> None:
     """AĞIR yol (LLM) — YALNIZ arka planda. Hash eşleşirse LLM'e gidilmez.
 
     test_request_context: get_process → url_for istek bağlamı ister."""
     from prisma_home import evaluation
-    from prisma_home.citations import parse_citations
 
     with app.test_request_context():
         try:
@@ -174,7 +212,7 @@ def _compute_and_store(app, expert) -> None:
                     max_tokens=700, temperature=0.3)
                 raw = (raw or "").strip()
                 if raw and not raw.startswith("{") and len(raw) > 40:
-                    parsed = parse_citations(raw, set(catalog))
+                    parsed = _parse_briefing(raw, set(catalog))
             except Exception:
                 log.exception("uzman brifingi: LLM çağrısı başarısız (%s)", expert.id)
 
@@ -182,7 +220,7 @@ def _compute_and_store(app, expert) -> None:
         if is_fallback:
             fb = _fallback_text(expert, documented)
             parsed = {"text": fb, "segments": [{"text": fb, "cites": []}],
-                      "cites": []}
+                      "cites": [], "headlines": None}
 
         _CACHE[expert.id] = {
             **parsed,

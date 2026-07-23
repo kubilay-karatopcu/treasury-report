@@ -115,6 +115,43 @@ class TestProcessEvaluation:
         assert s["computed"] >= 1 and llm.calls > n1
 
 
+# ── W6a — _parse_briefing (madde parser'ı; app gerekmez) ────────────────────
+
+class TestParseBriefing:
+    ALLOWED = {"camon_wf", "camon_bubble"}
+
+    def test_bullets_become_headlines_with_per_item_cites(self):
+        raw = ("- Maliyet baskısı mix kaynaklı [[blok:camon_wf]].\n"
+               "- Balonlarda yeniden fiyatlama adayı var [[blok:camon_bubble]] "
+               "[[blok:sahte]].\n"
+               "- Genel bağlam maddesi, atıfsız.")
+        out = commentary._parse_briefing(raw, self.ALLOWED)
+        assert out["headlines"] is not None and len(out["headlines"]) == 3
+        assert out["headlines"][0]["cites"] == ["camon_wf"]
+        assert out["headlines"][1]["cites"] == ["camon_bubble"]   # sahte düştü
+        assert out["headlines"][2]["cites"] == []
+        assert out["cites"] == ["camon_wf", "camon_bubble"]
+        assert "[[" not in out["text"] and "sahte" not in str(out)
+
+    def test_bullet_variants_accepted(self):
+        raw = "• Madde bir [[blok:camon_wf]].\n* Madde iki."
+        out = commentary._parse_briefing(raw, self.ALLOWED)
+        assert [h["text"] for h in out["headlines"]] == \
+            ["Madde bir.", "Madde iki."]
+
+    def test_paragraph_output_falls_back_headlineless(self):
+        """Format tutmayan model / eski prompt çıktısı → paragraf yolu."""
+        raw = "Tek paragraf anlatı [[blok:camon_wf]]. İkinci cümle."
+        out = commentary._parse_briefing(raw, self.ALLOWED)
+        assert out["headlines"] is None
+        assert out["cites"] == ["camon_wf"]
+
+    def test_single_bullet_not_headline_mode(self):
+        out = commentary._parse_briefing("- Tek madde [[blok:camon_wf]].",
+                                         self.ALLOWED)
+        assert out["headlines"] is None   # ≥2 madde şartı
+
+
 # ── Aşama C — uzman brifingi ────────────────────────────────────────────────
 
 class TestExpertBriefing:
@@ -135,6 +172,21 @@ class TestExpertBriefing:
         # Prompt'a B değerlendirmeleri + katalog girdi (sayı zinciri kaynağı).
         assert "SÜREÇ DEĞERLENDİRMELERİ" in llm.last_user
         assert "ATIF KATALOĞU" in llm.last_user
+
+    def test_bullet_llm_output_yields_headlines_record(self):
+        """W6a uçtan uca: madde formatlı LLM çıktısı → record.headlines."""
+        llm = _CountingLLM(
+            "- Maliyet baskısı mix kaynaklı [[blok:camon_wf]].\n"
+            "- Isı haritasında yayılım yok [[blok:camon_ratehm]].")
+        app = _mk_app(llm=llm, digests=_DIGESTS)
+        commentary.refresh_pipeline(app)
+        rec = commentary.get_commentary_record("dep")
+        assert rec["headlines"] and len(rec["headlines"]) == 2
+        assert rec["headlines"][0]["cites"] == ["camon_wf"]
+        assert rec["cites"] == ["camon_wf", "camon_ratehm"]
+        # get_commentary düz metni maddelerin birleşimi olarak döner.
+        with app.test_request_context():
+            assert "Maliyet baskısı" in commentary.get_commentary(_StubExpert())
 
     def test_full_second_round_zero_llm_calls(self):
         llm = _CountingLLM("Bulgu [[blok:camon_wf]].")

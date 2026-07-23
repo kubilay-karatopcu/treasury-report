@@ -440,9 +440,16 @@ da genel soru sorar.
 
 **Alt fazlar:**
 
-- **W6a — Headlines:** Aşama C prompt'u madde formatına döner + satır parser'ı
-  + uzman sayfası bullet render + "Brifingi al" buton yeri. Kabul: eski
-  paragraf kayıt bozulmadan render olur; her madde ≤2 cümle ve atıflı.
+- **W6a — Headlines** *(UYGULANDI — 2026-07-23)*: `expert_commentary.txt`
+  madde formatına döndü (3-6 madde, "- " satır başı, madde başına 1-2 cümle
+  + atıf; her madde ≥1 atıf — en fazla bir genel-bağlam maddesi atıfsız);
+  `commentary._parse_briefing` ≥2 madde satırında headline modu
+  (`record.headlines: [{text, cites}]`), aksi halde paragraf yolu
+  (headlines=None — format tutmayan model/eski kayıt bozulmadan render).
+  expert.html: exec summary madde listesi (madde başına çipler, cite_chips
+  makrosu) + "Brifingi al" buton yeri (disabled — W6c bağlayacak). Kabul
+  testleri: `TestParseBriefing` (lokalde de koşuldu) + uçtan uca
+  `test_bullet_llm_output_yields_headlines_record`.
 - **W6b — View-state paritesi** *(UYGULANDI — 2026-07-23)*: digest sözleşmesi
   `{"rows", "view": {label, controls:[{id, value}]}}` oldu (eski düz-liste
   tolere edilir); 12 digest hesapladığı tarih/boyut kontrollerini gerçek SPA
