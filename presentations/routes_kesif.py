@@ -817,6 +817,12 @@ def atolye_surec_docs_save(pid):
         "documentation": documentation,
         "blocks_documentation": blocks_doc,
     })
+    # W4a: dökümantasyon değişti → uzman yorumu cache'i tazelensin.
+    try:
+        from prisma_home.commentary import invalidate
+        invalidate()
+    except Exception:
+        log.exception("uzman yorumu cache invalidation başarısız")
     return redirect(url_for("presentations.atolye_surec_detay", pid=pid))
 
 
