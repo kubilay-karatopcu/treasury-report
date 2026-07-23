@@ -56,6 +56,34 @@ class TestCitationEntries:
         assert _citation_entries({"cites": []}, ["mevduat.maliyet"]) == []
         assert _citation_entries({}, ["mevduat.maliyet"]) == []
 
+    def test_view_state_rides_in_url(self, fake_get_process):
+        """W6b — A kaydındaki digest view'i state paramı + label olur."""
+        import base64
+        import json as _json
+
+        evaluation._EVAL["camon_wf"] = {
+            "text": "x", "view": {
+                "label": "Dönem: 31.05.2026 → 30.06.2026",
+                "controls": [{"id": "ca-mon-date0", "value": "2026-05-31"},
+                             {"id": "ca-mon-date1", "value": "2026-06-30"}],
+            },
+        }
+        try:
+            out = _citation_entries({"cites": ["camon_wf", "camon_ratehm"]},
+                                    ["mevduat.maliyet"])
+        finally:
+            evaluation.invalidate()
+        assert out[0]["state_label"] == "Dönem: 31.05.2026 → 30.06.2026"
+        assert "&state=" in out[0]["url"]
+        raw = out[0]["url"].split("&state=")[1]
+        raw += "=" * ((4 - len(raw) % 4) % 4)
+        decoded = _json.loads(base64.urlsafe_b64decode(raw))
+        assert decoded["controls"][0] == {"id": "ca-mon-date0",
+                                          "value": "2026-05-31"}
+        # View'sız blok: state paramı yok, label boş — eski davranış.
+        assert "&state=" not in out[1]["url"]
+        assert out[1]["state_label"] == ""
+
 
 class _CapturingLLM:
     def __init__(self):

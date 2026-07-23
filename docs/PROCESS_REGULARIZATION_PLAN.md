@@ -443,10 +443,19 @@ da genel soru sorar.
 - **W6a — Headlines:** Aşama C prompt'u madde formatına döner + satır parser'ı
   + uzman sayfası bullet render + "Brifingi al" buton yeri. Kabul: eski
   paragraf kayıt bozulmadan render olur; her madde ≤2 cümle ve atıflı.
-- **W6b — View-state paritesi:** 12 digest'e `view` metadata'sı + Aşama-A
-  kaydına taşınması + embed `state=` uygulayıcısı (SPA) + atıf URL üreticisi.
-  Kabul: kaynakça/slide açılan blok, digest'in hesapladığı tarih/boyutu
-  gösterir; state chip'leri slide'da görünür.
+- **W6b — View-state paritesi** *(UYGULANDI — 2026-07-23)*: digest sözleşmesi
+  `{"rows", "view": {label, controls:[{id, value}]}}` oldu (eski düz-liste
+  tolere edilir); 12 digest hesapladığı tarih/boyut kontrollerini gerçek SPA
+  element id'leriyle üretir (ca/ba/ta-mon-date0/1, ba-mon-decomp,
+  wr-date-start/end DD/MM→ISO, np-vp-date0/1+freq; sec_mix yalnız label —
+  sayfa varsayılanı aynı). Aşama-A kaydı `view` taşır; `_citation_entries`
+  URL'e `&state=<b64url{controls}>` ekler + `state_label` kaynakçada görünür.
+  SPA embed uygulayıcısı: kontroller VE select option'ları yüklenene dek
+  bekler (~10 sn), değer yazar + change dispatch, 600 ms sonra anchor'a
+  kaydırır; bozuk state → varsayılan görünüm. MEVDUAT_VERSION p2.17. Kabul
+  testleri: `test_block_digests.py` (view değerleri), `test_block_evaluation.py`
+  (dict sözleşme + view passthrough), `test_citation_ui.py` (state URL
+  roundtrip; view'sız blok eski davranış).
 - **W6c — Sunum modalı + chat:** modal + ←/→ akış + slide iframe + chat
   şeridi + expert_ask bağlam genişletmesi. Kabul: ok tuşlarıyla akış;
   chat cevabı slide bağlamını kullanır; modal kapatınca iframe boşalır.

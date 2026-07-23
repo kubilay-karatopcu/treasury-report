@@ -155,13 +155,31 @@ def expert_detail(code: str):
     )
 
 
+def _view_state_param(view: dict | None) -> str:
+    """W6b — digest view'ini embed URL'ine taşınacak b64url paketine çevirir.
+
+    Yalnız controls taşınır (SPA'nın uygulayacağı kısım); label UI'da metin
+    olarak gösterilir. Kontrol yoksa boş string → parametre eklenmez."""
+    controls = (view or {}).get("controls") or []
+    if not controls:
+        return ""
+    import base64
+
+    payload = json.dumps({"controls": controls}, ensure_ascii=False)
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+
+
 def _citation_entries(record: dict, process_ids: list[str]) -> list[dict]:
-    """W5c — brifing atıflarını render girdisine çözer.
+    """W5c/W6b — brifing atıflarını render girdisine çözer.
 
     record["cites"] sıralı blok id listesi; her id bağlı süreçlerin dökümante
     bloklarında aranır. Bulunanlar numaralanır (1'den; bulunamayan — ör. blok
     registry'den kalkmış — sessizce düşer, numara yeniden dizilir). URL, bloğun
-    canlı görünümü + embed modu: render_url&embed=1&anchor=<id>."""
+    canlı görünümü + embed modu + W6b view-state'i:
+    render_url&embed=1&anchor=<id>&state=<b64url> — böylece açılan blok
+    DEĞERLENDİRMENİN YAPILDIĞI tarih/boyutu gösterir. state_label kaynakça/
+    slide'da okunur chip metnidir."""
+    from prisma_home.evaluation import get_block_evaluation
     from prisma_home.processes import get_process
 
     index: dict[str, dict] = {}
@@ -177,8 +195,14 @@ def _citation_entries(record: dict, process_ids: list[str]) -> list[dict]:
             anchor = (b.get("custom_render") or {}).get("anchor") or ""
             sep = "&" if "?" in url else "?"
             embed = f"{url}{sep}embed=1" + (f"&anchor={anchor}" if anchor else "")
+            # W6b — Aşama-A kaydındaki digest view'i: state + okunur label.
+            view = (get_block_evaluation(bid) or {}).get("view")
+            state = _view_state_param(view)
+            if state:
+                embed += f"&state={state}"
             index[bid] = {"id": bid, "title": b.get("title") or bid,
-                          "process": p.get("label", ""), "url": embed}
+                          "process": p.get("label", ""), "url": embed,
+                          "state_label": (view or {}).get("label") or ""}
     out = []
     for bid in record.get("cites") or []:
         entry = index.get(bid)

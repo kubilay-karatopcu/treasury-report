@@ -3,8 +3,15 @@
 Her dökümante bileşen bloğu için "bu plottan hangi ~10 sayı anlamlı" kararını
 veren elle yazılmış kompakt özet fonksiyonları. Kontrat (plan §3.5 W5):
 
-- ``fn() -> list[{k, v, delta?, tone?}]`` — ≤15 satır, sayılar ÖNCEDEN formatlı
-  metin (LLM aynen aktarır, dönüştürmez).
+- ``fn() -> {"rows": [{k, v, delta?, tone?}], "view": {...}|None}`` — rows
+  ≤15 satır, sayılar ÖNCEDEN formatlı metin (LLM aynen aktarır, dönüştürmez).
+- ``view`` (W6b — view-state paritesi): digest sayıları HANGİ görünümle
+  hesapladıysa onun makine-uygulanır hali: ``{"label": "Dönem: ... · ...",
+  "controls": [{"id": <element id>, "value": <control value>}]}``. Atıf/slide
+  URL'si bu state'i embed moduna taşır; SPA kontrollere uygular → kullanıcı
+  kaynakçada DEĞERLENDİRİLEN görünümü görür ("filtreler değişik" sorunu).
+  Kontrol id/değerleri SPA'nın gerçek elementleridir (index.html); yalnız
+  emin olunan kontroller yazılır, kalanı label'da metin olarak belirtilir.
 - YALNIZ RAM'deki engine cache'lerinden okur: her fonksiyon önce ilgili modül
   cache'inin sıcak olduğunu kontrol eder, soğuksa [] döner — digest ASLA Oracle
   yüklemesi tetiklemez (prewarm/refresh ısıtır, biz okuruz).
@@ -40,12 +47,30 @@ def _fmt_m(mio: float) -> str:
     return f"₺{mio:,.0f}M"
 
 
-def _safe(fn: Callable[[], List[Row]]) -> List[Row]:
+def _dmy(iso: str) -> str:
+    """ISO tarih → gün.ay.yıl (label'larda kullanıcı tercihi, 2026-07-22)."""
+    s = str(iso)[:10]
+    return f"{s[8:10]}.{s[5:7]}.{s[0:4]}" if len(s) == 10 and s[4] == "-" else s
+
+
+def _view(label: str, controls: Optional[List[dict]] = None) -> dict:
+    return {"label": label, "controls": controls or []}
+
+
+_EMPTY = {"rows": [], "view": None}
+
+
+def _safe(fn: Callable[[], dict]) -> dict:
+    """Sözleşme kapısı: her hata {"rows": [], "view": None}; rows ≤15."""
     try:
-        return fn()[:15]
+        out = fn()
+        if isinstance(out, list):          # eski sözleşme toleransı
+            out = {"rows": out, "view": None}
+        rows = list(out.get("rows") or [])[:15]
+        return {"rows": rows, "view": out.get("view")}
     except Exception:
         log.exception("blok digest'i üretilemedi: %s", getattr(fn, "__name__", "?"))
-        return []
+        return dict(_EMPTY)
 
 
 # ── Ortak cache okuyucular (soğuksa None — SQL tetiklenmez) ─────────────────
@@ -62,8 +87,8 @@ def _dd_snapshot() -> Optional[tuple]:
     return eng._DD_CACHE["df"], dates[-2], dates[-1]
 
 
-def _weekly_latest(cache: dict) -> Optional[pd.DataFrame]:
-    """Weekly cache'lerinden en güncel pencerenin df'i (DD/MM/YYYY anahtarlı)."""
+def _weekly_latest(cache: dict) -> Optional[tuple]:
+    """Weekly cache'lerinden en güncel pencere: (df, (ds, de)) — DD/MM/YYYY."""
     if not cache:
         return None
     def _end(key):  # (ds, de) → de'yi sıralanabilir yap
@@ -71,25 +96,45 @@ def _weekly_latest(cache: dict) -> Optional[pd.DataFrame]:
             return pd.to_datetime(key[1], format="%d/%m/%Y")
         except Exception:
             return pd.Timestamp.min
-    return cache[max(cache.keys(), key=_end)]
+    key = max(cache.keys(), key=_end)
+    return cache[key], key
+
+
+def _wr_view(key: tuple, extra: str) -> dict:
+    """DD/MM/YYYY pencere anahtarı → wr-date input'ları (ISO) + okunur label."""
+    def _iso(dmy: str) -> str:
+        p = str(dmy).split("/")
+        return f"{p[2]}-{p[1]}-{p[0]}" if len(p) == 3 else str(dmy)
+    ds, de = key
+    return _view(
+        f"Hafta: {ds.replace('/', '.')} → {de.replace('/', '.')} · {extra}",
+        [{"id": "wr-date-start", "value": _iso(ds)},
+         {"id": "wr-date-end", "value": _iso(de)}])
 
 
 # ── mevduat.maliyet ─────────────────────────────────────────────────────────
 
-def digest_camon_wf() -> List[Row]:
+def _camon_view(d0: str, d1: str, extra: str = "") -> dict:
+    return _view(
+        f"Dönem: {_dmy(d0)} → {_dmy(d1)}" + (f" · {extra}" if extra else ""),
+        [{"id": "ca-mon-date0", "value": d0},
+         {"id": "ca-mon-date1", "value": d1}])
+
+
+def digest_camon_wf() -> dict:
     """Waterfall: başlangıç/bitiş wavg + Bennet mix/fiyat + top sürükleyiciler."""
     from .engine import outstanding as eng
     from .engine.common import _wavg
 
     snap = _dd_snapshot()
     if snap is None:
-        return []
+        return dict(_EMPTY)
     df, d0, d1 = snap
     E = eng.DepositDetailEngine
     df0 = df[df["MONTH"] == pd.to_datetime(d0)]
     df1 = df[df["MONTH"] == pd.to_datetime(d1)]
     if df0.empty or df1.empty:
-        return []
+        return dict(_EMPTY)
     g0 = E._group_by_dims(df0.copy(), list(E.DIMENSIONS))
     g1 = E._group_by_dims(df1.copy(), list(E.DIMENSIONS))
     r0 = _wavg(g0["INTEREST_RATE"], g0["BALANCE"])
@@ -121,17 +166,18 @@ def digest_camon_wf() -> List[Row]:
         top = m.reindex(m[col].abs().sort_values(ascending=False).index).head(2)
         for _, r in top.iterrows():
             rows.append(_row(f"{tag}: {r['PRODUCT']}", f"{r[col]:+,.1f} bps"))
-    return rows
+    return {"rows": rows,
+            "view": _camon_view(d0, d1, "Boyutlar: tümü (varsayılan)")}
 
 
-def digest_camon_bubble() -> List[Row]:
+def digest_camon_bubble() -> dict:
     """Bubble: en büyük kümeler bakiye + faiz konumuyla."""
     from .engine import outstanding as eng
     from .engine.common import _cost_bubble_source
 
     snap = _dd_snapshot()
     if snap is None:
-        return []
+        return dict(_EMPTY)
     df, d0, d1 = snap
     E = eng.DepositDetailEngine
     dim_map = {"PRODUCT": "DIM_PRODUCT", "SUBPRODUCT": "DIM_SUBPRODUCT",
@@ -159,25 +205,26 @@ def digest_camon_bubble() -> List[Row]:
         costly = big["r1"].idxmax()
         rows.append(_row("En pahalı büyük küme",
                          f"{costly} (%{big.loc[costly, 'r1'] * 100:.2f})"))
-    return rows
+    return {"rows": rows,
+            "view": _camon_view(d0, d1, "Balonlar: ürün bazında (varsayılan)")}
 
 
-def digest_camon_ratehm() -> List[Row]:
+def digest_camon_ratehm() -> dict:
     """Faiz heatmap: |Δbps| en yüksek hücreler + toplam Δ."""
     from .engine.common import _rate_heatmap_seg_aum
 
     snap = _dd_snapshot()
     if snap is None:
-        return []
+        return dict(_EMPTY)
     df, d0, d1 = snap
     cols = ["BALANCE", "INTEREST_RATE", "DIM_SEGMENT", "DIM_AUM"]
     if any(c not in df.columns for c in cols):
-        return []
+        return dict(_EMPTY)
     hm = _rate_heatmap_seg_aum(
         df[df["MONTH"] == pd.to_datetime(d0)][cols].copy(),
         df[df["MONTH"] == pd.to_datetime(d1)][cols].copy())
     if not hm:
-        return []
+        return dict(_EMPTY)
     cells = []
     for i, rname in enumerate(hm["rows"]):
         for j, cname in enumerate(hm["cols"]):
@@ -195,26 +242,37 @@ def digest_camon_ratehm() -> List[Row]:
         lvl = f" (seviye %{lv:.2f})" if lv is not None else ""
         rows.append(_row(label, f"{dv:+,.0f} bps{lvl}",
                          tone="neg" if dv > 0 else "pos"))
-    return rows
+    return {"rows": rows,
+            "view": _camon_view(d0, d1, "Isı haritası: SEGMENT × AUM (varsayılan)")}
 
 
 # ── mevduat.bakiye ──────────────────────────────────────────────────────────
 
-def _balance_payload() -> Optional[dict]:
+def _balance_payload() -> Optional[tuple]:
+    """(payload, d0, d1) — view metadata için tarihler de döner."""
     from .engine import outstanding as eng
 
     snap = _dd_snapshot()
     if snap is None:
         return None
     _, d0, d1 = snap
-    return eng.BalanceAnalysisEngine.build_snapshot(d0, d1, "SEGMENT")
+    return eng.BalanceAnalysisEngine.build_snapshot(d0, d1, "SEGMENT"), d0, d1
 
 
-def digest_bamon_bridge() -> List[Row]:
+def _bamon_view(d0: str, d1: str, extra: str) -> dict:
+    return _view(
+        f"Dönem: {_dmy(d0)} → {_dmy(d1)} · Boyut: SEGMENT × AUM · {extra}",
+        [{"id": "ba-mon-date0", "value": d0},
+         {"id": "ba-mon-date1", "value": d1},
+         {"id": "ba-mon-decomp", "value": "SEGMENT"}])
+
+
+def digest_bamon_bridge() -> dict:
     """Köprü: start/end/net Δ + en büyük pozitif ve negatif katkılar."""
-    p = _balance_payload()
-    if not p:
-        return []
+    got = _balance_payload()
+    if not got or not got[0]:
+        return dict(_EMPTY)
+    p, d0, d1 = got
     t = p["totals"]
     growth = f"%{t['growth_pct']:+.1f}" if t.get("growth_pct") is not None else ""
     rows = [
@@ -229,14 +287,15 @@ def digest_bamon_bridge() -> List[Row]:
         rows.append(_row(f"Katkı: {name}", f"{dv:+,.0f}M", tone="pos"))
     for name, dv in [c for c in contrib if c[1] and c[1] < 0][:2]:
         rows.append(_row(f"Kayıp: {name}", f"{dv:+,.0f}M", tone="neg"))
-    return rows
+    return {"rows": rows, "view": _bamon_view(d0, d1, "Köprü: |Δ| top-8")}
 
 
-def digest_bamon_heatmap() -> List[Row]:
+def digest_bamon_heatmap() -> dict:
     """Bakiye/müşteri heatmap: en büyük Δ hücreleri + yoğunlaşma sinyali."""
-    p = _balance_payload()
-    if not p or not p.get("heatmap"):
-        return []
+    got = _balance_payload()
+    if not got or not got[0] or not got[0].get("heatmap"):
+        return dict(_EMPTY)
+    p, d0, d1 = got
     hm, chm = p["heatmap"], p.get("customer_heatmap")
     cells = []
     for i, rname in enumerate(hm["rows"]):
@@ -257,12 +316,14 @@ def digest_bamon_heatmap() -> List[Row]:
     for dv, cd, label in conc:
         rows.append(_row(f"Yoğunlaşma: {label}",
                          f"bakiye {dv:+,.0f}M, müşteri {cd:+,.0f}", tone="neg"))
-    return rows
+    return {"rows": rows,
+            "view": _bamon_view(d0, d1, "Metrik: bakiye + müşteri adedi")}
 
 
 # ── mevduat.vade ────────────────────────────────────────────────────────────
 
-def _tenor_payload() -> Optional[dict]:
+def _tenor_payload() -> Optional[tuple]:
+    """(payload, d0, d1) — view metadata için tarihler de döner."""
     from .engine import outstanding as eng
 
     snap = _dd_snapshot()
@@ -270,14 +331,22 @@ def _tenor_payload() -> Optional[dict]:
         # Swap cache'i soğuksa build_snapshot hedge için SQL tetikler — girmeyiz.
         return None
     _, d0, d1 = snap
-    return eng.TenorAnalysisEngine.build_snapshot(d0, d1)
+    return eng.TenorAnalysisEngine.build_snapshot(d0, d1), d0, d1
 
 
-def digest_tamon_ladder() -> List[Row]:
+def _tamon_view(d0: str, d1: str, extra: str) -> dict:
+    return _view(
+        f"Dönem: {_dmy(d0)} → {_dmy(d1)} · Mod: tenor (varsayılan) · {extra}",
+        [{"id": "ta-mon-date0", "value": d0},
+         {"id": "ta-mon-date1", "value": d1}])
+
+
+def digest_tamon_ladder() -> dict:
     """Merdiven: WAT + kova bazında bakiye-hedge açığı."""
-    p = _tenor_payload()
-    if not p:
-        return []
+    got = _tenor_payload()
+    if not got or not got[0]:
+        return dict(_EMPTY)
+    p, d0, d1 = got
     rows = [_row("WAT", f"{p['wat']['t1']:.0f} gün",
                  f"{p['wat']['delta']:+.0f} gün",
                  "pos" if p["wat"]["delta"] >= 0 else "neg")]
@@ -306,14 +375,15 @@ def digest_tamon_ladder() -> List[Row]:
                      key=lambda x: -(x[1] or 0))[:4]
         rows += [_row(f"Kova: {b}", _fmt_m(v or 0)) for b, v in top]
         rows.append(_row("Not", "hedge verisi bu turda yok"))
-    return rows
+    return {"rows": rows, "view": _tamon_view(d0, d1, "Merdiven: bakiye vs hedge")}
 
 
-def digest_tamon_curve() -> List[Row]:
+def digest_tamon_curve() -> dict:
     """Vade eğrisi: kova bazında wavg faiz — LLM ters eğimi kuraldan okur."""
-    p = _tenor_payload()
-    if not p:
-        return []
+    got = _tenor_payload()
+    if not got or not got[0]:
+        return dict(_EMPTY)
+    p, d0, d1 = got
     rows = []
     t = p.get("totals") or {}
     if t.get("rate_delta_bps") is not None:
@@ -322,20 +392,21 @@ def digest_tamon_curve() -> List[Row]:
     for b, r in list(zip(p["buckets"], p["rate_t1_pct"]))[:10]:
         if r is not None:
             rows.append(_row(f"Eğri: {b}", f"%{r:.2f}"))
-    return rows
+    return {"rows": rows, "view": _tamon_view(d0, d1, "Eğri: kova wavg faiz")}
 
 
 # ── mevduat.donusler (weekly — prewarm edilmez; yalnız sıcak pencere) ───────
 
-def digest_wr_rollovers() -> List[Row]:
+def digest_wr_rollovers() -> dict:
     from .engine import weekly as wk
 
-    df = _weekly_latest(wk._WEEKLY_AGG_DF_CACHE)
-    if df is None or df.empty:
-        return []
+    got = _weekly_latest(wk._WEEKLY_AGG_DF_CACHE)
+    if got is None or got[0].empty:
+        return dict(_EMPTY)
+    df, key = got
     t1 = wk.WeeklyRollingsEngine._pivot_currency(df)
     if not t1.get("rows"):
-        return []
+        return dict(_EMPTY)
     footer = {f["label"]: f for f in t1.get("footer", [])}
     rows = []
     tot = footer.get("Total")
@@ -353,15 +424,16 @@ def digest_wr_rollovers() -> List[Row]:
     day = max(t1["rows"], key=lambda r: r["total"])
     rows.append(_row(f"En yoğun gün ({day['date']} {day['label']})",
                      _fmt_m(day["total"])))
-    return rows
+    return {"rows": rows, "view": _wr_view(key, "Tablo 1: TRY+FX × AUM bandı")}
 
 
-def digest_wr_dtm() -> List[Row]:
+def digest_wr_dtm() -> dict:
     from .engine import weekly as wk
 
-    df_full = _weekly_latest(wk._WEEKLY_FULL_DF_CACHE)
-    if df_full is None or df_full.empty:
-        return []
+    got = _weekly_latest(wk._WEEKLY_FULL_DF_CACHE)
+    if got is None or got[0].empty:
+        return dict(_EMPTY)
+    df_full, key = got
     hist = wk.WeeklyRollingsEngine._dtm_histogram(df_full)
     total = sum(h["volume_m"] for h in hist) or 0.0
     rows = [_row(f"Kova {h['bucket']}",
@@ -371,21 +443,21 @@ def digest_wr_dtm() -> List[Row]:
         top = max(hist, key=lambda h: h["volume_m"])
         rows.append(_row("En büyük kova payı",
                          f"{top['bucket']}: %{top['volume_m'] / total * 100:.1f}"))
-    return rows
+    return {"rows": rows, "view": _wr_view(key, "DTM histogramı (bakiye bazlı)")}
 
 
 # ── mevduat.yeni_uretim ─────────────────────────────────────────────────────
 
-def digest_np_rvhm() -> List[Row]:
+def digest_np_rvhm() -> dict:
     """NP heatmap: son gün kanal×AUM en büyük hücreler (compound wavg) + gün Δ."""
     from .engine import np_agg
 
     if np_agg._NP_CACHE is None:
-        return []
+        return dict(_EMPTY)
     df = np_agg._NP_CACHE
     days = sorted(df["DAT"].dropna().unique())
     if len(days) < 2:
-        return []
+        return dict(_EMPTY)
     t0, t1 = days[-2], days[-1]
 
     def _day(d):
@@ -418,19 +490,25 @@ def digest_np_rvhm() -> List[Row]:
     for (ch, band), r in g.sort_values("NP_HACIM", ascending=False).head(5).iterrows():
         rows.append(_row(f"{ch} × {band}",
                          f"{_fmt_m(r['NP_HACIM'])} @ %{r['_r']:.2f}"))
-    return rows
+    i0 = str(pd.Timestamp(t0).date())
+    i1 = str(pd.Timestamp(t1).date())
+    return {"rows": rows, "view": _view(
+        f"Pencere: {_dmy(i0)} → {_dmy(i1)} · Frekans: D · Eksen: kanal × AUM",
+        [{"id": "np-vp-date0", "value": i0},
+         {"id": "np-vp-date1", "value": i1},
+         {"id": "np-vp-freq", "value": "D"}])}
 
 
-def digest_np_aumcombo() -> List[Row]:
+def digest_np_aumcombo() -> dict:
     """AUM combo: son hafta band bazında hacim + wavg faiz (band sırasıyla)."""
     from .engine import np_agg
 
     if np_agg._NP_CACHE is None:
-        return []
+        return dict(_EMPTY)
     df_f = np_agg.apply_filters(np_agg._NP_CACHE, ccy=["TRY"])
     ts = np_agg.aggregate_timeseries(df_f, group_by=["AUM_BAND"], freq="W")
     if ts.empty:
-        return []
+        return dict(_EMPTY)
     last = ts["DATE"].max()
     cur = ts[ts["DATE"] == last].copy()
     # Band sırası: _AUM_LABELS alt sınıra göre sıralı tanımlı — indeksini kullan.
@@ -442,21 +520,26 @@ def digest_np_aumcombo() -> List[Row]:
         if r["NP_HACIM"] and r["NP_HACIM"] > 0 and pd.notna(r["NP_FAIZ"]):
             rows.append(_row(str(r["AUM_BAND"]),
                              f"{_fmt_m(r['NP_HACIM'])} @ %{r['NP_FAIZ']:.2f}"))
-    return rows
+    iso_last = str(pd.Timestamp(last).date())
+    return {"rows": rows, "view": _view(
+        f"Hafta sonu: {_dmy(iso_last)} · TRY · Frekans: W",
+        [{"id": "np-vp-date1", "value": iso_last},
+         {"id": "np-vp-freq", "value": "W"}])}
 
 
 # ── mevduat.sektor ──────────────────────────────────────────────────────────
 
-def digest_sec_mix() -> List[Row]:
+def digest_sec_mix() -> dict:
     from .engine import sector_data as sd
 
     # vade_mix_comparison soğuk cache'te SQL tetikler — sıcaklık ön koşul.
     if sd._BANK_VADE_CACHE is None or sd._VADE_CACHE is None:
-        return []
+        return dict(_EMPTY)
     mix = sd.vade_mix_comparison(None, "monthly")
     if not mix or not mix.get("buckets"):
-        return []
-    rows = [_row("Veri ayı", str(mix.get("date") or "")[:10])]
+        return dict(_EMPTY)
+    data_month = str(mix.get("date") or "")[:10]
+    rows = [_row("Veri ayı", data_month)]
     for b, bank, sec, diff in zip(mix["buckets"], mix["bank_pct"],
                                   mix["sector_pct"], mix["diff_pp"]):
         if bank is None and sec is None:
@@ -465,13 +548,17 @@ def digest_sec_mix() -> List[Row]:
         sec_s = f"%{sec:.1f}" if sec is not None else "—"
         d = f"{diff:+.1f} pp" if diff is not None else ""
         rows.append(_row(f"Vade {b}", f"banka {bank_s} vs sektör {sec_s}", d))
-    return rows
+    # Sayfa varsayılanları (son BDDK ayı + monthly mod) digest'le aynı —
+    # kontrol yazmak gerekmiyor, label ne görüntülendiğini belgeler.
+    return {"rows": rows, "view": _view(
+        f"Veri ayı: {_dmy(data_month)} · Mod: monthly (varsayılan)")}
 
 
 # ── Kayıt ───────────────────────────────────────────────────────────────────
 
-def build_digest_registry() -> Dict[str, Callable[[], List[Row]]]:
-    """block_id → digest fonksiyonu (hepsi _safe sarmalı — hata = boş liste)."""
+def build_digest_registry() -> Dict[str, Callable[[], dict]]:
+    """block_id → digest fonksiyonu (hepsi _safe sarmalı — hata =
+    {"rows": [], "view": None})."""
     fns = {
         "camon_wf":      digest_camon_wf,
         "camon_bubble":  digest_camon_bubble,
