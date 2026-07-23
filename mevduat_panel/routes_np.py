@@ -984,6 +984,41 @@ def api_np_rate_volume_heatmap():
 
 
 # ── app.py 7696-7830 ──
+# cell_timeseries memo: hover başına full-df copy + groupby pahalı; heatmap
+# üstünde gezerken her yerleşen hover bir istek üretir. Çıktı, aynı df ve aynı
+# querystring için deterministiktir → LRU memoize. df kimliği (load_np_data
+# objesi) değişince (refresh) memo temizlenir; eski keyler doğal olarak ıskalar.
+from collections import OrderedDict as _OrderedDict
+
+_TS_MEMO_LOCK = _threading.Lock()
+_TS_MEMO_DF = None
+_TS_MEMO: "_OrderedDict[str, list]" = _OrderedDict()
+_TS_MEMO_MAX = 256
+
+
+def _ts_memo_get(df, qs):
+    global _TS_MEMO_DF
+    with _TS_MEMO_LOCK:
+        if _TS_MEMO_DF is not df:
+            _TS_MEMO.clear()
+            _TS_MEMO_DF = df
+            return None
+        rec = _TS_MEMO.get(qs)
+        if rec is not None:
+            _TS_MEMO.move_to_end(qs)
+        return rec
+
+
+def _ts_memo_put(df, qs, records):
+    with _TS_MEMO_LOCK:
+        if _TS_MEMO_DF is not df:
+            return
+        _TS_MEMO[qs] = records
+        _TS_MEMO.move_to_end(qs)
+        while len(_TS_MEMO) > _TS_MEMO_MAX:
+            _TS_MEMO.popitem(last=False)
+
+
 @mevduat_panel_bp.route("/api/np/cell_timeseries", methods=["GET"])
 @login_required
 def api_np_cell_timeseries():
@@ -997,6 +1032,19 @@ def api_np_cell_timeseries():
     """
     try:
         df = load_np_data()
+        _qs = request.query_string.decode("utf-8", "ignore")
+        _cached = _ts_memo_get(df, _qs)
+        if _cached is not None:
+            return _json_response({
+                "ok": True,
+                "channel": request.args.get("channel") or None,
+                "aum": request.args.get("aum") or None,
+                "freq": (request.args.get("freq", "W").upper() if
+                         request.args.get("freq", "W").upper() in ("D", "W") else "W"),
+                "t0": request.args.get("t0") or None,
+                "t1": request.args.get("t1") or None,
+                "records": _cached,
+            })
         channel = request.args.get("channel") or None
         aum     = request.args.get("aum") or None
         if channel == "__ALL__": channel = None   # total satır/sütun → o boyutta filtre yok
@@ -1101,6 +1149,7 @@ def api_np_cell_timeseries():
              "balance": round(float(r.NP_HACIM), 2)}
             for r in ts.itertuples(index=False)
         ]
+        _ts_memo_put(df, _qs, records)
         return _json_response({
             "ok": True, "channel": channel, "aum": aum, "freq": freq,
             "t0": t0, "t1": t1, "records": records,

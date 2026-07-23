@@ -570,6 +570,17 @@ except Exception:
     app.config["MEVDUAT_PANEL_ENABLED"] = False
     app.logger.exception("mevduat_panel blueprint yuklenemedi — modul atlandi")
 
+# Uzman yorumlarini periyodik (arka planda) isit — uzman sayfasi acilirken LLM
+# beklenmez; tiklama aninda icerikli gelir (kullanici karari 2026-07-23).
+# EXPERT_STORE + LLM_CLIENT yukarida yapilandirildi; metrik saglayici mevduat
+# blogunda (varsa) set edildi.
+try:
+    from prisma_home.commentary import start_commentary_refresher
+
+    start_commentary_refresher(app)
+except Exception:
+    app.logger.exception("uzman yorumu isitici baslatilamadi — atlandi")
+
 _user_cache = {}
 
 if DEV_MODE:
@@ -814,4 +825,7 @@ def home():
 
 
 if __name__ == '__main__':
-    app.run(debug=DEV_MODE, host='0.0.0.0', port=8081)
+    # threaded=True: geliştirme sunucusu istekleri seri değil paralel işlesin —
+    # aksi halde tek yavaş istek (ağır SQL / LLM) tüm uygulamayı kilitler ve
+    # "loading'de takılı kaldı" davranışı görülür. Prod'da gunicorn kullanılır.
+    app.run(debug=DEV_MODE, host='0.0.0.0', port=8081, threaded=True)

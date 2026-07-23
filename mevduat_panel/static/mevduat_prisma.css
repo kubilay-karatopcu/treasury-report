@@ -670,6 +670,35 @@ body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250
   color: var(--ink-faint);
   font-size: 11px;
 }
+
+/* Native date input'u gün.ay.yıl göster (overlay): gerçek input'un metnini
+   şeffaflaştır, üstüne biçimli span koy. Takvim ikonu + picker çalışmaya
+   devam eder; input.value ISO kalır. (mevduat_dock.js wrapDateInput). */
+.mv-dock-row--date .mv-dock-datewrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: block;
+}
+.mv-dock-row--date .mv-dock-datewrap input[type="date"] {
+  width: 100%;
+  flex: none;
+  color: transparent;
+}
+.mv-dock-row--date .mv-dock-datewrap input[type="date"]::-webkit-datetime-edit {
+  color: transparent;
+}
+.mv-dock-datetext {
+  position: absolute;
+  left: 9px;                 /* input border(1) + padding-left(8) */
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;      /* tıklama input'a/picker'a geçsin */
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+}
 .mv-dock-row--dim {
   flex-direction: column;
   align-items: stretch;
