@@ -402,6 +402,60 @@ metin bozulmaz); iframe ağırlığı (modal lazy — yalnız tıklanınca yükl
 digest bakımı (blok değişince digest da güncellenmeli — descriptor'daki blok
 versiyonuyla birlikte gözden geçirilir).
 
+### W6 — Brifing Sunumu: exec summary + interaktif slide akışı *(2026-07-23 geri bildirimi)*
+
+**Motivasyon (kullanıcı):** W5 çıktısı tek paragraf + kaynakça; ama kaynakçaya
+tıklayınca anlatılan sayılar bulunamıyor — blok VARSAYILAN filtrelerle açılıyor,
+digest ise kendi seçtiği tarih/boyutla hesaplamıştı (state uyumsuzluğu). İstenen:
+(1) uzman sayfasında paragraf yerine BULLET exec-summary headlines; (2) altında
+"Brifingi al" butonu → ayrı modal'da SUNUM: her slide bir madde anlatır ve o
+maddenin atıf bloğunu, DEĞERLENDİRMENİN YAPILDIĞI filtre/görünümle gösterir;
+←/→ ile akış; (3) sunum altında chat — kullanıcı bulunduğu slide'la ilgili ya
+da genel soru sorar.
+
+**Kontratlar:**
+
+1. **Yapılandırılmış brifing (headlines).** Aşama C çıktısı madde listesidir:
+   LLM her maddeyi yeni satırda `- ` ile yazar (1-2 cümle + atıf token'ları,
+   3-6 madde). Parser satırlara böler → `record.headlines: [{text, cites}]`
+   (mevcut segment parser'ı satır başına uygulanır). Uzman sayfası bullet
+   render eder; headlines'sız eski kayıt paragraf olarak düşer (geriye uyum).
+2. **View-state paritesi — sunumun bel kemiği.** Her digest fonksiyonu
+   sayılarla birlikte `view` metadata'sı da üretir:
+   `{page, anchor, label, controls: [{sel, value, label}]}` — digest HANGİ
+   tarih aralığı/boyut/filtreyle hesapladıysa o (kaynak: digest'in kendi
+   default'ları; LLM'den geçmez, deterministiktir). Aşama-A kaydında saklanır;
+   atıf çözücüsü embed URL'ine `state=<base64url(json)>` ekler. SPA embed modu
+   state'i uygular: kontrol elementlerine değer yazıp `change` dispatch eder,
+   render'ı bekler, anchor'a kaydırır. Slide üstünde state, okunur chip'ler
+   olarak da gösterilir ("Dönem: 31.05→30.06 · Boyut: SEGMENT×AUM") — kullanıcı
+   ne görüntülediğini bilir.
+3. **Sunum modalı.** "Brifingi al" → tam ekran modal: slide = madde metni
+   (büyük) + state chip'leri + atıf bloğunun embed iframe'i. ←/→ klavye +
+   ekran okları + ilerleme göstergesi (3/5). Atıfsız madde → yalnız metin
+   slide'ı. iframe lazy; slide değişince src güncellenir.
+4. **Slide-bağlamlı chat.** Modal altında chat şeridi; `expert_ask`'a
+   `context: {slide_text, block_id}` gider; prompt'a "ŞU AN GÖSTERİLEN SLAYT"
+   bölümü eklenir — cevap hem slide'a hem genele verilebilir.
+
+**Alt fazlar:**
+
+- **W6a — Headlines:** Aşama C prompt'u madde formatına döner + satır parser'ı
+  + uzman sayfası bullet render + "Brifingi al" buton yeri. Kabul: eski
+  paragraf kayıt bozulmadan render olur; her madde ≤2 cümle ve atıflı.
+- **W6b — View-state paritesi:** 12 digest'e `view` metadata'sı + Aşama-A
+  kaydına taşınması + embed `state=` uygulayıcısı (SPA) + atıf URL üreticisi.
+  Kabul: kaynakça/slide açılan blok, digest'in hesapladığı tarih/boyutu
+  gösterir; state chip'leri slide'da görünür.
+- **W6c — Sunum modalı + chat:** modal + ←/→ akış + slide iframe + chat
+  şeridi + expert_ask bağlam genişletmesi. Kabul: ok tuşlarıyla akış;
+  chat cevabı slide bağlamını kullanır; modal kapatınca iframe boşalır.
+
+**Not (uygulandı — 2026-07-23):** fallback kilidi düzeltildi: geçici LLM
+hatasında fallback kaydı `is_fallback` işaretlenir ve LLM denenebilir
+durumdaysa hash eşleşse de sonraki turda yeniden denenir ("Brifing henüz
+hazır değil takılı kaldı" geri bildirimi; `test_fallback_heals_when_llm_recovers`).
+
 ## §4 — Riskler ve açık sorular
 
 | Risk / soru | Etki | Öneri |

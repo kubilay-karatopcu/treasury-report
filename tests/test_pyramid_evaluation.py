@@ -170,6 +170,37 @@ class TestExpertBriefing:
         b = evaluation.get_block_evaluation("camon_wf")
         p = evaluation.get_process_evaluation("mevduat.maliyet")
         c = commentary.get_commentary_record("dep")
-        assert b and len(b["text"]) > 20
+        assert b and len(b["text"]) > 20 and b["is_fallback"]
         assert p and len(p["text"]) > 20 and p["cites"] == []
         assert c and len(c["text"]) > 20 and c["cites"] == []
+
+    def test_fallback_heals_when_llm_recovers(self):
+        """Geçici LLM hatası fallback'i KİLİTLEMEZ: girdiler değişmese de
+        sonraki tur yeniden dener ve gerçek metin fallback'i ezer
+        (2026-07-23 'Brifing henüz hazır değil takılı kaldı' geri bildirimi)."""
+        class _Flaky:
+            def __init__(self):
+                self.fail = True
+                self.calls = 0
+            def complete(self, system, user, **kw):
+                self.calls += 1
+                if self.fail:
+                    raise RuntimeError("geçici kesinti")
+                return "Toparlanma sonrası gerçek bulgu [[blok:camon_wf]]."
+
+        llm = _Flaky()
+        app = _mk_app(llm=llm, digests=_DIGESTS)
+        commentary.refresh_pipeline(app)          # tüm aşamalar fallback
+        assert commentary.get_commentary_record("dep")["is_fallback"]
+
+        llm.fail = False
+        commentary.refresh_pipeline(app)          # girdi hash'leri AYNI
+        b = evaluation.get_block_evaluation("camon_wf")
+        c = commentary.get_commentary_record("dep")
+        assert not b["is_fallback"] and "gerçek bulgu" in b["text"]
+        assert not c["is_fallback"] and c["cites"] == ["camon_wf"]
+
+        # İyileştikten sonra üçüncü tur: hash'ler tutar, 0 çağrı.
+        n = llm.calls
+        commentary.refresh_pipeline(app)
+        assert llm.calls == n

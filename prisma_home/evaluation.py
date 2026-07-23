@@ -105,11 +105,16 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
     digest = get_block_digest(bid)
     digest_hash = _hash(digest)
     doc_hash = _hash(block.get("documentation") or {})
+    llm = current_app.config.get("LLM_CLIENT")
     cur = _EVAL.get(bid)
     if cur and cur["digest_hash"] == digest_hash and cur["doc_hash"] == doc_hash:
-        return False
+        # Fallback kaydı + LLM denenebilir durumda (kullanıcı geri bildirimi
+        # 2026-07-23: geçici LLM hatası fallback'i bir sonraki veri değişimine
+        # kadar KİLİTLİYORDU) → hash eşleşse de yeniden dene. Gerçek metin ya
+        # da LLM'siz/verisiz fallback → cache'ten.
+        if not (cur.get("is_fallback") and llm is not None and digest):
+            return False
 
-    llm = current_app.config.get("LLM_CLIENT")
     text: str | None = None
     # LLM yalnız veri varken çağrılır: digest'siz değerlendirme sayı uydurma
     # riskine değmez — dürüst fallback yeterli (W5b süreç aşaması dökümanı
@@ -125,6 +130,7 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
         except Exception:
             log.exception("blok değerlendirmesi: LLM çağrısı başarısız (%s)", bid)
 
+    is_fallback = text is None
     if text is None:
         text = _fallback_text(block, bool(digest))
 
@@ -136,6 +142,7 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
         "process_label": process_label,
         "title": block.get("title") or bid,
         "has_data": bool(digest),
+        "is_fallback": is_fallback,
         "ts": time.time(),
     }
     return True
@@ -237,11 +244,14 @@ def evaluate_process(pid: str, process: dict,
 
     doc_hash = _hash(process.get("documentation") or {})
     children_hash = _hash({bid: rec.get("text") for bid, rec in block_evals.items()})
+    llm = current_app.config.get("LLM_CLIENT")
     cur = _PROC_EVAL.get(pid)
     if cur and cur["doc_hash"] == doc_hash and cur["children_hash"] == children_hash:
-        return False
+        # Fallback + LLM denenebilir → hash eşleşse de yeniden dene (geçici
+        # LLM hatası fallback'i kilitlemesin — A'daki notla aynı).
+        if not (cur.get("is_fallback") and llm is not None and block_evals):
+            return False
 
-    llm = current_app.config.get("LLM_CLIENT")
     parsed: dict | None = None
     if llm is not None and block_evals:
         try:
@@ -254,7 +264,8 @@ def evaluate_process(pid: str, process: dict,
         except Exception:
             log.exception("süreç değerlendirmesi: LLM çağrısı başarısız (%s)", pid)
 
-    if parsed is None or not parsed["text"]:
+    is_fallback = parsed is None or not parsed["text"]
+    if is_fallback:
         fb = _process_fallback(process, block_evals)
         parsed = {"text": fb, "segments": [{"text": fb, "cites": []}], "cites": []}
 
@@ -265,6 +276,7 @@ def evaluate_process(pid: str, process: dict,
         "label": process.get("label", pid),
         "block_titles": {bid: rec.get("title", bid)
                          for bid, rec in block_evals.items()},
+        "is_fallback": is_fallback,
         "ts": time.time(),
     }
     return True
