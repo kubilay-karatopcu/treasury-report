@@ -108,6 +108,14 @@ def expert_detail(code: str):
 
     processes = resolve_processes((expert.bound_content or {}).get("processes"))
 
+    # W4a — uzman yorumu: dökümantasyondan (sayı/veri yok), TTL cache'li.
+    try:
+        from prisma_home.commentary import get_commentary
+        commentary = get_commentary(expert) if processes else None
+    except Exception:
+        current_app.logger.exception("uzman yorumu üretilemedi: %s", expert.id)
+        commentary = None
+
     return render_template(
         "home/expert.html",
         mode="consumer",
@@ -117,6 +125,7 @@ def expert_detail(code: str):
         briefing=briefing,
         snapshots=bound,
         processes=processes,
+        commentary=commentary,
     )
 
 
