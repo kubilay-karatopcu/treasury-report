@@ -324,6 +324,161 @@
     border-radius: 8px;
     background: var(--bg-0);
   }
+
+  /* ── W6c: brifing sunum modalı. ──────────────────────────────────────── */
+  .brief-pres {
+    position: fixed;
+    inset: 0;
+    z-index: 450;                /* blok modalının (400) üstünde */
+    display: flex;
+    flex-direction: column;
+    background: rgba(6, 9, 18, 0.96);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .brief-pres[hidden] { display: none; }
+  .brief-pres-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .brief-pres-eyebrow {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .brief-pres-progress {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-mute);
+    letter-spacing: 0.1em;
+  }
+  .brief-pres-headline {
+    padding: 18px 72px 12px;
+  }
+  .brief-pres-text {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 300;
+    line-height: 1.5;
+    color: var(--ink);
+    max-width: 1100px;
+  }
+  .brief-pres-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .bp-blockchip {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--ink-mute);
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .bp-blockchip.is-active { color: var(--gold); border-color: var(--gold-dim); }
+  .bp-statelabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold-dim);
+    margin-left: 4px;
+  }
+  .brief-pres-stage {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0 12px;
+    min-height: 0;               /* iframe flex taşmasın */
+    position: relative;
+  }
+  .bp-arrow {
+    flex: 0 0 44px;
+    align-self: center;
+    height: 84px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-mute);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .bp-arrow:hover:not(:disabled) { color: var(--gold); border-color: var(--gold-dim); }
+  .bp-arrow:disabled { opacity: 0.25; cursor: default; }
+  .brief-pres-frame {
+    flex: 1;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--bg-0);
+    min-width: 0;
+  }
+  .brief-pres-noblock {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--serif);
+    font-size: 16px;
+    font-style: italic;
+    color: var(--ink-faint);
+    pointer-events: none;
+  }
+  .brief-pres-chat {
+    display: flex;
+    gap: 10px;
+    padding: 12px 72px;
+  }
+  .brief-pres-chat input {
+    flex: 1;
+    background: var(--bg-1);
+    color: var(--ink);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 11px 14px;
+    font-size: 13.5px;
+  }
+  .brief-pres-chat button {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+    background: transparent;
+    color: var(--gold);
+    border: 1px solid var(--gold-dim);
+    border-radius: 6px;
+    padding: 0 18px;
+  }
+  .brief-pres-chat button:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+  .brief-pres-answer {
+    margin: 0 72px 14px;
+    padding: 12px 16px;
+    border-left: 2px solid var(--gold-dim);
+    background: var(--bg-1);
+    border-radius: 0 8px 8px 0;
+    font-family: var(--serif);
+    font-size: 14px;
+    font-weight: 300;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    white-space: pre-wrap;
+    max-height: 22vh;
+    overflow-y: auto;
+  }
 </style>
 {% endblock %}
 
@@ -452,10 +607,10 @@
       <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
                   text-transform: uppercase; color: {{ expert.ui.accent_color }};
                   flex: 1;">{{ expert.code }} · exec summary</div>
-      {% if commentary_rec and commentary_rec.headlines %}
-      {# W6a — buton yeri; sunum modalı W6c'de bağlanacak. #}
-      <button type="button" class="brief-take" id="brief-take-btn" disabled
-              title="Sunum modu yakında (W6c)">▶ Brifingi al</button>
+      {% if brief_slides %}
+      {# W6c — sunum modalını açar (slide verisi #brief-slides JSON'unda). #}
+      <button type="button" class="brief-take" id="brief-take-btn"
+              title="Brifingi sunum olarak izle">▶ Brifingi al</button>
       {% endif %}
     </div>
     <div style="font-family: var(--serif); font-size: 15.5px; font-weight: 300;
@@ -513,6 +668,151 @@
     </a>
     {% endfor %}
   </div>
+  {% endif %}
+
+  {% if brief_slides %}
+  {# ── W6c — Brifing Sunumu: slide = madde + state chip'i + atıf bloğunun
+     embed iframe'i. ←/→ akış, ilerleme, altta slide-bağlamlı chat. ───────── #}
+  <script id="brief-slides" type="application/json">{{ brief_slides | tojson }}</script>
+  <div id="brief-pres" class="brief-pres" hidden>
+    <div class="brief-pres-top">
+      <span class="brief-pres-eyebrow">{{ expert.code }} · brifing sunumu</span>
+      <span class="brief-pres-progress" id="bp-progress"></span>
+      <button type="button" class="blok-modal-close" id="bp-close">✕ Kapat</button>
+    </div>
+    <div class="brief-pres-headline">
+      <div class="brief-pres-text" id="bp-text"></div>
+      <div class="brief-pres-meta" id="bp-meta"></div>
+    </div>
+    <div class="brief-pres-stage">
+      <button type="button" class="bp-arrow" id="bp-prev" aria-label="Önceki">‹</button>
+      <iframe class="brief-pres-frame" id="bp-frame" title="Slayt bloğu"
+              src="about:blank"></iframe>
+      <div class="brief-pres-noblock" id="bp-noblock" hidden>
+        Bu madde genel bağlam — blok atıfı yok.
+      </div>
+      <button type="button" class="bp-arrow" id="bp-next" aria-label="Sonraki">›</button>
+    </div>
+    <div class="brief-pres-chat">
+      <input type="text" id="bp-ask-input" maxlength="500"
+             placeholder="Bu slaytla ilgili (ya da genel) bir soru sor…">
+      <button type="button" id="bp-ask-btn">Sor</button>
+    </div>
+    <div class="brief-pres-answer" id="bp-answer" hidden></div>
+  </div>
+  <script>
+  (function () {
+    var pres = document.getElementById('brief-pres');
+    var dataEl = document.getElementById('brief-slides');
+    var openBtn = document.getElementById('brief-take-btn');
+    if (!pres || !dataEl || !openBtn) return;
+    var slides = [];
+    try { slides = JSON.parse(dataEl.textContent) || []; } catch (e) { return; }
+    if (!slides.length) return;
+
+    var idx = 0, blockIdx = 0;
+    var frame = document.getElementById('bp-frame');
+    var noblock = document.getElementById('bp-noblock');
+    var textEl = document.getElementById('bp-text');
+    var metaEl = document.getElementById('bp-meta');
+    var progEl = document.getElementById('bp-progress');
+    var answerEl = document.getElementById('bp-answer');
+    var askInput = document.getElementById('bp-ask-input');
+    var askBtn = document.getElementById('bp-ask-btn');
+
+    function render() {
+      var s = slides[idx];
+      textEl.textContent = s.text;
+      progEl.textContent = (idx + 1) + ' / ' + slides.length;
+      answerEl.hidden = true;
+      // Meta şeridi: blok adı + değerlendirmenin görünümü (state label);
+      // birden çok atıf varsa blok seçici chip'leri.
+      metaEl.innerHTML = '';
+      if (s.blocks.length) {
+        var b = s.blocks[Math.min(blockIdx, s.blocks.length - 1)];
+        s.blocks.forEach(function (blk, i) {
+          var chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'bp-blockchip' + (blk === b ? ' is-active' : '');
+          chip.textContent = blk.num + ' · ' + blk.title;
+          chip.addEventListener('click', function () {
+            blockIdx = i; render();
+          });
+          metaEl.appendChild(chip);
+        });
+        if (b.state_label) {
+          var st = document.createElement('span');
+          st.className = 'bp-statelabel';
+          st.textContent = b.state_label;
+          metaEl.appendChild(st);
+        }
+        noblock.hidden = true;
+        frame.style.visibility = 'visible';
+        if (frame.dataset.url !== b.url) {   // lazy: yalnız değişince yükle
+          frame.dataset.url = b.url;
+          frame.src = b.url;
+        }
+      } else {
+        noblock.hidden = false;
+        frame.style.visibility = 'hidden';
+      }
+      document.getElementById('bp-prev').disabled = idx === 0;
+      document.getElementById('bp-next').disabled = idx === slides.length - 1;
+    }
+    function goTo(i) {
+      if (i < 0 || i >= slides.length) return;
+      idx = i; blockIdx = 0; render();
+    }
+    function open() {
+      pres.hidden = false;
+      document.body.style.overflow = 'hidden';
+      goTo(0);
+    }
+    function close() {
+      pres.hidden = true;
+      frame.src = 'about:blank';
+      frame.dataset.url = '';
+      document.body.style.overflow = '';
+    }
+
+    openBtn.addEventListener('click', open);
+    document.getElementById('bp-close').addEventListener('click', close);
+    document.getElementById('bp-prev').addEventListener('click', function () { goTo(idx - 1); });
+    document.getElementById('bp-next').addEventListener('click', function () { goTo(idx + 1); });
+    document.addEventListener('keydown', function (ev) {
+      if (pres.hidden) return;
+      var inInput = ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName);
+      if (ev.key === 'Escape') { close(); return; }
+      if (inInput) return;   // yazarken ok tuşları imleç için kalsın
+      if (ev.key === 'ArrowLeft') goTo(idx - 1);
+      if (ev.key === 'ArrowRight') goTo(idx + 1);
+    });
+
+    function ask() {
+      var q = (askInput.value || '').trim();
+      if (!q) return;
+      askBtn.disabled = true;
+      answerEl.hidden = false;
+      answerEl.textContent = 'Düşünüyor…';
+      var s = slides[idx];
+      var blk = s.blocks.length ? s.blocks[Math.min(blockIdx, s.blocks.length - 1)] : null;
+      fetch({{ url_for('prisma_home.expert_ask', code=expert.id) | tojson }}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          context: { slide_text: s.text, block_id: blk ? blk.id : '' }
+        })
+      }).then(function (r) { return r.json(); })
+        .then(function (d) { answerEl.textContent = d.answer || 'Cevap alınamadı.'; askBtn.disabled = false; })
+        .catch(function (e) { answerEl.textContent = 'Hata: ' + (e.message || e); askBtn.disabled = false; });
+    }
+    askBtn.addEventListener('click', ask);
+    askInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') ask();
+    });
+  })();
+  </script>
   {% endif %}
 
   {# ── W5c — blok modalı (chart-fs deseni): atıf çipi/kaynakça tıklanınca
