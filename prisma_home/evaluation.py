@@ -179,12 +179,142 @@ def get_block_evaluation(block_id: str) -> dict | None:
 
 
 def all_evaluations() -> dict[str, dict]:
-    """Aşama B girdisi (W5b): block_id → değerlendirme kaydı (kopya)."""
+    """Aşama B girdisi: block_id → değerlendirme kaydı (kopya)."""
     return dict(_EVAL)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Aşama B — süreç değerlendirmesi (W5b)
+#
+# Girdi: süreç dökümantasyonu (4 alan) + o sürecin Aşama-A blok
+# değerlendirmeleri. Çıktı: [[blok:<id>]] atıflı 3-4 cümlelik sentez —
+# citations.parse_citations ile doğrulanıp segment listesi olarak saklanır.
+# Hash anahtarı (doc_hash, children_hash): bloklar ve döküman değişmediyse
+# LLM'e gidilmez; A'daki bir değişiklik children_hash üzerinden B'yi
+# kendiliğinden tazeler (piramit yukarı yayılım).
+# ════════════════════════════════════════════════════════════════════════════
+
+_PROC_PROMPT_PATH = Path(__file__).parent / "prompts" / "process_evaluation.txt"
+
+#: pid → {"text", "segments", "cites", "doc_hash", "children_hash",
+#:        "label", "block_titles", "ts"}
+_PROC_EVAL: dict[str, dict] = {}
+
+
+def _build_process_prompt(process: dict, block_evals: dict[str, dict]) -> str:
+    doc = process.get("documentation") or {}
+    lines = [f"SÜREÇ: {process.get('label')}"]
+    for f, tag in (("purpose", "amaç"), ("business_context", "iş bağlamı"),
+                   ("decision_support", "karar desteği"),
+                   ("known_limitations", "sınırlar")):
+        if (doc.get(f) or "").strip():
+            lines.append(f"{tag}: {doc[f]}")
+    lines.append("BLOK DEĞERLENDİRMELERİ:")
+    for bid, rec in block_evals.items():
+        lines.append(f"- [{bid}] {rec.get('title')}: {rec.get('text')}")
+    lines.append("ATIF YAPILABİLECEK BLOK ID'LERİ: "
+                 + ", ".join(block_evals.keys()))
+    return "\n".join(lines)
+
+
+def _process_fallback(process: dict, block_evals: dict[str, dict]) -> str:
+    titles = " · ".join(r.get("title", "") for r in list(block_evals.values())[:4])
+    if titles:
+        return (f"{process.get('label')} bloklarının ({titles}) güncel "
+                "değerlendirmeleri hazır; süreç sentezi LLM bağlandığında "
+                "burada görünecek.")
+    return (f"{process.get('label')} için blok değerlendirmesi henüz yok; "
+            "süreç yorumu dökümantasyon çerçevesinde kalır.")
+
+
+def evaluate_process(pid: str, process: dict,
+                     block_evals: dict[str, dict]) -> bool:
+    """Tek süreci değerlendirir. Dönüş: yeniden hesaplandı mı?
+
+    LLM yalnız en az bir blok değerlendirmesi varken çağrılır (A ile aynı
+    uydurma disiplini); atıflar block_evals kümesine karşı doğrulanır."""
+    from prisma_home.citations import parse_citations
+
+    doc_hash = _hash(process.get("documentation") or {})
+    children_hash = _hash({bid: rec.get("text") for bid, rec in block_evals.items()})
+    cur = _PROC_EVAL.get(pid)
+    if cur and cur["doc_hash"] == doc_hash and cur["children_hash"] == children_hash:
+        return False
+
+    llm = current_app.config.get("LLM_CLIENT")
+    parsed: dict | None = None
+    if llm is not None and block_evals:
+        try:
+            raw = llm.complete(_PROC_PROMPT_PATH.read_text(encoding="utf-8"),
+                               _build_process_prompt(process, block_evals),
+                               max_tokens=400, temperature=0.2)
+            raw = (raw or "").strip()
+            if raw and not raw.startswith("{") and len(raw) > 40:
+                parsed = parse_citations(raw, set(block_evals))
+        except Exception:
+            log.exception("süreç değerlendirmesi: LLM çağrısı başarısız (%s)", pid)
+
+    if parsed is None or not parsed["text"]:
+        fb = _process_fallback(process, block_evals)
+        parsed = {"text": fb, "segments": [{"text": fb, "cites": []}], "cites": []}
+
+    _PROC_EVAL[pid] = {
+        **parsed,
+        "doc_hash": doc_hash,
+        "children_hash": children_hash,
+        "label": process.get("label", pid),
+        "block_titles": {bid: rec.get("title", bid)
+                         for bid, rec in block_evals.items()},
+        "ts": time.time(),
+    }
+    return True
+
+
+def evaluate_all_processes(app) -> dict:
+    """Tüm dökümante süreçler için Aşama B — ARKA PLAN girişi.
+
+    Aşama A'nın (evaluate_all_blocks) SONRASINDA çağrılmalı; A cache'inden
+    okur. Dönüş: {"computed": n, "cached": m, "processes": k}."""
+    stats = {"computed": 0, "cached": 0, "processes": 0}
+    with app.test_request_context():
+        from prisma_home.processes import PROCESS_REGISTRY, get_process
+
+        for pid in PROCESS_REGISTRY:
+            try:
+                process = get_process(pid)
+            except Exception:
+                log.exception("süreç değerlendirmesi: süreç okunamadı (%s)", pid)
+                continue
+            if not process or not process.get("documented"):
+                continue
+            block_evals = {
+                b["id"]: _EVAL[b["id"]]
+                for b in process.get("blocks") or []
+                if b.get("documented") and b.get("id") in _EVAL
+            }
+            stats["processes"] += 1
+            try:
+                computed = evaluate_process(pid, process, block_evals)
+                stats["computed" if computed else "cached"] += 1
+            except Exception:
+                log.exception("süreç değerlendirmesi başarısız: %s", pid)
+    log.info("süreç değerlendirme turu: %s", stats)
+    return stats
+
+
+def get_process_evaluation(pid: str) -> dict | None:
+    """İstek yolu okuyucusu — anında, asla hesaplamaz."""
+    return _PROC_EVAL.get(pid)
+
+
+def all_process_evaluations() -> dict[str, dict]:
+    """Aşama C girdisi: pid → süreç değerlendirme kaydı (kopya)."""
+    return dict(_PROC_EVAL)
 
 
 def invalidate(block_id: str | None = None) -> None:
     if block_id is None:
         _EVAL.clear()
+        _PROC_EVAL.clear()
     else:
         _EVAL.pop(block_id, None)

@@ -575,16 +575,19 @@ except Exception:
     app.config["MEVDUAT_PANEL_ENABLED"] = False
     app.logger.exception("mevduat_panel blueprint yuklenemedi — modul atlandi")
 
-# Uzman yorumlarini periyodik (arka planda) isit — uzman sayfasi acilirken LLM
-# beklenmez; tiklama aninda icerikli gelir (kullanici karari 2026-07-23).
-# EXPERT_STORE + LLM_CLIENT yukarida yapilandirildi; metrik saglayici mevduat
-# blogunda (varsa) set edildi.
+# W5 piramidi periyodik (arka planda) isit: blok -> surec -> uzman brifingi.
+# Uzman sayfasi acilirken LLM beklenmez; tiklama aninda icerikli gelir
+# (kullanici karari 2026-07-23). Hash'li invalidation sayesinde veri
+# degismedikce turlar LLM'siz/ucuzdur. Ayrica mevduat data-refresh'i bitince
+# ayni boru hatti hook uzerinden kosulur (routes.py admin_refresh okur;
+# mevduat_panel prisma_home'u import etmez — izolasyon sozlesmesi).
 try:
-    from prisma_home.commentary import start_commentary_refresher
+    from prisma_home.commentary import refresh_pipeline, start_commentary_refresher
 
     start_commentary_refresher(app)
+    app.config["MEVDUAT_POST_REFRESH_HOOK"] = lambda: refresh_pipeline(app)
 except Exception:
-    app.logger.exception("uzman yorumu isitici baslatilamadi — atlandi")
+    app.logger.exception("uzman piramit isiticisi baslatilamadi — atlandi")
 
 _user_cache = {}
 
