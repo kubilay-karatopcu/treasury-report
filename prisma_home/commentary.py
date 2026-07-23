@@ -1,22 +1,24 @@
-"""Uzman Yorumu — Süreç Düzenlileştirme W4a.
+"""Uzman Yorumu — Süreç Düzenlileştirme W4a → W5b (piramit Aşama C).
 
-Uzman personası, bağlı süreçlerin DÖKÜMANTASYONUNDAN (W1/W3'te yazılan 4 alan)
-2-3 cümlelik yorum üretir; uzman sayfasında süreç kartlarının üstünde görünür.
+Uzman personası, bağlı süreçlerin AŞAMA-B DEĞERLENDİRMELERİNDEN (evaluation.py;
+her biri kendi bloklarının verili değerlendirmelerinden sentezlendi) 4-6
+cümlelik brifing ANLATISI üretir; bulgular [[blok:<id>]] atıflarıyla bloklara
+bağlanır (citations.parse_citations doğrular — uydurma id düşer). Global
+metrikler (W4b sağlayıcısı) çapa değer olarak prompt'ta kalır.
 
-İSTEK YOLU HİÇ BLOKLANMAZ (kullanıcı kararı 2026-07-23: "uzmana tıklayınca
-yavaş açılmasın; belirli aralıkla trigger edip güncelle"). LLM çağrısı ve
-metrik/Oracle okuması ARKA PLANDA yapılır:
-  - `get_commentary()` sıcak cache varsa onu döner; yoksa arka plan tazelemesi
-    planlar ve ANINDA ucuz/deterministik bir metin döner (LLM beklemez).
-  - `start_commentary_refresher()` açılışta tüm uzmanları periyodik ısıtır
-    (interval < TTL → cache hep sıcak), böylece ilk tıklama da içerikli gelir.
+İSTEK YOLU HİÇ BLOKLANMAZ (2026-07-23 kararı): get_commentary sıcak kaydı
+anında döner; soğukta ucuz fallback + arka plan planlaması. Tazeleme
+hash-güdümlüdür: girdiler (süreç değerlendirmeleri + metrikler) değişmediyse
+LLM'e gidilmez — periyodik döngü (refresh_pipeline: A → B → C) ve mevduat
+data-refresh sonrası hook aynı boru hattını koşar.
 
-Sayı/veri yalnız "GÜNCEL METRİKLER" sağlayıcısından gelir (metrik sağlayıcı
-kontratı W4b); prompt uydurma sayıyı yasaklar. DEV/FakeLLM ya da hata:
-deterministik, dürüst fallback metni (uydurma yorum yok).
+Sayı köken zinciri: C yalnız GÜNCEL METRİKLER + Aşama-B metinlerinde geçen
+sayıları kullanabilir (prompt kuralı; B de A'ya, A da digest'e zincirli).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import threading
 import time
@@ -27,22 +29,25 @@ from flask import current_app
 log = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "expert_commentary.txt"
-_TTL_SECONDS = 1800
-#: uzmanları periyodik ısıtma aralığı — TTL'den kısa tutulur ki cache soğumasın.
+#: uzmanları periyodik ısıtma aralığı (sn) — hash'ler değişmediyse tur ucuzdur.
 _REFRESH_INTERVAL = 900
-#: expert_id → (monotonic_ts, text)
-_CACHE: dict[str, tuple[float, str]] = {}
+#: expert_id → {"text","segments","cites","input_hash","block_titles","ts"}
+_CACHE: dict[str, dict] = {}
 #: arka planda hesaplaması süren uzmanlar (çift LLM çağrısını önler).
 _INFLIGHT: set[str] = set()
 _LOCK = threading.Lock()
+
+
+def _hash(obj) -> str:
+    payload = json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def get_process_metrics() -> list[dict]:
     """W4b — süreç metrik sağlayıcısından kompakt KPI listesi.
 
     Provider app.config'ten okunur (mevduat_panel import edilmez). Yoksa/hata
-    verirse boş liste — yorum dökümantasyon-temelli kalır. Ağır Oracle okuması
-    olabileceğinden YALNIZ arka plan hesabında çağrılır, istek yolunda değil."""
+    verirse boş liste. Ağır olabileceğinden YALNIZ arka planda çağrılır."""
     provider = current_app.config.get("PROCESS_METRICS_PROVIDER")
     if provider is None:
         return []
@@ -55,6 +60,7 @@ def get_process_metrics() -> list[dict]:
 
 def _build_user_prompt(expert, processes: list[dict],
                        metrics: list[dict] | None = None) -> str:
+    """W4b "…'ye sor" bağlamı — süreç DÖKÜMANTASYONU temelli (eski davranış)."""
     lines = [f"UZMAN: {expert.name} — alan: {expert.domain_label}"]
     if getattr(expert, "short_description", ""):
         lines.append(f"Uzman tanımı: {expert.short_description}")
@@ -76,10 +82,7 @@ def _build_user_prompt(expert, processes: list[dict],
 
 
 def _full_processes(expert) -> list[dict]:
-    """Uzmanın süreçlerini dökümantasyonlu (overlay-merge'li) şekilde getirir.
-
-    Bellek-içi registry + küçük overlay store okuması — Oracle/LLM YOK, istek
-    yolunda çağrılması güvenli (ucuz)."""
+    """Uzmanın süreçleri, dökümantasyonlu (overlay-merge'li). Ucuz — LLM yok."""
     from prisma_home.processes import get_process
 
     out = []
@@ -91,54 +94,101 @@ def _full_processes(expert) -> list[dict]:
 
 
 def _fallback_text(expert, documented: list[dict]) -> str:
-    """LLM'siz, uydurmasız deterministik özet (istek yolunda ve DEV'de kullanılır)."""
     labels = " · ".join(p["label"] for p in documented[:4])
     return (f"{expert.domain_label} süreçleri ({labels}) dökümante edildi; "
-            "yorum kuralları süreç kartlarının detayında. Canlı uzman yorumu "
+            "yorum kuralları süreç kartlarının detayında. Canlı uzman brifingi "
             "arka planda hazırlanıyor, birazdan burada görünecek.")
 
 
+def _build_briefing_prompt(expert, proc_evals: dict[str, dict],
+                           metrics: list[dict],
+                           catalog: dict[str, str]) -> str:
+    """Aşama C prompt'u: persona + metrik çapa + B değerlendirmeleri + katalog."""
+    lines = [f"UZMAN: {expert.name} — alan: {expert.domain_label}"]
+    if getattr(expert, "short_description", ""):
+        lines.append(f"Uzman tanımı: {expert.short_description}")
+    if metrics:
+        lines.append("GÜNCEL METRİKLER (çapa — yalnız bunlar ve süreç "
+                     "değerlendirmelerindeki sayılar):")
+        for m in metrics:
+            d = f" ({m['delta']})" if m.get("delta") else ""
+            lines.append(f"  - {m.get('k')}: {m.get('v')}{d}")
+    lines.append("SÜREÇ DEĞERLENDİRMELERİ:")
+    for pid, rec in proc_evals.items():
+        cites = f" (dayanaklar: {', '.join(rec['cites'])})" if rec.get("cites") else ""
+        lines.append(f"- {rec.get('label', pid)}: {rec.get('text')}{cites}")
+    lines.append("ATIF KATALOĞU (id → blok adı):")
+    for bid, title in catalog.items():
+        lines.append(f"  - {bid}: {title}")
+    return "\n".join(lines)
+
+
 def _compute_and_store(app, expert) -> None:
-    """AĞIR yol (LLM + metrik/Oracle) — YALNIZ arka planda çağrılır.
+    """AĞIR yol (LLM) — YALNIZ arka planda. Hash eşleşirse LLM'e gidilmez.
 
-    Sonucu (LLM metni ya da fallback) TTL cache'e yazar. İstek yolu buna
-    hiçbir zaman senkron girmez.
+    test_request_context: get_process → url_for istek bağlamı ister."""
+    from prisma_home import evaluation
+    from prisma_home.citations import parse_citations
 
-    test_request_context (app_context değil): get_process → _safe_url içeride
-    url_for çağırıyor; url_for istek bağlamı (ya da SERVER_NAME) ister, yoksa
-    RuntimeError atar. Kurulan URL yorumda kullanılmıyor (yalnız label +
-    dökümantasyon okunur), bu yüzden sahte istek bağlamı güvenli."""
     with app.test_request_context():
         try:
             documented = [p for p in _full_processes(expert) if p.get("documented")]
         except Exception:
-            log.exception("uzman yorumu: süreçler okunamadı (%s)", expert.id)
+            log.exception("uzman brifingi: süreçler okunamadı (%s)", expert.id)
             return
         if not documented:
             return
 
-        metrics = get_process_metrics()
-        llm = current_app.config.get("LLM_CLIENT")
-        text: str | None = None
-        if llm is not None:
-            try:
-                raw = llm.complete(_PROMPT_PATH.read_text(encoding="utf-8"),
-                                   _build_user_prompt(expert, documented, metrics),
-                                   max_tokens=400, temperature=0.3)
-                raw = (raw or "").strip()
-                # JSON/başlık sızarsa yorum sayma — dürüst fallback'e düş.
-                if raw and not raw.startswith("{") and len(raw) > 40:
-                    text = raw
-            except Exception:
-                log.exception("uzman yorumu: LLM çağrısı başarısız (%s)", expert.id)
+        pids = [p["id"] for p in documented]
+        proc_evals = {pid: rec for pid in pids
+                      if (rec := evaluation.get_process_evaluation(pid))}
+        # Atıf kataloğu: bağlı süreçlerin dökümante blokları (id → başlık).
+        catalog: dict[str, str] = {}
+        for p in documented:
+            for b in p.get("blocks") or []:
+                if b.get("documented") and b.get("id"):
+                    catalog[b["id"]] = b.get("title") or b["id"]
 
-        if text is None:
-            text = _fallback_text(expert, documented)
-        _CACHE[expert.id] = (time.monotonic(), text)
+        metrics = get_process_metrics()
+        input_hash = _hash({
+            "desc": getattr(expert, "short_description", ""),
+            "evals": {pid: rec.get("text") for pid, rec in proc_evals.items()},
+            "metrics": metrics,
+            "catalog": sorted(catalog),
+        })
+        cached = _CACHE.get(expert.id)
+        if cached and cached.get("input_hash") == input_hash:
+            return
+
+        llm = current_app.config.get("LLM_CLIENT")
+        parsed: dict | None = None
+        if llm is not None and proc_evals:
+            try:
+                raw = llm.complete(
+                    _PROMPT_PATH.read_text(encoding="utf-8"),
+                    _build_briefing_prompt(expert, proc_evals, metrics, catalog),
+                    max_tokens=700, temperature=0.3)
+                raw = (raw or "").strip()
+                if raw and not raw.startswith("{") and len(raw) > 40:
+                    parsed = parse_citations(raw, set(catalog))
+            except Exception:
+                log.exception("uzman brifingi: LLM çağrısı başarısız (%s)", expert.id)
+
+        if parsed is None or not parsed["text"]:
+            fb = _fallback_text(expert, documented)
+            parsed = {"text": fb, "segments": [{"text": fb, "cites": []}],
+                      "cites": []}
+
+        _CACHE[expert.id] = {
+            **parsed,
+            "input_hash": input_hash,
+            "block_titles": catalog,
+            "ts": time.time(),
+        }
 
 
 def _schedule(app, expert) -> None:
-    """Uzman için arka plan tazelemesi planlar (aynı uzman için tek uçuş)."""
+    """Uzman için arka plan hesaplaması planlar (uzman başına tek uçuş)."""
     with _LOCK:
         if expert.id in _INFLIGHT:
             return
@@ -155,76 +205,83 @@ def _schedule(app, expert) -> None:
 
 
 def get_commentary(expert) -> str | None:
-    """Uzman yorumu — İSTEK YOLU, LLM'i ASLA beklemez.
+    """Uzman brifing metni — İSTEK YOLU, LLM'i ASLA beklemez.
 
-    Sıcak cache → onu döner. Değilse: arka plan tazelemesi planlar ve anında
-    bayat cache'i (varsa) ya da ucuz deterministik fallback'i döner. Süreç
-    yoksa None → bölüm render edilmez."""
+    Kayıt varsa metnini döner (tazeliği refresh_pipeline hash'lerle yönetir).
+    Yoksa: arka plan hesaplaması planlar, ucuz deterministik fallback döner.
+    Süreç yoksa None → bölüm render edilmez."""
     cached = _CACHE.get(expert.id)
-    if cached and (time.monotonic() - cached[0]) < _TTL_SECONDS:
-        return cached[1]
+    if cached:
+        return cached["text"]
 
-    # Soğuk/bayat: arka planda tazele, istek yolunu bloklama.
     try:
         _schedule(current_app._get_current_object(), expert)
     except Exception:
-        log.exception("uzman yorumu: arka plan tazeleme planlanamadı (%s)", expert.id)
+        log.exception("uzman brifingi: arka plan planlanamadı (%s)", expert.id)
 
-    if cached:
-        return cached[1]  # bayat ama anında; bir sonraki yüklemede tazelenir.
-
-    # Hiç cache yok → ucuz, Oracle/LLM'siz deterministik metin.
     try:
         documented = [p for p in _full_processes(expert) if p.get("documented")]
     except Exception:
-        log.exception("uzman yorumu: süreçler okunamadı (%s)", expert.id)
+        log.exception("uzman brifingi: süreçler okunamadı (%s)", expert.id)
         return None
     if not documented:
         return None
     return _fallback_text(expert, documented)
 
 
+def get_commentary_record(expert_id: str) -> dict | None:
+    """W5c UI okuyucusu: {text, segments, cites, block_titles, ts} — anında."""
+    return _CACHE.get(expert_id)
+
+
 def warm_all(app) -> None:
-    """Tüm uzmanların yorumunu bir kez (arka planda) hesaplar — periyodik ısıtma."""
+    """Tüm uzmanların brifingini bir kez hesaplar (hash eşleşirse 0 çağrı)."""
     store = app.config.get("EXPERT_STORE")
     if store is None:
         return
     try:
         experts = store.list_all()
     except Exception:
-        log.exception("uzman yorumu ısıtma: uzman listesi alınamadı")
+        log.exception("uzman brifingi ısıtma: uzman listesi alınamadı")
         return
     for e in experts:
         try:
             _compute_and_store(app, e)
         except Exception:
-            log.exception("uzman yorumu ısıtma: %s başarısız", getattr(e, "id", "?"))
+            log.exception("uzman brifingi ısıtma: %s başarısız", getattr(e, "id", "?"))
+
+
+def refresh_pipeline(app) -> None:
+    """Piramidin tam turu: Aşama A (bloklar) → B (süreçler) → C (uzmanlar).
+
+    Girdiler değişmediyse her aşama hash'ten döner (0 LLM çağrısı) — hem
+    periyodik döngü hem mevduat data-refresh hook'u bunu güvenle koşar."""
+    from prisma_home.evaluation import evaluate_all_blocks, evaluate_all_processes
+
+    try:
+        evaluate_all_blocks(app)
+    except Exception:
+        log.exception("piramit: blok değerlendirme turu başarısız")
+    try:
+        evaluate_all_processes(app)
+    except Exception:
+        log.exception("piramit: süreç değerlendirme turu başarısız")
+    try:
+        warm_all(app)
+    except Exception:
+        log.exception("piramit: uzman brifing turu başarısız")
 
 
 def start_commentary_refresher(app, interval: int = _REFRESH_INTERVAL,
                                initial_delay: int = 20) -> None:
-    """Açılışta daemon thread'de periyodik ısıtma başlatır — çağıran bloklanmaz.
+    """Açılışta daemon thread'de periyodik piramit turu başlatır.
 
-    İlk tur kısa bir gecikmeyle koşar (prewarm motorları — özellikle
-    outstanding_daily — RAM'e ısıtsın; böylece metrik okuması Oracle'a soğuk
-    gitmez ve boot'ta havuz çekişmesi azalır), sonra `interval` saniyede bir
-    tazeler. Interval TTL'den kısa tutulduğundan cache hep sıcak kalır ve ilk
-    tıklama da içerikli gelir."""
+    İlk tur kısa gecikmeyle (prewarm motorları ısıtsın); sonrası `interval`
+    saniyede bir. Veri değişmedikçe turlar LLM'siz ve ucuzdur."""
     def _loop():
         time.sleep(initial_delay)
         while True:
-            # W5a — piramit Aşama A: önce bloklar değerlendirilir (hash'li
-            # cache; veri değişmediyse 0 LLM çağrısı), sonra uzman yorumu.
-            # W5b süreç/uzman aşamalarını bu çıktılara zincirleyecek.
-            try:
-                from prisma_home.evaluation import evaluate_all_blocks
-                evaluate_all_blocks(app)
-            except Exception:
-                log.exception("blok değerlendirme turu başarısız")
-            try:
-                warm_all(app)
-            except Exception:
-                log.exception("uzman yorumu ısıtma turu başarısız")
+            refresh_pipeline(app)
             time.sleep(interval)
 
     threading.Thread(target=_loop, name="commentary-refresher", daemon=True).start()
@@ -244,7 +301,7 @@ def answer_question(expert, question: str) -> str:
     """W4b — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
 
     Bağlam = persona + süreç dökümanları + metrikler; sayı kısıtı prompt'ta.
-    LLM yoksa/hata: dürüst yönlendirme metni."""
+    (Aşama-B bağlam yükseltmesi W5c'de.) LLM yoksa/hata: dürüst yönlendirme."""
     question = (question or "").strip()[:500]
     if not question:
         return "Soru boş görünüyor."

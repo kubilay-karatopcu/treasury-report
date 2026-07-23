@@ -85,9 +85,23 @@ def admin_refresh() -> Response:
     from .prewarm import refresh_all
 
     app = current_app._get_current_object()
+
+    def _refresh_job(a):
+        summary = refresh_all(a)
+        # W5b — veri tazelenince uzman piramidi (blok→süreç→uzman) yeniden
+        # değerlendirilir. Hook app.py'de kablolanır (prisma_home buradan
+        # import edilmez — izolasyon sözleşmesi); yoksa/no-op hata yutulur.
+        hook = a.config.get("MEVDUAT_POST_REFRESH_HOOK")
+        if hook is not None:
+            try:
+                hook()
+            except Exception:
+                a.logger.exception("post-refresh hook başarısız")
+        return summary
+
     if request.args.get("async") in ("1", "true", "yes"):
         threading.Thread(
-            target=refresh_all, args=(app,), name="mevduat-panel-refresh", daemon=True
+            target=_refresh_job, args=(app,), name="mevduat-panel-refresh", daemon=True
         ).start()
         return Response(
             json.dumps({"ok": True, "status": "started"}),
@@ -95,7 +109,7 @@ def admin_refresh() -> Response:
             mimetype="application/json",
         )
 
-    summary = refresh_all(app)
+    summary = _refresh_job(app)
     return Response(
         json.dumps(summary),
         status=200 if summary.get("ok") else 500,

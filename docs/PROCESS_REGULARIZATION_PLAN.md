@@ -374,10 +374,18 @@ uzman sayfası (atıf çipleri + kaynakça + blok modalı)
   dökümante blok için digest ≤15 satır döner; DEV'de FakeLLM deterministik
   stub üretir; digest değişmeden ikinci tur 0 LLM çağrısı
   (`tests/test_block_evaluation.py`, `mevduat_panel/tests/test_block_digests.py`).
-- **W5b — Süreç değerlendirmesi + uzman anlatısı:** `process_evaluation.txt`
-  + `expert_commentary.txt` yeniden yazımı (atıf token'lı) + token doğrulayıcı
-  + refresh_all tetikleyicisi. Kabul: uydurma blok id'si düşer; uzman sayfası
-  istek yolu hiçbir aşamayı beklemez; her aşamanın dürüst fallback'i var.
+- **W5b — Süreç değerlendirmesi + uzman anlatısı** *(UYGULANDI — 2026-07-23)*:
+  `prisma_home/citations.py` (token parser + doğrulayıcı; atıf sonrası
+  noktalama önceki segmente yutulur), `process_evaluation.txt` +
+  `expert_commentary.txt` yeniden yazımı (atıf token'lı brifing anlatısı),
+  Aşama B `evaluation.py`'da (children_hash ile A→B yukarı yayılım), Aşama C
+  `commentary.py`'da (input_hash; kayıt {text, segments, cites, block_titles}
+  — W5c UI `get_commentary_record` ile okur), `refresh_pipeline` (A→B→C) hem
+  periyodik döngüde hem mevduat `admin/refresh` sonrası
+  `MEVDUAT_POST_REFRESH_HOOK` üzerinden. Kabul: uydurma blok id'si düşer;
+  istek yolu hiçbir aşamayı beklemez; her aşamanın dürüst fallback'i var;
+  girdiler değişmeden tam tur 0 LLM çağrısı (`tests/test_citations.py`,
+  `tests/test_pyramid_evaluation.py`).
 - **W5c — Atıf UI'ı:** çip render'ı + kaynakça bölümü + blok modalı +
   mevduat_panel `embed=1` + süreç kartlarına B çıktısı + "…'ye sor" bağlamına
   B çıktıları. Kabul: çip tıklaması modalda doğru bloğu açar; embed modda
