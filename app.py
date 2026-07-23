@@ -560,6 +560,11 @@ try:
     from mevduat_panel.metrics import metrics_summary
 
     app.config["PROCESS_METRICS_PROVIDER"] = metrics_summary
+    # W5a — blok digest saglayicilari: uzman piramidinin Asama A verisi.
+    # prisma_home yalniz config'i okur (izolasyon sozlesmesi ayni).
+    from mevduat_panel.block_digests import build_digest_registry
+
+    app.config["PROCESS_BLOCK_DIGESTS"] = build_digest_registry()
     # Prewarm varsayilan ACIK (kullanici karari 2026-07-22: pod acilisinda
     # tum motorlar RAM'e isinir). MEVDUAT_PANEL_PREWARM=0 ile kapatilir.
     if os.environ.get("MEVDUAT_PANEL_PREWARM", "1").strip().lower() not in ("0", "false", "no"):

@@ -213,6 +213,14 @@ def start_commentary_refresher(app, interval: int = _REFRESH_INTERVAL,
     def _loop():
         time.sleep(initial_delay)
         while True:
+            # W5a — piramit Aşama A: önce bloklar değerlendirilir (hash'li
+            # cache; veri değişmediyse 0 LLM çağrısı), sonra uzman yorumu.
+            # W5b süreç/uzman aşamalarını bu çıktılara zincirleyecek.
+            try:
+                from prisma_home.evaluation import evaluate_all_blocks
+                evaluate_all_blocks(app)
+            except Exception:
+                log.exception("blok değerlendirme turu başarısız")
             try:
                 warm_all(app)
             except Exception:
