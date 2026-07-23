@@ -54,7 +54,7 @@ export default function Header() {
               type="button"
               className="editor-toolbar__btn editor-toolbar__btn--primary"
               onClick={openSaveModal}
-              title="Snapshot oluştur, PDF indir veya Ekip Raporları'na yayınla"
+              title="Süreç olarak yayınla, HTML indir veya Ekip Raporları'na yayınla"
             >
               <Save size={13} strokeWidth={1.8} />
               <span>Kaydet</span>
