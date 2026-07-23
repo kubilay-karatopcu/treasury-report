@@ -593,6 +593,21 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
 body:has(#bsc-pres:not(.hidden)) .mv-dock,
 body:has(.chart-fs-overlay) .mv-dock { display: none !important; }
 
+/* ── W5c: embed modu (?embed=1) — uzman brifingi atıf modalının iframe'i.
+   Kabuk (PRISMA topbar + panel sidebar + dock) gizli, yalnız içerik; mount
+   tam ekrana yayılır. Anchor elementi altın çerçeveyle vurgulanır. */
+body.mv-embed .topbar { display: none !important; }
+body.mv-embed .mevduat-mount .sidebar { display: none !important; }
+body.mv-embed .mv-dock { display: none !important; }
+body.mv-embed .mevduat-mount { top: 0 !important; }
+body.mv-embed .dev-banner { display: none !important; }
+.mv-embed-target {
+  outline: 2px solid var(--gold);
+  outline-offset: 6px;
+  border-radius: 8px;
+  scroll-margin-top: 16px;
+}
+
 /* 8e. Filtre şeridi okunabilirliği + Grupla butonu. */
 .mevduat-mount .main label { font-size: 13px; }
 .mevduat-mount .bub-filter-dd-btn { font-size: 12px; }
