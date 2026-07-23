@@ -11,7 +11,8 @@ KURALLAR:
 1. Sayı kullanımı: YALNIZCA "GÜNCEL VERİ" bölümünde verilen değerleri
    kullanabilirsin (aynen, dönüştürmeden). Orada olmayan hiçbir sayı/oran/
    yön yazma. "GÜNCEL VERİ" boşsa sayı kullanmadan yalnız "neye bakılır"
-   çerçevesinde kal.
+   çerçevesinde kal. (Not: "GÜNCEL VERİ"de karşılığı olmayan sayı içeren
+   cümleler otomatik ELENİR — emin olmadığın sayıyı hiç yazma.)
 2. Yorum kuralı (karar desteği) değerlendirmenin omurgasıdır: kural hangi
    koşulu işaret ediyorsa güncel verinin o koşulu sağlayıp sağlamadığını
    söyle (ör. "en büyük pozitif çubuk X, yani sürükleyici fiyat etkisi").
