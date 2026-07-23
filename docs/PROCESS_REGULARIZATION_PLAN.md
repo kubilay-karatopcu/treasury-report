@@ -307,6 +307,83 @@ Sıra: W1 → W3 → W2 → W4.
   Masa'daki gizli "…'ye sor" alanı geri açılır — `/<pid>/chat` SSE deseninin
   uzman muadili, `QwenClient.complete` üzerinden.
 
+### W5 — Piramit değerlendirme + kaynakçalı brifing *(2026-07-23 kararı)*
+
+**Motivasyon (kullanıcı):** W4'ün tek global metrik seti (4 KPI) blok
+dökümantasyonlarını, blokların gerçek verisini ve süreç dökümantasyonlarını
+anlamsız bırakıyor. Uzman brifingi ÜÇ AŞAMALI üretilmeli: her blok kendi
+dökümantasyonu + kendi verisiyle ayrı değerlendirilir → blok değerlendirmeleri
+süreç dökümantasyonuyla birlikte süreç değerlendirmesine sentezlenir → süreç
+değerlendirmeleri uzman personası tarafından özetlenip sunulur. Uzman bulguları
+bloklara LİNKLEMELİ: cümle sonlarında atıf çipleri, tıklanınca atıf yapılan
+blok tam ekran modalda (chart-fs deseni) açılır; brifing altında kaynakça.
+
+**Boru hattı (tamamı arka planda; istek yolu W4a-non-blocking kalır):**
+
+```
+[blok digest'i] + [blok dökümantasyonu]
+      │  Aşama A — blok başına LLM değerlendirmesi (2-3 cümle)
+      ▼
+[blok değerlendirmeleri] + [süreç dökümantasyonu (4 alan)]
+      │  Aşama B — süreç başına LLM değerlendirmesi (3-4 cümle, atıflı)
+      ▼
+[süreç değerlendirmeleri] + [uzman personası] (+ global metrics_summary çapa)
+      │  Aşama C — uzman brifing anlatısı (atıflı)
+      ▼
+uzman sayfası (atıf çipleri + kaynakça + blok modalı)
+```
+
+**Kontratlar:**
+
+1. **Blok digest sağlayıcı** — `app.config["PROCESS_BLOCK_DIGESTS"] =
+   {block_id: fn}` (mevduat_panel kaydeder; prisma_home yalnız config okur —
+   izolasyon sözleşmesi W4b ile aynı). `fn() -> list[{k, v, delta, tone}]`,
+   ≤15 satır, RAM'deki engine cache'lerinden okur (Oracle'a gitmez), her hata
+   boş liste. 12 dökümante blok için elle yazılır (`mevduat_panel/
+   block_digests.py`) — "bu plottan hangi 10 sayı anlamlı" kararı digest
+   fonksiyonunun kendisidir; jenerik figür-kazıma YOK.
+2. **Sayı köken zinciri** — Aşama A yalnız digest sayılarını, B yalnız A
+   çıktılarında geçen sayıları, C yalnız B çıktılarında geçenleri kullanabilir
+   (prompt kuralı; W4a'nın "uydurma yasak" disiplini aşamalara genellenir).
+3. **Atıf token kontratı** — LLM cümle sonuna `[[blok:<block_id>]]` yazar
+   (B: kendi sürecinin blokları; C: bağlı tüm süreçlerin blokları). Sunucu
+   token'ları parse edip izinli kümeye karşı DOĞRULAR: geçersiz/uydurma id
+   sessizce düşer, cümle kalır. Saklanan şekil: `{text, cites: [block_id]}`
+   segment listesi + düz metin fallback. (Qwen tool-calling kırık → metin
+   token'ı + sunucu doğrulaması, D2 doc-proposer'la aynı yaklaşım.)
+4. **Hash'li kademeli invalidation** — A anahtarı `(block_id, digest_hash,
+   doc_hash)`, B anahtarı `(pid, doc_hash, hash(A çıktıları))`, C anahtarı
+   `(expert_id, hash(B çıktıları))`. Veri/döküman değişmediyse 0 LLM çağrısı;
+   değişiklik piramitte yukarı kendiliğinden yayılır. Tetikleyici:
+   `refresh_all` sonu + periyodik ısıtıcı (güvenlik ağı). Tam boru hattı
+   ~12+7+1 ≈ 20 çağrı, yalnız veri tazelenince koşar.
+5. **Atıf UX'i** — brifing cümle sonlarında numaralı çip (¹ ²…); tıklama
+   prisma_home'da chart-fs-overlay DESENİNDE bir modal açar, içinde bloğun
+   canlı görünümü iframe ile (`render_url` + `embed=1`). mevduat_panel
+   `?embed=1` modu: sidebar/topbar/dock gizli, anchor'a otomatik kaydırma —
+   SPA'ya dokunmadan CSS + küçük JS. Brifing altında "Kaynakça" bölümü:
+   atıf yapılan blokların kart listesi (Bloklar kütüphanesi kart şekli).
+
+**Alt fazlar:**
+
+- **W5a — Digest katmanı + blok değerlendirmesi:** `block_digests.py` (12
+  fonksiyon) + config kaydı + `block_evaluation.txt` prompt'u + hash'li cache.
+  Kabul: her dökümante blok için digest ≤15 satır döner; DEV'de FakeLLM
+  deterministik stub üretir; digest değişmeden ikinci tur 0 LLM çağrısı.
+- **W5b — Süreç değerlendirmesi + uzman anlatısı:** `process_evaluation.txt`
+  + `expert_commentary.txt` yeniden yazımı (atıf token'lı) + token doğrulayıcı
+  + refresh_all tetikleyicisi. Kabul: uydurma blok id'si düşer; uzman sayfası
+  istek yolu hiçbir aşamayı beklemez; her aşamanın dürüst fallback'i var.
+- **W5c — Atıf UI'ı:** çip render'ı + kaynakça bölümü + blok modalı +
+  mevduat_panel `embed=1` + süreç kartlarına B çıktısı + "…'ye sor" bağlamına
+  B çıktıları. Kabul: çip tıklaması modalda doğru bloğu açar; embed modda
+  SPA kontrolleri gizli; atıfsız (eski cache) brifing çipsiz düzgün render.
+
+**Riskler:** Qwen atıf token disiplini (bozuk token → doğrulayıcı düşürür,
+metin bozulmaz); iframe ağırlığı (modal lazy — yalnız tıklanınca yüklenir);
+digest bakımı (blok değişince digest da güncellenmeli — descriptor'daki blok
+versiyonuyla birlikte gözden geçirilir).
+
 ## §4 — Riskler ve açık sorular
 
 | Risk / soru | Etki | Öneri |
