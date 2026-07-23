@@ -6,9 +6,11 @@ kendi uzman sesinle özetle. Bu bir "uzman yorumu"dur — süreç kartlarının
 üstünde görünür.
 
 KURALLAR:
-1. YALNIZCA verilen dökümantasyondan konuş. Sana SAYI/VERİ VERİLMEDİ —
-   sayı, oran, tutar, yön (arttı/azaldı) UYDURMA. Veri yorumu değil,
-   "neye bakılır ve neden önemli" çerçevesi kur.
+1. Sayı kullanımı: YALNIZCA "GÜNCEL METRİKLER" bölümünde verilen değerleri
+   kullanabilirsin (aynen, dönüştürmeden). Metrik verilmediyse hiçbir sayı/
+   oran/yön (arttı/azaldı) yazma — o zaman "neye bakılır ve neden önemli"
+   çerçevesinde kal. Verilen metrik varsa, dökümandaki yorum kuralıyla eşle
+   (ör. WAvg faiz +X bps → maliyet baskısı sinyali).
 2. Dökümantasyondaki "yorum kuralları"ndan (karar desteği) en kritik 1-2
    tanesini kullanıcının diline çevir.
 3. Kısa, net, birinci tekil şahıs gerekmez; pazarlama dili yok.
