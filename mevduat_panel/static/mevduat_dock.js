@@ -144,11 +144,48 @@
     });
   }
 
+  // Native <input type=date> her zaman tarayıcı/OS yereline göre gösterir
+  // (en-US ofis makinesinde ay/gün/yıl) ve bu format ne attribute ne CSS ile
+  // değişir. Çözüm: gerçek input'un metnini şeffaflaştırıp üstüne gün.ay.yıl
+  // yazan bir overlay span koyarız. Takvim ikonu ve picker aynen çalışır;
+  // input.value hâlâ ISO (SPA'nın .value= atamaları bozulmaz). updateDates
+  // overlay metnini tazeler. Sarmalayıcı input'un YANINDA (kimi zaman sarmalayan
+  // label'ın içinde) yaşadığından restoreAll onu ÖNCE söker — yoksa label sayfaya
+  // geri taşınırken overlay'i de götürür.
+  var dateWraps = [];   // { wrap, input }
+  function wrapDateInput(input) {
+    if (!input || input.type !== "date" || !input.parentNode) return;
+    if (input.parentNode.classList &&
+        input.parentNode.classList.contains("mv-dock-datewrap")) return;  // çift sarma
+    var wrap = el("span", "mv-dock-datewrap");
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    var txt = el("span", "mv-dock-datetext", null);
+    txt.textContent = input.value ? _fmtDmy(input.value) : "gg.aa.yyyy";
+    wrap.appendChild(txt);
+    dateWraps.push({ wrap: wrap, input: input });
+  }
+
+  // Sarmalayıcıları söker: input'u tam eski yerine (wrap'ın olduğu yere) koyar,
+  // wrap+overlay'i siler. moved[] node taşımasından ÖNCE çağrılır.
+  function unwrapDates() {
+    dateWraps.forEach(function (d) {
+      if (d.input && d.wrap && d.wrap.parentNode) {
+        d.wrap.parentNode.insertBefore(d.input, d.wrap);
+        d.wrap.remove();
+      }
+    });
+    dateWraps = [];
+  }
+
   function makeRow(item) {
     item.nodes.forEach(function (n) { if (n.tagName === "LABEL") ensureKeySpan(n); });
     if (item.isDate) {
       var row = el("div", "mv-dock-row mv-dock-row--date");
       moveNodes(item, row);
+      if (item.ctrl && item.ctrl.tagName === "INPUT" && item.ctrl.type === "date") {
+        wrapDateInput(item.ctrl);
+      }
       return row;
     }
     // Boyut/görünüm satırı: üstte ortalı başlık, altta ◀ [seçici-pill] ▶.
@@ -174,6 +211,7 @@
   }
 
   function restoreAll() {
+    unwrapDates();   // önce overlay sarmalayıcıları sök — sonra düğümleri geri taşı
     moved.forEach(function (m) {
       if (m.node && m.ph && m.ph.parentNode) {
         m.ph.parentNode.insertBefore(m.node, m.ph);
@@ -191,6 +229,12 @@
     return m ? m[3] + "." + m[2] + "." + m[1] : v;
   }
   function updateDates() {
+    // Native date input overlay'lerini tazele (gün.ay.yıl).
+    body.querySelectorAll(".mv-dock-datewrap").forEach(function (w) {
+      var inp = w.querySelector("input[type='date']");
+      var txt = w.querySelector(".mv-dock-datetext");
+      if (inp && txt) txt.textContent = inp.value ? _fmtDmy(inp.value) : "gg.aa.yyyy";
+    });
     var vals = [];
     body.querySelectorAll(".mv-dock-row--date select, .mv-dock-row--date input").forEach(function (c) {
       if (c.value) {
