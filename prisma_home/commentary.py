@@ -102,8 +102,13 @@ def _compute_and_store(app, expert) -> None:
     """AĞIR yol (LLM + metrik/Oracle) — YALNIZ arka planda çağrılır.
 
     Sonucu (LLM metni ya da fallback) TTL cache'e yazar. İstek yolu buna
-    hiçbir zaman senkron girmez."""
-    with app.app_context():
+    hiçbir zaman senkron girmez.
+
+    test_request_context (app_context değil): get_process → _safe_url içeride
+    url_for çağırıyor; url_for istek bağlamı (ya da SERVER_NAME) ister, yoksa
+    RuntimeError atar. Kurulan URL yorumda kullanılmıyor (yalnız label +
+    dökümantasyon okunur), bu yüzden sahte istek bağlamı güvenli."""
+    with app.test_request_context():
         try:
             documented = [p for p in _full_processes(expert) if p.get("documented")]
         except Exception:
