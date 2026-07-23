@@ -135,32 +135,43 @@ def test_registry_matches_process_registry():
     assert EXPECTED_BLOCKS <= ids
 
 
-# ── Soğuk cache: [] + Oracle yasak ──────────────────────────────────────────
+# ── Soğuk cache: boş rows + Oracle yasak ────────────────────────────────────
 
 def test_cold_caches_yield_empty_without_oracle(registry, cold_caches, no_oracle):
     for bid, fn in registry.items():
-        assert fn() == [], f"{bid} soğuk cache'te boş dönmedi"
+        out = fn()
+        assert out["rows"] == [] and out["view"] is None, \
+            f"{bid} soğuk cache'te boş dönmedi"
 
 
 # ── Sıcak sentetik cache'ler ────────────────────────────────────────────────
 
-def _check_shape(rows):
-    assert isinstance(rows, list) and len(rows) <= 15
-    for r in rows:
+def _check_shape(out):
+    assert isinstance(out, dict) and isinstance(out["rows"], list)
+    assert len(out["rows"]) <= 15
+    for r in out["rows"]:
         assert r.get("k") and isinstance(r.get("v"), str)
 
 
-def test_dd_digests_shape(registry, warm_dd, no_oracle, monkeypatch):
+def test_dd_digests_shape_and_view(registry, warm_dd, no_oracle, monkeypatch):
     monkeypatch.setattr(outstanding, "_SWAP_CACHE", {})  # hedge kolu kapalı
     for bid in ("camon_wf", "camon_bubble", "camon_ratehm",
                 "bamon_bridge", "bamon_heatmap"):
-        rows = registry[bid]()
-        _check_shape(rows)
-        assert rows, f"{bid} sıcak cache'te boş döndü"
+        out = registry[bid]()
+        _check_shape(out)
+        assert out["rows"], f"{bid} sıcak cache'te boş döndü"
+        # W6b — view-state paritesi: dd digest'leri tarih kontrollerini taşır.
+        view = out["view"]
+        assert view and view["label"] and view["controls"]
+        ids = {c["id"] for c in view["controls"]}
+        assert any(i.endswith("-date0") for i in ids)
+        vals = {c["id"]: c["value"] for c in view["controls"]}
+        date0 = next(v for k, v in vals.items() if k.endswith("-date0"))
+        assert date0 == "2026-05-31"     # digest'in gerçekten kullandığı tarih
 
 
 def test_camon_wf_bennet_consistency(registry, warm_dd, no_oracle):
-    rows = {r["k"]: r for r in registry["camon_wf"]()}
+    rows = {r["k"]: r for r in registry["camon_wf"]()["rows"]}
     assert "Başlangıç WAvg" in rows and "Bitiş WAvg" in rows
     assert "Mix etkisi" in rows and "Fiyat etkisi" in rows
     # Bennet: mix + fiyat = bitiş - başlangıç (bps, yuvarlama toleransı).
@@ -174,34 +185,43 @@ def test_camon_wf_bennet_consistency(registry, warm_dd, no_oracle):
 def test_tenor_digests_skip_when_swap_cold(registry, warm_dd, no_oracle,
                                            monkeypatch):
     monkeypatch.setattr(outstanding, "_SWAP_CACHE", {})
-    assert registry["tamon_ladder"]() == []
-    assert registry["tamon_curve"]() == []
+    assert registry["tamon_ladder"]()["rows"] == []
+    assert registry["tamon_curve"]()["rows"] == []
 
 
-def test_np_digests_shape(registry, warm_np, no_oracle):
+def test_np_digests_shape_and_view(registry, warm_np, no_oracle):
     for bid in ("np_rvhm", "np_aumcombo"):
-        rows = registry[bid]()
-        _check_shape(rows)
-        assert rows, f"{bid} sıcak cache'te boş döndü"
+        out = registry[bid]()
+        _check_shape(out)
+        assert out["rows"], f"{bid} sıcak cache'te boş döndü"
+    # np_rvhm view: son iki günün penceresi + günlük frekans.
+    vals = {c["id"]: c["value"] for c in registry["np_rvhm"]()["view"]["controls"]}
+    assert vals == {"np-vp-date0": "2026-07-20",
+                    "np-vp-date1": "2026-07-21",
+                    "np-vp-freq": "D"}
 
 
 def test_np_rvhm_reports_last_day_cells(registry, warm_np, no_oracle):
-    rows = registry["np_rvhm"]()
+    rows = registry["np_rvhm"]()["rows"]
     keys = " | ".join(r["k"] for r in rows)
     assert "Son gün" in keys and "×" in keys
 
 
-def test_weekly_digests_shape(registry, warm_weekly, no_oracle):
+def test_weekly_digests_shape_and_view(registry, warm_weekly, no_oracle):
     for bid in ("wr_rollovers", "wr_dtm"):
-        rows = registry[bid]()
-        _check_shape(rows)
-        assert rows, f"{bid} sıcak cache'te boş döndü"
+        out = registry[bid]()
+        _check_shape(out)
+        assert out["rows"], f"{bid} sıcak cache'te boş döndü"
+        # W6b — DD/MM/YYYY pencere anahtarı ISO input değerlerine çevrilir.
+        vals = {c["id"]: c["value"] for c in out["view"]["controls"]}
+        assert vals == {"wr-date-start": "2026-07-14",
+                        "wr-date-end": "2026-07-20"}
 
 
 def test_digest_never_raises_on_garbage_cache(registry, no_oracle, monkeypatch):
-    """Bozuk cache içeriği bile [] üretir (savunma sözleşmesi)."""
+    """Bozuk cache içeriği bile boş rows üretir (savunma sözleşmesi)."""
     monkeypatch.setattr(outstanding, "_DD_CACHE",
                         {"df": pd.DataFrame({"X": [1]}), "dates": ["a", "b"]})
     monkeypatch.setattr(np_agg, "_NP_CACHE", pd.DataFrame({"X": [1]}))
     for bid in ("camon_wf", "camon_bubble", "camon_ratehm", "np_rvhm"):
-        assert registry[bid]() == []
+        assert registry[bid]()["rows"] == []

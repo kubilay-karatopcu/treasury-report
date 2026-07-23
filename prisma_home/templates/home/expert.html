@@ -230,6 +230,13 @@
     color: var(--ink-faint);
     letter-spacing: 0.06em;
   }
+  .cite-ref-state {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold-dim);
+    white-space: nowrap;
+  }
   .cite-ref:hover .cite-ref-title { color: var(--gold); }
   .blok-modal {
     position: fixed;
@@ -428,6 +435,10 @@
       <span class="cite-ref-num">{{ c.num }}</span>
       <span class="cite-ref-title">{{ c.title }}</span>
       <span class="cite-ref-proc">{{ c.process }}</span>
+      {% if c.state_label %}
+      {# W6b — değerlendirmenin yapıldığı görünüm; tıklayınca blok bu state'le açılır. #}
+      <span class="cite-ref-state">{{ c.state_label }}</span>
+      {% endif %}
     </button>
     {% endfor %}
   </div>

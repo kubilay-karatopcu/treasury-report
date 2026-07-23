@@ -39,20 +39,26 @@ def _hash(obj) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def get_block_digest(block_id: str) -> list[dict]:
+def get_block_digest(block_id: str) -> dict:
     """Bloğun kompakt veri özeti — PROCESS_BLOCK_DIGESTS sağlayıcısından.
 
-    Sağlayıcı yoksa/hata verirse boş liste (değerlendirme dökümantasyon-temelli
-    kalır). Kontrat: ≤15 satır {k, v, delta, tone}; sayılar önceden formatlı."""
+    Dönüş: {"rows": [{k, v, delta, tone}] (≤15, sayılar önceden formatlı),
+    "view": {label, controls}|None} (W6b — digest'in hesapladığı görünüm;
+    atıf URL'i state olarak taşır). Sağlayıcı yoksa/hata: boş rows. Eski
+    (düz liste) sağlayıcılar tolere edilir."""
     registry = current_app.config.get("PROCESS_BLOCK_DIGESTS") or {}
     fn = registry.get(block_id)
     if fn is None:
-        return []
+        return {"rows": [], "view": None}
     try:
-        return list(fn() or [])[:15]
+        out = fn() or {}
+        if isinstance(out, list):        # eski sözleşme toleransı
+            out = {"rows": out, "view": None}
+        return {"rows": list(out.get("rows") or [])[:15],
+                "view": out.get("view")}
     except Exception:
         log.exception("blok digest'i üretilemedi: %s", block_id)
-        return []
+        return {"rows": [], "view": None}
 
 
 def _digest_lines(digest: list[dict]) -> list[str]:
@@ -102,8 +108,9 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
     bid = block.get("id") or ""
     if not bid:
         return False
-    digest = get_block_digest(bid)
-    digest_hash = _hash(digest)
+    full = get_block_digest(bid)
+    digest, view = full["rows"], full.get("view")
+    digest_hash = _hash(full)
     doc_hash = _hash(block.get("documentation") or {})
     llm = current_app.config.get("LLM_CLIENT")
     cur = _EVAL.get(bid)
@@ -143,6 +150,8 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
         "title": block.get("title") or bid,
         "has_data": bool(digest),
         "is_fallback": is_fallback,
+        # W6b — digest'in hesapladığı görünüm; atıf/slide URL'i state taşır.
+        "view": view,
         "ts": time.time(),
     }
     return True

@@ -76,18 +76,30 @@ def _clean_cache():
 class TestDigestProvider:
     def test_missing_registry_yields_empty(self):
         with _mk_app().test_request_context():
-            assert get_block_digest("camon_wf") == []
+            assert get_block_digest("camon_wf") == {"rows": [], "view": None}
 
     def test_provider_error_yields_empty(self):
         def boom():
             raise RuntimeError("engine cold")
         with _mk_app(digests={"camon_wf": boom}).test_request_context():
-            assert get_block_digest("camon_wf") == []
+            assert get_block_digest("camon_wf") == {"rows": [], "view": None}
 
     def test_rows_capped_at_15(self):
         rows = [{"k": f"m{i}", "v": str(i)} for i in range(40)]
         with _mk_app(digests={"b": lambda: rows}).test_request_context():
-            assert len(get_block_digest("b")) == 15
+            assert len(get_block_digest("b")["rows"]) == 15
+
+    def test_dict_contract_with_view_passthrough(self):
+        """W6b — yeni sözleşme: {"rows", "view"} aynen geçer; view A kaydına düşer."""
+        digest = {"rows": list(_DIGEST),
+                  "view": {"label": "Dönem: X → Y",
+                           "controls": [{"id": "ca-mon-date0", "value": "2026-06-30"}]}}
+        app = _mk_app(llm=_CountingLLM(), digests={"camon_wf": lambda: digest})
+        with app.test_request_context():
+            assert get_block_digest("camon_wf")["view"]["label"] == "Dönem: X → Y"
+            evaluate_block("mevduat.maliyet", "Cost", _block())
+            rec = get_block_evaluation("camon_wf")
+        assert rec["view"]["controls"][0]["id"] == "ca-mon-date0"
 
 
 # ── evaluate_block: cache + LLM disiplini ───────────────────────────────────
