@@ -510,6 +510,36 @@ Daha stratejik açıklar (backlog): custom blok graduation'ı (ETL olgunlaşınc
 çok-uzman/treasury-geneli sentez, "…'ye sor" çok-tur + stream, brifing geri
 bildirim/override döngüsü.
 
+### W8 — Departman Bakışları + Topic Gruplama *(UYGULANDI — 2026-07-23)*
+
+Aynı uzman altında departmana göre farklı süreç seti + brifing merceği + SIKI
+erişim; süreçler topic başlıkları altında gruplanır. Kararlar (kullanıcı,
+2026-07-23): erişim **sıkı** (yalnız tanımlı departmanlar), topic gruplaması
+**departman bakışında** (yazar gruplar), authoring UI **dahil**.
+
+- **Şema**: `Expert.department_views: [{departments, label?, briefing_focus?,
+  topics: [{title, processes: [pid]}]}]`. Boşsa LEGACY (bound_content.processes
+  + access_scope — eski davranış, tüm mevcut uzmanlar etkilenmez).
+- **`prisma_home/expert_views.py`** (saf): `list_views`, `resolve_view`
+  (granted/legacy/view), `can_access` (bakış varsa sıkı, yoksa access_scope),
+  `legacy_view`, deterministik `_view_key`. `list_for_user` + `expert_detail`
+  + `api_get_expert` + `uzman_edit`/`uzman_ask` erişimi tek karar noktası
+  `can_access`'e bağlandı; eşleşmeyen departman → 403.
+- **Piramit çatalı**: A (blok) ve B (süreç) departmandan bağımsız/paylaşımlı;
+  **C (uzman brifingi) `(expert, view)` ile keylenir** (`commentary._CACHE`
+  anahtarı `id::view_key`). `briefing_focus` C prompt'una "DEPARTMAN ODAĞI"
+  olarak girer; `warm_all` her uzmanın tüm bakışlarını ısıtır;
+  `answer_question` yalnız bakışın süreçlerine dayanır (kapsam sızması yok).
+- **Topic render**: `expert.html` süreçleri bakışın topic'leri altında gruplar
+  (legacy → tek grup, başlıksız — section-head ile çakışmaz).
+- **Authoring UI**: `uzman_edit` "Departman Bakışları (YAML)" editörü
+  (sections_yaml deseni) + süreç id referansı; `_parse_department_views`
+  yapı doğrulaması (departman + topic + süreç zorunlu); kaydetince o uzmanın
+  tüm bakış brifing kayıtları invalidate → sonraki tur yeniden üretir.
+- Testler: `tests/test_expert_views.py` (resolver/erişim + iki-departman C
+  çatalı; lokalde de koşuldu) + `test_pyramid_evaluation.py` legacy imzaya
+  güncellendi.
+
 ## §4 — Riskler ve açık sorular
 
 | Risk / soru | Etki | Öneri |

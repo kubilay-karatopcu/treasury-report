@@ -82,12 +82,17 @@ def _build_user_prompt(expert, processes: list[dict],
     return "\n".join(lines)
 
 
-def _full_processes(expert) -> list[dict]:
-    """Uzmanın süreçleri, dökümantasyonlu (overlay-merge'li). Ucuz — LLM yok."""
+def _full_processes(expert, process_ids: list[str] | None = None) -> list[dict]:
+    """Süreçler, dökümantasyonlu (overlay-merge'li). Ucuz — LLM yok.
+
+    W8: process_ids verilirse o bakışın süreçleri kullanılır; verilmezse
+    uzmanın bound_content.processes'i (legacy)."""
     from prisma_home.processes import get_process
 
+    pids = process_ids if process_ids is not None else (
+        (expert.bound_content or {}).get("processes") or [])
     out = []
-    for pid in (expert.bound_content or {}).get("processes") or []:
+    for pid in pids:
         p = get_process(pid)
         if p is not None:
             out.append(p)
@@ -103,11 +108,16 @@ def _fallback_text(expert, documented: list[dict]) -> str:
 
 def _build_briefing_prompt(expert, proc_evals: dict[str, dict],
                            metrics: list[dict],
-                           catalog: dict[str, str]) -> str:
-    """Aşama C prompt'u: persona + metrik çapa + B değerlendirmeleri + katalog."""
+                           catalog: dict[str, str],
+                           briefing_focus: str = "") -> str:
+    """Aşama C prompt'u: persona + (W8) departman odağı + metrik çapa +
+    B değerlendirmeleri + katalog."""
     lines = [f"UZMAN: {expert.name} — alan: {expert.domain_label}"]
     if getattr(expert, "short_description", ""):
         lines.append(f"Uzman tanımı: {expert.short_description}")
+    if briefing_focus:
+        # W8 — departman merceği: brifingi bu departmanın bakışıyla çerçevele.
+        lines.append(f"DEPARTMAN ODAĞI (brifingi bu mercekle kur): {briefing_focus}")
     if metrics:
         lines.append("GÜNCEL METRİKLER (çapa — yalnız bunlar ve süreç "
                      "değerlendirmelerindeki sayılar):")
@@ -162,17 +172,34 @@ def _parse_briefing(raw: str, allowed: set) -> dict:
     return parsed
 
 
-def _compute_and_store(app, expert) -> None:
+def _cache_key(expert_id: str, view_key: str) -> str:
+    return f"{expert_id}::{view_key}"
+
+
+def _views_of(expert) -> list[dict]:
+    """W8 — uzmanın hesaplanacak bakışları: department_views (varsa) ya da
+    tek legacy bakış. Her biri {key, process_ids, briefing_focus, ...}."""
+    from prisma_home.expert_views import legacy_view, list_views
+
+    return list_views(expert) or [legacy_view(expert)]
+
+
+def _compute_and_store(app, expert, view: dict) -> None:
     """AĞIR yol (LLM) — YALNIZ arka planda. Hash eşleşirse LLM'e gidilmez.
+    W8: tek bir departman bakışı için brifing üretir (Aşama C çatalı).
 
     test_request_context: get_process → url_for istek bağlamı ister."""
     from prisma_home import evaluation
 
+    ckey = _cache_key(expert.id, view["key"])
+    focus = view.get("briefing_focus") or ""
     with app.test_request_context():
         try:
-            documented = [p for p in _full_processes(expert) if p.get("documented")]
+            documented = [p for p in _full_processes(expert, view["process_ids"])
+                          if p.get("documented")]
         except Exception:
-            log.exception("uzman brifingi: süreçler okunamadı (%s)", expert.id)
+            log.exception("uzman brifingi: süreçler okunamadı (%s/%s)",
+                          expert.id, view["key"])
             return
         if not documented:
             return
@@ -180,7 +207,6 @@ def _compute_and_store(app, expert) -> None:
         pids = [p["id"] for p in documented]
         proc_evals = {pid: rec for pid in pids
                       if (rec := evaluation.get_process_evaluation(pid))}
-        # Atıf kataloğu: bağlı süreçlerin dökümante blokları (id → başlık).
         catalog: dict[str, str] = {}
         for p in documented:
             for b in p.get("blocks") or []:
@@ -190,16 +216,14 @@ def _compute_and_store(app, expert) -> None:
         metrics = get_process_metrics()
         input_hash = _hash({
             "desc": getattr(expert, "short_description", ""),
+            "focus": focus,
             "evals": {pid: rec.get("text") for pid, rec in proc_evals.items()},
             "metrics": metrics,
             "catalog": sorted(catalog),
         })
         llm = current_app.config.get("LLM_CLIENT")
-        cached = _CACHE.get(expert.id)
+        cached = _CACHE.get(ckey)
         if cached and cached.get("input_hash") == input_hash:
-            # Fallback + LLM denenebilir → hash eşleşse de yeniden dene
-            # (geçici LLM hatası "brifing hazırlanıyor" metnini bir sonraki
-            # veri değişimine kadar kilitliyordu — 2026-07-23 geri bildirimi).
             if not (cached.get("is_fallback") and llm is not None and proc_evals):
                 return
 
@@ -209,13 +233,10 @@ def _compute_and_store(app, expert) -> None:
             try:
                 raw = llm.complete(
                     _PROMPT_PATH.read_text(encoding="utf-8"),
-                    _build_briefing_prompt(expert, proc_evals, metrics, catalog),
+                    _build_briefing_prompt(expert, proc_evals, metrics, catalog, focus),
                     max_tokens=700, temperature=0.3)
                 raw = (raw or "").strip()
                 if raw and not raw.startswith("{") and len(raw) > 40:
-                    # W7a — sayı doğrulama (madde parse'ından ÖNCE): kaynak havuz
-                    # = güncel metrikler + süreç değerlendirmeleri (ikisi de
-                    # zincirde doğrulandı). Desteklenmeyen sayılı madde düşer.
                     from prisma_home.numbers import validate_numbers
 
                     num_src = [f"{m.get('v')} {m.get('delta', '')}" for m in metrics]
@@ -223,12 +244,13 @@ def _compute_and_store(app, expert) -> None:
                     nv = validate_numbers(raw, num_src)
                     flagged = nv["flagged"]
                     if flagged:
-                        log.info("uzman brifingi %s: %d madde/cümle sayı-"
-                                 "doğrulamadan düştü", expert.id, flagged)
+                        log.info("uzman brifingi %s/%s: %d madde sayı-doğrulamadan "
+                                 "düştü", expert.id, view["key"], flagged)
                     if len(nv["text"]) > 40:
                         parsed = _parse_briefing(nv["text"], set(catalog))
             except Exception:
-                log.exception("uzman brifingi: LLM çağrısı başarısız (%s)", expert.id)
+                log.exception("uzman brifingi: LLM çağrısı başarısız (%s/%s)",
+                              expert.id, view["key"])
 
         is_fallback = parsed is None or not parsed["text"]
         if is_fallback:
@@ -236,7 +258,7 @@ def _compute_and_store(app, expert) -> None:
             parsed = {"text": fb, "segments": [{"text": fb, "cites": []}],
                       "cites": [], "headlines": None}
 
-        _CACHE[expert.id] = {
+        _CACHE[ckey] = {
             **parsed,
             "input_hash": input_hash,
             "block_titles": catalog,
@@ -246,40 +268,41 @@ def _compute_and_store(app, expert) -> None:
         }
 
 
-def _schedule(app, expert) -> None:
-    """Uzman için arka plan hesaplaması planlar (uzman başına tek uçuş)."""
+def _schedule(app, expert, view: dict) -> None:
+    """Bir (uzman, bakış) için arka plan hesaplaması planlar (tek uçuş)."""
+    ckey = _cache_key(expert.id, view["key"])
     with _LOCK:
-        if expert.id in _INFLIGHT:
+        if ckey in _INFLIGHT:
             return
-        _INFLIGHT.add(expert.id)
+        _INFLIGHT.add(ckey)
 
     def _run():
         try:
-            _compute_and_store(app, expert)
+            _compute_and_store(app, expert, view)
         finally:
             with _LOCK:
-                _INFLIGHT.discard(expert.id)
+                _INFLIGHT.discard(ckey)
 
-    threading.Thread(target=_run, name=f"commentary-{expert.id}", daemon=True).start()
+    threading.Thread(target=_run, name=f"commentary-{ckey}", daemon=True).start()
 
 
-def get_commentary(expert) -> str | None:
-    """Uzman brifing metni — İSTEK YOLU, LLM'i ASLA beklemez.
+def get_commentary(expert, view: dict) -> str | None:
+    """Bir departman bakışının brifing metni — İSTEK YOLU, LLM'i ASLA beklemez.
 
-    Kayıt varsa metnini döner (tazeliği refresh_pipeline hash'lerle yönetir).
-    Yoksa: arka plan hesaplaması planlar, ucuz deterministik fallback döner.
-    Süreç yoksa None → bölüm render edilmez."""
-    cached = _CACHE.get(expert.id)
+    Kayıt varsa metnini döner; yoksa arka plan hesaplaması planlar ve ucuz
+    deterministik fallback döner. Bakışın süreci yoksa None."""
+    cached = _CACHE.get(_cache_key(expert.id, view["key"]))
     if cached:
         return cached["text"]
 
     try:
-        _schedule(current_app._get_current_object(), expert)
+        _schedule(current_app._get_current_object(), expert, view)
     except Exception:
         log.exception("uzman brifingi: arka plan planlanamadı (%s)", expert.id)
 
     try:
-        documented = [p for p in _full_processes(expert) if p.get("documented")]
+        documented = [p for p in _full_processes(expert, view["process_ids"])
+                      if p.get("documented")]
     except Exception:
         log.exception("uzman brifingi: süreçler okunamadı (%s)", expert.id)
         return None
@@ -288,13 +311,13 @@ def get_commentary(expert) -> str | None:
     return _fallback_text(expert, documented)
 
 
-def get_commentary_record(expert_id: str) -> dict | None:
-    """W5c UI okuyucusu: {text, segments, cites, block_titles, ts} — anında."""
-    return _CACHE.get(expert_id)
+def get_commentary_record(expert_id: str, view_key: str) -> dict | None:
+    """W5c/W8 UI okuyucusu: (uzman, bakış) brifing kaydı — anında."""
+    return _CACHE.get(_cache_key(expert_id, view_key))
 
 
 def warm_all(app) -> None:
-    """Tüm uzmanların brifingini bir kez hesaplar (hash eşleşirse 0 çağrı)."""
+    """Tüm uzmanların TÜM bakışlarının brifingini ısıtır (hash eşleşirse 0 çağrı)."""
     store = app.config.get("EXPERT_STORE")
     if store is None:
         return
@@ -304,10 +327,12 @@ def warm_all(app) -> None:
         log.exception("uzman brifingi ısıtma: uzman listesi alınamadı")
         return
     for e in experts:
-        try:
-            _compute_and_store(app, e)
-        except Exception:
-            log.exception("uzman brifingi ısıtma: %s başarısız", getattr(e, "id", "?"))
+        for view in _views_of(e):
+            try:
+                _compute_and_store(app, e, view)
+            except Exception:
+                log.exception("uzman brifingi ısıtma: %s/%s başarısız",
+                              getattr(e, "id", "?"), view.get("key"))
 
 
 def refresh_pipeline(app) -> None:
@@ -347,28 +372,33 @@ def start_commentary_refresher(app, interval: int = _REFRESH_INTERVAL,
 
 
 def invalidate(expert_id: str | None = None) -> None:
+    """expert_id verilirse o uzmanın TÜM bakış kayıtları (prefix) temizlenir."""
     if expert_id is None:
         _CACHE.clear()
     else:
-        _CACHE.pop(expert_id, None)
+        pref = f"{expert_id}::"
+        for k in [k for k in _CACHE if k == expert_id or k.startswith(pref)]:
+            _CACHE.pop(k, None)
 
 
 _ASK_PROMPT_PATH = Path(__file__).parent / "prompts" / "expert_ask.txt"
 
 
-def answer_question(expert, question: str, context: dict | None = None) -> str:
-    """W4b→W6c — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
+def answer_question(expert, question: str, context: dict | None = None,
+                    process_ids: list[str] | None = None) -> str:
+    """W4b→W8 — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
 
     Bağlam = persona + süreç dökümanları + metrikler + GÜNCEL Aşama-B süreç
-    değerlendirmeleri; sayı kısıtı prompt'ta. W6c: sunum modalından gelen
-    ``context = {slide_text, block_id}`` prompt'a "ŞU AN GÖSTERİLEN SLAYT"
-    bölümü olarak eklenir (+ bloğun güncel Aşama-A değerlendirmesi) — cevap
-    izlenen slide'a odaklanabilir. LLM yoksa/hata: dürüst yönlendirme."""
+    değerlendirmeleri; sayı kısıtı prompt'ta. W6c: ``context =
+    {slide_text, block_id}`` "ŞU AN GÖSTERİLEN SLAYT" olarak eklenir. W8:
+    process_ids verilirse cevap YALNIZ o departman bakışının süreçlerine
+    dayanır (kapsam sızması olmaz). LLM yoksa/hata: dürüst yönlendirme."""
     question = (question or "").strip()[:500]
     if not question:
         return "Soru boş görünüyor."
     try:
-        documented = [p for p in _full_processes(expert) if p.get("documented")]
+        documented = [p for p in _full_processes(expert, process_ids)
+                      if p.get("documented")]
     except Exception:
         documented = []
     llm = current_app.config.get("LLM_CLIENT")
