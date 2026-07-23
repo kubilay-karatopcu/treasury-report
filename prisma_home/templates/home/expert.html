@@ -299,7 +299,58 @@
   </div>
   {% endif %}
 
-  {# Kaynakça · Dayanak Snapshot'lar bölümü kaldırıldı: bu panolar birer süreç
-     olduğundan üstteki "Süreçler" bölümü tek gerçekliktir. "…'ye sor" (LLM)
-     alanı da gizlendi — masa tarafında ilk aşamada LLM kullanılmıyor. #}
+  {# Kaynakça · Dayanak Snapshot'lar bölümü kaldırıldı: panolar birer süreç,
+     üstteki "Süreçler" tek gerçeklik. #}
+
+  {# ── W4b — "…'ye sor": senkron soru-cevap (persona + doküman + metrik). ── #}
+  {% if processes %}
+  <div style="margin-top: 40px; border-top: 1px solid var(--border-soft); padding-top: 24px;">
+    <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
+                text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px;">
+      {{ expert.code }}'ye sor
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <input type="text" id="ask-input" maxlength="500"
+             placeholder="örneğin: maliyet tarafında bu hafta neye bakmalıyım?"
+             style="flex: 1; background: var(--bg-1); color: var(--ink);
+                    border: 1px solid var(--border-soft); border-radius: 6px;
+                    padding: 12px 14px; font-size: 13.5px;">
+      <button type="button" id="ask-btn"
+              style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+                     text-transform: uppercase; cursor: pointer; background: transparent;
+                     color: {{ expert.ui.accent_color }};
+                     border: 1px solid {{ expert.ui.accent_color }};
+                     border-radius: 6px; padding: 0 18px;">Sor</button>
+    </div>
+    <div id="ask-answer" style="display: none; margin-top: 14px; padding: 14px 18px;
+                border-left: 2px solid {{ expert.ui.accent_color }};
+                background: var(--bg-1); border-radius: 0 8px 8px 0;
+                font-family: var(--serif); font-size: 14.5px; font-weight: 300;
+                line-height: 1.65; color: var(--ink-soft); white-space: pre-wrap;"></div>
+  </div>
+  <script>
+  (function () {
+    var input = document.getElementById('ask-input');
+    var btn = document.getElementById('ask-btn');
+    var out = document.getElementById('ask-answer');
+    if (!btn) return;
+    function ask() {
+      var q = (input.value || '').trim();
+      if (!q) return;
+      btn.disabled = true;
+      out.style.display = 'block';
+      out.textContent = 'Düşünüyor…';
+      fetch({{ url_for('prisma_home.expert_ask', code=expert.id) | tojson }}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q })
+      }).then(function (r) { return r.json(); })
+        .then(function (d) { out.textContent = d.answer || 'Cevap alınamadı.'; btn.disabled = false; })
+        .catch(function (e) { out.textContent = 'Hata: ' + (e.message || e); btn.disabled = false; });
+    }
+    btn.addEventListener('click', ask);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') ask(); });
+  })();
+  </script>
+  {% endif %}
 {% endblock %}

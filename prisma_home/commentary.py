@@ -25,10 +25,31 @@ _TTL_SECONDS = 1800
 _CACHE: dict[str, tuple[float, str]] = {}
 
 
-def _build_user_prompt(expert, processes: list[dict]) -> str:
+def get_process_metrics() -> list[dict]:
+    """W4b — süreç metrik sağlayıcısından kompakt KPI listesi.
+
+    Provider app.config'ten okunur (mevduat_panel import edilmez). Yoksa/hata
+    verirse boş liste — yorum dökümantasyon-temelli kalır."""
+    provider = current_app.config.get("PROCESS_METRICS_PROVIDER")
+    if provider is None:
+        return []
+    try:
+        return list(provider() or [])
+    except Exception:
+        log.exception("süreç metrikleri alınamadı")
+        return []
+
+
+def _build_user_prompt(expert, processes: list[dict],
+                       metrics: list[dict] | None = None) -> str:
     lines = [f"UZMAN: {expert.name} — alan: {expert.domain_label}"]
     if getattr(expert, "short_description", ""):
         lines.append(f"Uzman tanımı: {expert.short_description}")
+    if metrics:
+        lines.append("GÜNCEL METRİKLER (yalnız bunları kullanabilirsin):")
+        for m in metrics:
+            d = f" ({m['delta']})" if m.get("delta") else ""
+            lines.append(f"  - {m.get('k')}: {m.get('v')}{d}")
     lines.append("SÜREÇLER:")
     for p in processes:
         lines.append(f"- {p.get('label')}")
@@ -68,12 +89,13 @@ def get_commentary(expert) -> str | None:
     if not documented:
         return None
 
+    metrics = get_process_metrics()
     llm = current_app.config.get("LLM_CLIENT")
     text: str | None = None
     if llm is not None:
         try:
             raw = llm.complete(_PROMPT_PATH.read_text(encoding="utf-8"),
-                               _build_user_prompt(expert, documented),
+                               _build_user_prompt(expert, documented, metrics),
                                max_tokens=400, temperature=0.3)
             raw = (raw or "").strip()
             # JSON/başlık sızarsa yorum sayma — dürüst fallback'e düş.
@@ -98,3 +120,34 @@ def invalidate(expert_id: str | None = None) -> None:
         _CACHE.clear()
     else:
         _CACHE.pop(expert_id, None)
+
+
+_ASK_PROMPT_PATH = Path(__file__).parent / "prompts" / "expert_ask.txt"
+
+
+def answer_question(expert, question: str) -> str:
+    """W4b — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
+
+    Bağlam = persona + süreç dökümanları + metrikler; sayı kısıtı prompt'ta.
+    LLM yoksa/hata: dürüst yönlendirme metni."""
+    question = (question or "").strip()[:500]
+    if not question:
+        return "Soru boş görünüyor."
+    try:
+        documented = [p for p in _full_processes(expert) if p.get("documented")]
+    except Exception:
+        documented = []
+    llm = current_app.config.get("LLM_CLIENT")
+    if llm is not None and documented:
+        try:
+            user = (_build_user_prompt(expert, documented, get_process_metrics())
+                    + f"\n\nSORU: {question}")
+            raw = (llm.complete(_ASK_PROMPT_PATH.read_text(encoding="utf-8"),
+                                user, max_tokens=500, temperature=0.3) or "").strip()
+            if raw and not raw.startswith("{"):
+                return raw
+        except Exception:
+            log.exception("uzman sorusu cevaplanamadı (%s)", expert.id)
+    return ("Şu an canlı cevap üretemiyorum (LLM erişilemedi). Sorunun cevabı "
+            "büyük olasılıkla süreç panolarında — aşağıdaki Süreçler bölümünden "
+            "ilgili panoya bakabilirsin.")
