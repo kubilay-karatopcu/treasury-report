@@ -298,10 +298,11 @@ _ASK_PROMPT_PATH = Path(__file__).parent / "prompts" / "expert_ask.txt"
 
 
 def answer_question(expert, question: str) -> str:
-    """W4b — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
+    """W4b→W5c — "…'ye sor": senkron tek-tur cevap (SSE muadili backlog).
 
-    Bağlam = persona + süreç dökümanları + metrikler; sayı kısıtı prompt'ta.
-    (Aşama-B bağlam yükseltmesi W5c'de.) LLM yoksa/hata: dürüst yönlendirme."""
+    Bağlam = persona + süreç dökümanları + metrikler + GÜNCEL Aşama-B süreç
+    değerlendirmeleri (W5c yükseltmesi — cevaplar bugünün verisine dayanır);
+    sayı kısıtı prompt'ta. LLM yoksa/hata: dürüst yönlendirme."""
     question = (question or "").strip()[:500]
     if not question:
         return "Soru boş görünüyor."
@@ -312,8 +313,20 @@ def answer_question(expert, question: str) -> str:
     llm = current_app.config.get("LLM_CLIENT")
     if llm is not None and documented:
         try:
-            user = (_build_user_prompt(expert, documented, get_process_metrics())
-                    + f"\n\nSORU: {question}")
+            user = _build_user_prompt(expert, documented, get_process_metrics())
+            # W5c — güncel süreç değerlendirmeleri (varsa) bağlama eklenir;
+            # SORU her zaman en sonda kalır.
+            from prisma_home import evaluation
+
+            eval_lines = []
+            for p in documented:
+                rec = evaluation.get_process_evaluation(p["id"])
+                if rec:
+                    eval_lines.append(f"- {rec.get('label', p['id'])}: {rec['text']}")
+            if eval_lines:
+                user += ("\n\nSÜREÇ DEĞERLENDİRMELERİ (güncel — sayı için "
+                         "bunları da kullanabilirsin):\n" + "\n".join(eval_lines))
+            user += f"\n\nSORU: {question}"
             raw = (llm.complete(_ASK_PROMPT_PATH.read_text(encoding="utf-8"),
                                 user, max_tokens=500, temperature=0.3) or "").strip()
             if raw and not raw.startswith("{"):

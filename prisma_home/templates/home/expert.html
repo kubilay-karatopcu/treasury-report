@@ -163,6 +163,125 @@
     transition: color 0.2s;
   }
   .process-cell:hover .proc-cta { color: var(--gold); }
+
+  /* ── W5c: süreç kartında güncel Aşama-B değerlendirmesi. ─────────────── */
+  .process-cell .proc-eval {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border-soft);
+    font-family: var(--serif);
+    font-size: 12.5px;
+    font-style: italic;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+
+  /* ── W5c: atıf çipleri + kaynakça + blok modalı (chart-fs deseni). ───── */
+  .cite-chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-style: normal;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--gold);
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 2px 5px;
+    margin-left: 4px;
+    vertical-align: super;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+  }
+  .cite-chip:hover { background: var(--gold); color: var(--bg-0); }
+  .cite-refs { margin: 14px 0 20px; }
+  .cite-refs-head {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 8px;
+  }
+  .cite-ref {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-left: 2px solid var(--border-soft);
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .cite-ref:hover { border-left-color: var(--gold); }
+  .cite-ref-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold);
+    min-width: 16px;
+  }
+  .cite-ref-title { font-size: 13px; color: var(--ink); }
+  .cite-ref-proc {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.06em;
+  }
+  .cite-ref:hover .cite-ref-title { color: var(--gold); }
+  .blok-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    display: flex;
+    flex-direction: column;
+    background: rgba(6, 9, 18, 0.88);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .blok-modal[hidden] { display: none; }
+  .blok-modal-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .blok-modal-title {
+    flex: 1;
+    font-family: var(--serif);
+    font-size: 16px;
+    font-weight: 300;
+    color: var(--ink);
+  }
+  .blok-modal-open, .blok-modal-close {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: transparent;
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 6px 12px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .blok-modal-open:hover, .blok-modal-close:hover {
+    background: var(--gold);
+    color: var(--bg-0);
+  }
+  .blok-modal-frame {
+    flex: 1;
+    width: min(1500px, calc(100vw - 48px));
+    margin: 16px auto 24px;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--bg-0);
+  }
 </style>
 {% endblock %}
 
@@ -272,18 +391,47 @@
   </div>
 
   {% if commentary %}
-  {# W4a — uzman yorumu (dökümantasyondan; sayı içermez). #}
+  {# W5b/W5c — uzman brifing anlatısı: piramit Aşama-C kaydı segmentli render
+     edilir, atıflar çip olur (tıklama → blok modalı). Kayıt yoksa (eski
+     cache / soğuk boot) düz metin — çipsiz, birebir eski davranış. #}
   <div style="margin: 0 0 20px; padding: 16px 20px;
               border-left: 2px solid {{ expert.ui.accent_color }};
               background: var(--bg-1); border-radius: 0 8px 8px 0;">
     <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
                 text-transform: uppercase; color: {{ expert.ui.accent_color }};
-                margin-bottom: 8px;">{{ expert.code }} · uzman yorumu</div>
+                margin-bottom: 8px;">{{ expert.code }} · uzman brifingi</div>
     <div style="font-family: var(--serif); font-size: 15.5px; font-weight: 300;
                 font-style: italic; line-height: 1.65; color: var(--ink-soft);">
-      {{ commentary }}
+      {%- if commentary_rec and commentary_rec.segments -%}
+        {%- for seg in commentary_rec.segments -%}
+          {{ seg.text }}{% for c in seg.cites %}{% if c in cite_meta -%}
+            <sup class="cite-chip" role="button" tabindex="0"
+                 data-url="{{ cite_meta[c].url }}"
+                 data-title="{{ cite_meta[c].title }}"
+                 title="{{ cite_meta[c].title }} — {{ cite_meta[c].process }}"
+                 >{{ cite_meta[c].num }}</sup>
+          {%- endif %}{% endfor %}{{ ' ' }}
+        {%- endfor -%}
+      {%- else -%}
+        {{ commentary }}
+      {%- endif -%}
     </div>
   </div>
+
+  {% if citations %}
+  {# W5c — kaynakça: brifingin atıf yaptığı blokların listesi. #}
+  <div class="cite-refs">
+    <div class="cite-refs-head">Kaynakça</div>
+    {% for c in citations %}
+    <button type="button" class="cite-ref"
+            data-url="{{ c.url }}" data-title="{{ c.title }}">
+      <span class="cite-ref-num">{{ c.num }}</span>
+      <span class="cite-ref-title">{{ c.title }}</span>
+      <span class="cite-ref-proc">{{ c.process }}</span>
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% endif %}
 
   <div class="process-grid">
@@ -293,11 +441,72 @@
       <div class="proc-code">{{ p.num }}</div>
       <div class="proc-name">{{ p.label }}</div>
       <div class="proc-desc">{{ p.desc }}</div>
+      {% if proc_evals and proc_evals.get(p.id) %}
+      <div class="proc-eval">{{ proc_evals[p.id] }}</div>
+      {% endif %}
       <span class="proc-cta">Panoyu aç →</span>
     </a>
     {% endfor %}
   </div>
   {% endif %}
+
+  {# ── W5c — blok modalı (chart-fs deseni): atıf çipi/kaynakça tıklanınca
+     bloğun canlı görünümü embed=1 iframe'iyle tam ekranda açılır. iframe
+     LAZY — src yalnız açılışta atanır, kapanışta boşaltılır. ─────────────── #}
+  <div id="blok-modal" class="blok-modal" hidden>
+    <div class="blok-modal-top">
+      <span class="blok-modal-title" id="blok-modal-title"></span>
+      <a class="blok-modal-open" id="blok-modal-open" target="_blank"
+         rel="noopener">Yeni sekmede aç ↗</a>
+      <button type="button" class="blok-modal-close" id="blok-modal-close">✕ Kapat</button>
+    </div>
+    <iframe class="blok-modal-frame" id="blok-modal-frame"
+            title="Blok görünümü" src="about:blank"></iframe>
+  </div>
+  <script>
+  (function () {
+    var modal = document.getElementById('blok-modal');
+    if (!modal) return;
+    var frame = document.getElementById('blok-modal-frame');
+    var title = document.getElementById('blok-modal-title');
+    var openA = document.getElementById('blok-modal-open');
+
+    function open(url, name) {
+      title.textContent = name || '';
+      openA.href = url;
+      frame.src = url;             // lazy: yalnız açılışta yükle
+      modal.hidden = false;
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      modal.hidden = true;
+      frame.src = 'about:blank';   // arka planda fetch/render bırakma
+      document.body.style.overflow = '';
+    }
+    document.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (!t || !t.closest) return;
+      var trg = t.closest('.cite-chip, .cite-ref');
+      if (trg && trg.dataset.url) {
+        ev.preventDefault();
+        open(trg.dataset.url, trg.dataset.title);
+        return;
+      }
+      if (t.closest('#blok-modal-close')) close();
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !modal.hidden) close();
+      if (ev.key === 'Enter' && ev.target && ev.target.classList &&
+          ev.target.classList.contains('cite-chip') && ev.target.dataset.url) {
+        open(ev.target.dataset.url, ev.target.dataset.title);
+      }
+    });
+    // Modal arka planına (iframe dışı boşluk) tıklayınca kapat.
+    modal.addEventListener('click', function (ev) {
+      if (ev.target === modal) close();
+    });
+  })();
+  </script>
 
   {# Kaynakça · Dayanak Snapshot'lar bölümü kaldırıldı: panolar birer süreç,
      üstteki "Süreçler" tek gerçeklik. #}

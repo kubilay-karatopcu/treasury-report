@@ -108,15 +108,35 @@ def expert_detail(code: str):
 
     processes = resolve_processes((expert.bound_content or {}).get("processes"))
 
-    # W4a — uzman yorumu: dökümantasyondan + metrik. İSTEK YOLU BLOKLANMAZ:
-    # get_commentary sıcak cache'i (ya da ucuz fallback'i) anında döner, LLM'i
-    # arka planda tazeler (periyodik ısıtıcı boot'ta doldurur). Bkz. commentary.py.
+    # W4a→W5b — uzman brifingi: piramit Aşama-C kaydı. İSTEK YOLU BLOKLANMAZ:
+    # get_commentary sıcak cache'i (ya da ucuz fallback'i) anında döner;
+    # tazelik refresh_pipeline'da hash'lerle yönetilir. Bkz. commentary.py.
     try:
-        from prisma_home.commentary import get_commentary
+        from prisma_home.commentary import get_commentary, get_commentary_record
         commentary = get_commentary(expert) if processes else None
+        commentary_rec = get_commentary_record(expert.id) if processes else None
     except Exception:
         current_app.logger.exception("uzman yorumu üretilemedi: %s", expert.id)
-        commentary = None
+        commentary, commentary_rec = None, None
+
+    # W5c — atıf çipleri + kaynakça + süreç kartlarına Aşama-B metni. Hepsi
+    # savunmacı: piramit hiç koşmadıysa boş kalır, şablon çipsiz render eder.
+    cite_meta: dict = {}
+    citations: list = []
+    proc_evals: dict = {}
+    try:
+        from prisma_home.evaluation import get_process_evaluation
+
+        for p in processes:
+            rec = get_process_evaluation(p["id"])
+            if rec:
+                proc_evals[p["id"]] = rec["text"]
+        if commentary_rec and commentary_rec.get("cites"):
+            citations = _citation_entries(
+                commentary_rec, [p["id"] for p in processes])
+            cite_meta = {c["id"]: c for c in citations}
+    except Exception:
+        current_app.logger.exception("atıf verisi hazırlanamadı: %s", expert.id)
 
     return render_template(
         "home/expert.html",
@@ -128,7 +148,43 @@ def expert_detail(code: str):
         snapshots=bound,
         processes=processes,
         commentary=commentary,
+        commentary_rec=commentary_rec,
+        cite_meta=cite_meta,
+        citations=citations,
+        proc_evals=proc_evals,
     )
+
+
+def _citation_entries(record: dict, process_ids: list[str]) -> list[dict]:
+    """W5c — brifing atıflarını render girdisine çözer.
+
+    record["cites"] sıralı blok id listesi; her id bağlı süreçlerin dökümante
+    bloklarında aranır. Bulunanlar numaralanır (1'den; bulunamayan — ör. blok
+    registry'den kalkmış — sessizce düşer, numara yeniden dizilir). URL, bloğun
+    canlı görünümü + embed modu: render_url&embed=1&anchor=<id>."""
+    from prisma_home.processes import get_process
+
+    index: dict[str, dict] = {}
+    for pid in process_ids:
+        p = get_process(pid)
+        if not p:
+            continue
+        for b in p.get("blocks") or []:
+            bid = b.get("id")
+            url = b.get("render_url")
+            if not bid or not url:
+                continue
+            anchor = (b.get("custom_render") or {}).get("anchor") or ""
+            sep = "&" if "?" in url else "?"
+            embed = f"{url}{sep}embed=1" + (f"&anchor={anchor}" if anchor else "")
+            index[bid] = {"id": bid, "title": b.get("title") or bid,
+                          "process": p.get("label", ""), "url": embed}
+    out = []
+    for bid in record.get("cites") or []:
+        entry = index.get(bid)
+        if entry:
+            out.append({**entry, "num": len(out) + 1})
+    return out
 
 
 @prisma_home_bp.route("/uzmanlar/<code>/sor", methods=["POST"])

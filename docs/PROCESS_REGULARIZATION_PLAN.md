@@ -386,10 +386,16 @@ uzman sayfası (atıf çipleri + kaynakça + blok modalı)
   istek yolu hiçbir aşamayı beklemez; her aşamanın dürüst fallback'i var;
   girdiler değişmeden tam tur 0 LLM çağrısı (`tests/test_citations.py`,
   `tests/test_pyramid_evaluation.py`).
-- **W5c — Atıf UI'ı:** çip render'ı + kaynakça bölümü + blok modalı +
-  mevduat_panel `embed=1` + süreç kartlarına B çıktısı + "…'ye sor" bağlamına
-  B çıktıları. Kabul: çip tıklaması modalda doğru bloğu açar; embed modda
-  SPA kontrolleri gizli; atıfsız (eski cache) brifing çipsiz düzgün render.
+- **W5c — Atıf UI'ı** *(UYGULANDI — 2026-07-23)*: expert.html'de segmentli
+  brifing + numaralı atıf çipleri + Kaynakça bölümü + chart-fs desenli blok
+  modalı (iframe LAZY: src yalnız açılışta, kapanışta about:blank);
+  mevduat_panel `?embed=1&anchor=<id>` modu (body.mv-embed → topbar/sidebar/
+  dock gizli, anchor'a bekle-kaydır + altın vurgu; MEVDUAT_VERSION p2.16);
+  süreç kartlarında Aşama-B metni (.proc-eval); answer_question bağlamına
+  güncel B değerlendirmeleri (SORU sonda). Route `_citation_entries`:
+  registry'den kalkmış atıf düşer, numara yeniden dizilir. Kabul: çip doğru
+  bloğu modalda açar; embed'de SPA kontrolleri gizli; atıfsız brifing çipsiz
+  birebir eski render (`tests/test_citation_ui.py`).
 
 **Riskler:** Qwen atıf token disiplini (bozuk token → doğrulayıcı düşürür,
 metin bozulmaz); iframe ağırlığı (modal lazy — yalnız tıklanınca yüklenir);

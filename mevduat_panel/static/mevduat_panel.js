@@ -8946,6 +8946,29 @@
     setPage(_bootPage);
   }
 
+  // W5c — embed modu (?embed=1&anchor=<id>): uzman brifingindeki atıf modalı
+  // bu sayfayı iframe'de açar. Kabuk kontrolleri CSS ile gizlenir
+  // (body.mv-embed), anchor elementi render'ı beklenip kaydırılır + vurgulanır.
+  (function () {
+    var qs = new URLSearchParams(window.location.search);
+    if (qs.get("embed") !== "1") return;
+    document.body.classList.add("mv-embed");
+    var anchor = qs.get("anchor") || "";
+    if (!/^[A-Za-z0-9_-]+$/.test(anchor)) return;
+    var tries = 0;
+    var t = setInterval(function () {
+      var el = document.getElementById(anchor);
+      tries++;
+      if (el && el.offsetParent) {
+        clearInterval(t);
+        el.classList.add("mv-embed-target");
+        el.scrollIntoView({ block: "start", behavior: "smooth" });
+      } else if (tries > 40) {   // ~10 sn — SPA fetch'leri gecikirse pes et
+        clearInterval(t);
+      }
+    }, 250);
+  })();
+
   // ══════════════════════════════════════════════════════════════════════════
   // NEW PRODUCTION DASHBOARD
   // ══════════════════════════════════════════════════════════════════════════
