@@ -123,6 +123,7 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
             return False
 
     text: str | None = None
+    flagged = 0
     # LLM yalnız veri varken çağrılır: digest'siz değerlendirme sayı uydurma
     # riskine değmez — dürüst fallback yeterli (W5b süreç aşaması dökümanı
     # zaten kullanacak).
@@ -133,7 +134,21 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
                                max_tokens=300, temperature=0.2)
             raw = (raw or "").strip()
             if raw and not raw.startswith("{") and len(raw) > 30:
-                text = raw
+                # W7a — sayı doğrulama: digest'te karşılığı olmayan metrik
+                # içeren cümleler düşürülür (halüsinasyon guard). Kaynak havuz
+                # = digest satırlarının k/v/delta metni.
+                from prisma_home.numbers import validate_numbers
+
+                nv = validate_numbers(raw, [
+                    f"{r.get('k')} {r.get('v')} {r.get('delta', '')}" for r in digest])
+                flagged = nv["flagged"]
+                if flagged:
+                    log.info("blok değerlendirmesi %s: %d cümle sayı-doğrulamadan "
+                             "düştü", bid, flagged)
+                # Yeterli temiz metin kaldıysa onu kullan; hepsi düştüyse
+                # (tamamı doğrulanamayan sayı) fallback'e bırak.
+                if len(nv["text"]) > 30:
+                    text = nv["text"]
         except Exception:
             log.exception("blok değerlendirmesi: LLM çağrısı başarısız (%s)", bid)
 
@@ -150,6 +165,7 @@ def evaluate_block(pid: str, process_label: str, block: dict) -> bool:
         "title": block.get("title") or bid,
         "has_data": bool(digest),
         "is_fallback": is_fallback,
+        "numbers_flagged": flagged,   # W7a — sağlık/gözlem (W7c)
         # W6b — digest'in hesapladığı görünüm; atıf/slide URL'i state taşır.
         "view": view,
         "ts": time.time(),
@@ -248,8 +264,10 @@ def evaluate_process(pid: str, process: dict,
     """Tek süreci değerlendirir. Dönüş: yeniden hesaplandı mı?
 
     LLM yalnız en az bir blok değerlendirmesi varken çağrılır (A ile aynı
-    uydurma disiplini); atıflar block_evals kümesine karşı doğrulanır."""
+    uydurma disiplini); sayılar block_evals metnine, atıflar block_evals
+    kümesine karşı doğrulanır."""
     from prisma_home.citations import parse_citations
+    from prisma_home.numbers import validate_numbers
 
     doc_hash = _hash(process.get("documentation") or {})
     children_hash = _hash({bid: rec.get("text") for bid, rec in block_evals.items()})
@@ -262,6 +280,7 @@ def evaluate_process(pid: str, process: dict,
             return False
 
     parsed: dict | None = None
+    flagged = 0
     if llm is not None and block_evals:
         try:
             raw = llm.complete(_PROC_PROMPT_PATH.read_text(encoding="utf-8"),
@@ -269,7 +288,16 @@ def evaluate_process(pid: str, process: dict,
                                max_tokens=400, temperature=0.2)
             raw = (raw or "").strip()
             if raw and not raw.startswith("{") and len(raw) > 40:
-                parsed = parse_citations(raw, set(block_evals))
+                # W7a — sayı doğrulama (atıf parse'ından ÖNCE): kaynak havuz =
+                # blok değerlendirmelerinin metni (kendileri A'da doğrulandı).
+                nv = validate_numbers(raw, [rec.get("text", "")
+                                            for rec in block_evals.values()])
+                flagged = nv["flagged"]
+                if flagged:
+                    log.info("süreç değerlendirmesi %s: %d cümle sayı-doğrulamadan "
+                             "düştü", pid, flagged)
+                if len(nv["text"]) > 40:
+                    parsed = parse_citations(nv["text"], set(block_evals))
         except Exception:
             log.exception("süreç değerlendirmesi: LLM çağrısı başarısız (%s)", pid)
 
@@ -286,6 +314,7 @@ def evaluate_process(pid: str, process: dict,
         "block_titles": {bid: rec.get("title", bid)
                          for bid, rec in block_evals.items()},
         "is_fallback": is_fallback,
+        "numbers_flagged": flagged,   # W7a
         "ts": time.time(),
     }
     return True

@@ -204,6 +204,7 @@ def _compute_and_store(app, expert) -> None:
                 return
 
         parsed: dict | None = None
+        flagged = 0
         if llm is not None and proc_evals:
             try:
                 raw = llm.complete(
@@ -212,7 +213,20 @@ def _compute_and_store(app, expert) -> None:
                     max_tokens=700, temperature=0.3)
                 raw = (raw or "").strip()
                 if raw and not raw.startswith("{") and len(raw) > 40:
-                    parsed = _parse_briefing(raw, set(catalog))
+                    # W7a — sayı doğrulama (madde parse'ından ÖNCE): kaynak havuz
+                    # = güncel metrikler + süreç değerlendirmeleri (ikisi de
+                    # zincirde doğrulandı). Desteklenmeyen sayılı madde düşer.
+                    from prisma_home.numbers import validate_numbers
+
+                    num_src = [f"{m.get('v')} {m.get('delta', '')}" for m in metrics]
+                    num_src += [rec.get("text", "") for rec in proc_evals.values()]
+                    nv = validate_numbers(raw, num_src)
+                    flagged = nv["flagged"]
+                    if flagged:
+                        log.info("uzman brifingi %s: %d madde/cümle sayı-"
+                                 "doğrulamadan düştü", expert.id, flagged)
+                    if len(nv["text"]) > 40:
+                        parsed = _parse_briefing(nv["text"], set(catalog))
             except Exception:
                 log.exception("uzman brifingi: LLM çağrısı başarısız (%s)", expert.id)
 
@@ -227,6 +241,7 @@ def _compute_and_store(app, expert) -> None:
             "input_hash": input_hash,
             "block_titles": catalog,
             "is_fallback": is_fallback,
+            "numbers_flagged": flagged,   # W7a — sağlık/gözlem (W7c)
             "ts": time.time(),
         }
 

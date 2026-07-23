@@ -14,7 +14,8 @@ KURALLAR:
    id'leri kullan; listede olmayan id yazma.
 2. Sayı kullanımı: YALNIZCA blok değerlendirmesi metinlerinde geçen sayıları
    kullanabilirsin (aynen). Süreç dökümantasyonundan ya da kendi bilginden
-   sayı üretme. Blok değerlendirmelerinde sayı yoksa sayısız yaz.
+   sayı üretme. Blok değerlendirmelerinde sayı yoksa sayısız yaz. (Not:
+   kaynakta karşılığı olmayan sayı içeren cümleler otomatik ELENİR.)
 3. En kritik 1-2 sinyali önceliklendir; blokları tek tek listeleme, sentezle.
    Bloklar çelişiyorsa (biri iyi biri kötü sinyal) bunu açıkça söyle.
 4. Kısa, net; pazarlama dili yok. Çıktı: SADECE düz metin (3-4 cümle) +

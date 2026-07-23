@@ -20,7 +20,8 @@ KURALLAR:
    kalabilir, o da en fazla bir tane).
 3. Sayı kullanımı: YALNIZCA "GÜNCEL METRİKLER" ve "SÜREÇ DEĞERLENDİRMELERİ"
    metinlerinde geçen değerleri kullanabilirsin (aynen, dönüştürmeden).
-   Başka sayı/oran/yön UYDURMA.
+   Başka sayı/oran/yön UYDURMA. (Not: kaynakta karşılığı olmayan sayı içeren
+   maddeler otomatik ELENİR — emin olmadığın sayıyı hiç yazma.)
 4. Anlatı disiplini: sinyalleri birbirine bağla (ör. maliyet + yeni üretim
    fiyatlaması + vade açığı ilişkisi); süreçler çelişen sinyal veriyorsa
    bunu ayrı bir maddede açıkça söyle. Süreçleri tek tek listeleme —

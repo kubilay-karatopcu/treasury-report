@@ -482,6 +482,34 @@ hatasında fallback kaydı `is_fallback` işaretlenir ve LLM denenebilir
 durumdaysa hash eşleşse de sonraki turda yeniden denenir ("Brifing henüz
 hazır değil takılı kaldı" geri bildirimi; `test_fallback_heals_when_llm_recovers`).
 
+### W7 — Güven + olgunluk katmanı *(2026-07-23 değerlendirmesi)*
+
+W5/W6 piramidi çalışıyor ama üç "güven/olgunluk" açığı var; öncelik sırasıyla:
+
+- **W7a — Sayı doğrulayıcı** *(UYGULANDI — 2026-07-23)*: `prisma_home/numbers.py`
+  (citations.py'nin sayısal kardeşi, saf modül). Her aşamada LLM çıktısındaki
+  BİRİME BAĞLI sayılar (bps/%/₺/pp/M/B/adet/gün) kaynak havuza karşı doğrulanır;
+  karşılığı olmayan sayı içeren cümle/madde ELENİR. Precision önceliği: yalnız
+  birim-sayı denetlenir (çıplak sayı/tarih/sıra sayısı değil), eşleştirme cömert
+  (tam-sayı + 2-ondalık yuvarlama; ayraç belirsizliği için çoklu yorum) →
+  meşru yuvarlama (487.2→487) geçer, uydurma (42→58) düşer. Entegrasyon:
+  A (havuz=digest), B (havuz=blok değerlendirmeleri), C (havuz=metrikler+süreç
+  değerlendirmeleri); tümü atıf parse'ından ÖNCE, tüm cümleler düşerse fallback
+  (is_fallback → retry-heal ile toparlanır). `numbers_flagged` sayacı kayıtlara
+  (W7c sağlık sayfası için). Üç prompt'a "kaynakta olmayan sayı elenir" notu.
+  Testler: `tests/test_numbers.py` (lokalde de koşuldu) +
+  `test_fabricated_number_bullet_dropped_end_to_end`.
+- **W7b — Pariteye görünür güven + haftalık warm** *(planlı)*: embed'de
+  view-state uygulanamayınca slide/kaynakçada görünür uyarı; digest'lerin
+  kendi penceresini warm edebilmesi (haftalık blok boşluğu).
+- **W7c — Piramit sağlık/eval sayfası** *(planlı)*: admin görünümü — taze vs
+  fallback eval sayısı, `numbers_flagged` toplamı, atıf sayısı, veri "as of"
+  damgaları, son LLM gecikme/hata.
+
+Daha stratejik açıklar (backlog): custom blok graduation'ı (ETL olgunlaşınca),
+çok-uzman/treasury-geneli sentez, "…'ye sor" çok-tur + stream, brifing geri
+bildirim/override döngüsü.
+
 ## §4 — Riskler ve açık sorular
 
 | Risk / soru | Etki | Öneri |

@@ -188,6 +188,28 @@ class TestExpertBriefing:
         with app.test_request_context():
             assert "Maliyet baskısı" in commentary.get_commentary(_StubExpert())
 
+    def test_fabricated_number_bullet_dropped_end_to_end(self):
+        """W7a — brifingde digest'te olmayan sayı içeren madde düşer.
+
+        camon_wf digest'i +42 bps mix taşır; LLM ikinci maddede uydurma
+        +58 bps yazarsa o madde brifingden çıkar (guard), diğeri kalır."""
+        # Digest'i sabit, bilinir sayıyla ver (mix +42 bps).
+        digests = {"camon_wf": lambda: {
+            "rows": [{"k": "Mix etkisi", "v": "+42 bps", "delta": "", "tone": ""}],
+            "view": None}}
+        # A gerçek metni de +42 taşısın ki B/C havuzunda 42 bulunsun.
+        llm = _CountingLLM(
+            "- Maliyet baskısı mix kaynaklı, +42 bps [[blok:camon_wf]].\n"
+            "- Mix etkisi hâlâ +42 bps ile baskın [[blok:camon_wf]].\n"
+            "- Faiz +58 bps fırladı [[blok:camon_wf]].")
+        app = _mk_app(llm=llm, digests=digests)
+        commentary.refresh_pipeline(app)
+        rec = commentary.get_commentary_record("dep")
+        assert rec["headlines"] is not None
+        joined = " ".join(h["text"] for h in rec["headlines"])
+        assert "42" in joined and "58" not in joined
+        assert rec.get("numbers_flagged", 0) >= 1
+
     def test_full_second_round_zero_llm_calls(self):
         llm = _CountingLLM("Bulgu [[blok:camon_wf]].")
         app = _mk_app(llm=llm, digests=_DIGESTS)
