@@ -156,11 +156,15 @@ def _compute_and_store(app, expert) -> None:
             "metrics": metrics,
             "catalog": sorted(catalog),
         })
+        llm = current_app.config.get("LLM_CLIENT")
         cached = _CACHE.get(expert.id)
         if cached and cached.get("input_hash") == input_hash:
-            return
+            # Fallback + LLM denenebilir → hash eşleşse de yeniden dene
+            # (geçici LLM hatası "brifing hazırlanıyor" metnini bir sonraki
+            # veri değişimine kadar kilitliyordu — 2026-07-23 geri bildirimi).
+            if not (cached.get("is_fallback") and llm is not None and proc_evals):
+                return
 
-        llm = current_app.config.get("LLM_CLIENT")
         parsed: dict | None = None
         if llm is not None and proc_evals:
             try:
@@ -174,7 +178,8 @@ def _compute_and_store(app, expert) -> None:
             except Exception:
                 log.exception("uzman brifingi: LLM çağrısı başarısız (%s)", expert.id)
 
-        if parsed is None or not parsed["text"]:
+        is_fallback = parsed is None or not parsed["text"]
+        if is_fallback:
             fb = _fallback_text(expert, documented)
             parsed = {"text": fb, "segments": [{"text": fb, "cites": []}],
                       "cites": []}
@@ -183,6 +188,7 @@ def _compute_and_store(app, expert) -> None:
             **parsed,
             "input_hash": input_hash,
             "block_titles": catalog,
+            "is_fallback": is_fallback,
             "ts": time.time(),
         }
 
