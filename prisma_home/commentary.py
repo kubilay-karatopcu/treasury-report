@@ -201,13 +201,17 @@ def warm_all(app) -> None:
             log.exception("uzman yorumu ısıtma: %s başarısız", getattr(e, "id", "?"))
 
 
-def start_commentary_refresher(app, interval: int = _REFRESH_INTERVAL) -> None:
+def start_commentary_refresher(app, interval: int = _REFRESH_INTERVAL,
+                               initial_delay: int = 20) -> None:
     """Açılışta daemon thread'de periyodik ısıtma başlatır — çağıran bloklanmaz.
 
-    İlk tur açılıştan hemen sonra koşar (cache'i doldurur), sonra `interval`
-    saniyede bir tazeler. Interval TTL'den kısa tutulduğundan cache hep sıcak
-    kalır ve ilk tıklama da içerikli gelir."""
+    İlk tur kısa bir gecikmeyle koşar (prewarm motorları — özellikle
+    outstanding_daily — RAM'e ısıtsın; böylece metrik okuması Oracle'a soğuk
+    gitmez ve boot'ta havuz çekişmesi azalır), sonra `interval` saniyede bir
+    tazeler. Interval TTL'den kısa tutulduğundan cache hep sıcak kalır ve ilk
+    tıklama da içerikli gelir."""
     def _loop():
+        time.sleep(initial_delay)
         while True:
             try:
                 warm_all(app)
