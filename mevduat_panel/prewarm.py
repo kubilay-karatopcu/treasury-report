@@ -34,6 +34,7 @@ def _warm_steps():
         SwapHedgeEngine,
     )
     from .engine.outstanding_daily import load_outstanding_daily
+    from .engine.reservation_data import load_competitor_df, load_reservation_df
     from .engine.sector_data import warm_all as warm_sector_data
 
     return [
@@ -43,14 +44,23 @@ def _warm_steps():
         ("outstanding_daily", load_outstanding_daily),
         ("sector_data", warm_sector_data),
         ("swaps", SwapHedgeEngine._load),
+        ("reservation_data", load_reservation_df),
+        ("competitor_data", load_competitor_df),
     ]
 
 
 def _reset_modules():
     """`reset_caches()` sunan tüm engine modülleri — refresh sırasıyla boşaltılır."""
-    from .engine import np_agg, outstanding, outstanding_daily, sector_data, weekly
+    from .engine import (
+        np_agg,
+        outstanding,
+        outstanding_daily,
+        reservation_data,
+        sector_data,
+        weekly,
+    )
 
-    return [np_agg, outstanding, outstanding_daily, sector_data, weekly]
+    return [np_agg, outstanding, outstanding_daily, reservation_data, sector_data, weekly]
 
 
 def _warm(app) -> dict:
