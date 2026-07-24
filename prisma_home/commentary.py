@@ -172,6 +172,53 @@ def _parse_briefing(raw: str, allowed: set) -> dict:
     return parsed
 
 
+def _backfill_numeric_cites(parsed: dict, catalog: dict[str, str]) -> dict:
+    """FB5 — sayı taşıyan ama atıfsız kalan maddelere blok atfı ekler.
+
+    Madenin birim-sayıları hangi bloğun (katalogdaki = bakışın blokları)
+    değerlendirmesinin sayılarıyla en çok örtüşüyorsa o blok atfedilir.
+    Böylece "numerik bilgi var ama 'genel bağlam, blok yok' uyarısı" çelişkisi
+    çözülür (sayı zaten bir bloktan gelmiştir). Atıfsız + sayısız madde
+    dokunulmadan kalır (gerçekten genel bağlam)."""
+    from prisma_home import evaluation
+    from prisma_home.numbers import unit_number_keys
+
+    if not parsed.get("headlines"):
+        return parsed
+    block_keys: dict[str, set] = {}
+    for bid in catalog:
+        rec = evaluation.get_block_evaluation(bid)
+        ks = unit_number_keys((rec or {}).get("text", "")) if rec else set()
+        if ks:
+            block_keys[bid] = ks
+    if not block_keys:
+        return parsed
+
+    changed = False
+    for h in parsed["headlines"]:
+        if h.get("cites"):
+            continue
+        hk = unit_number_keys(h.get("text", ""))
+        if not hk:
+            continue
+        best, best_n = None, 0
+        for bid, ks in block_keys.items():
+            n = len(hk & ks)
+            if n > best_n:
+                best, best_n = bid, n
+        if best:
+            h["cites"] = [best]
+            changed = True
+    if changed:
+        seen: list[str] = []
+        for h in parsed["headlines"]:
+            for c in h["cites"]:
+                if c not in seen:
+                    seen.append(c)
+        parsed["cites"] = seen
+    return parsed
+
+
 def _cache_key(expert_id: str, view_key: str) -> str:
     return f"{expert_id}::{view_key}"
 
@@ -248,6 +295,8 @@ def _compute_and_store(app, expert, view: dict) -> None:
                                  "düştü", expert.id, view["key"], flagged)
                     if len(nv["text"]) > 40:
                         parsed = _parse_briefing(nv["text"], set(catalog))
+                        # FB5 — sayı taşıyan atıfsız maddelere blok atfı ekle.
+                        parsed = _backfill_numeric_cites(parsed, catalog)
             except Exception:
                 log.exception("uzman brifingi: LLM çağrısı başarısız (%s/%s)",
                               expert.id, view["key"])

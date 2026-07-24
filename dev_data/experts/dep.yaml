@@ -1,5 +1,5 @@
 id: dep
-version: 1
+version: 2
 code: DEP
 name: Mevduat Uzmanı
 domain_label: Mevduat & Fonlama
@@ -28,3 +28,26 @@ ui:
   accent_color: '#4A9B6E'
   glyph: ''
 status: active
+# W8 — departman bakışları. Dolu olduğu için erişim SIKI: yalnız aşağıdaki
+# departmanlar bu uzmanı görür. Departman LDAP'ten gelir (current_user.department).
+department_views:
+  - departments:
+      - FİNANSAL YAPAY ZEKA UYGULAMALARI
+    label: FinAI Bakışı
+    briefing_focus: >-
+      Yapay zekâ / analitik ekip bakışı: fiyatlama ve maliyet sinyallerini,
+      yeni üretim davranışını ve vade/likidite risklerini modellenebilir,
+      aksiyon-odaklı biçimde özetle. Anomali ve yapısal kaymaları öne çıkar.
+    topics:
+      - title: Stok Analizi (Outstanding)
+        processes:
+          - mevduat.maliyet
+          - mevduat.bakiye
+          - mevduat.vade
+      - title: Dönüşler & Yeni Üretim
+        processes:
+          - mevduat.donusler
+          - mevduat.yeni_uretim
+      - title: Sektör Karşılaştırma
+        processes:
+          - mevduat.sektor

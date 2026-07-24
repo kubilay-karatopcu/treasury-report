@@ -86,6 +86,17 @@ def _unit_numbers(text: str) -> list[str]:
     return out
 
 
+def unit_number_keys(text: str) -> set:
+    """Metindeki BİRİME BAĞLI sayıların eşleştirme anahtarları (FB5 auto-atıf).
+
+    Bir maddenin sayılarının hangi bloğun verisinden geldiğini bulmak için
+    kullanılır: blok değerlendirmesinin anahtar kümesiyle kesişim → o blok."""
+    ks: set = set()
+    for tok in _unit_numbers(text or ""):
+        ks |= _keys(tok)
+    return ks
+
+
 def validate_numbers(text: str | None, allowed_sources: Iterable[str]) -> dict:
     """Desteklenmeyen birim-sayılı cümle/maddeleri düşürür.
 

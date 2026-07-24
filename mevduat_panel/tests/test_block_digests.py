@@ -1,8 +1,9 @@
 """W5a — blok digest sağlayıcıları.
 
-Sözleşme (docs/PROCESS_REGULARIZATION_PLAN.md §3.5 W5):
+Sözleşme (docs/PROCESS_REGULARIZATION_PLAN.md §3.5 W5 + FB1):
 - registry 12 dökümante bloğun tamamını kapsar,
-- SOĞUK cache'te her digest [] döner ve ASLA Oracle'a (load_dataframe) gitmez,
+- FB1: digest'ler yalnız arka plan piramidinde koşar → motor cache'i soğuksa
+  loader'ı çağırıp ISITABİLİR; veri/bağlam yoksa (hata) zarifçe [] döner,
 - sıcak sentetik cache'te satırlar {k, v} taşır ve ≤15 satırdır.
 
 Sentetik df'ler gerçek şemanın küçük altkümesi — motorların gerektirdiği tüm
@@ -99,26 +100,30 @@ def warm_np(monkeypatch):
 
 @pytest.fixture
 def warm_weekly(monkeypatch):
-    agg = pd.DataFrame([
-        {"ROLL_DATE": pd.Timestamp("2026-07-20"), "CURRENCY": cur,
-         "CCY_CODE": "TRY" if cur == "TRY" else "USD", "CUST_TP": tp,
-         "AUM_BAND": band, "TRY_BAKIYE_TOPLAM": bal}
-        for cur, tp, band, bal in (
-            ("TRY", "G", "0-5M", 3e9), ("TRY", "T", "200M+", 9e9),
-            ("FX",  "G", "0-5M", 1e9),
-        )
-    ])
-    agg["AUM_BAND"] = pd.Categorical(
-        agg["AUM_BAND"], categories=weekly.WeeklyRollingsEngine.BAND_ORDER)
-    full = pd.DataFrame([
-        {"ROLL_DATE": pd.Timestamp("2026-07-20"), "DTM": dtm,
-         "TRY_BALANCE": bal, "CUST_ID": i, "SEGMENT": "Mass",
-         "HAS_KAMPANYA": 0, "KAMPANYA_ADI": None, "CUST_TP": "G"}
-        for i, (dtm, bal) in enumerate([(10, 2e9), (45, 5e9), (200, 1e9)])
-    ])
-    key = ("14/07/2026", "20/07/2026")
-    monkeypatch.setattr(weekly, "_WEEKLY_AGG_DF_CACHE", {key: agg})
-    monkeypatch.setattr(weekly, "_WEEKLY_FULL_DF_CACHE", {key: full})
+    # FB1: digest artık build_payload'ı default pencereyle (DD son gününden
+    # türetilen) çağırır. _DD_CACHE pencereyi verir; build_payload mock'lanır.
+    monkeypatch.setattr(outstanding, "_DD_CACHE",
+                        {"df": _dd_df(), "dates": ["2026-05-31", "2026-06-30"]})
+    BAND = weekly.WeeklyRollingsEngine.BAND_ORDER
+    payload = {
+        "table_1": {
+            "columns": BAND,
+            "rows": [{"label": "TRY", "date": "30.06.2026",
+                      "values": [3000, 0, 0, 0, 0, 9000], "total": 12000,
+                      "pct_of_total": 100}],
+            "footer": [
+                {"label": "TRY", "total": 12000, "values": [3000, 0, 0, 0, 0, 9000]},
+                {"label": "FX", "total": 1000, "values": [1000, 0, 0, 0, 0, 0]},
+                {"label": "Total", "total": 13000, "values": [4000, 0, 0, 0, 0, 9000]},
+            ],
+        },
+        "dtm_histogram": [
+            {"bucket": "≤14", "volume_m": 2000.0, "ticket_count": 1},
+            {"bucket": "15-32", "volume_m": 5000.0, "ticket_count": 1},
+        ],
+    }
+    monkeypatch.setattr(weekly.WeeklyRollingsEngine, "build_payload",
+                        classmethod(lambda cls, ds, de: payload))
 
 
 # ── Registry kapsamı ────────────────────────────────────────────────────────
@@ -135,13 +140,14 @@ def test_registry_matches_process_registry():
     assert EXPECTED_BLOCKS <= ids
 
 
-# ── Soğuk cache: boş rows + Oracle yasak ────────────────────────────────────
+# ── Soğuk cache / bağlamsız: zarif boş (FB1) ────────────────────────────────
 
-def test_cold_caches_yield_empty_without_oracle(registry, cold_caches, no_oracle):
+def test_cold_caches_yield_empty(registry, cold_caches):
+    # App bağlamı yok → loader'lar current_app'te patlar → _safe zarifçe boşaltır.
     for bid, fn in registry.items():
         out = fn()
         assert out["rows"] == [] and out["view"] is None, \
-            f"{bid} soğuk cache'te boş dönmedi"
+            f"{bid} soğuk/bağlamsız boş dönmedi"
 
 
 # ── Sıcak sentetik cache'ler ────────────────────────────────────────────────
@@ -182,8 +188,9 @@ def test_camon_wf_bennet_consistency(registry, warm_dd, no_oracle):
     assert abs(delta - parts) < 1.5
 
 
-def test_tenor_digests_skip_when_swap_cold(registry, warm_dd, no_oracle,
-                                           monkeypatch):
+def test_tenor_empty_when_swap_unavailable(registry, warm_dd, monkeypatch):
+    # FB1: swap ısıtılamaz + hedge overlay app bağlamı ister → build_snapshot
+    # patlar → digest zarifçe boş (üretimde swap prewarm ile dolu).
     monkeypatch.setattr(outstanding, "_SWAP_CACHE", {})
     assert registry["tamon_ladder"]()["rows"] == []
     assert registry["tamon_curve"]()["rows"] == []
@@ -207,15 +214,15 @@ def test_np_rvhm_reports_last_day_cells(registry, warm_np, no_oracle):
     assert "Son gün" in keys and "×" in keys
 
 
-def test_weekly_digests_shape_and_view(registry, warm_weekly, no_oracle):
+def test_weekly_digests_shape_and_view(registry, warm_weekly):
     for bid in ("wr_rollovers", "wr_dtm"):
         out = registry[bid]()
         _check_shape(out)
-        assert out["rows"], f"{bid} sıcak cache'te boş döndü"
-        # W6b — DD/MM/YYYY pencere anahtarı ISO input değerlerine çevrilir.
+        assert out["rows"], f"{bid} boş döndü"
+        # FB1: pencere DD son gününden türetilir (30.06 → [24.06, 30.06]).
         vals = {c["id"]: c["value"] for c in out["view"]["controls"]}
-        assert vals == {"wr-date-start": "2026-07-14",
-                        "wr-date-end": "2026-07-20"}
+        assert vals == {"wr-date-start": "2026-06-24",
+                        "wr-date-end": "2026-06-30"}
 
 
 def test_digest_never_raises_on_garbage_cache(registry, no_oracle, monkeypatch):

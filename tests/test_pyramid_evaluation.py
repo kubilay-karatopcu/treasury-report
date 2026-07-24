@@ -211,6 +211,21 @@ class TestExpertBriefing:
         assert "42" in joined and "58" not in joined
         assert rec.get("numbers_flagged", 0) >= 1
 
+    def test_numeric_headline_auto_attributed(self):
+        """FB5 — atıfsız ama sayılı madde, sayının geldiği bloğa oto-atfedilir."""
+        digests = {"camon_wf": lambda: {
+            "rows": [{"k": "Mix", "v": "+42 bps"}], "view": None}}
+        llm = _CountingLLM(
+            "- Maliyet mix kaynaklı +42 bps arttı.\n"    # atıf YOK, sayı VAR
+            "- İkinci sinyal [[blok:camon_wf]].")
+        app = _mk_app(llm=llm, digests=digests)
+        commentary.refresh_pipeline(app)
+        rec = commentary.get_commentary_record("dep", LEGACY_KEY)
+        assert rec["headlines"]
+        # +42 bps camon_wf digest/eval'inden geldiği için ilk madde de atıf alır.
+        assert rec["headlines"][0]["cites"] == ["camon_wf"]
+        assert "camon_wf" in rec["cites"]
+
     def test_full_second_round_zero_llm_calls(self):
         llm = _CountingLLM("Bulgu [[blok:camon_wf]].")
         app = _mk_app(llm=llm, digests=_DIGESTS)
