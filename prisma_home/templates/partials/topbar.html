@@ -27,7 +27,8 @@
     {# hide_mode_switch: süreç/pano görünümünde (mevduat panel) mod-geçiş p'ilini
        gizler — kullanıcı kararı 2026-07-22: bir sürece tıkladığımda sağ üstte
        "Atölyeye geç" olmasın. #}
-    {% if not hide_mode_switch %}
+    {# masa_mode: Atölye tamamen gizli — mod-geçiş pili hiç render edilmez. #}
+    {% if not hide_mode_switch and not masa_mode %}
     {% if request.endpoint == 'prisma_home.atolye_home' %}
       <a class="mode-back" id="modeBack"
          href="{{ url_for('prisma_home.landing') }}"

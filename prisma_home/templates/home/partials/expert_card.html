@@ -9,7 +9,7 @@
 <a class="expert-cell" data-domain="{{ expert.id }}"
    href="{{ url_for('prisma_home.expert_detail', code=expert.id) }}">
   <div class="code">{{ expert.code }}</div>
-  <div class="name">{{ expert.domain_label }}</div>
+  <div class="name">{% if masa_mode %}{{ masa_name(expert.name) }}{% else %}{{ expert.domain_label }}{% endif %}</div>
   <div class="role">
     {% if expert.persona and expert.persona.get('voice_examples') %}
       {{ expert.persona.voice_examples[0][:36] }}{% if expert.persona.voice_examples[0]|length > 36 %}…{% endif %}

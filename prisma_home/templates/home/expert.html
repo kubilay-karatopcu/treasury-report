@@ -536,16 +536,21 @@
     <div class="expert-glyph-big">{{ expert.code }}</div>
     <div class="meta">
       <div class="domain-label">
-        {% if briefing.sidebar_eyebrow %}{{ briefing.sidebar_eyebrow }}{% else %}Uzman · {{ expert.domain_label }}{% endif %}
+        {% if masa_mode %}Masa · {{ expert.domain_label }}
+        {% elif briefing and briefing.sidebar_eyebrow %}{{ briefing.sidebar_eyebrow }}
+        {% else %}Uzman · {{ expert.domain_label }}{% endif %}
       </div>
-      <h2>{{ expert.name }}</h2>
+      <h2>{% if masa_mode %}{{ masa_name(expert.name) }}{% else %}{{ expert.name }}{% endif %}</h2>
       <div class="subtitle">
-        {% if briefing.sidebar_subtitle %}{{ briefing.sidebar_subtitle }}
+        {% if not masa_mode and briefing and briefing.sidebar_subtitle %}{{ briefing.sidebar_subtitle }}
         {% else %}{{ expert.short_description }}{% endif %}
       </div>
     </div>
   </div>
 
+  {# masa_mode: brifing tamamen kapalı — hero (anlatı + göstergeler) render
+     edilmez; sayfa yalnız başlık + klasörlenmiş süreçlerden ibaret. #}
+  {% if not masa_mode %}
   <div class="expert-hero">
 
     <div class="briefing-prose">
@@ -626,6 +631,7 @@
       {% endif %}
     </aside>
   </div>
+  {% endif %}{# not masa_mode — expert-hero #}
 
   {% if processes %}
   {# ── W8: departman bakışının süreçleri, topic başlıkları altında. ─────── #}
@@ -886,7 +892,9 @@
 
   {# ── W5c — blok modalı (chart-fs deseni): atıf çipi/kaynakça tıklanınca
      bloğun canlı görünümü embed=1 iframe'iyle tam ekranda açılır. iframe
-     LAZY — src yalnız açılışta atanır, kapanışta boşaltılır. ─────────────── #}
+     LAZY — src yalnız açılışta atanır, kapanışta boşaltılır.
+     masa_mode: atıf çipi yok → modal gereksiz, render edilmez. ───────────── #}
+  {% if not masa_mode %}
   <div id="blok-modal" class="blok-modal" hidden>
     <div class="blok-modal-top">
       <span class="blok-modal-title" id="blok-modal-title"></span>
@@ -941,12 +949,14 @@
     });
   })();
   </script>
+  {% endif %}{# not masa_mode — blok modalı #}
 
   {# Kaynakça · Dayanak Snapshot'lar bölümü kaldırıldı: panolar birer süreç,
      üstteki "Süreçler" tek gerçeklik. #}
 
-  {# ── W4b — "…'ye sor": senkron soru-cevap (persona + doküman + metrik). ── #}
-  {% if processes %}
+  {# ── W4b — "…'ye sor": senkron soru-cevap (persona + doküman + metrik). ──
+     masa_mode: LLM kapalı → "sor" arayüzü hiç render edilmez. #}
+  {% if processes and not masa_mode %}
   <div style="margin-top: 40px; border-top: 1px solid var(--border-soft); padding-top: 24px;">
     <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
                 text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px;">
