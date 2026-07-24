@@ -8998,24 +8998,39 @@
       return true;
     }
 
-    // FB4 — atıf/slide yalnız o bloğu göstersin: anchor'ın .main içindeki en
-    // üst bölüm atasını bul, .main'in diğer doğrudan çocuklarını gizle. Böylece
-    // "bütün süreç" yerine yalnız ilgili blok (uygulanan filtreyle) görünür.
-    // display:none DOM'dan silmez → getElementById/değerler (filtre state)
-    // çalışmaya devam eder. Tümüyle savunmacı; temiz bölüm bulunamazsa dokunmaz.
+    // FB4/FB5 — atıf/slide YALNIZ o bloğu göstersin (brifing bir sunum gibi:
+    // üstte uzmanın cümlesi, altta o cümlenin işaret ettiği tek blok, uygulanan
+    // filtreyle). Eski sürüm .main'in en üst bölüm atasını izole ediyordu; o ata
+    // koca sayfa bölümüydü (tüm accordion'lar/kartlar) → "bütün süreç" görünürdü.
+    //
+    // Artık anchor'ı saran GERÇEK blok birimini buluruz — önce .accordion
+    // (başlıklı blok; yan yana iki grafikli bloklar, ör. bubble bal+rate,
+    // birlikte kalsın diye accordion tercih edilir), yoksa en yakın .card,
+    // yoksa anchor'ın kendisi. Sonra blok ile .main arasındaki TÜM ata
+    // zincirinde, her düzeyde kardeş elemanları gizleriz. Geriye yalnız o blok
+    // (+ .main'e kadarki ata kabuğu) kalır; sekme navı, filtre şeridi, diğer
+    // bloklar ve öbür sayfa bölümleri gizlenir.
+    //
+    // display:none DOM'dan silmez → getElementById + filtre state (kontrol
+    // değerleri/change) çalışmaya devam eder. Tümüyle savunmacı: blok birimi ya
+    // da .main bulunamazsa dokunmaz (eski davranış).
     function isolateAnchor(el) {
       try {
         var main = el.closest && el.closest(".main");
         if (!main) return;
-        var top = el;
-        while (top.parentElement && top.parentElement !== main) top = top.parentElement;
-        if (top.parentElement !== main) return;   // temiz üst-bölüm yok → dokunma
-        Array.prototype.forEach.call(main.children, function (c) {
-          if (c === top || c.nodeType !== 1) return;
-          if (c.tagName === "SCRIPT" || c.tagName === "STYLE") return;
-          c.setAttribute("data-embed-hidden", "1");
-          c.style.display = "none";
-        });
+        var block = (el.closest && (el.closest(".accordion") || el.closest(".card"))) || el;
+        if (!main.contains(block) || block === main) return;
+        var node = block;
+        while (node && node !== main && node.parentElement) {
+          var parent = node.parentElement;
+          Array.prototype.forEach.call(parent.children, function (c) {
+            if (c === node || c.nodeType !== 1) return;
+            if (c.tagName === "SCRIPT" || c.tagName === "STYLE") return;
+            c.setAttribute("data-embed-hidden", "1");
+            c.style.display = "none";
+          });
+          node = parent;
+        }
       } catch (e) {}
     }
 
