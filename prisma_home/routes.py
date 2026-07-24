@@ -167,18 +167,79 @@ def expert_detail(code: str):
     )
 
 
-def _brief_slides(record: dict | None, cite_meta: dict) -> list[dict]:
-    """W6c — headline kaydını sunum slide'larına çevirir.
+def _frame_url(render_url: str, anchors: list[str], controls: list[dict]) -> str:
+    """FB6 — bir sayfa-grubu için birleşik embed URL'i.
 
-    Slide = {"text": madde, "blocks": [cite_meta girdisi]}. Atıfsız madde
-    blocks=[] ile gelir (yalnız-metin slide'ı). Headline yoksa boş liste —
-    "Brifingi al" butonu render edilmez."""
+    Aynı SPA sayfasındaki birden çok blok tek iframe'de gösterilir: anchor'lar
+    virgülle birleşir (embed hepsini izole eder), controls birliği tek state
+    paketinde taşınır (aynı süreçteki bloklar zaten aynı görünümü kullanır)."""
+    sep = "&" if "?" in render_url else "?"
+    embed = f"{render_url}{sep}embed=1"
+    anchors = [a for a in anchors if a]
+    if anchors:
+        embed += "&anchor=" + ",".join(anchors)
+    state = _view_state_param({"controls": controls})
+    if state:
+        embed += f"&state={state}"
+    return embed
+
+
+def _slide_frames(blocks: list[dict]) -> list[dict]:
+    """FB6 — slaytın atıf bloklarını SPA sayfasına göre iframe gruplarına böler.
+
+    Aynı sayfadaki bloklar (ör. cost-analysis'teki waterfall + heatmap) tek
+    frame'de birleşir → iki plot birlikte, kullandıkları filtreyle. Farklı
+    sayfadakiler ayrı frame olur (slaytta chip'le geçilir). Frame sırası
+    blokların slayttaki sırasını korur."""
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+    for b in blocks:
+        key = b.get("render_url") or ""
+        if not key:
+            continue
+        g = groups.get(key)
+        if g is None:
+            g = {"render_url": key, "anchors": [], "controls": [],
+                 "titles": [], "labels": [], "block_ids": []}
+            groups[key] = g
+            order.append(key)
+        if b.get("anchor"):
+            g["anchors"].append(b["anchor"])
+        for c in b.get("controls") or []:
+            if c not in g["controls"]:
+                g["controls"].append(c)
+        g["titles"].append(b.get("title") or b.get("id"))
+        lbl = b.get("state_label")
+        if lbl and lbl not in g["labels"]:
+            g["labels"].append(lbl)
+        g["block_ids"].append(b.get("id"))
+    frames = []
+    for key in order:
+        g = groups[key]
+        frames.append({
+            "url": _frame_url(g["render_url"], g["anchors"], g["controls"]),
+            "title": " · ".join(t for t in g["titles"] if t),
+            "label": " · ".join(g["labels"]),
+            "block_ids": g["block_ids"],
+        })
+    return frames
+
+
+def _brief_slides(record: dict | None, cite_meta: dict) -> list[dict]:
+    """W6c/FB6 — headline kaydını sunum slide'larına çevirir.
+
+    Slide = {"text": madde, "blocks": [cite_meta girdisi], "frames": [...]}.
+    `blocks` atıf sırasını korur (chat bağlamı + geriye uyum). `frames` ise
+    blokları SPA sayfasına göre gruplar: aynı sayfadaki bloklar tek iframe'de
+    (çoklu-anchor) birlikte gösterilir. Atıfsız madde blocks=frames=[] ile
+    gelir (yalnız-metin slide'ı). Headline yoksa boş liste."""
     if not record or not record.get("headlines"):
         return []
     slides = []
     for h in record["headlines"]:
         blocks = [cite_meta[c] for c in h.get("cites") or [] if c in cite_meta]
-        slides.append({"text": h.get("text") or "", "blocks": blocks})
+        slides.append({"text": h.get("text") or "", "blocks": blocks,
+                       "frames": _slide_frames(blocks)})
     return [s for s in slides if s["text"]]
 
 
@@ -229,7 +290,11 @@ def _citation_entries(record: dict, process_ids: list[str]) -> list[dict]:
                 embed += f"&state={state}"
             index[bid] = {"id": bid, "title": b.get("title") or bid,
                           "process": p.get("label", ""), "url": embed,
-                          "state_label": (view or {}).get("label") or ""}
+                          "state_label": (view or {}).get("label") or "",
+                          # FB6 — çoklu-blok slayt için yapısal alanlar: aynı
+                          # sayfadaki bloklar tek iframe'de birleştirilir.
+                          "render_url": url, "anchor": anchor,
+                          "controls": (view or {}).get("controls") or []}
     out = []
     for bid in record.get("cites") or []:
         entry = index.get(bid)
