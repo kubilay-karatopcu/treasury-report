@@ -536,16 +536,21 @@
     <div class="expert-glyph-big">{{ expert.code }}</div>
     <div class="meta">
       <div class="domain-label">
-        {% if briefing.sidebar_eyebrow %}{{ briefing.sidebar_eyebrow }}{% else %}Uzman · {{ expert.domain_label }}{% endif %}
+        {% if masa_mode %}Masa · {{ expert.domain_label }}
+        {% elif briefing and briefing.sidebar_eyebrow %}{{ briefing.sidebar_eyebrow }}
+        {% else %}Uzman · {{ expert.domain_label }}{% endif %}
       </div>
-      <h2>{{ expert.name }}</h2>
+      <h2>{% if masa_mode %}{{ masa_name(expert.name) }}{% else %}{{ expert.name }}{% endif %}</h2>
       <div class="subtitle">
-        {% if briefing.sidebar_subtitle %}{{ briefing.sidebar_subtitle }}
+        {% if not masa_mode and briefing and briefing.sidebar_subtitle %}{{ briefing.sidebar_subtitle }}
         {% else %}{{ expert.short_description }}{% endif %}
       </div>
     </div>
   </div>
 
+  {# masa_mode: brifing tamamen kapalı — hero (anlatı + göstergeler) render
+     edilmez; sayfa yalnız başlık + klasörlenmiş süreçlerden ibaret. #}
+  {% if not masa_mode %}
   <div class="expert-hero">
 
     <div class="briefing-prose">
@@ -626,6 +631,7 @@
       {% endif %}
     </aside>
   </div>
+  {% endif %}{# not masa_mode — expert-hero #}
 
   {% if processes %}
   {# ── W8: departman bakışının süreçleri, topic başlıkları altında. ─────── #}
@@ -771,7 +777,7 @@
     try { slides = JSON.parse(dataEl.textContent) || []; } catch (e) { return; }
     if (!slides.length) return;
 
-    var idx = 0, blockIdx = 0;
+    var idx = 0, frameIdx = 0;
     var frame = document.getElementById('bp-frame');
     var noblock = document.getElementById('bp-noblock');
     var textEl = document.getElementById('bp-text');
@@ -786,43 +792,48 @@
       textEl.textContent = s.text;
       progEl.textContent = (idx + 1) + ' / ' + slides.length;
       answerEl.hidden = true;
-      // Meta şeridi: blok adı + değerlendirmenin görünümü (state label);
-      // birden çok atıf varsa blok seçici chip'leri.
+      // FB6 — meta şeridi: aynı sayfadaki bloklar tek "frame"de birleşir (iki
+      // plot birlikte, kullandıkları filtreyle). Birden çok sayfa-grubu varsa
+      // chip'lerle geçilir. Etiket: uygulanan görünüm (digest view label).
       metaEl.innerHTML = '';
-      if (s.blocks.length) {
-        var b = s.blocks[Math.min(blockIdx, s.blocks.length - 1)];
-        s.blocks.forEach(function (blk, i) {
-          var chip = document.createElement('button');
-          chip.type = 'button';
-          chip.className = 'bp-blockchip' + (blk === b ? ' is-active' : '');
-          chip.textContent = blk.num + ' · ' + blk.title;
-          chip.addEventListener('click', function () {
-            blockIdx = i; render();
+      var frames = s.frames || [];
+      if (frames.length) {
+        var f = frames[Math.min(frameIdx, frames.length - 1)];
+        if (frames.length > 1) {
+          frames.forEach(function (fr, i) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'bp-blockchip' + (fr === f ? ' is-active' : '');
+            chip.textContent = fr.title;
+            chip.addEventListener('click', function () {
+              frameIdx = i; render();
+            });
+            metaEl.appendChild(chip);
           });
-          metaEl.appendChild(chip);
-        });
-        if (b.state_label) {
+        }
+        if (f.label) {
           var st = document.createElement('span');
           st.className = 'bp-statelabel';
-          st.textContent = b.state_label;
+          st.textContent = 'Uygulanan görünüm: ' + f.label;
           metaEl.appendChild(st);
         }
         noblock.hidden = true;
         frame.style.visibility = 'visible';
-        if (frame.dataset.url !== b.url) {   // lazy: yalnız değişince yükle
-          frame.dataset.url = b.url;
-          frame.src = b.url;
+        if (frame.dataset.url !== f.url) {   // lazy: yalnız değişince yükle
+          frame.dataset.url = f.url;
+          frame.src = f.url;
         }
       } else {
         noblock.hidden = false;
         frame.style.visibility = 'hidden';
+        frame.dataset.url = '';
       }
       document.getElementById('bp-prev').disabled = idx === 0;
       document.getElementById('bp-next').disabled = idx === slides.length - 1;
     }
     function goTo(i) {
       if (i < 0 || i >= slides.length) return;
-      idx = i; blockIdx = 0; render();
+      idx = i; frameIdx = 0; render();
     }
     function open() {
       pres.hidden = false;
@@ -856,13 +867,16 @@
       answerEl.hidden = false;
       answerEl.textContent = 'Düşünüyor…';
       var s = slides[idx];
-      var blk = s.blocks.length ? s.blocks[Math.min(blockIdx, s.blocks.length - 1)] : null;
+      // Chat bağlamı: aktif frame'in ilk bloğu (yoksa boş — genel bağlam).
+      var frames = s.frames || [];
+      var f = frames.length ? frames[Math.min(frameIdx, frames.length - 1)] : null;
+      var bid = f && f.block_ids && f.block_ids.length ? f.block_ids[0] : '';
       fetch({{ url_for('prisma_home.expert_ask', code=expert.id) | tojson }}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: q,
-          context: { slide_text: s.text, block_id: blk ? blk.id : '' }
+          context: { slide_text: s.text, block_id: bid }
         })
       }).then(function (r) { return r.json(); })
         .then(function (d) { answerEl.textContent = d.answer || 'Cevap alınamadı.'; askBtn.disabled = false; })
@@ -878,7 +892,9 @@
 
   {# ── W5c — blok modalı (chart-fs deseni): atıf çipi/kaynakça tıklanınca
      bloğun canlı görünümü embed=1 iframe'iyle tam ekranda açılır. iframe
-     LAZY — src yalnız açılışta atanır, kapanışta boşaltılır. ─────────────── #}
+     LAZY — src yalnız açılışta atanır, kapanışta boşaltılır.
+     masa_mode: atıf çipi yok → modal gereksiz, render edilmez. ───────────── #}
+  {% if not masa_mode %}
   <div id="blok-modal" class="blok-modal" hidden>
     <div class="blok-modal-top">
       <span class="blok-modal-title" id="blok-modal-title"></span>
@@ -933,12 +949,14 @@
     });
   })();
   </script>
+  {% endif %}{# not masa_mode — blok modalı #}
 
   {# Kaynakça · Dayanak Snapshot'lar bölümü kaldırıldı: panolar birer süreç,
      üstteki "Süreçler" tek gerçeklik. #}
 
-  {# ── W4b — "…'ye sor": senkron soru-cevap (persona + doküman + metrik). ── #}
-  {% if processes %}
+  {# ── W4b — "…'ye sor": senkron soru-cevap (persona + doküman + metrik). ──
+     masa_mode: LLM kapalı → "sor" arayüzü hiç render edilmez. #}
+  {% if processes and not masa_mode %}
   <div style="margin-top: 40px; border-top: 1px solid var(--border-soft); padding-top: 24px;">
     <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
                 text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px;">

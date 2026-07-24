@@ -115,9 +115,14 @@ def _wr_view(key: tuple, extra: str) -> dict:
 # ── mevduat.maliyet ─────────────────────────────────────────────────────────
 
 def _camon_view(d0: str, d1: str, extra: str = "") -> dict:
+    # FB6 — Cost sayfasında varsayılan aktif alt sekme "Daily"; aylık bloklar
+    # gizli section'da durur. Önce "Monthly Averages" sekmesini tıklat ki blok
+    # görünür + verili olsun (embed doClicks bunu value kontrollerinden ÖNCE
+    # işler), sonra tarih değerlerini uygula.
     return _view(
         f"Dönem: {_dmy(d0)} → {_dmy(d1)}" + (f" · {extra}" if extra else ""),
-        [{"id": "ca-mon-date0", "value": d0},
+        [{"click": "[data-ca-tab='monthly-averages']"},
+         {"id": "ca-mon-date0", "value": d0},
          {"id": "ca-mon-date1", "value": d1}])
 
 
@@ -260,9 +265,11 @@ def _balance_payload() -> Optional[tuple]:
 
 
 def _bamon_view(d0: str, d1: str, extra: str) -> dict:
+    # FB6 — Balance sayfasında da varsayılan "Daily"; önce Monthly sekmesi.
     return _view(
         f"Dönem: {_dmy(d0)} → {_dmy(d1)} · Boyut: SEGMENT × AUM · {extra}",
-        [{"id": "ba-mon-date0", "value": d0},
+        [{"click": "[data-ba-tab='monthly-averages']"},
+         {"id": "ba-mon-date0", "value": d0},
          {"id": "ba-mon-date1", "value": d1},
          {"id": "ba-mon-decomp", "value": "SEGMENT"}])
 
@@ -339,9 +346,11 @@ def _tenor_payload() -> Optional[tuple]:
 
 
 def _tamon_view(d0: str, d1: str, extra: str) -> dict:
+    # FB6 — Tenor sayfasında da varsayılan "Daily"; önce Monthly sekmesi.
     return _view(
         f"Dönem: {_dmy(d0)} → {_dmy(d1)} · Mod: tenor (varsayılan) · {extra}",
-        [{"id": "ta-mon-date0", "value": d0},
+        [{"click": "[data-ta-tab='monthly-averages']"},
+         {"id": "ta-mon-date0", "value": d0},
          {"id": "ta-mon-date1", "value": d1}])
 
 
