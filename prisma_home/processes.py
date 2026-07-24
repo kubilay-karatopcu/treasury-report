@@ -99,7 +99,7 @@ PROCESS_REGISTRY: dict[str, dict] = {
                     "standart blok render'ında yok; baloncuk konumu ağırlıklı "
                     "ortalamadır, uç değerleri gizleyebilir."),
             _cblock("camon_ratehm", "Interest Rate Heatmap", "cost-analysis",
-                    "ca-mon-rate-hm",
+                    "acc-btn-ca-mon-rate-hm",
                     "Ayrıştırma × İkinci Boyut matrisinde faiz Δ/seviyesi ısı "
                     "haritası; hücre drill'i satır seviyesine iner.",
                     business_context="Faiz değişiminin hangi segment×boyut "
