@@ -163,6 +163,371 @@
     transition: color 0.2s;
   }
   .process-cell:hover .proc-cta { color: var(--gold); }
+
+  /* ── FB2: kart aksiyon satırı + "Özeti gör" toggle + genişleyen kart. ── */
+  .process-cell .proc-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .process-cell .proc-actions .proc-cta { margin-top: 0; }
+  .proc-toggle {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .proc-toggle:hover { color: var(--gold); border-color: var(--gold-dim); }
+  .process-cell.expanded {
+    grid-column: 1 / -1;          /* açılınca tüm satırı kapla → diğerleri alta */
+    background: var(--bg-2);
+    border-color: var(--gold-dim);
+  }
+  .process-cell.expanded .proc-desc { flex: 0 0 auto; }
+
+  /* ── W8: topic başlığı (departman bakışında yazarın gruplaması) + bakış etiketi. */
+  .topic-head {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--gold-dim);
+    margin: 26px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .view-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: none;
+    color: var(--gold-dim);
+  }
+
+  /* ── W5c: süreç kartında güncel Aşama-B değerlendirmesi. ─────────────── */
+  .process-cell .proc-eval {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border-soft);
+    font-family: var(--serif);
+    font-size: 12.5px;
+    font-style: italic;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+
+  /* ── W6a: exec summary maddeleri + Brifingi al butonu. ───────────────── */
+  .brief-headlines {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .brief-headlines li {
+    position: relative;
+    padding: 7px 0 7px 22px;
+  }
+  .brief-headlines li + li { border-top: 1px dashed var(--border-soft); }
+  .brief-headlines li::before {
+    content: "—";
+    position: absolute;
+    left: 0;
+    color: var(--gold);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .brief-take {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: transparent;
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 6px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .brief-take:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+  .brief-take:disabled { opacity: 0.45; cursor: default; }
+
+  /* ── W5c: atıf çipleri + kaynakça + blok modalı (chart-fs deseni). ───── */
+  .cite-chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-style: normal;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--gold);
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 2px 5px;
+    margin-left: 4px;
+    vertical-align: super;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+  }
+  .cite-chip:hover { background: var(--gold); color: var(--bg-0); }
+  .cite-refs { margin: 14px 0 20px; }
+  .cite-refs-head {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 8px;
+  }
+  .cite-ref {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-left: 2px solid var(--border-soft);
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .cite-ref:hover { border-left-color: var(--gold); }
+  .cite-ref-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold);
+    min-width: 16px;
+  }
+  .cite-ref-title { font-size: 13px; color: var(--ink); }
+  .cite-ref-proc {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.06em;
+  }
+  .cite-ref-state {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold-dim);
+    white-space: nowrap;
+  }
+  .cite-ref:hover .cite-ref-title { color: var(--gold); }
+  .blok-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    display: flex;
+    flex-direction: column;
+    background: rgba(6, 9, 18, 0.88);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .blok-modal[hidden] { display: none; }
+  .blok-modal-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .blok-modal-title {
+    flex: 1;
+    font-family: var(--serif);
+    font-size: 16px;
+    font-weight: 300;
+    color: var(--ink);
+  }
+  .blok-modal-open, .blok-modal-close {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: transparent;
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 6px 12px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .blok-modal-open:hover, .blok-modal-close:hover {
+    background: var(--gold);
+    color: var(--bg-0);
+  }
+  .blok-modal-frame {
+    flex: 1;
+    width: min(1500px, calc(100vw - 48px));
+    margin: 16px auto 24px;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--bg-0);
+  }
+
+  /* ── W6c: brifing sunum modalı. ──────────────────────────────────────── */
+  .brief-pres {
+    position: fixed;
+    inset: 0;
+    z-index: 450;                /* blok modalının (400) üstünde */
+    display: flex;
+    flex-direction: column;
+    background: rgba(6, 9, 18, 0.96);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .brief-pres[hidden] { display: none; }
+  .brief-pres-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .brief-pres-eyebrow {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .brief-pres-progress {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-mute);
+    letter-spacing: 0.1em;
+  }
+  .brief-pres-headline {
+    padding: 18px 72px 12px;
+  }
+  .brief-pres-text {
+    font-family: var(--serif);
+    font-size: 21px;
+    font-weight: 300;
+    line-height: 1.5;
+    color: var(--ink);
+    max-width: 1100px;
+  }
+  .brief-pres-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .bp-blockchip {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--ink-mute);
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .bp-blockchip.is-active { color: var(--gold); border-color: var(--gold-dim); }
+  .bp-statelabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold-dim);
+    margin-left: 4px;
+  }
+  .brief-pres-stage {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0 12px;
+    min-height: 0;               /* iframe flex taşmasın */
+    position: relative;
+  }
+  .bp-arrow {
+    flex: 0 0 44px;
+    align-self: center;
+    height: 84px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-mute);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .bp-arrow:hover:not(:disabled) { color: var(--gold); border-color: var(--gold-dim); }
+  .bp-arrow:disabled { opacity: 0.25; cursor: default; }
+  .brief-pres-frame {
+    flex: 1;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--bg-0);
+    min-width: 0;
+  }
+  .brief-pres-noblock {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--serif);
+    font-size: 16px;
+    font-style: italic;
+    color: var(--ink-faint);
+    pointer-events: none;
+  }
+  .brief-pres-chat {
+    display: flex;
+    gap: 10px;
+    padding: 12px 72px;
+  }
+  .brief-pres-chat input {
+    flex: 1;
+    background: var(--bg-1);
+    color: var(--ink);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 11px 14px;
+    font-size: 13.5px;
+  }
+  .brief-pres-chat button {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+    background: transparent;
+    color: var(--gold);
+    border: 1px solid var(--gold-dim);
+    border-radius: 6px;
+    padding: 0 18px;
+  }
+  .brief-pres-chat button:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+  .brief-pres-answer {
+    margin: 0 72px 14px;
+    padding: 12px 16px;
+    border-left: 2px solid var(--gold-dim);
+    background: var(--bg-1);
+    border-radius: 0 8px 8px 0;
+    font-family: var(--serif);
+    font-size: 14px;
+    font-weight: 300;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    white-space: pre-wrap;
+    max-height: 22vh;
+    overflow-y: auto;
+  }
 </style>
 {% endblock %}
 
@@ -263,41 +628,311 @@
   </div>
 
   {% if processes %}
-  {# ── Faz P0: uzmanın canlı panoları (bound_content.processes). Numara 01 —
-       tek gerçeklik süreçlerdir (Kaynakça/Snapshot bölümü kaldırıldı). ────── #}
+  {# ── W8: departman bakışının süreçleri, topic başlıkları altında. ─────── #}
   <div class="section-head">
     <span class="section-num">01</span>
-    <span class="section-title">Süreçler · Canlı Panolar</span>
+    <span class="section-title">Süreçler · Canlı Panolar{% if view_label %}
+      <span class="view-label">· {{ view_label }}</span>{% endif %}</span>
     <span class="section-tail"></span>
   </div>
 
   {% if commentary %}
-  {# W4a — uzman yorumu (dökümantasyondan; sayı içermez). #}
+  {# W5b/W5c — uzman brifing anlatısı: piramit Aşama-C kaydı segmentli render
+     edilir, atıflar çip olur (tıklama → blok modalı). Kayıt yoksa (eski
+     cache / soğuk boot) düz metin — çipsiz, birebir eski davranış. #}
   <div style="margin: 0 0 20px; padding: 16px 20px;
               border-left: 2px solid {{ expert.ui.accent_color }};
               background: var(--bg-1); border-radius: 0 8px 8px 0;">
-    <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
-                text-transform: uppercase; color: {{ expert.ui.accent_color }};
-                margin-bottom: 8px;">{{ expert.code }} · uzman yorumu</div>
+    {% macro cite_chips(cites) -%}
+      {%- for c in cites %}{% if c in cite_meta -%}
+        <sup class="cite-chip" role="button" tabindex="0"
+             data-url="{{ cite_meta[c].url }}"
+             data-title="{{ cite_meta[c].title }}"
+             title="{{ cite_meta[c].title }} — {{ cite_meta[c].process }}"
+             >{{ cite_meta[c].num }}</sup>
+      {%- endif %}{% endfor -%}
+    {%- endmacro %}
+    <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px;">
+      <div style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em;
+                  text-transform: uppercase; color: {{ expert.ui.accent_color }};
+                  flex: 1;">{{ expert.code }} · exec summary</div>
+      {% if brief_slides %}
+      {# W6c — sunum modalını açar (slide verisi #brief-slides JSON'unda). #}
+      <button type="button" class="brief-take" id="brief-take-btn"
+              title="Brifingi sunum olarak izle">▶ Brifingi al</button>
+      {% endif %}
+    </div>
     <div style="font-family: var(--serif); font-size: 15.5px; font-weight: 300;
-                font-style: italic; line-height: 1.65; color: var(--ink-soft);">
-      {{ commentary }}
+                line-height: 1.65; color: var(--ink-soft);">
+      {%- if commentary_rec and commentary_rec.headlines -%}
+        {# W6a — exec summary maddeleri: madde başına metin + atıf çipleri. #}
+        <ul class="brief-headlines">
+          {%- for h in commentary_rec.headlines %}
+          <li>{{ h.text }}{{ cite_chips(h.cites) }}</li>
+          {%- endfor %}
+        </ul>
+      {%- elif commentary_rec and commentary_rec.segments -%}
+        <span style="font-style: italic;">
+        {%- for seg in commentary_rec.segments -%}
+          {{ seg.text }}{{ cite_chips(seg.cites) }}{{ ' ' }}
+        {%- endfor -%}
+        </span>
+      {%- else -%}
+        <span style="font-style: italic;">{{ commentary }}</span>
+      {%- endif -%}
     </div>
   </div>
+
+  {# FB3 — Kaynakça bölümü kaldırıldı: cümle sonu atıf çipleri yeterli. #}
   {% endif %}
 
-  <div class="process-grid">
-    {% for p in processes %}
-    <a class="process-cell" href="{{ p.url }}"
-       style="text-decoration: none; color: inherit;">
+  {# W8 — süreçler topic gruplarına bölünür (yazar tanımlar). topics yoksa
+     (beklenmez) tek grupta tüm süreçler.
+     FB2 — süreç özeti (Aşama-B) kart içinde varsayılan GİZLİ; "Özeti gör"
+     toggle'ı açar, açılınca kart tüm satırı kaplar (diğerleri alt satıra). #}
+  {% macro proc_card(p) -%}
+    <div class="process-cell" data-pid="{{ p.id }}">
       <div class="proc-code">{{ p.num }}</div>
       <div class="proc-name">{{ p.label }}</div>
       <div class="proc-desc">{{ p.desc }}</div>
-      <span class="proc-cta">Panoyu aç →</span>
-    </a>
-    {% endfor %}
-  </div>
+      {% if proc_evals and proc_evals.get(p.id) %}
+      <div class="proc-eval" hidden>{{ proc_evals[p.id] }}</div>
+      {% endif %}
+      <div class="proc-actions">
+        {% if proc_evals and proc_evals.get(p.id) %}
+        <button type="button" class="proc-toggle">Özeti gör ▾</button>
+        {% endif %}
+        <a class="proc-cta" href="{{ p.url }}">Panoyu aç →</a>
+      </div>
+    </div>
+  {%- endmacro %}
+  {% for topic in (topics if topics else [{"title": "", "processes": processes}]) %}
+    {% if topic.title %}
+    <div class="topic-head">{{ topic.title }}</div>
+    {% endif %}
+    <div class="process-grid">
+      {% for p in topic.processes %}{{ proc_card(p) }}{% endfor %}
+    </div>
+  {% endfor %}
+
+  <script>
+  (function () {
+    // FB2 — "Özeti gör" toggle: kartı tüm satıra genişletir, özeti açar.
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('.proc-toggle');
+      if (!btn) return;
+      var cell = btn.closest('.process-cell');
+      var evalBox = cell.querySelector('.proc-eval');
+      var open = cell.classList.toggle('expanded');
+      if (evalBox) evalBox.hidden = !open;
+      btn.textContent = open ? 'Özeti gizle ▴' : 'Özeti gör ▾';
+    });
+  })();
+  </script>
   {% endif %}
+
+  {% if brief_slides %}
+  {# ── W6c — Brifing Sunumu: slide = madde + state chip'i + atıf bloğunun
+     embed iframe'i. ←/→ akış, ilerleme, altta slide-bağlamlı chat. ───────── #}
+  <script id="brief-slides" type="application/json">{{ brief_slides | tojson }}</script>
+  <div id="brief-pres" class="brief-pres" hidden>
+    <div class="brief-pres-top">
+      <span class="brief-pres-eyebrow">{{ expert.code }} · brifing sunumu</span>
+      <span class="brief-pres-progress" id="bp-progress"></span>
+      <button type="button" class="blok-modal-close" id="bp-close">✕ Kapat</button>
+    </div>
+    <div class="brief-pres-headline">
+      <div class="brief-pres-text" id="bp-text"></div>
+      <div class="brief-pres-meta" id="bp-meta"></div>
+    </div>
+    <div class="brief-pres-stage">
+      <button type="button" class="bp-arrow" id="bp-prev" aria-label="Önceki">‹</button>
+      <iframe class="brief-pres-frame" id="bp-frame" title="Slayt bloğu"
+              src="about:blank"></iframe>
+      <div class="brief-pres-noblock" id="bp-noblock" hidden>
+        Bu madde genel bağlam — blok atıfı yok.
+      </div>
+      <button type="button" class="bp-arrow" id="bp-next" aria-label="Sonraki">›</button>
+    </div>
+    <div class="brief-pres-chat">
+      <input type="text" id="bp-ask-input" maxlength="500"
+             placeholder="Bu slaytla ilgili (ya da genel) bir soru sor…">
+      <button type="button" id="bp-ask-btn">Sor</button>
+    </div>
+    <div class="brief-pres-answer" id="bp-answer" hidden></div>
+  </div>
+  <script>
+  (function () {
+    var pres = document.getElementById('brief-pres');
+    var dataEl = document.getElementById('brief-slides');
+    var openBtn = document.getElementById('brief-take-btn');
+    if (!pres || !dataEl || !openBtn) return;
+    var slides = [];
+    try { slides = JSON.parse(dataEl.textContent) || []; } catch (e) { return; }
+    if (!slides.length) return;
+
+    var idx = 0, blockIdx = 0;
+    var frame = document.getElementById('bp-frame');
+    var noblock = document.getElementById('bp-noblock');
+    var textEl = document.getElementById('bp-text');
+    var metaEl = document.getElementById('bp-meta');
+    var progEl = document.getElementById('bp-progress');
+    var answerEl = document.getElementById('bp-answer');
+    var askInput = document.getElementById('bp-ask-input');
+    var askBtn = document.getElementById('bp-ask-btn');
+
+    function render() {
+      var s = slides[idx];
+      textEl.textContent = s.text;
+      progEl.textContent = (idx + 1) + ' / ' + slides.length;
+      answerEl.hidden = true;
+      // Meta şeridi: blok adı + değerlendirmenin görünümü (state label);
+      // birden çok atıf varsa blok seçici chip'leri.
+      metaEl.innerHTML = '';
+      if (s.blocks.length) {
+        var b = s.blocks[Math.min(blockIdx, s.blocks.length - 1)];
+        s.blocks.forEach(function (blk, i) {
+          var chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'bp-blockchip' + (blk === b ? ' is-active' : '');
+          chip.textContent = blk.num + ' · ' + blk.title;
+          chip.addEventListener('click', function () {
+            blockIdx = i; render();
+          });
+          metaEl.appendChild(chip);
+        });
+        if (b.state_label) {
+          var st = document.createElement('span');
+          st.className = 'bp-statelabel';
+          st.textContent = b.state_label;
+          metaEl.appendChild(st);
+        }
+        noblock.hidden = true;
+        frame.style.visibility = 'visible';
+        if (frame.dataset.url !== b.url) {   // lazy: yalnız değişince yükle
+          frame.dataset.url = b.url;
+          frame.src = b.url;
+        }
+      } else {
+        noblock.hidden = false;
+        frame.style.visibility = 'hidden';
+      }
+      document.getElementById('bp-prev').disabled = idx === 0;
+      document.getElementById('bp-next').disabled = idx === slides.length - 1;
+    }
+    function goTo(i) {
+      if (i < 0 || i >= slides.length) return;
+      idx = i; blockIdx = 0; render();
+    }
+    function open() {
+      pres.hidden = false;
+      document.body.style.overflow = 'hidden';
+      goTo(0);
+    }
+    function close() {
+      pres.hidden = true;
+      frame.src = 'about:blank';
+      frame.dataset.url = '';
+      document.body.style.overflow = '';
+    }
+
+    openBtn.addEventListener('click', open);
+    document.getElementById('bp-close').addEventListener('click', close);
+    document.getElementById('bp-prev').addEventListener('click', function () { goTo(idx - 1); });
+    document.getElementById('bp-next').addEventListener('click', function () { goTo(idx + 1); });
+    document.addEventListener('keydown', function (ev) {
+      if (pres.hidden) return;
+      var inInput = ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName);
+      if (ev.key === 'Escape') { close(); return; }
+      if (inInput) return;   // yazarken ok tuşları imleç için kalsın
+      if (ev.key === 'ArrowLeft') goTo(idx - 1);
+      if (ev.key === 'ArrowRight') goTo(idx + 1);
+    });
+
+    function ask() {
+      var q = (askInput.value || '').trim();
+      if (!q) return;
+      askBtn.disabled = true;
+      answerEl.hidden = false;
+      answerEl.textContent = 'Düşünüyor…';
+      var s = slides[idx];
+      var blk = s.blocks.length ? s.blocks[Math.min(blockIdx, s.blocks.length - 1)] : null;
+      fetch({{ url_for('prisma_home.expert_ask', code=expert.id) | tojson }}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          context: { slide_text: s.text, block_id: blk ? blk.id : '' }
+        })
+      }).then(function (r) { return r.json(); })
+        .then(function (d) { answerEl.textContent = d.answer || 'Cevap alınamadı.'; askBtn.disabled = false; })
+        .catch(function (e) { answerEl.textContent = 'Hata: ' + (e.message || e); askBtn.disabled = false; });
+    }
+    askBtn.addEventListener('click', ask);
+    askInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') ask();
+    });
+  })();
+  </script>
+  {% endif %}
+
+  {# ── W5c — blok modalı (chart-fs deseni): atıf çipi/kaynakça tıklanınca
+     bloğun canlı görünümü embed=1 iframe'iyle tam ekranda açılır. iframe
+     LAZY — src yalnız açılışta atanır, kapanışta boşaltılır. ─────────────── #}
+  <div id="blok-modal" class="blok-modal" hidden>
+    <div class="blok-modal-top">
+      <span class="blok-modal-title" id="blok-modal-title"></span>
+      <a class="blok-modal-open" id="blok-modal-open" target="_blank"
+         rel="noopener">Yeni sekmede aç ↗</a>
+      <button type="button" class="blok-modal-close" id="blok-modal-close">✕ Kapat</button>
+    </div>
+    <iframe class="blok-modal-frame" id="blok-modal-frame"
+            title="Blok görünümü" src="about:blank"></iframe>
+  </div>
+  <script>
+  (function () {
+    var modal = document.getElementById('blok-modal');
+    if (!modal) return;
+    var frame = document.getElementById('blok-modal-frame');
+    var title = document.getElementById('blok-modal-title');
+    var openA = document.getElementById('blok-modal-open');
+
+    function open(url, name) {
+      title.textContent = name || '';
+      openA.href = url;
+      frame.src = url;             // lazy: yalnız açılışta yükle
+      modal.hidden = false;
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      modal.hidden = true;
+      frame.src = 'about:blank';   // arka planda fetch/render bırakma
+      document.body.style.overflow = '';
+    }
+    document.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (!t || !t.closest) return;
+      var trg = t.closest('.cite-chip, .cite-ref');
+      if (trg && trg.dataset.url) {
+        ev.preventDefault();
+        open(trg.dataset.url, trg.dataset.title);
+        return;
+      }
+      if (t.closest('#blok-modal-close')) close();
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !modal.hidden) close();
+      if (ev.key === 'Enter' && ev.target && ev.target.classList &&
+          ev.target.classList.contains('cite-chip') && ev.target.dataset.url) {
+        open(ev.target.dataset.url, ev.target.dataset.title);
+      }
+    });
+    // Modal arka planına (iframe dışı boşluk) tıklayınca kapat.
+    modal.addEventListener('click', function (ev) {
+      if (ev.target === modal) close();
+    });
+  })();
+  </script>
 
   {# Kaynakça · Dayanak Snapshot'lar bölümü kaldırıldı: panolar birer süreç,
      üstteki "Süreçler" tek gerçeklik. #}

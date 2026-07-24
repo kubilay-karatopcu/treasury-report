@@ -560,6 +560,11 @@ try:
     from mevduat_panel.metrics import metrics_summary
 
     app.config["PROCESS_METRICS_PROVIDER"] = metrics_summary
+    # W5a — blok digest saglayicilari: uzman piramidinin Asama A verisi.
+    # prisma_home yalniz config'i okur (izolasyon sozlesmesi ayni).
+    from mevduat_panel.block_digests import build_digest_registry
+
+    app.config["PROCESS_BLOCK_DIGESTS"] = build_digest_registry()
     # Prewarm varsayilan ACIK (kullanici karari 2026-07-22: pod acilisinda
     # tum motorlar RAM'e isinir). MEVDUAT_PANEL_PREWARM=0 ile kapatilir.
     if os.environ.get("MEVDUAT_PANEL_PREWARM", "1").strip().lower() not in ("0", "false", "no"):
@@ -569,6 +574,20 @@ try:
 except Exception:
     app.config["MEVDUAT_PANEL_ENABLED"] = False
     app.logger.exception("mevduat_panel blueprint yuklenemedi — modul atlandi")
+
+# W5 piramidi periyodik (arka planda) isit: blok -> surec -> uzman brifingi.
+# Uzman sayfasi acilirken LLM beklenmez; tiklama aninda icerikli gelir
+# (kullanici karari 2026-07-23). Hash'li invalidation sayesinde veri
+# degismedikce turlar LLM'siz/ucuzdur. Ayrica mevduat data-refresh'i bitince
+# ayni boru hatti hook uzerinden kosulur (routes.py admin_refresh okur;
+# mevduat_panel prisma_home'u import etmez — izolasyon sozlesmesi).
+try:
+    from prisma_home.commentary import refresh_pipeline, start_commentary_refresher
+
+    start_commentary_refresher(app)
+    app.config["MEVDUAT_POST_REFRESH_HOOK"] = lambda: refresh_pipeline(app)
+except Exception:
+    app.logger.exception("uzman piramit isiticisi baslatilamadi — atlandi")
 
 _user_cache = {}
 
@@ -814,4 +833,7 @@ def home():
 
 
 if __name__ == '__main__':
-    app.run(debug=DEV_MODE, host='0.0.0.0', port=8081)
+    # threaded=True: geliştirme sunucusu istekleri seri değil paralel işlesin —
+    # aksi halde tek yavaş istek (ağır SQL / LLM) tüm uygulamayı kilitler ve
+    # "loading'de takılı kaldı" davranışı görülür. Prod'da gunicorn kullanılır.
+    app.run(debug=DEV_MODE, host='0.0.0.0', port=8081, threaded=True)

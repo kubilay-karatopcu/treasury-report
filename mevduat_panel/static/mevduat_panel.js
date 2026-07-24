@@ -8946,6 +8946,112 @@
     setPage(_bootPage);
   }
 
+  // W5c/W6b — embed modu (?embed=1&anchor=<id>&state=<b64url>): uzman
+  // brifingindeki atıf modalı bu sayfayı iframe'de açar. Kabuk kontrolleri
+  // CSS ile gizlenir (body.mv-embed). W6b view-state paritesi: state paketi
+  // digest'in HESAPLADIĞI kontrol değerlerini taşır ({controls:[{id,value}]});
+  // kontroller render'ı beklenip değerler yazılır + change dispatch edilir —
+  // böylece açılan blok değerlendirilen tarih/boyutu gösterir. Sonra anchor
+  // beklenip kaydırılır + vurgulanır.
+  (function () {
+    var qs = new URLSearchParams(window.location.search);
+    if (qs.get("embed") !== "1") return;
+    document.body.classList.add("mv-embed");
+    var anchor = qs.get("anchor") || "";
+    if (!/^[A-Za-z0-9_-]*$/.test(anchor)) anchor = "";
+
+    var controls = [];
+    try {
+      var raw = qs.get("state") || "";
+      if (raw) {
+        raw = raw.replace(/-/g, "+").replace(/_/g, "/");
+        raw += "===".slice(0, (4 - raw.length % 4) % 4);   // b64 padding
+        var st = JSON.parse(atob(raw));
+        if (st && Array.isArray(st.controls)) controls = st.controls;
+      }
+    } catch (e) { controls = []; }   // bozuk state → varsayılan görünüm
+
+    function _selectHasOption(el, v) {
+      return Array.prototype.some.call(el.options, function (o) {
+        return o.value === v;
+      });
+    }
+    function _applicable(c) {
+      // Element DOM'da VE (select ise) option'ı yüklenmiş mi? Aylık tarih
+      // select'leri boot fetch'inden sonra dolar — option gelene dek bekleriz.
+      var el = c && c.id ? document.getElementById(c.id) : null;
+      if (!el) return false;
+      if (el.tagName === "SELECT" && !_selectHasOption(el, String(c.value))) return false;
+      return true;
+    }
+    function applyControls(best) {
+      // best=false: hepsi uygulanabilir olana kadar bekle (false döner).
+      // best=true (timeout): uygulanabilenleri uygula, kalanı bırak.
+      if (!best && !controls.every(_applicable)) return false;
+      controls.forEach(function (c) {
+        if (!_applicable(c)) return;
+        var el = document.getElementById(c.id);
+        if (el.value === String(c.value)) return;
+        el.value = String(c.value);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      return true;
+    }
+
+    // FB4 — atıf/slide yalnız o bloğu göstersin: anchor'ın .main içindeki en
+    // üst bölüm atasını bul, .main'in diğer doğrudan çocuklarını gizle. Böylece
+    // "bütün süreç" yerine yalnız ilgili blok (uygulanan filtreyle) görünür.
+    // display:none DOM'dan silmez → getElementById/değerler (filtre state)
+    // çalışmaya devam eder. Tümüyle savunmacı; temiz bölüm bulunamazsa dokunmaz.
+    function isolateAnchor(el) {
+      try {
+        var main = el.closest && el.closest(".main");
+        if (!main) return;
+        var top = el;
+        while (top.parentElement && top.parentElement !== main) top = top.parentElement;
+        if (top.parentElement !== main) return;   // temiz üst-bölüm yok → dokunma
+        Array.prototype.forEach.call(main.children, function (c) {
+          if (c === top || c.nodeType !== 1) return;
+          if (c.tagName === "SCRIPT" || c.tagName === "STYLE") return;
+          c.setAttribute("data-embed-hidden", "1");
+          c.style.display = "none";
+        });
+      } catch (e) {}
+    }
+
+    function scrollToAnchor() {
+      if (!anchor) return;
+      var tries = 0;
+      var t = setInterval(function () {
+        var el = document.getElementById(anchor);
+        tries++;
+        if (el && el.offsetParent) {
+          clearInterval(t);
+          el.classList.add("mv-embed-target");
+          isolateAnchor(el);
+          el.scrollIntoView({ block: "start", behavior: "smooth" });
+        } else if (tries > 40) {   // ~10 sn — SPA fetch'leri gecikirse pes et
+          clearInterval(t);
+        }
+      }, 250);
+    }
+
+    if (!controls.length) { scrollToAnchor(); return; }
+    var ctries = 0;
+    var ct = setInterval(function () {
+      ctries++;
+      if (applyControls(false)) {
+        clearInterval(ct);
+        // change handler'larının fetch/render'ına kısa pay bırak, sonra kaydır.
+        setTimeout(scrollToAnchor, 600);
+      } else if (ctries > 40) {   // ~10 sn: option'lar hiç gelmedi —
+        clearInterval(ct);        // uygulanabilenleri uygula, yine de kaydır.
+        applyControls(true);
+        setTimeout(scrollToAnchor, 600);
+      }
+    }, 250);
+  })();
+
   // ══════════════════════════════════════════════════════════════════════════
   // NEW PRODUCTION DASHBOARD
   // ══════════════════════════════════════════════════════════════════════════

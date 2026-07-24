@@ -17,8 +17,9 @@ from datetime import datetime, timezone
 import pandas as pd
 import pyarrow, polars as pl
 import sys
-import logging 
+import logging
 import io
+import threading
 import oracledb
 import getpass
 from pyaim import CCPPasswordREST
@@ -35,6 +36,11 @@ class DataClient:
         self.APP_ENV = os.getenv("RUNNING_ENV","LOCAL")
         self.load_environment(self.APP_ENV)
         self.ora_pool = None
+        # Havuz oluşturma kilidi: eş zamanlı ilk çağrılarda (prewarm daemon +
+        # arka plan ısıtıcılar + ilk istekler) çift havuz yaratılıp bir havuzdan
+        # alınan bağlantının diğerine bırakılmasını (release → "list.remove(x):
+        # x not in list", bağlantı sızıntısı) önler.
+        self._pool_lock = threading.Lock()
         
         ACCESS_KEY = os.environ["AWS_ACCESS_KEY_ID"]
         SECRET_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
@@ -239,11 +245,17 @@ class DataClient:
         self.ora_pool = None
     
     def get_connection_from_pool(self) -> oracledb.Connection:
-        if self.ora_pool == None:
-            self.create_connection_pool()
-        
+        # Çift-kontrollü kilit: havuz yalnız bir kez oluşturulsun (eş zamanlı
+        # ilk çağrılarda çift havuz → yanlış havuza release → sızıntı). acquire
+        # kilit DIŞINDA — oracledb havuzu kendi içinde thread-safe'tir ve
+        # acquire bloklayabilir; kilidi tutmayız.
+        if self.ora_pool is None:
+            with self._pool_lock:
+                if self.ora_pool is None:
+                    self.create_connection_pool()
+
         result = self.ora_pool.acquire()
-        
+
         return result
     
     def drop_connection_from_pool(self, con: oracledb.Connection):
