@@ -120,6 +120,87 @@ class TestBriefSlides:
         assert _brief_slides(None, {}) == []
 
 
+class TestSlideFrames:
+    """FB6 — çoklu-blok slayt: atıflar SPA sayfasına göre iframe gruplarına
+    (frame) bölünür; aynı sayfadakiler tek iframe'de çoklu-anchor ile birleşir."""
+
+    def _meta(self):
+        # İki blok aynı sayfada (cost-analysis), biri farklı sayfada (balance).
+        return {
+            "camon_wf": {
+                "id": "camon_wf", "num": 1, "title": "Waterfall",
+                "url": "/mv/?page=cost-analysis&embed=1&anchor=acc-btn-ca-mon-wf",
+                "render_url": "/mv/?page=cost-analysis", "anchor": "acc-btn-ca-mon-wf",
+                "controls": [{"click": "[data-ca-tab='monthly-averages']"},
+                             {"id": "ca-mon-date0", "value": "2026-05-31"}],
+                "state_label": "Dönem: 31.05 → 30.06",
+            },
+            "camon_ratehm": {
+                "id": "camon_ratehm", "num": 2, "title": "Heatmap",
+                "url": "/mv/?page=cost-analysis&embed=1&anchor=acc-btn-ca-mon-rate-hm",
+                "render_url": "/mv/?page=cost-analysis", "anchor": "acc-btn-ca-mon-rate-hm",
+                "controls": [{"click": "[data-ca-tab='monthly-averages']"},
+                             {"id": "ca-mon-date0", "value": "2026-05-31"}],
+                "state_label": "Dönem: 31.05 → 30.06",
+            },
+            "bamon_bridge": {
+                "id": "bamon_bridge", "num": 3, "title": "Bridge",
+                "url": "/mv/?page=balance-analysis&embed=1&anchor=acc-btn-ba-mon-bridge",
+                "render_url": "/mv/?page=balance-analysis", "anchor": "acc-btn-ba-mon-bridge",
+                "controls": [{"id": "ba-mon-date0", "value": "2026-05-31"}],
+                "state_label": "Dönem: 31.05 → 30.06 · Boyut: SEGMENT × AUM",
+            },
+        }
+
+    def test_same_page_blocks_merge_into_one_frame(self):
+        import base64
+        import json as _json
+
+        from prisma_home.routes import _brief_slides
+
+        record = {"headlines": [
+            {"text": "Maliyet mix kaynaklı.", "cites": ["camon_wf", "camon_ratehm"]},
+        ]}
+        slides = _brief_slides(record, self._meta())
+        assert len(slides) == 1
+        frames = slides[0]["frames"]
+        # Aynı sayfa → tek frame, iki anchor virgülle.
+        assert len(frames) == 1
+        assert "anchor=acc-btn-ca-mon-wf,acc-btn-ca-mon-rate-hm" in frames[0]["url"]
+        assert frames[0]["title"] == "Waterfall · Heatmap"
+        assert frames[0]["block_ids"] == ["camon_wf", "camon_ratehm"]
+        # State: click kontrolü tekilleşti, iki blok aynı controls → tek set.
+        raw = frames[0]["url"].split("&state=")[1]
+        raw = raw.replace("-", "+").replace("_", "/")
+        raw += "=" * ((4 - len(raw) % 4) % 4)
+        controls = _json.loads(base64.b64decode(raw))["controls"]
+        assert {"click": "[data-ca-tab='monthly-averages']"} in controls
+        assert controls.count({"click": "[data-ca-tab='monthly-averages']"}) == 1
+        # blocks (chat bağlamı) korunur.
+        assert [b["id"] for b in slides[0]["blocks"]] == ["camon_wf", "camon_ratehm"]
+
+    def test_cross_page_blocks_split_into_frames(self):
+        from prisma_home.routes import _brief_slides
+
+        record = {"headlines": [
+            {"text": "Maliyet ve bakiye birlikte.",
+             "cites": ["camon_wf", "bamon_bridge"]},
+        ]}
+        slides = _brief_slides(record, self._meta())
+        frames = slides[0]["frames"]
+        assert len(frames) == 2   # iki farklı sayfa → iki frame
+        assert "page=cost-analysis" in frames[0]["url"]
+        assert "page=balance-analysis" in frames[1]["url"]
+
+    def test_no_cites_yields_no_frames(self):
+        from prisma_home.routes import _brief_slides
+
+        record = {"headlines": [{"text": "Genel bağlam.", "cites": []}]}
+        slides = _brief_slides(record, self._meta())
+        assert slides[0]["frames"] == []
+        assert slides[0]["blocks"] == []
+
+
 class TestAskContextUpgrade:
     @pytest.fixture(autouse=True)
     def _clean(self):

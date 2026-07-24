@@ -8957,8 +8957,11 @@
     var qs = new URLSearchParams(window.location.search);
     if (qs.get("embed") !== "1") return;
     document.body.classList.add("mv-embed");
-    var anchor = qs.get("anchor") || "";
-    if (!/^[A-Za-z0-9_-]*$/.test(anchor)) anchor = "";
+    // FB6 — çoklu anchor: bir slide birden çok blok gösterebilir (aynı sayfada).
+    // Virgülle ayrılmış id listesi; hepsi izole edilir, ilkine kaydırılır.
+    var anchorRaw = qs.get("anchor") || "";
+    if (!/^[A-Za-z0-9_,-]*$/.test(anchorRaw)) anchorRaw = "";
+    var anchors = anchorRaw.split(",").filter(Boolean);
 
     var controls = [];
     try {
@@ -8970,6 +8973,14 @@
         if (st && Array.isArray(st.controls)) controls = st.controls;
       }
     } catch (e) { controls = []; }   // bozuk state → varsayılan görünüm
+
+    // FB6 — kontroller iki tipte: {id,value} = element değeri yaz + change;
+    // {click:selector} = elementi tıkla (alt sekme aktifleştirme gibi). Aylık
+    // bloklar (ca-mon/ba-mon/ta-mon) varsayılan aktif "daily" sekmesinde GİZLİ
+    // section'da durur; digest view'i önce doğru sekmeyi tıklatır ki blok
+    // görünür + verili olsun, sonra tarih/boyut değerleri uygulanır.
+    var clickControls = controls.filter(function (c) { return c && c.click; });
+    var valueControls = controls.filter(function (c) { return c && c.id; });
 
     function _selectHasOption(el, v) {
       return Array.prototype.some.call(el.options, function (o) {
@@ -8987,8 +8998,8 @@
     function applyControls(best) {
       // best=false: hepsi uygulanabilir olana kadar bekle (false döner).
       // best=true (timeout): uygulanabilenleri uygula, kalanı bırak.
-      if (!best && !controls.every(_applicable)) return false;
-      controls.forEach(function (c) {
+      if (!best && !valueControls.every(_applicable)) return false;
+      valueControls.forEach(function (c) {
         if (!_applicable(c)) return;
         var el = document.getElementById(c.id);
         if (el.value === String(c.value)) return;
@@ -8998,58 +9009,149 @@
       return true;
     }
 
-    // FB4 — atıf/slide yalnız o bloğu göstersin: anchor'ın .main içindeki en
-    // üst bölüm atasını bul, .main'in diğer doğrudan çocuklarını gizle. Böylece
-    // "bütün süreç" yerine yalnız ilgili blok (uygulanan filtreyle) görünür.
-    // display:none DOM'dan silmez → getElementById/değerler (filtre state)
-    // çalışmaya devam eder. Tümüyle savunmacı; temiz bölüm bulunamazsa dokunmaz.
-    function isolateAnchor(el) {
+    // FB6 — click kontrolleri (alt sekme aktifleştirme) önce koşar; hedef statik
+    // HTML'de hazır olduğundan çoğunlukla anında tıklanır, yine de kısa süre
+    // bekleriz. Tıklama, section'ı görünür yapar + ilgili fetch'i tetikler.
+    function doClicks(cb) {
+      if (!clickControls.length) { cb(); return; }
+      var done = {}, tries = 0;
+      var t = setInterval(function () {
+        tries++;
+        var allDone = true;
+        clickControls.forEach(function (c, i) {
+          if (done[i]) return;
+          var el = null;
+          try { el = document.querySelector(c.click); } catch (e) { done[i] = true; return; }
+          if (el) { try { el.click(); } catch (e) {} done[i] = true; }
+          else allDone = false;
+        });
+        if (allDone || tries > 20) { clearInterval(t); cb(); }
+      }, 100);
+    }
+
+    // FB4/FB5/FB6 — atıf/slide YALNIZ işaret edilen bloğu/blokları göstersin
+    // (brifing bir sunum gibi: üstte uzmanın cümlesi, altta o cümlenin işaret
+    // ettiği blok(lar), uygulanan filtreyle). Eski sürüm .main'in en üst bölüm
+    // atasını izole ediyordu; o ata koca sayfa bölümüydü → "bütün süreç"
+    // görünürdü.
+    //
+    // Her anchor için onu saran GERÇEK blok birimini buluruz — önce .accordion
+    // (başlıklı blok; yan yana iki grafikli bloklar, ör. bubble bal+rate,
+    // birlikte kalsın diye accordion tercih edilir), yoksa en yakın .card,
+    // yoksa anchor'ın kendisi. "keep" = tüm blokların kendisi + .main'e kadarki
+    // ataları (asla gizlenmez — bir bloğun atası başka bir bloğu barındırabilir).
+    // Sonra her blok zincirinde, keep'te olmayan kardeşleri gizleriz. Geriye
+    // yalnız o blok(lar) + ata kabuğu kalır; sekme navı, filtre şeridi, diğer
+    // bloklar ve öbür sayfa bölümleri gizlenir.
+    //
+    // display:none DOM'dan silmez → getElementById + filtre state (kontrol
+    // değerleri/change) çalışmaya devam eder. Tümüyle savunmacı: blok birimi ya
+    // da .main bulunamazsa dokunmaz (eski davranış).
+    function isolateAnchors(els) {
       try {
-        var main = el.closest && el.closest(".main");
+        if (!els.length) return;
+        var main = els[0].closest && els[0].closest(".main");
         if (!main) return;
-        var top = el;
-        while (top.parentElement && top.parentElement !== main) top = top.parentElement;
-        if (top.parentElement !== main) return;   // temiz üst-bölüm yok → dokunma
-        Array.prototype.forEach.call(main.children, function (c) {
-          if (c === top || c.nodeType !== 1) return;
-          if (c.tagName === "SCRIPT" || c.tagName === "STYLE") return;
-          c.setAttribute("data-embed-hidden", "1");
-          c.style.display = "none";
+        var blocks = [];
+        els.forEach(function (el) {
+          var b = (el.closest && (el.closest(".accordion") || el.closest(".card"))) || el;
+          if (main.contains(b) && b !== main && blocks.indexOf(b) === -1) blocks.push(b);
+        });
+        if (!blocks.length) return;
+        var keep = [];
+        blocks.forEach(function (b) {
+          var n = b;
+          while (n && n !== main) { if (keep.indexOf(n) === -1) keep.push(n); n = n.parentElement; }
+        });
+        blocks.forEach(function (b) {
+          var node = b;
+          while (node && node !== main && node.parentElement) {
+            var parent = node.parentElement;
+            Array.prototype.forEach.call(parent.children, function (c) {
+              if (c.nodeType !== 1) return;
+              if (c.tagName === "SCRIPT" || c.tagName === "STYLE") return;
+              if (keep.indexOf(c) !== -1) return;   // başka bir bloğun ata zinciri
+              c.setAttribute("data-embed-hidden", "1");
+              c.style.display = "none";
+            });
+            node = parent;
+          }
         });
       } catch (e) {}
     }
 
-    function scrollToAnchor() {
-      if (!anchor) return;
+    function scrollToAnchors() {
+      if (!anchors.length) return;
       var tries = 0;
       var t = setInterval(function () {
-        var el = document.getElementById(anchor);
         tries++;
-        if (el && el.offsetParent) {
+        var els = anchors
+          .map(function (a) { return document.getElementById(a); })
+          .filter(Boolean);
+        var ready = els.filter(function (el) { return el.offsetParent; });
+        // Hepsi görünür olunca izole et; süre dolarsa görüneni (varsa) izole et.
+        var timeUp = tries > 40;   // ~10 sn
+        if ((ready.length && ready.length === anchors.length) ||
+            (timeUp && ready.length)) {
           clearInterval(t);
-          el.classList.add("mv-embed-target");
-          isolateAnchor(el);
-          el.scrollIntoView({ block: "start", behavior: "smooth" });
-        } else if (tries > 40) {   // ~10 sn — SPA fetch'leri gecikirse pes et
+          ready.forEach(function (el) { el.classList.add("mv-embed-target"); });
+          isolateAnchors(ready);
+          ready[0].scrollIntoView({ block: "start", behavior: "smooth" });
+        } else if (timeUp) {
           clearInterval(t);
         }
       }, 250);
     }
 
-    if (!controls.length) { scrollToAnchor(); return; }
-    var ctries = 0;
-    var ct = setInterval(function () {
-      ctries++;
-      if (applyControls(false)) {
-        clearInterval(ct);
-        // change handler'larının fetch/render'ına kısa pay bırak, sonra kaydır.
-        setTimeout(scrollToAnchor, 600);
-      } else if (ctries > 40) {   // ~10 sn: option'lar hiç gelmedi —
-        clearInterval(ct);        // uygulanabilenleri uygula, yine de kaydır.
-        applyControls(true);
-        setTimeout(scrollToAnchor, 600);
+    // FB7 — kendi kendini iyileştiren sekme açma: aylık bloklar (ca-mon/ba-mon/
+    // ta-mon) varsayılan "Daily" sekmesinde GİZLİ section'da durur. Digest
+    // view'i "tıkla" kontrolünü taşıyorsa doClicks zaten açar; ama eski/soğuk
+    // eval cache'inde bu kontrol olmayabilir. Burada anchor hâlâ gizliyse
+    // (offsetParent yok) id ön-ekinden doğru Monthly sekmesini türetip açarız —
+    // böylece izolasyon state'ten BAĞIMSIZ çalışır. Zaten aktifse dokunmaz.
+    var _revealed = false;
+    function revealAnchors() {
+      if (_revealed) return;
+      _revealed = true;
+      anchors.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el || el.offsetParent) return;   // yok ya da zaten görünür
+        var sel = id.indexOf("ca-mon") !== -1 ? "[data-ca-tab='monthly-averages']"
+                : id.indexOf("ba-mon") !== -1 ? "[data-ba-tab='monthly-averages']"
+                : id.indexOf("ta-mon") !== -1 ? "[data-ta-tab='monthly-averages']"
+                : "";
+        if (!sel) return;
+        var btn = document.querySelector(sel);
+        if (btn && !btn.classList.contains("active")) {
+          try { btn.click(); } catch (e) {}
+        }
+      });
+    }
+
+    function afterClicks() {
+      revealAnchors();   // FB7 — state'te click kontrolü yoksa bile sekmeyi aç
+      if (!valueControls.length) {
+        // Click/reveal yapıldıysa fetch tetiklendi; render'a kısa pay bırak.
+        setTimeout(scrollToAnchors,
+                   (clickControls.length || anchors.length) ? 600 : 0);
+        return;
       }
-    }, 250);
+      var ctries = 0;
+      var ct = setInterval(function () {
+        ctries++;
+        if (applyControls(false)) {
+          clearInterval(ct);
+          // change handler'larının fetch/render'ına kısa pay bırak, sonra kaydır.
+          setTimeout(scrollToAnchors, 600);
+        } else if (ctries > 40) {   // ~10 sn: option'lar hiç gelmedi —
+          clearInterval(ct);        // uygulanabilenleri uygula, yine de kaydır.
+          applyControls(true);
+          setTimeout(scrollToAnchors, 600);
+        }
+      }, 250);
+    }
+
+    doClicks(afterClicks);
   })();
 
   // ══════════════════════════════════════════════════════════════════════════
