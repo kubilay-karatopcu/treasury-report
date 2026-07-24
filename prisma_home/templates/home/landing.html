@@ -65,7 +65,7 @@
       <span class="accent">{{ current_user.name.split(' ')[0] }}</span>{% endif %}.
     </h1>
     {% if not featured_expert and not other_experts %}
-    <p class="sub">Henüz uzman tanımlanmamış — Atölye'den ekleyebilirsin.</p>
+    <p class="sub">{% if masa_mode %}Henüz masa tanımlanmamış.{% else %}Henüz uzman tanımlanmamış — Atölye'den ekleyebilirsin.{% endif %}</p>
     {% endif %}
     <span class="gold-rule"></span>
   </div>
@@ -74,7 +74,7 @@
   {# ── Featured expert ────────────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">01</span>
-    <span class="section-title">Uzmanların</span>
+    <span class="section-title">{% if masa_mode %}Masaların{% else %}Uzmanların{% endif %}</span>
     <span class="section-tail"></span>
   </div>
 
@@ -87,7 +87,7 @@
       <div class="efc-head">
         <div class="efc-badge">{{ featured_expert.code }}</div>
         <div class="efc-who">
-          <span class="efc-name">{{ featured_expert.name }}</span>
+          <span class="efc-name">{% if masa_mode %}{{ masa_name(featured_expert.name) }}{% else %}{{ featured_expert.name }}{% endif %}</span>
           <span class="efc-dom">{{ featured_expert.domain_label }}</span>
         </div>
       </div>
@@ -95,7 +95,7 @@
         {% if featured_expert.persona.voice_examples %}{{ featured_expert.persona.voice_examples[0] }}{% else %}{{ featured_expert.short_description }}{% endif %}
       </p>
       <span class="efc-status"><span class="dot"></span>Öne çıkan</span>
-      <span class="efc-cta">Uzmana bak →</span>
+      <span class="efc-cta">{% if masa_mode %}Masaya git →{% else %}Uzmana bak →{% endif %}</span>
     </div>
 
     {% if featured_briefing.metrics %}
@@ -115,7 +115,7 @@
   {# ── Other experts (5 cells) ──────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">02</span>
-    <span class="section-title">Diğer Uzmanlar</span>
+    <span class="section-title">{% if masa_mode %}Diğer Masalar{% else %}Diğer Uzmanlar{% endif %}</span>
     <span class="section-tail"></span>
   </div>
 
@@ -130,10 +130,13 @@
      uzmanın "Süreçler" bölümünde listelenir (bound_content.processes). #}
 
   {# ── Footer link to producer side ─────────────────────────────────────── #}
+  {# masa_mode: Atölye/üretim tarafı tamamen gizli — footer link'i yok. #}
+  {% if not masa_mode %}
   <div class="footer-producer">
     <span>Üretim tarafı</span>
     <span><a href="{{ url_for('prisma_home.atolye_home') }}">Atölye →</a></span>
     <span>·</span>
     <span><a href="{{ url_for('presentations.list_presentations') }}">Sunumlarım</a></span>
   </div>
+  {% endif %}
 {% endblock %}

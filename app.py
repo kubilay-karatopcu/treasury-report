@@ -575,19 +575,30 @@ except Exception:
     app.config["MEVDUAT_PANEL_ENABLED"] = False
     app.logger.exception("mevduat_panel blueprint yuklenemedi — modul atlandi")
 
+# Masa modu: tek anahtar. Acikken PRISMA "LLM kullanmiyormus gibi" durur —
+# brifing/blok/surec aciklamalari hesaplanmaz, Atolye gizli/erisilemez,
+# "Uzman" -> "Masa" adlandirilir (prisma_home/masa.py). Varsayilan KAPALI:
+# kapaliyken her sey birebir eski davranista.
+app.config["PRISMA_MASA_MODE"] = os.environ.get(
+    "PRISMA_MASA_MODE", "0").strip().lower() in ("1", "true", "yes", "on")
+
 # W5 piramidi periyodik (arka planda) isit: blok -> surec -> uzman brifingi.
 # Uzman sayfasi acilirken LLM beklenmez; tiklama aninda icerikli gelir
 # (kullanici karari 2026-07-23). Hash'li invalidation sayesinde veri
 # degismedikce turlar LLM'siz/ucuzdur. Ayrica mevduat data-refresh'i bitince
 # ayni boru hatti hook uzerinden kosulur (routes.py admin_refresh okur;
 # mevduat_panel prisma_home'u import etmez — izolasyon sozlesmesi).
-try:
-    from prisma_home.commentary import refresh_pipeline, start_commentary_refresher
+# Masa modunda piramit HIC baslamaz (sifir LLM): brifing zaten UI'da yok.
+if app.config["PRISMA_MASA_MODE"]:
+    logging.info("PRISMA_MASA_MODE acik — uzman piramit isiticisi baslatilmadi (sifir LLM)")
+else:
+    try:
+        from prisma_home.commentary import refresh_pipeline, start_commentary_refresher
 
-    start_commentary_refresher(app)
-    app.config["MEVDUAT_POST_REFRESH_HOOK"] = lambda: refresh_pipeline(app)
-except Exception:
-    app.logger.exception("uzman piramit isiticisi baslatilamadi — atlandi")
+        start_commentary_refresher(app)
+        app.config["MEVDUAT_POST_REFRESH_HOOK"] = lambda: refresh_pipeline(app)
+    except Exception:
+        app.logger.exception("uzman piramit isiticisi baslatilamadi — atlandi")
 
 _user_cache = {}
 

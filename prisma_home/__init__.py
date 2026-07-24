@@ -23,13 +23,34 @@ def _inject_sidebar_helper():
     """Phase 11.wrap: expose a helper templates can use to lazy-build the
     atölye sidebar from their own ``sidebar_active`` setting — so producer
     routes (editor, list, kesif, hazirlik, bloklar, surecler) don't each
-    need to pass a sidebar through their context dict."""
+    need to pass a sidebar through their context dict.
+
+    Ayrıca masa modu bayrağı + ``masa_name`` yardımcısı tüm şablonlara
+    enjekte edilir (topbar/landing/expert bunları okur)."""
+    from .masa import masa_mode_on, masa_name
     from .sidebar import get_sidebar
 
     def build_sidebar(active_key):
         return get_sidebar(active_key=active_key)
 
-    return {"build_sidebar": build_sidebar}
+    return {"build_sidebar": build_sidebar,
+            "masa_mode": masa_mode_on(),
+            "masa_name": masa_name}
+
+
+@prisma_home_bp.before_app_request
+def _guard_masa_mode():
+    """Masa modunda Atölye + LLM uçlarını kapatır (404).
+
+    Üretim tarafının tamamı (``presentations.*``), Atölye ana ve LLM uçları
+    erişilemez olur. Masa (tüketici) + mevduat_panel süreçleri + statik
+    dosyalar dokunulmaz. Anahtar kapalıyken hiçbir şey yapmaz."""
+    from flask import abort, request
+
+    from .masa import is_blocked_endpoint, masa_mode_on
+
+    if masa_mode_on() and is_blocked_endpoint(request.endpoint):
+        abort(404)
 
 
 # Defer route import to avoid circular deps when the blueprint is registered

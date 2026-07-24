@@ -71,8 +71,9 @@ def landing():
 def expert_list():
     # Alternate URL for the same 6-card layout; useful as a "go back to
     # expert browse" target from the detail page's breadcrumb.
+    from prisma_home.masa import masa_mode_on
     ctx = _landing_context()
-    ctx["crumb"] = "Uzmanlar"
+    ctx["crumb"] = "Masalar" if masa_mode_on() else "Uzmanlar"
     return render_template("home/landing.html", **ctx)
 
 
@@ -95,19 +96,11 @@ def expert_detail(code: str):
         abort(403)          # SIKI: bu departmana açık bakış yok.
     view = r["view"] if not r["legacy"] else legacy_view(expert)
 
-    # Phase 10E — engine drives the briefing. Falls back to the static
-    # markdown internally when the LLM is unavailable, so 10C behaviour
-    # is preserved when the model can't be reached.
-    engine = current_app.config.get("BRIEFING_ENGINE")
-    if engine is not None:
-        briefing = engine.render_briefing(expert)
-    else:
-        briefing = load_static_briefing(expert.id)
+    from prisma_home.masa import masa_mode_on
+    masa = masa_mode_on()
 
-    snapshot_store = current_app.config.get("SNAPSHOT_STORE")
-    bound = find_snapshots_bound_to(snapshot_store, expert.id) if snapshot_store else []
-
-    # Bakışın süreçleri (flat) + topic gruplaması (render için).
+    # Bakışın süreçleri (flat) + topic gruplaması (render için). Masa modunda
+    # da GEREKLİ: sayfa yalnız klasörlenmiş süreçleri gösterir.
     processes = resolve_processes(view["process_ids"])
     card_by_id = {c["id"]: c for c in processes}
     topics = []
@@ -116,41 +109,65 @@ def expert_detail(code: str):
         if cards:
             topics.append({"title": t["title"], "processes": cards})
 
-    # W4a→W8 — uzman brifingi: (uzman, bakış) Aşama-C kaydı. İSTEK YOLU
-    # BLOKLANMAZ: get_commentary sıcak cache'i/fallback'i anında döner.
-    try:
-        from prisma_home.commentary import get_commentary, get_commentary_record
-        commentary = get_commentary(expert, view) if processes else None
-        commentary_rec = (get_commentary_record(expert.id, view["key"])
-                          if processes else None)
-    except Exception:
-        current_app.logger.exception("uzman yorumu üretilemedi: %s", expert.id)
-        commentary, commentary_rec = None, None
+    # Masa modu: brifing/özet/değerlendirme HİÇ hesaplanmaz (sıfır LLM). Sayfa
+    # yalnız başlık + klasörlenmiş süreçlerle render edilir.
+    if masa:
+        briefing = None
+        bound: list = []
+        commentary = commentary_rec = None
+        cite_meta: dict = {}
+        citations: list = []
+        proc_evals: dict = {}
+        brief_slides: list = []
+    else:
+        # Phase 10E — engine drives the briefing. Falls back to the static
+        # markdown internally when the LLM is unavailable, so 10C behaviour
+        # is preserved when the model can't be reached.
+        engine = current_app.config.get("BRIEFING_ENGINE")
+        if engine is not None:
+            briefing = engine.render_briefing(expert)
+        else:
+            briefing = load_static_briefing(expert.id)
 
-    # W5c — atıf çipleri + kaynakça + süreç kartlarına Aşama-B metni.
-    cite_meta: dict = {}
-    citations: list = []
-    proc_evals: dict = {}
-    try:
-        from prisma_home.evaluation import get_process_evaluation
+        snapshot_store = current_app.config.get("SNAPSHOT_STORE")
+        bound = find_snapshots_bound_to(snapshot_store, expert.id) if snapshot_store else []
 
-        for p in processes:
-            rec = get_process_evaluation(p["id"])
-            if rec:
-                proc_evals[p["id"]] = rec["text"]
-        if commentary_rec and commentary_rec.get("cites"):
-            citations = _citation_entries(
-                commentary_rec, [p["id"] for p in processes])
-            cite_meta = {c["id"]: c for c in citations}
-    except Exception:
-        current_app.logger.exception("atıf verisi hazırlanamadı: %s", expert.id)
+        # W4a→W8 — uzman brifingi: (uzman, bakış) Aşama-C kaydı. İSTEK YOLU
+        # BLOKLANMAZ: get_commentary sıcak cache'i/fallback'i anında döner.
+        try:
+            from prisma_home.commentary import get_commentary, get_commentary_record
+            commentary = get_commentary(expert, view) if processes else None
+            commentary_rec = (get_commentary_record(expert.id, view["key"])
+                              if processes else None)
+        except Exception:
+            current_app.logger.exception("uzman yorumu üretilemedi: %s", expert.id)
+            commentary, commentary_rec = None, None
 
-    brief_slides = _brief_slides(commentary_rec, cite_meta)
+        # W5c — atıf çipleri + kaynakça + süreç kartlarına Aşama-B metni.
+        cite_meta = {}
+        citations = []
+        proc_evals = {}
+        try:
+            from prisma_home.evaluation import get_process_evaluation
 
+            for p in processes:
+                rec = get_process_evaluation(p["id"])
+                if rec:
+                    proc_evals[p["id"]] = rec["text"]
+            if commentary_rec and commentary_rec.get("cites"):
+                citations = _citation_entries(
+                    commentary_rec, [p["id"] for p in processes])
+                cite_meta = {c["id"]: c for c in citations}
+        except Exception:
+            current_app.logger.exception("atıf verisi hazırlanamadı: %s", expert.id)
+
+        brief_slides = _brief_slides(commentary_rec, cite_meta)
+
+    crumb_word = "Masalar" if masa else "Uzmanlar"
     return render_template(
         "home/expert.html",
         mode="consumer",
-        crumb=f"Uzmanlar · {expert.domain_label}",
+        crumb=f"{crumb_word} · {expert.domain_label}",
         sidebar=get_sidebar(active_key=None),
         expert=expert,
         briefing=briefing,
