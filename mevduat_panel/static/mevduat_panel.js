@@ -9103,10 +9103,37 @@
       }, 250);
     }
 
+    // FB7 — kendi kendini iyileştiren sekme açma: aylık bloklar (ca-mon/ba-mon/
+    // ta-mon) varsayılan "Daily" sekmesinde GİZLİ section'da durur. Digest
+    // view'i "tıkla" kontrolünü taşıyorsa doClicks zaten açar; ama eski/soğuk
+    // eval cache'inde bu kontrol olmayabilir. Burada anchor hâlâ gizliyse
+    // (offsetParent yok) id ön-ekinden doğru Monthly sekmesini türetip açarız —
+    // böylece izolasyon state'ten BAĞIMSIZ çalışır. Zaten aktifse dokunmaz.
+    var _revealed = false;
+    function revealAnchors() {
+      if (_revealed) return;
+      _revealed = true;
+      anchors.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el || el.offsetParent) return;   // yok ya da zaten görünür
+        var sel = id.indexOf("ca-mon") !== -1 ? "[data-ca-tab='monthly-averages']"
+                : id.indexOf("ba-mon") !== -1 ? "[data-ba-tab='monthly-averages']"
+                : id.indexOf("ta-mon") !== -1 ? "[data-ta-tab='monthly-averages']"
+                : "";
+        if (!sel) return;
+        var btn = document.querySelector(sel);
+        if (btn && !btn.classList.contains("active")) {
+          try { btn.click(); } catch (e) {}
+        }
+      });
+    }
+
     function afterClicks() {
+      revealAnchors();   // FB7 — state'te click kontrolü yoksa bile sekmeyi aç
       if (!valueControls.length) {
-        // Click yapıldıysa fetch tetiklendi; render'a kısa pay bırak.
-        setTimeout(scrollToAnchors, clickControls.length ? 600 : 0);
+        // Click/reveal yapıldıysa fetch tetiklendi; render'a kısa pay bırak.
+        setTimeout(scrollToAnchors,
+                   (clickControls.length || anchors.length) ? 600 : 0);
         return;
       }
       var ctries = 0;
