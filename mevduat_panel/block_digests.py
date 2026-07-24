@@ -76,28 +76,28 @@ def _safe(fn: Callable[[], dict]) -> dict:
 # ── Ortak cache okuyucular (soğuksa None — SQL tetiklenmez) ─────────────────
 
 def _dd_snapshot() -> Optional[tuple]:
-    """(df, d0, d1) — TRY_DEPOSIT_DETAIL aylık cache'i sıcaksa son iki ay."""
+    """(df, d0, d1) — TRY_DEPOSIT_DETAIL aylık; son iki ay.
+
+    FB1: digest'ler yalnız arka plan piramidinde koşar (istek yolunda değil),
+    bu yüzden motor cache'i soğuksa loader'ı çağırıp ISITMAK güvenlidir
+    (prewarm başarısızsa bile veri bağlanır). Loader süreç-ömrü cache'ler."""
     from .engine import outstanding as eng
 
-    if "df" not in eng._DD_CACHE:
+    df, dates = eng.DepositDetailEngine._load()
+    if df is None or len(dates or []) < 2:
         return None
-    dates = eng._DD_CACHE.get("dates") or []
-    if len(dates) < 2:
-        return None
-    return eng._DD_CACHE["df"], dates[-2], dates[-1]
+    return df, dates[-2], dates[-1]
 
 
-def _weekly_latest(cache: dict) -> Optional[tuple]:
-    """Weekly cache'lerinden en güncel pencere: (df, (ds, de)) — DD/MM/YYYY."""
-    if not cache:
+def _weekly_window() -> Optional[tuple]:
+    """Digest için default haftalık pencere: son mevcut ayın gününe göre
+    son 7 gün (DD/MM/YYYY). Rollover verisi geçmişe dönük — kesin dolu."""
+    snap = _dd_snapshot()
+    if snap is None:
         return None
-    def _end(key):  # (ds, de) → de'yi sıralanabilir yap
-        try:
-            return pd.to_datetime(key[1], format="%d/%m/%Y")
-        except Exception:
-            return pd.Timestamp.min
-    key = max(cache.keys(), key=_end)
-    return cache[key], key
+    d1 = pd.Timestamp(snap[2])
+    d0 = d1 - pd.Timedelta(days=6)
+    return d0.strftime("%d/%m/%Y"), d1.strftime("%d/%m/%Y")
 
 
 def _wr_view(key: tuple, extra: str) -> dict:
@@ -323,13 +323,17 @@ def digest_bamon_heatmap() -> dict:
 # ── mevduat.vade ────────────────────────────────────────────────────────────
 
 def _tenor_payload() -> Optional[tuple]:
-    """(payload, d0, d1) — view metadata için tarihler de döner."""
+    """(payload, d0, d1). FB1: swap cache'i soğuksa ısıt (hedge kolu için);
+    ısınmazsa build_snapshot hedge'siz payload döner, digest yine iş görür."""
     from .engine import outstanding as eng
 
     snap = _dd_snapshot()
-    if snap is None or "df" not in eng._SWAP_CACHE:
-        # Swap cache'i soğuksa build_snapshot hedge için SQL tetikler — girmeyiz.
+    if snap is None:
         return None
+    try:
+        eng.SwapHedgeEngine._load()   # _SWAP_CACHE'i ısıt (varsa)
+    except Exception:
+        pass
     _, d0, d1 = snap
     return eng.TenorAnalysisEngine.build_snapshot(d0, d1), d0, d1
 
@@ -397,14 +401,23 @@ def digest_tamon_curve() -> dict:
 
 # ── mevduat.donusler (weekly — prewarm edilmez; yalnız sıcak pencere) ───────
 
-def digest_wr_rollovers() -> dict:
+def _weekly_payload() -> Optional[tuple]:
+    """(payload, (ds,de)) — default pencereyle build_payload (self-warm)."""
     from .engine import weekly as wk
 
-    got = _weekly_latest(wk._WEEKLY_AGG_DF_CACHE)
-    if got is None or got[0].empty:
+    win = _weekly_window()
+    if win is None:
+        return None
+    ds, de = win
+    return wk.WeeklyRollingsEngine.build_payload(ds, de), win
+
+
+def digest_wr_rollovers() -> dict:
+    got = _weekly_payload()
+    if got is None:
         return dict(_EMPTY)
-    df, key = got
-    t1 = wk.WeeklyRollingsEngine._pivot_currency(df)
+    payload, key = got
+    t1 = payload.get("table_1") or {}
     if not t1.get("rows"):
         return dict(_EMPTY)
     footer = {f["label"]: f for f in t1.get("footer", [])}
@@ -428,13 +441,13 @@ def digest_wr_rollovers() -> dict:
 
 
 def digest_wr_dtm() -> dict:
-    from .engine import weekly as wk
-
-    got = _weekly_latest(wk._WEEKLY_FULL_DF_CACHE)
-    if got is None or got[0].empty:
+    got = _weekly_payload()
+    if got is None:
         return dict(_EMPTY)
-    df_full, key = got
-    hist = wk.WeeklyRollingsEngine._dtm_histogram(df_full)
+    payload, key = got
+    hist = payload.get("dtm_histogram") or []
+    if not hist:
+        return dict(_EMPTY)
     total = sum(h["volume_m"] for h in hist) or 0.0
     rows = [_row(f"Kova {h['bucket']}",
                  f"{_fmt_m(h['volume_m'])} ({h['ticket_count']} adet)")
@@ -452,9 +465,9 @@ def digest_np_rvhm() -> dict:
     """NP heatmap: son gün kanal×AUM en büyük hücreler (compound wavg) + gün Δ."""
     from .engine import np_agg
 
-    if np_agg._NP_CACHE is None:
+    df = np_agg.load_np_data()   # FB1: soğuksa ısıt (arka plan)
+    if df is None or df.empty:
         return dict(_EMPTY)
-    df = np_agg._NP_CACHE
     days = sorted(df["DAT"].dropna().unique())
     if len(days) < 2:
         return dict(_EMPTY)
@@ -503,9 +516,10 @@ def digest_np_aumcombo() -> dict:
     """AUM combo: son hafta band bazında hacim + wavg faiz (band sırasıyla)."""
     from .engine import np_agg
 
-    if np_agg._NP_CACHE is None:
+    df = np_agg.load_np_data()   # FB1: soğuksa ısıt (arka plan)
+    if df is None or df.empty:
         return dict(_EMPTY)
-    df_f = np_agg.apply_filters(np_agg._NP_CACHE, ccy=["TRY"])
+    df_f = np_agg.apply_filters(df, ccy=["TRY"])
     ts = np_agg.aggregate_timeseries(df_f, group_by=["AUM_BAND"], freq="W")
     if ts.empty:
         return dict(_EMPTY)
@@ -532,9 +546,7 @@ def digest_np_aumcombo() -> dict:
 def digest_sec_mix() -> dict:
     from .engine import sector_data as sd
 
-    # vade_mix_comparison soğuk cache'te SQL tetikler — sıcaklık ön koşul.
-    if sd._BANK_VADE_CACHE is None or sd._VADE_CACHE is None:
-        return dict(_EMPTY)
+    # FB1: vade_mix_comparison kendi cache'lerini ısıtır (arka plan güvenli).
     mix = sd.vade_mix_comparison(None, "monthly")
     if not mix or not mix.get("buckets"):
         return dict(_EMPTY)

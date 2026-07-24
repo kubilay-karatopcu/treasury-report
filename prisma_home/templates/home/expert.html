@@ -164,6 +164,36 @@
   }
   .process-cell:hover .proc-cta { color: var(--gold); }
 
+  /* ── FB2: kart aksiyon satırı + "Özeti gör" toggle + genişleyen kart. ── */
+  .process-cell .proc-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .process-cell .proc-actions .proc-cta { margin-top: 0; }
+  .proc-toggle {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .proc-toggle:hover { color: var(--gold); border-color: var(--gold-dim); }
+  .process-cell.expanded {
+    grid-column: 1 / -1;          /* açılınca tüm satırı kapla → diğerleri alta */
+    background: var(--bg-2);
+    border-color: var(--gold-dim);
+  }
+  .process-cell.expanded .proc-desc { flex: 0 0 auto; }
+
   /* ── W8: topic başlığı (departman bakışında yazarın gruplaması) + bakış etiketi. */
   .topic-head {
     font-family: var(--mono);
@@ -653,39 +683,28 @@
     </div>
   </div>
 
-  {% if citations %}
-  {# W5c — kaynakça: brifingin atıf yaptığı blokların listesi. #}
-  <div class="cite-refs">
-    <div class="cite-refs-head">Kaynakça</div>
-    {% for c in citations %}
-    <button type="button" class="cite-ref"
-            data-url="{{ c.url }}" data-title="{{ c.title }}">
-      <span class="cite-ref-num">{{ c.num }}</span>
-      <span class="cite-ref-title">{{ c.title }}</span>
-      <span class="cite-ref-proc">{{ c.process }}</span>
-      {% if c.state_label %}
-      {# W6b — değerlendirmenin yapıldığı görünüm; tıklayınca blok bu state'le açılır. #}
-      <span class="cite-ref-state">{{ c.state_label }}</span>
-      {% endif %}
-    </button>
-    {% endfor %}
-  </div>
-  {% endif %}
+  {# FB3 — Kaynakça bölümü kaldırıldı: cümle sonu atıf çipleri yeterli. #}
   {% endif %}
 
   {# W8 — süreçler topic gruplarına bölünür (yazar tanımlar). topics yoksa
-     (beklenmez) tek grupta tüm süreçler. #}
+     (beklenmez) tek grupta tüm süreçler.
+     FB2 — süreç özeti (Aşama-B) kart içinde varsayılan GİZLİ; "Özeti gör"
+     toggle'ı açar, açılınca kart tüm satırı kaplar (diğerleri alt satıra). #}
   {% macro proc_card(p) -%}
-    <a class="process-cell" href="{{ p.url }}"
-       style="text-decoration: none; color: inherit;">
+    <div class="process-cell" data-pid="{{ p.id }}">
       <div class="proc-code">{{ p.num }}</div>
       <div class="proc-name">{{ p.label }}</div>
       <div class="proc-desc">{{ p.desc }}</div>
       {% if proc_evals and proc_evals.get(p.id) %}
-      <div class="proc-eval">{{ proc_evals[p.id] }}</div>
+      <div class="proc-eval" hidden>{{ proc_evals[p.id] }}</div>
       {% endif %}
-      <span class="proc-cta">Panoyu aç →</span>
-    </a>
+      <div class="proc-actions">
+        {% if proc_evals and proc_evals.get(p.id) %}
+        <button type="button" class="proc-toggle">Özeti gör ▾</button>
+        {% endif %}
+        <a class="proc-cta" href="{{ p.url }}">Panoyu aç →</a>
+      </div>
+    </div>
   {%- endmacro %}
   {% for topic in (topics if topics else [{"title": "", "processes": processes}]) %}
     {% if topic.title %}
@@ -695,6 +714,21 @@
       {% for p in topic.processes %}{{ proc_card(p) }}{% endfor %}
     </div>
   {% endfor %}
+
+  <script>
+  (function () {
+    // FB2 — "Özeti gör" toggle: kartı tüm satıra genişletir, özeti açar.
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('.proc-toggle');
+      if (!btn) return;
+      var cell = btn.closest('.process-cell');
+      var evalBox = cell.querySelector('.proc-eval');
+      var open = cell.classList.toggle('expanded');
+      if (evalBox) evalBox.hidden = !open;
+      btn.textContent = open ? 'Özeti gizle ▴' : 'Özeti gör ▾';
+    });
+  })();
+  </script>
   {% endif %}
 
   {% if brief_slides %}

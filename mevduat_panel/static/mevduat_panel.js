@@ -8998,6 +8998,27 @@
       return true;
     }
 
+    // FB4 — atıf/slide yalnız o bloğu göstersin: anchor'ın .main içindeki en
+    // üst bölüm atasını bul, .main'in diğer doğrudan çocuklarını gizle. Böylece
+    // "bütün süreç" yerine yalnız ilgili blok (uygulanan filtreyle) görünür.
+    // display:none DOM'dan silmez → getElementById/değerler (filtre state)
+    // çalışmaya devam eder. Tümüyle savunmacı; temiz bölüm bulunamazsa dokunmaz.
+    function isolateAnchor(el) {
+      try {
+        var main = el.closest && el.closest(".main");
+        if (!main) return;
+        var top = el;
+        while (top.parentElement && top.parentElement !== main) top = top.parentElement;
+        if (top.parentElement !== main) return;   // temiz üst-bölüm yok → dokunma
+        Array.prototype.forEach.call(main.children, function (c) {
+          if (c === top || c.nodeType !== 1) return;
+          if (c.tagName === "SCRIPT" || c.tagName === "STYLE") return;
+          c.setAttribute("data-embed-hidden", "1");
+          c.style.display = "none";
+        });
+      } catch (e) {}
+    }
+
     function scrollToAnchor() {
       if (!anchor) return;
       var tries = 0;
@@ -9007,6 +9028,7 @@
         if (el && el.offsetParent) {
           clearInterval(t);
           el.classList.add("mv-embed-target");
+          isolateAnchor(el);
           el.scrollIntoView({ block: "start", behavior: "smooth" });
         } else if (tries > 40) {   // ~10 sn — SPA fetch'leri gecikirse pes et
           clearInterval(t);
