@@ -307,6 +307,239 @@ Sıra: W1 → W3 → W2 → W4.
   Masa'daki gizli "…'ye sor" alanı geri açılır — `/<pid>/chat` SSE deseninin
   uzman muadili, `QwenClient.complete` üzerinden.
 
+### W5 — Piramit değerlendirme + kaynakçalı brifing *(2026-07-23 kararı)*
+
+**Motivasyon (kullanıcı):** W4'ün tek global metrik seti (4 KPI) blok
+dökümantasyonlarını, blokların gerçek verisini ve süreç dökümantasyonlarını
+anlamsız bırakıyor. Uzman brifingi ÜÇ AŞAMALI üretilmeli: her blok kendi
+dökümantasyonu + kendi verisiyle ayrı değerlendirilir → blok değerlendirmeleri
+süreç dökümantasyonuyla birlikte süreç değerlendirmesine sentezlenir → süreç
+değerlendirmeleri uzman personası tarafından özetlenip sunulur. Uzman bulguları
+bloklara LİNKLEMELİ: cümle sonlarında atıf çipleri, tıklanınca atıf yapılan
+blok tam ekran modalda (chart-fs deseni) açılır; brifing altında kaynakça.
+
+**Boru hattı (tamamı arka planda; istek yolu W4a-non-blocking kalır):**
+
+```
+[blok digest'i] + [blok dökümantasyonu]
+      │  Aşama A — blok başına LLM değerlendirmesi (2-3 cümle)
+      ▼
+[blok değerlendirmeleri] + [süreç dökümantasyonu (4 alan)]
+      │  Aşama B — süreç başına LLM değerlendirmesi (3-4 cümle, atıflı)
+      ▼
+[süreç değerlendirmeleri] + [uzman personası] (+ global metrics_summary çapa)
+      │  Aşama C — uzman brifing anlatısı (atıflı)
+      ▼
+uzman sayfası (atıf çipleri + kaynakça + blok modalı)
+```
+
+**Kontratlar:**
+
+1. **Blok digest sağlayıcı** — `app.config["PROCESS_BLOCK_DIGESTS"] =
+   {block_id: fn}` (mevduat_panel kaydeder; prisma_home yalnız config okur —
+   izolasyon sözleşmesi W4b ile aynı). `fn() -> list[{k, v, delta, tone}]`,
+   ≤15 satır, RAM'deki engine cache'lerinden okur (Oracle'a gitmez), her hata
+   boş liste. 12 dökümante blok için elle yazılır (`mevduat_panel/
+   block_digests.py`) — "bu plottan hangi 10 sayı anlamlı" kararı digest
+   fonksiyonunun kendisidir; jenerik figür-kazıma YOK.
+2. **Sayı köken zinciri** — Aşama A yalnız digest sayılarını, B yalnız A
+   çıktılarında geçen sayıları, C yalnız B çıktılarında geçenleri kullanabilir
+   (prompt kuralı; W4a'nın "uydurma yasak" disiplini aşamalara genellenir).
+3. **Atıf token kontratı** — LLM cümle sonuna `[[blok:<block_id>]]` yazar
+   (B: kendi sürecinin blokları; C: bağlı tüm süreçlerin blokları). Sunucu
+   token'ları parse edip izinli kümeye karşı DOĞRULAR: geçersiz/uydurma id
+   sessizce düşer, cümle kalır. Saklanan şekil: `{text, cites: [block_id]}`
+   segment listesi + düz metin fallback. (Qwen tool-calling kırık → metin
+   token'ı + sunucu doğrulaması, D2 doc-proposer'la aynı yaklaşım.)
+4. **Hash'li kademeli invalidation** — A anahtarı `(block_id, digest_hash,
+   doc_hash)`, B anahtarı `(pid, doc_hash, hash(A çıktıları))`, C anahtarı
+   `(expert_id, hash(B çıktıları))`. Veri/döküman değişmediyse 0 LLM çağrısı;
+   değişiklik piramitte yukarı kendiliğinden yayılır. Tetikleyici:
+   `refresh_all` sonu + periyodik ısıtıcı (güvenlik ağı). Tam boru hattı
+   ~12+7+1 ≈ 20 çağrı, yalnız veri tazelenince koşar.
+5. **Atıf UX'i** — brifing cümle sonlarında numaralı çip (¹ ²…); tıklama
+   prisma_home'da chart-fs-overlay DESENİNDE bir modal açar, içinde bloğun
+   canlı görünümü iframe ile (`render_url` + `embed=1`). mevduat_panel
+   `?embed=1` modu: sidebar/topbar/dock gizli, anchor'a otomatik kaydırma —
+   SPA'ya dokunmadan CSS + küçük JS. Brifing altında "Kaynakça" bölümü:
+   atıf yapılan blokların kart listesi (Bloklar kütüphanesi kart şekli).
+
+**Alt fazlar:**
+
+- **W5a — Digest katmanı + blok değerlendirmesi** *(UYGULANDI — 2026-07-23)*:
+  `mevduat_panel/block_digests.py` (12 fonksiyon; soğuk cache'te [] — Oracle
+  ASLA tetiklenmez) + app.py `PROCESS_BLOCK_DIGESTS` kaydı +
+  `prisma_home/prompts/block_evaluation.txt` + `prisma_home/evaluation.py`
+  (hash'li Aşama-A cache; commentary refresher döngüsüne bağlı). Kabul: her
+  dökümante blok için digest ≤15 satır döner; DEV'de FakeLLM deterministik
+  stub üretir; digest değişmeden ikinci tur 0 LLM çağrısı
+  (`tests/test_block_evaluation.py`, `mevduat_panel/tests/test_block_digests.py`).
+- **W5b — Süreç değerlendirmesi + uzman anlatısı** *(UYGULANDI — 2026-07-23)*:
+  `prisma_home/citations.py` (token parser + doğrulayıcı; atıf sonrası
+  noktalama önceki segmente yutulur), `process_evaluation.txt` +
+  `expert_commentary.txt` yeniden yazımı (atıf token'lı brifing anlatısı),
+  Aşama B `evaluation.py`'da (children_hash ile A→B yukarı yayılım), Aşama C
+  `commentary.py`'da (input_hash; kayıt {text, segments, cites, block_titles}
+  — W5c UI `get_commentary_record` ile okur), `refresh_pipeline` (A→B→C) hem
+  periyodik döngüde hem mevduat `admin/refresh` sonrası
+  `MEVDUAT_POST_REFRESH_HOOK` üzerinden. Kabul: uydurma blok id'si düşer;
+  istek yolu hiçbir aşamayı beklemez; her aşamanın dürüst fallback'i var;
+  girdiler değişmeden tam tur 0 LLM çağrısı (`tests/test_citations.py`,
+  `tests/test_pyramid_evaluation.py`).
+- **W5c — Atıf UI'ı** *(UYGULANDI — 2026-07-23)*: expert.html'de segmentli
+  brifing + numaralı atıf çipleri + Kaynakça bölümü + chart-fs desenli blok
+  modalı (iframe LAZY: src yalnız açılışta, kapanışta about:blank);
+  mevduat_panel `?embed=1&anchor=<id>` modu (body.mv-embed → topbar/sidebar/
+  dock gizli, anchor'a bekle-kaydır + altın vurgu; MEVDUAT_VERSION p2.16);
+  süreç kartlarında Aşama-B metni (.proc-eval); answer_question bağlamına
+  güncel B değerlendirmeleri (SORU sonda). Route `_citation_entries`:
+  registry'den kalkmış atıf düşer, numara yeniden dizilir. Kabul: çip doğru
+  bloğu modalda açar; embed'de SPA kontrolleri gizli; atıfsız brifing çipsiz
+  birebir eski render (`tests/test_citation_ui.py`).
+
+**Riskler:** Qwen atıf token disiplini (bozuk token → doğrulayıcı düşürür,
+metin bozulmaz); iframe ağırlığı (modal lazy — yalnız tıklanınca yüklenir);
+digest bakımı (blok değişince digest da güncellenmeli — descriptor'daki blok
+versiyonuyla birlikte gözden geçirilir).
+
+### W6 — Brifing Sunumu: exec summary + interaktif slide akışı *(2026-07-23 geri bildirimi)*
+
+**Motivasyon (kullanıcı):** W5 çıktısı tek paragraf + kaynakça; ama kaynakçaya
+tıklayınca anlatılan sayılar bulunamıyor — blok VARSAYILAN filtrelerle açılıyor,
+digest ise kendi seçtiği tarih/boyutla hesaplamıştı (state uyumsuzluğu). İstenen:
+(1) uzman sayfasında paragraf yerine BULLET exec-summary headlines; (2) altında
+"Brifingi al" butonu → ayrı modal'da SUNUM: her slide bir madde anlatır ve o
+maddenin atıf bloğunu, DEĞERLENDİRMENİN YAPILDIĞI filtre/görünümle gösterir;
+←/→ ile akış; (3) sunum altında chat — kullanıcı bulunduğu slide'la ilgili ya
+da genel soru sorar.
+
+**Kontratlar:**
+
+1. **Yapılandırılmış brifing (headlines).** Aşama C çıktısı madde listesidir:
+   LLM her maddeyi yeni satırda `- ` ile yazar (1-2 cümle + atıf token'ları,
+   3-6 madde). Parser satırlara böler → `record.headlines: [{text, cites}]`
+   (mevcut segment parser'ı satır başına uygulanır). Uzman sayfası bullet
+   render eder; headlines'sız eski kayıt paragraf olarak düşer (geriye uyum).
+2. **View-state paritesi — sunumun bel kemiği.** Her digest fonksiyonu
+   sayılarla birlikte `view` metadata'sı da üretir:
+   `{page, anchor, label, controls: [{sel, value, label}]}` — digest HANGİ
+   tarih aralığı/boyut/filtreyle hesapladıysa o (kaynak: digest'in kendi
+   default'ları; LLM'den geçmez, deterministiktir). Aşama-A kaydında saklanır;
+   atıf çözücüsü embed URL'ine `state=<base64url(json)>` ekler. SPA embed modu
+   state'i uygular: kontrol elementlerine değer yazıp `change` dispatch eder,
+   render'ı bekler, anchor'a kaydırır. Slide üstünde state, okunur chip'ler
+   olarak da gösterilir ("Dönem: 31.05→30.06 · Boyut: SEGMENT×AUM") — kullanıcı
+   ne görüntülediğini bilir.
+3. **Sunum modalı.** "Brifingi al" → tam ekran modal: slide = madde metni
+   (büyük) + state chip'leri + atıf bloğunun embed iframe'i. ←/→ klavye +
+   ekran okları + ilerleme göstergesi (3/5). Atıfsız madde → yalnız metin
+   slide'ı. iframe lazy; slide değişince src güncellenir.
+4. **Slide-bağlamlı chat.** Modal altında chat şeridi; `expert_ask`'a
+   `context: {slide_text, block_id}` gider; prompt'a "ŞU AN GÖSTERİLEN SLAYT"
+   bölümü eklenir — cevap hem slide'a hem genele verilebilir.
+
+**Alt fazlar:**
+
+- **W6a — Headlines** *(UYGULANDI — 2026-07-23)*: `expert_commentary.txt`
+  madde formatına döndü (3-6 madde, "- " satır başı, madde başına 1-2 cümle
+  + atıf; her madde ≥1 atıf — en fazla bir genel-bağlam maddesi atıfsız);
+  `commentary._parse_briefing` ≥2 madde satırında headline modu
+  (`record.headlines: [{text, cites}]`), aksi halde paragraf yolu
+  (headlines=None — format tutmayan model/eski kayıt bozulmadan render).
+  expert.html: exec summary madde listesi (madde başına çipler, cite_chips
+  makrosu) + "Brifingi al" buton yeri (disabled — W6c bağlayacak). Kabul
+  testleri: `TestParseBriefing` (lokalde de koşuldu) + uçtan uca
+  `test_bullet_llm_output_yields_headlines_record`.
+- **W6b — View-state paritesi** *(UYGULANDI — 2026-07-23)*: digest sözleşmesi
+  `{"rows", "view": {label, controls:[{id, value}]}}` oldu (eski düz-liste
+  tolere edilir); 12 digest hesapladığı tarih/boyut kontrollerini gerçek SPA
+  element id'leriyle üretir (ca/ba/ta-mon-date0/1, ba-mon-decomp,
+  wr-date-start/end DD/MM→ISO, np-vp-date0/1+freq; sec_mix yalnız label —
+  sayfa varsayılanı aynı). Aşama-A kaydı `view` taşır; `_citation_entries`
+  URL'e `&state=<b64url{controls}>` ekler + `state_label` kaynakçada görünür.
+  SPA embed uygulayıcısı: kontroller VE select option'ları yüklenene dek
+  bekler (~10 sn), değer yazar + change dispatch, 600 ms sonra anchor'a
+  kaydırır; bozuk state → varsayılan görünüm. MEVDUAT_VERSION p2.17. Kabul
+  testleri: `test_block_digests.py` (view değerleri), `test_block_evaluation.py`
+  (dict sözleşme + view passthrough), `test_citation_ui.py` (state URL
+  roundtrip; view'sız blok eski davranış).
+- **W6c — Sunum modalı + chat** *(UYGULANDI — 2026-07-23)*: "Brifingi al" →
+  tam ekran sunum (`#brief-pres`, z-index blok modalının üstünde): slide =
+  madde metni (büyük serif) + blok seçici chip'leri (çoklu atıf) + state
+  label + atıf bloğunun embed iframe'i (lazy — yalnız URL değişince yüklenir;
+  kapanışta about:blank). ←/→ klavye (input odaklıyken devre dışı) + ekran
+  okları + ilerleme (2/5); atıfsız madde yalnız-metin slide'ı. Altta chat:
+  `expert_ask`'a `context={slide_text, block_id}` gider; `answer_question`
+  prompt'a "ŞU AN GÖSTERİLEN SLAYT" + bloğun güncel Aşama-A değerlendirmesini
+  ekler (SORU sonda; bilinmeyen block_id yok sayılır); `expert_ask.txt`'e
+  slayt-önceliği kuralı eklendi. Route `_brief_slides` headline kaydını slide
+  listesine çevirir (bilinmeyen atıf düşer; paragraf kaydında buton yok).
+  Kabul testleri: `TestBriefSlides` + `test_slide_context_reaches_prompt` +
+  `test_garbage_context_ignored`.
+
+**Not (uygulandı — 2026-07-23):** fallback kilidi düzeltildi: geçici LLM
+hatasında fallback kaydı `is_fallback` işaretlenir ve LLM denenebilir
+durumdaysa hash eşleşse de sonraki turda yeniden denenir ("Brifing henüz
+hazır değil takılı kaldı" geri bildirimi; `test_fallback_heals_when_llm_recovers`).
+
+### W7 — Güven + olgunluk katmanı *(2026-07-23 değerlendirmesi)*
+
+W5/W6 piramidi çalışıyor ama üç "güven/olgunluk" açığı var; öncelik sırasıyla:
+
+- **W7a — Sayı doğrulayıcı** *(UYGULANDI — 2026-07-23)*: `prisma_home/numbers.py`
+  (citations.py'nin sayısal kardeşi, saf modül). Her aşamada LLM çıktısındaki
+  BİRİME BAĞLI sayılar (bps/%/₺/pp/M/B/adet/gün) kaynak havuza karşı doğrulanır;
+  karşılığı olmayan sayı içeren cümle/madde ELENİR. Precision önceliği: yalnız
+  birim-sayı denetlenir (çıplak sayı/tarih/sıra sayısı değil), eşleştirme cömert
+  (tam-sayı + 2-ondalık yuvarlama; ayraç belirsizliği için çoklu yorum) →
+  meşru yuvarlama (487.2→487) geçer, uydurma (42→58) düşer. Entegrasyon:
+  A (havuz=digest), B (havuz=blok değerlendirmeleri), C (havuz=metrikler+süreç
+  değerlendirmeleri); tümü atıf parse'ından ÖNCE, tüm cümleler düşerse fallback
+  (is_fallback → retry-heal ile toparlanır). `numbers_flagged` sayacı kayıtlara
+  (W7c sağlık sayfası için). Üç prompt'a "kaynakta olmayan sayı elenir" notu.
+  Testler: `tests/test_numbers.py` (lokalde de koşuldu) +
+  `test_fabricated_number_bullet_dropped_end_to_end`.
+- **W7b — Pariteye görünür güven + haftalık warm** *(planlı)*: embed'de
+  view-state uygulanamayınca slide/kaynakçada görünür uyarı; digest'lerin
+  kendi penceresini warm edebilmesi (haftalık blok boşluğu).
+- **W7c — Piramit sağlık/eval sayfası** *(planlı)*: admin görünümü — taze vs
+  fallback eval sayısı, `numbers_flagged` toplamı, atıf sayısı, veri "as of"
+  damgaları, son LLM gecikme/hata.
+
+Daha stratejik açıklar (backlog): custom blok graduation'ı (ETL olgunlaşınca),
+çok-uzman/treasury-geneli sentez, "…'ye sor" çok-tur + stream, brifing geri
+bildirim/override döngüsü.
+
+### W8 — Departman Bakışları + Topic Gruplama *(UYGULANDI — 2026-07-23)*
+
+Aynı uzman altında departmana göre farklı süreç seti + brifing merceği + SIKI
+erişim; süreçler topic başlıkları altında gruplanır. Kararlar (kullanıcı,
+2026-07-23): erişim **sıkı** (yalnız tanımlı departmanlar), topic gruplaması
+**departman bakışında** (yazar gruplar), authoring UI **dahil**.
+
+- **Şema**: `Expert.department_views: [{departments, label?, briefing_focus?,
+  topics: [{title, processes: [pid]}]}]`. Boşsa LEGACY (bound_content.processes
+  + access_scope — eski davranış, tüm mevcut uzmanlar etkilenmez).
+- **`prisma_home/expert_views.py`** (saf): `list_views`, `resolve_view`
+  (granted/legacy/view), `can_access` (bakış varsa sıkı, yoksa access_scope),
+  `legacy_view`, deterministik `_view_key`. `list_for_user` + `expert_detail`
+  + `api_get_expert` + `uzman_edit`/`uzman_ask` erişimi tek karar noktası
+  `can_access`'e bağlandı; eşleşmeyen departman → 403.
+- **Piramit çatalı**: A (blok) ve B (süreç) departmandan bağımsız/paylaşımlı;
+  **C (uzman brifingi) `(expert, view)` ile keylenir** (`commentary._CACHE`
+  anahtarı `id::view_key`). `briefing_focus` C prompt'una "DEPARTMAN ODAĞI"
+  olarak girer; `warm_all` her uzmanın tüm bakışlarını ısıtır;
+  `answer_question` yalnız bakışın süreçlerine dayanır (kapsam sızması yok).
+- **Topic render**: `expert.html` süreçleri bakışın topic'leri altında gruplar
+  (legacy → tek grup, başlıksız — section-head ile çakışmaz).
+- **Authoring UI**: `uzman_edit` "Departman Bakışları (YAML)" editörü
+  (sections_yaml deseni) + süreç id referansı; `_parse_department_views`
+  yapı doğrulaması (departman + topic + süreç zorunlu); kaydetince o uzmanın
+  tüm bakış brifing kayıtları invalidate → sonraki tur yeniden üretir.
+- Testler: `tests/test_expert_views.py` (resolver/erişim + iki-departman C
+  çatalı; lokalde de koşuldu) + `test_pyramid_evaluation.py` legacy imzaya
+  güncellendi.
+
 ## §4 — Riskler ve açık sorular
 
 | Risk / soru | Etki | Öneri |

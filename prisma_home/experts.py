@@ -54,6 +54,12 @@ class Expert:
     access_scope: dict = field(default_factory=lambda: {"read": ["*"], "edit": []})
     ui: dict = field(default_factory=lambda: {"accent_color": "#6B8AFD", "glyph": ""})
     status: str = "active"
+    # W8 — departman bakışları: aynı uzman altında departmana göre farklı süreç
+    # seti (topic'lere gruplu) + brifing odağı + sıkı erişim. Boşsa legacy
+    # davranış (bound_content.processes + access_scope). Bkz. expert_views.py.
+    #   [{departments: [str], label?, briefing_focus?,
+    #     topics: [{title, processes: [pid]}]}]
+    department_views: list = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Expert":
@@ -146,20 +152,14 @@ class LocalExpertStore:
         return expert_id in self._cache
 
     def list_for_user(self, user) -> list[Expert]:
-        """Filter by access_scope.read — '*' matches all users, otherwise
-        the user's department must be in the read list.
+        """Görünürlük: W8 departman bakışı varsa SIKI (eşleşen bakış şart),
+        yoksa legacy access_scope.read ('*'/dept). ``can_access`` tek karar
+        noktasıdır — detay/edit route'larıyla tutarlı."""
+        from prisma_home.expert_views import can_access
 
-        Per spec §9.5: for initial launch all 6 experts are visible to
-        everyone. This method honours the YAML's access_scope.read field
-        so the data team can tighten visibility later without a code change.
-        """
         self._ensure_loaded()
         dept = getattr(user, "department", None) or ""
-        out: list[Expert] = []
-        for expert in self._cache.values():
-            read = expert.access_scope.get("read") or []
-            if "*" in read or dept in read:
-                out.append(expert)
+        out = [e for e in self._cache.values() if can_access(e, dept)]
         return sorted(out, key=lambda e: e.code)
 
     def save(self, expert) -> Expert:
@@ -243,13 +243,12 @@ class S3ExpertStore:
         return expert_id in self._cache
 
     def list_for_user(self, user) -> list[Expert]:
+        # W8 — LocalExpertStore ile aynı karar: can_access (bakış varsa sıkı).
+        from prisma_home.expert_views import can_access
+
         self._ensure_loaded()
         dept = getattr(user, "department", None) or ""
-        out: list[Expert] = []
-        for expert in self._cache.values():
-            read = expert.access_scope.get("read") or []
-            if "*" in read or dept in read:
-                out.append(expert)
+        out = [e for e in self._cache.values() if can_access(e, dept)]
         return sorted(out, key=lambda e: e.code)
 
     def save(self, expert) -> Expert:
