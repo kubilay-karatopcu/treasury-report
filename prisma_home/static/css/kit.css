@@ -1,0 +1,410 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   kit.css — PRISMA paylaşılan bileşen kiti (UI kit).
+
+   AMAÇ: bütün PRISMA sayfaları (masa, atölye, panolar, uygulamalar, asistan)
+   TEK bileşen sözlüğü kullansın. Modüller kendi buton/kart/tablo stilini
+   TANIMLAMAZ — buradaki `pk-*` sınıflarını kullanır.
+
+   `_base_prisma.html` bunu prisma.css'ten SONRA yükler; dolayısıyla kabuğu
+   extend eden her sayfada otomatik hazırdır, modüllerin ayrıca link vermesine
+   gerek yoktur (uniformluk inşa yoluyla garanti).
+
+   KURALLAR
+   - Yeni renk/tipografi token'ı TANIMLANMAZ; yalnız prisma.css token'ları
+     kullanılır (--ink*, --gold*, --bg-*, --border*, --mono, --serif, --sans).
+     Böylece açık/koyu tema <html data-theme> üzerinden otomatik akar.
+   - `pk-` ön eki zorunlu: Tabler yüklü sayfalarda (light_content) çakışmayı
+     önler.
+   - Etkileşimli kontroller `body.prisma` ön ekiyle yazılır — prisma.css:154
+     `body.prisma button { border:none; background:none; font:inherit }`
+     reset'i sınıf-tek seçiciyi ezer (S1'de yaşandı).
+
+   Görsel dil: atölye sayfalarının flat-dark dili — köşesiz (radius 0),
+   mono etiketler, gold focus/hover.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Sayfa iskeleti ───────────────────────────────────────────────────── */
+.pk-page { padding: 22px clamp(14px, 1.6vw, 22px) 64px; }
+
+.pk-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  margin-bottom: 22px; gap: 32px; flex-wrap: wrap;
+}
+.pk-head .pk-eyebrow {
+  font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--gold); margin-bottom: 14px;
+}
+.pk-head h2 {
+  font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+  color: var(--ink); margin: 0 0 6px;
+}
+.pk-head .pk-sub {
+  font-family: var(--serif); font-style: italic;
+  font-size: 14px; color: var(--ink-mute);
+  line-height: 1.55; max-width: 580px;
+}
+.pk-meta {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-faint); letter-spacing: 0.04em;
+  white-space: nowrap; text-align: right;
+}
+
+/* ── 2. Kontroller: buton ────────────────────────────────────────────────── */
+body.prisma .pk-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; padding: 0 16px;
+  background: var(--bg-0); color: var(--ink-soft);
+  border: 1px solid var(--border); border-radius: 0;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  cursor: pointer; transition: all 0.2s; white-space: nowrap;
+}
+body.prisma .pk-btn:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); }
+body.prisma .pk-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+body.prisma .pk-btn--primary { color: var(--gold); border-color: var(--gold); }
+body.prisma .pk-btn--primary:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+body.prisma .pk-btn--go { color: var(--green); border-color: var(--green); }
+body.prisma .pk-btn--go:hover:not(:disabled) { background: var(--green); color: var(--bg-0); }
+body.prisma .pk-btn--quiet { border-color: var(--border-soft); color: var(--ink-faint); }
+body.prisma .pk-btn--sm { height: 28px; padding: 0 11px; font-size: 9px; }
+body.prisma .pk-btn--block { width: 100%; }
+.pk-btn .pk-ico { width: 14px; height: 14px; flex: none; }
+
+/* ── 3. Kontroller: alanlar (input/select/textarea) ──────────────────────── */
+.pk-field { display: flex; flex-direction: column; gap: 5px; min-width: 140px; }
+.pk-label {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+  color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.18em;
+}
+body.prisma .pk-input,
+body.prisma .pk-select,
+body.prisma .pk-textarea {
+  background: var(--bg-0); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 0;
+  padding: 7px 10px; font-size: 12px; font-family: var(--mono);
+  min-width: 140px;
+}
+body.prisma .pk-textarea { font-family: var(--sans); resize: vertical; min-height: 56px; }
+body.prisma .pk-input:focus,
+body.prisma .pk-select:focus,
+body.prisma .pk-textarea:focus { outline: none; border-color: var(--gold); }
+body.prisma .pk-input::placeholder, body.prisma .pk-textarea::placeholder { color: var(--ink-faint); }
+body.prisma .pk-input:disabled, body.prisma .pk-select:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Koyu temada tarayıcının takvim ikonunu görünür kıl */
+:root[data-theme="dark"] body.prisma .pk-input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+}
+
+/* ── 4. Filtre barı ──────────────────────────────────────────────────────── */
+.pk-filterbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: 14px; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  padding: 12px 14px;
+  margin: 0 0 20px;
+}
+.pk-filterbar__widgets {
+  display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end;
+  flex: 1; min-width: 0;
+}
+.pk-filterbar__actions { display: flex; align-items: center; gap: 10px; }
+.pk-field__body { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pk-sep { color: var(--ink-faint); font-size: 11px; }
+
+.pk-status {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+.pk-status.is-err { color: var(--red); }
+
+/* ── 5. Chip (çoklu seçim / etiket) ──────────────────────────────────────── */
+.pk-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+body.prisma .pk-chip {
+  background: var(--bg-0); color: var(--ink-mute);
+  border: 1px solid var(--border); border-radius: 0;
+  padding: 6px 11px; font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; cursor: pointer; transition: all 0.15s;
+}
+body.prisma .pk-chip:hover { color: var(--gold); border-color: var(--gold); }
+body.prisma .pk-chip.is-on { color: var(--bg-0); background: var(--gold); border-color: var(--gold); }
+
+/* Salt-okunur rozet */
+.pk-badge {
+  display: inline-block; padding: 3px 8px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid var(--border); color: var(--ink-mute); background: var(--bg-0);
+}
+.pk-badge--accent { color: var(--gold); border-color: var(--gold); }
+.pk-badge--go { color: var(--green); border-color: var(--green); }
+
+/* ── 6. KPI şeridi ───────────────────────────────────────────────────────── */
+.pk-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px; margin-bottom: 20px;
+}
+.pk-kpi { background: var(--bg-1); border: 1px solid var(--border-soft); padding: 16px 18px; }
+.pk-kpi__label {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px;
+}
+.pk-kpi__value {
+  font-size: 26px; font-weight: 200; letter-spacing: -0.01em; color: var(--ink);
+}
+.pk-kpi__unit { font-size: 13px; color: var(--ink-mute); margin-left: 4px; }
+.pk-kpi__sub {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
+  margin-top: 6px; letter-spacing: 0.04em;
+}
+
+/* ── 7. Kart + grid ──────────────────────────────────────────────────────── */
+.pk-grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }
+.pk-card {
+  background: var(--bg-1); border: 1px solid var(--border-soft);
+  padding: 16px 18px 10px; grid-column: span 12; min-width: 0;
+}
+.pk-card--half { grid-column: span 6; }
+.pk-card--third { grid-column: span 4; }
+@media (max-width: 1100px) { .pk-card--half, .pk-card--third { grid-column: span 12; } }
+.pk-card__head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 4px;
+}
+.pk-card__title { font-size: 13px; font-weight: 500; color: var(--ink); letter-spacing: 0.01em; }
+.pk-card__note {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); letter-spacing: 0.06em;
+}
+.pk-chart { width: 100%; min-height: 260px; }
+
+/* ── 8. Tablo ────────────────────────────────────────────────────────────── */
+.pk-table-wrap { overflow-x: auto; }
+.pk-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pk-table th {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
+  text-align: right; padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap; position: sticky; top: 0; background: var(--bg-1);
+}
+.pk-table th:first-child, .pk-table td:first-child { text-align: left; }
+.pk-table td {
+  padding: 7px 10px; text-align: right; color: var(--ink-soft);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--mono); font-size: 11.5px; white-space: nowrap;
+}
+.pk-table tbody tr:hover td { background: var(--bg-2); color: var(--ink); }
+.pk-table td.is-pos { color: var(--green); }
+.pk-table td.is-neg { color: var(--red); }
+
+/* Anahtar/değer listesi (özet panelleri) */
+.pk-dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline; }
+.pk-dl dt { font-size: 11px; color: var(--ink-mute); letter-spacing: 0.02em; }
+.pk-dl dd {
+  margin: 0; font-family: var(--mono); font-size: 12px; color: var(--ink);
+  text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pk-rule { border: none; border-top: 1px solid var(--border-soft); margin: 14px 0; }
+
+/* Öne çıkan sayı bloğu (oran vb.) */
+.pk-figure { text-align: center; padding: 6px 0 2px; }
+.pk-figure__label {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.pk-figure__value {
+  font-size: 34px; font-weight: 200; color: var(--gold); letter-spacing: -0.02em;
+  line-height: 1.15; margin-top: 4px;
+}
+.pk-figure__sub { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); margin-top: 4px; }
+
+/* ── 9. Durum blokları ───────────────────────────────────────────────────── */
+.pk-empty, .pk-error {
+  padding: 42px 18px; text-align: center;
+  font-family: var(--serif); font-style: italic; font-size: 13.5px;
+  color: var(--ink-faint);
+}
+.pk-error { color: var(--red); font-style: normal; font-family: var(--mono); font-size: 11.5px; }
+.pk-loading { opacity: 0.45; transition: opacity 0.15s; }
+
+.pk-alert {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border: 1px solid var(--border);
+  font-size: 12px; color: var(--ink-soft); background: var(--bg-0);
+}
+.pk-alert--go { border-color: var(--green); color: var(--green); }
+.pk-alert--warn { border-color: var(--gold); color: var(--gold-soft); }
+.pk-alert--err { border-color: var(--red); color: var(--red-soft); }
+
+/* ── 10. Konuşma / asistan bileşenleri ───────────────────────────────────── */
+/* Üç kolonlu çalışma alanı: yan panel · konuşma · özet paneli */
+.pk-workspace {
+  display: flex; gap: 0; align-items: stretch;
+  height: calc(100vh - 56px);          /* topbar yüksekliği */
+  overflow: hidden;
+}
+.pk-side {
+  flex: 0 0 250px; min-width: 0;
+  background: var(--bg-1); border-right: 1px solid var(--border-soft);
+  display: flex; flex-direction: column; padding: 16px 14px; gap: 12px;
+  overflow-y: auto; transition: flex-basis 0.2s, padding 0.2s;
+}
+.pk-side--right { border-right: none; border-left: 1px solid var(--border-soft); flex-basis: 290px; }
+.pk-side__title {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--gold);
+  padding-bottom: 8px; border-bottom: 1px solid var(--border-soft);
+}
+.pk-side__list { display: flex; flex-direction: column; gap: 4px; }
+
+.pk-thread {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg-0);
+}
+.pk-thread__scroll {
+  flex: 1 1 auto; overflow-y: auto;
+  padding: 26px clamp(16px, 4vw, 64px) 12px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.pk-thread__foot {
+  flex: none; padding: 14px clamp(16px, 4vw, 64px) 20px;
+  border-top: 1px solid var(--border-soft); background: var(--bg-1);
+}
+
+/* Mesaj balonları */
+.pk-msg { display: flex; gap: 10px; align-items: flex-start; max-width: 100%; }
+.pk-msg--user { flex-direction: row-reverse; }
+.pk-msg__avatar {
+  flex: none; width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--bg-2);
+  font-family: var(--mono); font-size: 10px; color: var(--ink-mute);
+}
+.pk-msg__avatar--bot { border-color: var(--gold); color: var(--gold); }
+.pk-msg__bubble {
+  padding: 11px 15px; max-width: min(70ch, 78%);
+  border: 1px solid var(--border-soft); background: var(--bg-1);
+  color: var(--ink-soft); font-size: 13.5px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+}
+.pk-msg--user .pk-msg__bubble {
+  background: var(--bg-2); color: var(--ink); border-color: var(--border);
+}
+.pk-msg--bot .pk-msg__bubble { border-left: 2px solid var(--gold); }
+
+/* Konuşma açılış metni */
+.pk-intro {
+  font-family: var(--serif); font-style: italic; font-weight: 300;
+  font-size: 22px; line-height: 1.5; color: var(--ink-mute);
+  padding: 26px 0 8px;
+}
+.pk-intro > div + div { margin-top: 6px; }
+.pk-intro .pk-intro__lead { color: var(--ink); }
+
+/* Sohbet giriş satırı */
+.pk-composer { display: flex; gap: 8px; align-items: center; }
+body.prisma .pk-composer .pk-input { flex: 1; font-family: var(--sans); font-size: 13.5px; padding: 10px 13px; }
+
+/* Tıklanabilir seçim kartı (dönüş listesi vb.) */
+.pk-pick {
+  border: 1px solid var(--border); background: var(--bg-1);
+  padding: 13px 15px; cursor: pointer; transition: all 0.15s;
+  /* Sabit genişlik: kartlar içeriğe göre büzülürse liste tırtıklı görünür
+     (uniformluk). Balon genişliğiyle aynı üst sınır. */
+  width: min(70ch, 78%); max-width: min(70ch, 78%);
+}
+.pk-pick:hover { border-color: var(--gold); background: var(--bg-2); }
+.pk-pick__top { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 11px; }
+.pk-pick__name { font-size: 13px; color: var(--ink); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-pick__id { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); margin-top: 2px; }
+.pk-pick__cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.pk-pick__k {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-faint); margin-bottom: 3px;
+}
+.pk-pick__v { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.pk-pick__v--accent { color: var(--gold); }
+.pk-pick__cta {
+  margin-top: 11px; text-align: right;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--gold);
+}
+
+/* Fiyat kartı (asistan cevabına iliştirilen sonuç) */
+.pk-pricecard {
+  margin-top: 12px; border: 1px solid var(--gold);
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-1) 100%);
+  padding: 14px 16px;
+}
+.pk-pricecard__top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.pk-pricecard__label {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.pk-pricecard__value {
+  margin-left: auto; font-size: 26px; font-weight: 200; color: var(--gold);
+}
+.pk-pricecard__grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px 14px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint);
+}
+.pk-pricecard__grid b { color: var(--ink-soft); font-weight: 500; }
+
+/* Yan panelde seçilebilir satır (oturum listesi) */
+body.prisma .pk-listbtn {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 8px 10px; text-align: left;
+  background: var(--bg-0); border: 1px solid var(--border-soft); border-radius: 0;
+  color: var(--ink-mute); font-family: var(--sans); font-size: 12px;
+  cursor: pointer; transition: all 0.15s;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body.prisma .pk-listbtn:hover { border-color: var(--gold); color: var(--ink); }
+body.prisma .pk-listbtn.selected { border-color: var(--gold); background: var(--bg-2); color: var(--ink); }
+body.prisma .pk-listbtn.confirmed { color: var(--green); }
+.pk-listbtn .pk-ico { flex: none; width: 14px; height: 14px; }
+
+/* Panel daraltma */
+.pk-side.closed { flex-basis: 44px; padding-left: 8px; padding-right: 8px; }
+.pk-side.closed > *:not(.pk-side__toggle) { display: none; }
+.pk-side__toggle { align-self: flex-end; }
+body.prisma .pk-iconbtn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center;
+  justify-content: center; background: transparent; border: 1px solid transparent;
+  color: var(--ink-faint); cursor: pointer; border-radius: 0;
+}
+body.prisma .pk-iconbtn:hover { color: var(--gold); border-color: var(--border); }
+
+/* Geçici bildirim — Bootstrap Toast'a bağımlılık YOK; JS `.is-open` ekler. */
+.pk-toast {
+  position: fixed; right: 18px; bottom: 18px; z-index: 80;
+  padding: 12px 16px; border: 1px solid var(--green);
+  background: var(--bg-1); color: var(--green);
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em;
+  opacity: 0; transform: translateY(8px); pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.pk-toast.is-open { opacity: 1; transform: translateY(0); }
+.pk-toast.is-err { border-color: var(--red); color: var(--red-soft); }
+
+.pk-hidden, .hidden { display: none !important; }
+
+/* ── 11. Embed modu (?embed=1&anchor=…) ──────────────────────────────────
+   Uzman brifingindeki atıf modalı bir sayfayı iframe'de açar: kabuk
+   kontrolleri gizlenir, yalnız anchor'lanan kart(lar) kalır. mevduat_panel
+   SPA'sının body.mv-embed sözleşmesinin kit karşılığı; JS tarafı
+   MVP.initEmbed (mevduat_panel/static/prisma/common.js). */
+body.prisma.pk-embed .topbar,
+body.prisma.pk-embed .pk-head,
+body.prisma.pk-embed .pk-filterbar { display: none; }
+body.prisma.pk-embed .canvas,
+body.prisma.pk-embed .pk-page { padding: 10px 12px; }
+/* KPI şeridi embed'de KALIR: sayfa başlığı ve filtre barı gizlendiği için
+   izole edilen grafiğin dönem/kayıt bağlamını yalnız o taşır. */
+body.prisma.pk-embed .pk-card[data-embed-hidden="1"] { display: none; }
+body.prisma.pk-embed .pk-card.pk-embed-target {
+  grid-column: span 12; border-color: var(--gold);
+}

@@ -109,8 +109,8 @@ def test_page_renders_with_prisma_shell(client, path):
     assert 'class="prisma' in body
     assert "prisma-theme" in body            # tema flash-prevention scripti
     assert "css/prisma.css" in body          # PRISMA token stylesheet'i
-    assert "mvp-page" in body                # sayfa gövdesi
-    assert "filter-bar" in body              # PRISMA filtre barı konvansiyonu
+    assert "pk-page" in body                 # sayfa gövdesi (kit)
+    assert "pk-filterbar" in body            # paylaşılan kit filtre barı
 
 
 @pytest.mark.parametrize("path", PAGES)
@@ -155,7 +155,7 @@ def test_endpoints_payload_shape(client):
 
 def test_static_assets_served(client):
     """PRISMA sayfa varlıkları blueprint static'inden servis ediliyor."""
-    for asset in ("prisma/pages.css", "prisma/common.js", "prisma/rates.js",
+    for asset in ("prisma/common.js", "prisma/rates.js",
                   "prisma/amounts.js", "prisma/historic.js", "prisma/competitor.js"):
         assert client.get("/mvp/static/" + asset).status_code == 200, asset
 
@@ -164,8 +164,20 @@ def test_chip_and_button_rules_survive_prisma_reset():
     """prisma.css:154 `body.prisma button {border:none}` reset'ini aşan seçici.
 
     Ön ek düşerse chip/butonlar düz metin gibi render olur (headless turda
-    yakalandı) — regresyon kapısı.
+    yakalandı) — regresyon kapısı. Kurallar artık paylaşılan kitte.
     """
-    css = (REPO / "mevduat_panel/static/prisma/pages.css").read_text(encoding="utf-8")
-    assert "body.prisma .filter-chip {" in css
-    assert "body.prisma .mvp-btn {" in css
+    css = (REPO / "prisma_home/static/css/kit.css").read_text(encoding="utf-8")
+    assert "body.prisma .pk-chip {" in css
+    assert "body.prisma .pk-btn {" in css
+
+
+def test_module_defines_no_own_component_css():
+    """UI uniformluğu: modül kendi buton/kart/tablo stilini tanımlamaz.
+
+    Bileşenler kabuğun paylaşılan kitinden (prisma_home/static/css/kit.css)
+    gelir; modülde ayrı bir bileşen stylesheet'i yeniden belirirse bu test
+    kırılır.
+    """
+    assert not (REPO / "mevduat_panel/static/prisma/pages.css").exists()
+    page = (REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html").read_text(encoding="utf-8")
+    assert "pages.css" not in page

@@ -240,8 +240,65 @@ olduğunu kaydetmiş. Headless turda sayfalar gerçekten kırıldı
   chart + `bootstrap` yüklü; reservations: AG Grid 31 hücre render); süreç
   çözümü + bayrak kapalıyken gizlenme + uzman topic'i uçtan uca; 7 yeni test
   (toplam 17) — `@`'li CDN kalmadığını doğrulayan regresyon kapısı dahil.
-- Not: `deposit/chat.html` (asistan) kendi tam-sayfa dokümanıdır; süreç olarak
-  bağlandı ama PRISMA kabuğuna taşınmadı — sohbet arayüzü ayrı bir uyarlama işi.
+
+### Faz S5 — Asistan + tek UI kit (uniformluk) — ✅ TAMAMLANDI
+
+Kullanıcı kararı (2026-07-25): *"asistanı da taşıyalım ama eski arayüzünü gene
+PRISMA komponentleriyle taşıyalım. Bütün page'lerin homojen, aynı design sistemi
+ve UI kitiyle yapılmasından emin olalım. Componentler uniform olsun."*
+
+**1. Paylaşılan bileşen kiti** — `prisma_home/static/css/kit.css` (`pk-*`).
+`_base_prisma.html` bunu prisma.css'ten sonra yükler, yani kabuğu extend eden
+HER sayfa aynı kiti otomatik alır (uniformluk *inşa yoluyla*, sözleşmeyle değil).
+Sözlük: `pk-page/head/eyebrow/sub/meta`, `pk-btn` (+`--primary/--go/--quiet/--sm/
+--block`), `pk-input/select/textarea`, `pk-filterbar`, `pk-chip`, `pk-badge`,
+`pk-kpi`, `pk-card` (+`--half/--third`), `pk-table`, `pk-dl`, `pk-figure`,
+`pk-alert`, `pk-toast`, `pk-workspace/side/thread/msg/pick/pricecard`,
+`pk-embed*`. Kurallar: yeni renk token'ı YOK (testle korunuyor), `pk-` ön eki
+zorunlu, etkileşimli kontroller `body.prisma` ön ekiyle (prisma.css:154 reset'i).
+
+**2. Modüller kendi bileşen CSS'ini bıraktı**
+- `mevduat_panel/static/prisma/pages.css` **silindi**; 4 sayfa `mvp-*`/
+  `filter-*` sınıflarından `pk-*`'a taşındı.
+- `deposit_panel` **`light_content` (Tabler kaçış kapısı) bıraktı** — params ve
+  reservations kit bileşenleriyle yeniden kuruldu; AG Grid teması `--ag-*`
+  değişkenleriyle PRISMA token'larına bağlandı (tema flip'ini otomatik izler);
+  strateji kaydırıcısının sabit renkleri token'landı.
+- Tabler/Bootstrap JS bağımlılığı **tamamen kalktı**: tek kullanım
+  `bootstrap.Toast` idi, yerini kit toast'ı (`pk-toast` + `.is-open`) aldı.
+- `deposit_panel.js` chart'ı artık PRISMA token'larından renk alıyor
+  (`_tok()`), `theme.mode` data-theme'i izliyor.
+
+**3. Asistan (`deposit/chat.html`) PRISMA'ya taşındı**
+- Bağımsız tam-sayfa dokümandı (kendi `<head>`'i, Tabler CDN'i, kendi header'ı,
+  ~50 satır fallback CSS) → artık kabuğu extend ediyor (`canvas_bleed`,
+  `hide_mode_switch`, crumb). Kendi header'ı ve logosu kalktı; topbar/tema/
+  kullanıcı çipi kabuktan.
+- `chat_partial.html` + `info_panel_left.html` kit bileşenleriyle yeniden
+  yazıldı (üç kolon `pk-workspace`, mesajlar `pk-msg`, seçim kartları `pk-pick`,
+  fiyat kartı `pk-pricecard`, özet paneli `pk-dl`/`pk-figure`).
+- `static/deposit/style_new.css` **610 → ~45 satır**: bileşenler kite devredildi,
+  yalnız sayfaya özgü artıklar kaldı (panel daraltma ikon görünürlüğü vb.).
+- **`demo.js`'e dokunulmadı** — DOM sözleşmesinin tamamı korundu (`#main-view`,
+  `#conversation`, `#anchor`, `#chat-input*`, `#user_input`, `#conf-state-marker`,
+  `#info-panel-left*`, `#pricing-*`, `#session-*`, `.session-switch`,
+  `.entry(.choice)`, `.hidden/.closed/.selected/.confirmed`).
+
+**Doğrulama**
+- Headless: 4 pano + 3 embed + 2 uygulama + asistan → **hepsi 0 JS hatası**;
+  asistanda panel daraltma davranışı ve kit sınıfları; uygulamalarda
+  `tabler=False, kit=True`, AG Grid render.
+- Yol boyunca yakalanan gerçek hata: kit sınıf-tabanlı olduğu için (eski CSS
+  descendant seçici kullanıyordu) **tarih/select girdileri stilsiz kalmıştı** —
+  tarayıcıda hesaplanmış stil ölçülerek bulundu, şablonlara `pk-input`/
+  `pk-select` eklendi.
+- Testler: uniformluk kapıları eklendi — kit kabukta yüklü mü, sayfalar kabuğu
+  extend edip Tabler *varlığı* yüklüyor mu (yorum metni değil, `link`/`script`
+  satırları), kit yeni renk token'ı tanımlıyor mu, asistan CSS'i tekrar bileşen
+  tanımlamaya başladı mı, `bootstrap.` kalıntısı var mı. **26 test yeşil.**
+
+Kalan: `deposit/dummy.html` kullanılmıyor; asistanın `demo.js`'i (546 satır)
+işlevsel olarak korundu, ileride kit diline göre sadeleştirilebilir.
 
 ---
 

@@ -235,7 +235,7 @@
       values.forEach(function (v) {
         var b = document.createElement('button');
         b.type = 'button';
-        b.className = 'filter-chip' + (selected.has(v) ? ' is-on' : '');
+        b.className = 'pk-chip' + (selected.has(v) ? ' is-on' : '');
         b.textContent = v;
         b.addEventListener('click', function () {
           if (selected.has(v)) selected.delete(v); else selected.add(v);
@@ -288,7 +288,7 @@
     if (!el) return;
     el.innerHTML = '';
     var d = document.createElement('div');
-    d.className = 'mvp-error';
+    d.className = 'pk-error';
     d.textContent = message;
     el.appendChild(d);
   }
@@ -297,7 +297,7 @@
     if (!el) return;
     el.innerHTML = '';
     var d = document.createElement('div');
-    d.className = 'mvp-empty';
+    d.className = 'pk-empty';
     d.textContent = message || 'Seçilen filtrelerde veri yok.';
     el.appendChild(d);
   }
@@ -307,9 +307,9 @@
     if (!el) return;
     if (!rows.length) { showEmpty(el); return; }
     var wrap = document.createElement('div');
-    wrap.className = 'mvp-table-wrap';
+    wrap.className = 'pk-table-wrap';
     var t = document.createElement('table');
-    t.className = 'mvp-table';
+    t.className = 'pk-table';
     var thead = document.createElement('thead');
     var htr = document.createElement('tr');
     columns.forEach(function (c) {
@@ -336,15 +336,15 @@
 
   function kpi(el, label, value, unit, sub) {
     var d = document.createElement('div');
-    d.className = 'mvp-kpi';
+    d.className = 'pk-kpi';
     d.innerHTML =
-      '<div class="mvp-kpi__label"></div>' +
-      '<div class="mvp-kpi__value"><span class="v"></span><span class="mvp-kpi__unit"></span></div>' +
-      '<div class="mvp-kpi__sub"></div>';
-    d.querySelector('.mvp-kpi__label').textContent = label;
+      '<div class="pk-kpi__label"></div>' +
+      '<div class="pk-kpi__value"><span class="v"></span><span class="pk-kpi__unit"></span></div>' +
+      '<div class="pk-kpi__sub"></div>';
+    d.querySelector('.pk-kpi__label').textContent = label;
     d.querySelector('.v').textContent = value;
-    d.querySelector('.mvp-kpi__unit').textContent = unit || '';
-    d.querySelector('.mvp-kpi__sub').textContent = sub || '';
+    d.querySelector('.pk-kpi__unit').textContent = unit || '';
+    d.querySelector('.pk-kpi__sub').textContent = sub || '';
     el.appendChild(d);
     return d;
   }
@@ -357,7 +357,7 @@
   function initEmbed(onControlsApplied) {
     var qs = new URLSearchParams(window.location.search);
     if (qs.get("embed") !== "1") return false;
-    document.body.classList.add("mvp-embed");
+    document.body.classList.add("pk-embed");
 
     var raw = qs.get("anchor") || "";
     if (!/^[A-Za-z0-9_,-]*$/.test(raw)) raw = "";
@@ -404,8 +404,8 @@
       var wanted = {};
       anchors.forEach(function (a) { wanted[a] = 1; });
       var found = false;
-      document.querySelectorAll(".mvp-card").forEach(function (card) {
-        if (wanted[card.id]) { card.classList.add("mvp-embed-target"); found = true; }
+      document.querySelectorAll(".pk-card").forEach(function (card) {
+        if (wanted[card.id]) { card.classList.add("pk-embed-target"); found = true; }
         else { card.setAttribute("data-embed-hidden", "1"); }
       });
       if (found) {

@@ -3,63 +3,63 @@
 {% block title %}Tarihsel Görünüm — PRISMA{% endblock %}
 
 {% block mvp_filters %}
-  <div class="filter-widget">
-    <span class="filter-widget__label">Dönem</span>
-    <div class="filter-widget__body">
-      <input type="date" id="fFrom">
-      <span class="filter-widget__date-sep">→</span>
-      <input type="date" id="fTo">
+  <div class="pk-field">
+    <span class="pk-label">Dönem</span>
+    <div class="pk-field__body">
+      <input type="date" class="pk-input" id="fFrom">
+      <span class="pk-sep">→</span>
+      <input type="date" class="pk-input" id="fTo">
     </div>
   </div>
-  <div class="filter-widget">
-    <span class="filter-widget__label">Kaynak</span>
-    <div class="filter-widget__body"><div class="filter-chips" id="fSrc"></div></div>
+  <div class="pk-field">
+    <span class="pk-label">Kaynak</span>
+    <div class="pk-field__body"><div class="pk-chips" id="fSrc"></div></div>
   </div>
-  <div class="filter-widget">
-    <span class="filter-widget__label">Para Birimi</span>
-    <div class="filter-widget__body"><select id="fCcy"></select></div>
+  <div class="pk-field">
+    <span class="pk-label">Para Birimi</span>
+    <div class="pk-field__body"><select id="fCcy" class="pk-select"></select></div>
   </div>
-  <div class="filter-widget">
-    <span class="filter-widget__label">Müşteri Tipi</span>
-    <div class="filter-widget__body"><select id="fCust"></select></div>
+  <div class="pk-field">
+    <span class="pk-label">Müşteri Tipi</span>
+    <div class="pk-field__body"><select id="fCust" class="pk-select"></select></div>
   </div>
-  <div class="filter-widget">
-    <span class="filter-widget__label">Revizyon</span>
-    <div class="filter-widget__body">
-      <div class="filter-chips" id="fRev">
-        <button type="button" class="filter-chip" id="fRevMax">Yalnız son revizyon</button>
+  <div class="pk-field">
+    <span class="pk-label">Revizyon</span>
+    <div class="pk-field__body">
+      <div class="pk-chips" id="fRev">
+        <button type="button" class="pk-chip" id="fRevMax">Yalnız son revizyon</button>
       </div>
     </div>
   </div>
 {% endblock %}
 
 {% block mvp_body %}
-  <div class="mvp-kpis" id="kpis"></div>
-  <div class="mvp-grid">
-    <div class="mvp-card" id="card-combo">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Günlük Hacim ve Ağırlıklı Teklif Oranı</span>
-        <span class="mvp-card__note">bar = tutar (sol) · çizgi = oran (sağ)</span>
+  <div class="pk-kpis" id="kpis"></div>
+  <div class="pk-grid">
+    <div class="pk-card" id="card-combo">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Günlük Hacim ve Ağırlıklı Teklif Oranı</span>
+        <span class="pk-card__note">bar = tutar (sol) · çizgi = oran (sağ)</span>
       </div>
-      <div class="mvp-chart" id="chCombo"></div>
+      <div class="pk-chart" id="chCombo"></div>
     </div>
-    <div class="mvp-card mvp-card--half" id="card-bands">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Oran Bandı</span>
-        <span class="mvp-card__note">teklif · talep · piyasa üst sınırı</span>
+    <div class="pk-card pk-card--half" id="card-bands">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Oran Bandı</span>
+        <span class="pk-card__note">teklif · talep · piyasa üst sınırı</span>
       </div>
-      <div class="mvp-chart" id="chBands"></div>
+      <div class="pk-chart" id="chBands"></div>
     </div>
-    <div class="mvp-card mvp-card--half" id="card-source">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Kaynak Bazında Günlük Adet</span>
+    <div class="pk-card pk-card--half" id="card-source">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Kaynak Bazında Günlük Adet</span>
       </div>
-      <div class="mvp-chart" id="chBySource"></div>
+      <div class="pk-chart" id="chBySource"></div>
     </div>
-    <div class="mvp-card" id="card-daily-table">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Günlük Özet</span>
-        <span class="mvp-card__note">oranlar Σ(tutar×oran)/Σtutar</span>
+    <div class="pk-card" id="card-daily-table">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Günlük Özet</span>
+        <span class="pk-card__note">oranlar Σ(tutar×oran)/Σtutar</span>
       </div>
       <div id="tblDaily"></div>
     </div>

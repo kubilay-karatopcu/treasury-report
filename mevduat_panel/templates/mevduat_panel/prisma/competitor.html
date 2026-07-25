@@ -3,58 +3,58 @@
 {% block title %}Rakip Faiz Analizi — PRISMA{% endblock %}
 
 {% block mvp_filters %}
-  <div class="filter-widget">
-    <span class="filter-widget__label">Tarih</span>
-    <div class="filter-widget__body">
-      <input type="date" id="fDate">
+  <div class="pk-field">
+    <span class="pk-label">Tarih</span>
+    <div class="pk-field__body">
+      <input type="date" class="pk-input" id="fDate">
     </div>
   </div>
-  <div class="filter-widget">
-    <span class="filter-widget__label">Para Birimi</span>
-    <div class="filter-widget__body"><select id="fCcy"></select></div>
+  <div class="pk-field">
+    <span class="pk-label">Para Birimi</span>
+    <div class="pk-field__body"><select id="fCcy" class="pk-select"></select></div>
   </div>
-  <div class="filter-widget">
-    <span class="filter-widget__label">Vade Aralığı (gün)</span>
-    <div class="filter-widget__body">
-      <input type="number" id="fVadeMin" placeholder="min" min="0">
-      <span class="filter-widget__date-sep">→</span>
-      <input type="number" id="fVadeMax" placeholder="max" min="0">
+  <div class="pk-field">
+    <span class="pk-label">Vade Aralığı (gün)</span>
+    <div class="pk-field__body">
+      <input type="number" class="pk-input" id="fVadeMin" placeholder="min" min="0">
+      <span class="pk-sep">→</span>
+      <input type="number" class="pk-input" id="fVadeMax" placeholder="max" min="0">
     </div>
   </div>
-  <div class="filter-widget">
-    <span class="filter-widget__label">Banka</span>
-    <div class="filter-widget__body"><div class="filter-chips" id="fBank"></div></div>
+  <div class="pk-field">
+    <span class="pk-label">Banka</span>
+    <div class="pk-field__body"><div class="pk-chips" id="fBank"></div></div>
   </div>
 {% endblock %}
 
 {% block mvp_body %}
-  <div class="mvp-kpis" id="kpis"></div>
-  <div class="mvp-grid">
-    <div class="mvp-card mvp-card--half" id="card-bank">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Banka Bazında En Yüksek Faiz</span>
-        <span class="mvp-card__note">seçili tarih ve vade aralığı</span>
+  <div class="pk-kpis" id="kpis"></div>
+  <div class="pk-grid">
+    <div class="pk-card pk-card--half" id="card-bank">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Banka Bazında En Yüksek Faiz</span>
+        <span class="pk-card__note">seçili tarih ve vade aralığı</span>
       </div>
-      <div class="mvp-chart" id="chByBank"></div>
+      <div class="pk-chart" id="chByBank"></div>
     </div>
-    <div class="mvp-card mvp-card--half" id="card-curve">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Vade Eğrisi</span>
-        <span class="mvp-card__note">vade bandına göre ortalama faiz</span>
+    <div class="pk-card pk-card--half" id="card-curve">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Vade Eğrisi</span>
+        <span class="pk-card__note">vade bandına göre ortalama faiz</span>
       </div>
-      <div class="mvp-chart" id="chCurve"></div>
+      <div class="pk-chart" id="chCurve"></div>
     </div>
-    <div class="mvp-card" id="card-trend">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Piyasa En Yüksek Faiz — Zaman Serisi</span>
-        <span class="mvp-card__note">gün bazında maksimum ve ortalama</span>
+    <div class="pk-card" id="card-trend">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Piyasa En Yüksek Faiz — Zaman Serisi</span>
+        <span class="pk-card__note">gün bazında maksimum ve ortalama</span>
       </div>
-      <div class="mvp-chart" id="chTrend"></div>
+      <div class="pk-chart" id="chTrend"></div>
     </div>
-    <div class="mvp-card" id="card-rows-table">
-      <div class="mvp-card__head">
-        <span class="mvp-card__title">Rakip Oran Tablosu</span>
-        <span class="mvp-card__note">seçili filtrelerdeki tüm kayıtlar</span>
+    <div class="pk-card" id="card-rows-table">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Rakip Oran Tablosu</span>
+        <span class="pk-card__note">seçili filtrelerdeki tüm kayıtlar</span>
       </div>
       <div id="tblRows"></div>
     </div>

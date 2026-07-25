@@ -12,6 +12,7 @@ Koşum: repo kökünden `python -m pytest tests/test_statik_dashboard_processes.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -213,14 +214,16 @@ def test_assistant_process_registered():
 
 
 def test_deposit_panel_pages_use_prisma_shell():
-    """Sayfalar legacy base.html yerine PRISMA kabuğunu extend etmeli."""
+    """Sayfalar legacy base.html yerine PRISMA kabuğunu extend etmeli.
+
+    S5: `light_content` (Tabler kaçış kapısı) bırakıldı — bileşenler paylaşılan
+    kitten gelir; bkz. test_pages_extend_shell_and_avoid_tabler.
+    """
     base = REPO / "deposit_panel/templates/deposit_panel"
     for name in ("params.html", "reservations.html"):
         html = (base / name).read_text(encoding="utf-8")
         assert 'extends "home/_base_prisma.html"' in html, name
         assert 'extends "base.html"' not in html, name
-        # Tabler markup'ı korunduğu için kabuğun light_content opt-in'i şart
-        assert "light_content = True" in html, name
         assert "hide_mode_switch = True" in html, name
 
 
@@ -258,10 +261,86 @@ def test_expert_view_has_uygulamalar_topic(expert, app_ctx_deposit):
 def test_embed_mode_implemented_for_prisma_pages():
     """Süreç blokları embed URL'i üretir; sayfa tarafında karşılığı olmalı."""
     common = (REPO / "mevduat_panel/static/prisma/common.js").read_text(encoding="utf-8")
-    css = (REPO / "mevduat_panel/static/prisma/pages.css").read_text(encoding="utf-8")
+    css = KIT.read_text(encoding="utf-8")
     assert "function initEmbed" in common
     assert 'qs.get("embed")' in common
-    assert "mvp-embed" in css
+    assert "pk-embed" in css
     for js in ("rates.js", "amounts.js", "historic.js", "competitor.js"):
         src = (REPO / "mevduat_panel/static/prisma" / js).read_text(encoding="utf-8")
         assert "M.initEmbed(" in src, js
+
+
+# ── Faz S5: UI uniformluğu (paylaşılan kit) ─────────────────────────────────
+
+KIT = REPO / "prisma_home/static/css/kit.css"
+#: Kabuğu extend eden ve kit'i kullanması beklenen sayfalar.
+PRISMA_PAGE_TEMPLATES = [
+    "mevduat_panel/templates/mevduat_panel/prisma/_page.html",
+    "deposit_panel/templates/deposit_panel/params.html",
+    "deposit_panel/templates/deposit_panel/reservations.html",
+    "templates/deposit/chat.html",
+]
+
+
+def test_kit_is_loaded_by_shell():
+    """Kit kabuğun parçasıdır — her PRISMA sayfası onu otomatik alır.
+
+    Modüllerin tek tek link vermesi gerekmez; bağ kopar da modüller kendi
+    stylesheet'ine dönerse uniformluk sessizce bozulur.
+    """
+    shell = (REPO / "prisma_home/templates/home/_base_prisma.html").read_text(encoding="utf-8")
+    assert "css/kit.css" in shell
+    assert KIT.is_file()
+
+
+@pytest.mark.parametrize("tpl", PRISMA_PAGE_TEMPLATES)
+def test_pages_extend_shell_and_avoid_tabler(tpl):
+    """Sayfalar kabuğu extend eder ve Tabler'a düşmez (tek tasarım sistemi)."""
+    html = (REPO / tpl).read_text(encoding="utf-8")
+    assert 'extends "home/_base_prisma.html"' in html, tpl
+    # Yorum metnindeki "Tabler" kelimesi değil, GERÇEK kullanım aranır:
+    # varlık yüklemesi (link/script) ve kabuğun Tabler opt-in'i.
+    asset_lines = [ln for ln in html.splitlines()
+                   if ("<script src=" in ln or "<link rel=\"stylesheet\"" in ln)]
+    assert not [ln for ln in asset_lines if "tabler" in ln.lower()], tpl
+    assert "{% set light_content" not in html, tpl
+
+
+def test_kit_defines_shared_vocabulary():
+    """Kitin bileşen sözlüğü eksiksiz — sayfalar buradan besleniyor."""
+    css = KIT.read_text(encoding="utf-8")
+    for cls in (".pk-page", ".pk-head", ".pk-btn", ".pk-input", ".pk-select",
+                ".pk-filterbar", ".pk-chip", ".pk-badge", ".pk-kpi", ".pk-card",
+                ".pk-table", ".pk-dl", ".pk-alert", ".pk-toast",
+                ".pk-workspace", ".pk-thread", ".pk-msg", ".pk-pick"):
+        assert cls in css, cls
+
+
+def test_kit_defines_no_new_color_tokens():
+    """Kit YENİ renk token'ı tanımlamaz — yalnız prisma.css token'larını kullanır.
+
+    Aksi halde tema geçişi (data-theme) bileşenlerde kopar.
+    """
+    css = KIT.read_text(encoding="utf-8")
+    # `--x: value` biçiminde tanım aranır (kullanım `var(--x)` serbesttir)
+    defs = re.findall(r"^\s*(--[a-z0-9-]+)\s*:", css, flags=re.M)
+    assert defs == [], defs
+
+
+def test_assistant_uses_kit_not_own_components():
+    """Asistan bileşenleri kitten alır; eski Tabler kabuğu geri gelmemeli."""
+    for tpl in ("templates/deposit/chat_partial.html", "templates/deposit/info_panel_left.html"):
+        html = (REPO / tpl).read_text(encoding="utf-8")
+        assert "pk-" in html, tpl
+        for legacy in ("card-body", "btn btn-primary", "form-control", "text-muted"):
+            assert legacy not in html, (tpl, legacy)
+    # sayfaya özgü CSS yalnız artıkları taşımalı (bileşenler kitte)
+    css = (REPO / "static/deposit/style_new.css").read_text(encoding="utf-8")
+    assert len(css.splitlines()) < 80, "asistan CSS'i tekrar bileşen tanımlamaya başlamış"
+
+
+def test_deposit_panel_js_has_no_bootstrap_dependency():
+    """Kabukta Bootstrap JS yok — toast kit diline taşındı."""
+    js = (REPO / "deposit_panel/static/deposit_panel.js").read_text(encoding="utf-8")
+    assert "bootstrap." not in js
+    assert "pk-toast" in js

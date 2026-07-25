@@ -14,29 +14,28 @@
 {% set mode = "consumer" %}
 {% set hide_mode_switch = True %}
 
-{% block head %}
-<link rel="stylesheet"
-      href="{{ url_for('mevduat_panel.static', filename='prisma/pages.css') }}?v={{ mevduat_version }}">
-{% endblock %}
+{# Bileşen stilleri kabuğun paylaşılan kitinden gelir (prisma_home/static/
+   css/kit.css, _base_prisma.html yükler) — bu modül kendi buton/kart/tablo
+   stilini TANIMLAMAZ (UI uniformluğu). #}
 
 {% block content %}
-<div class="mvp-page">
-  <div class="mvp-head">
+<div class="pk-page">
+  <div class="pk-head">
     <div>
-      <div class="eyebrow">{{ eyebrow|default('Mevduat') }}</div>
+      <div class="pk-eyebrow">{{ eyebrow|default('Mevduat') }}</div>
       <h2>{{ page_heading }}</h2>
-      <div class="sub">{{ page_sub }}</div>
+      <div class="pk-sub">{{ page_sub }}</div>
     </div>
-    <div class="mvp-meta" id="mvpMeta">—</div>
+    <div class="pk-meta" id="mvpMeta">—</div>
   </div>
 
-  <div class="filter-bar" role="region" aria-label="Sayfa filtreleri">
-    <div class="filter-bar__widgets">
+  <div class="pk-filterbar" role="region" aria-label="Sayfa filtreleri">
+    <div class="pk-filterbar__widgets">
       {% block mvp_filters %}{% endblock %}
     </div>
-    <div class="filter-bar__actions">
-      <span class="filter-bar__status" id="mvpStatus"></span>
-      <button type="button" class="mvp-btn mvp-btn--primary" id="mvpApply">Güncelle</button>
+    <div class="pk-filterbar__actions">
+      <span class="pk-status" id="mvpStatus"></span>
+      <button type="button" class="pk-btn pk-btn--primary" id="mvpApply">Güncelle</button>
     </div>
   </div>
 

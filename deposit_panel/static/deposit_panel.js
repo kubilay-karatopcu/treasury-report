@@ -37,17 +37,32 @@
         return parts.join("_");
     }
 
+    // PRISMA token okuyucu — chart renkleri tema ile birlikte akar
+    // (paylaşılan kit dili: modül kendi paletini tanımlamaz).
+    function _tok(name, fallback) {
+        const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+        return (v && v.trim()) || fallback;
+    }
+    function _isDark() {
+        return (document.documentElement.getAttribute("data-theme") || "dark") !== "light";
+    }
+
     function buildMarketAdjustString() {
         const vals = [];
         $marketAdjInps.forEach(inp => vals.push(parseFloat(inp.value) || 0));
         return vals.join("|");
     }
 
+    // Kit toast (pk-toast): PRISMA kabuğunda Bootstrap JS yok — .is-open
+    // sınıfı eklenip zamanlayıcıyla kaldırılır.
+    let _toastTimer = null;
     function showToast(msg, isError) {
         $toastBody.textContent = msg;
-        $toastEl.className = "toast align-items-center border-0 " +
-            (isError ? "text-bg-danger" : "text-bg-success");
-        bootstrap.Toast.getOrCreateInstance($toastEl).show();
+        $toastEl.className = "pk-toast is-open" + (isError ? " is-err" : "");
+        if (_toastTimer) clearTimeout(_toastTimer);
+        _toastTimer = setTimeout(function () {
+            $toastEl.classList.remove("is-open");
+        }, 4000);
     }
 
     function reverseStrategy(prcng) {
@@ -85,9 +100,13 @@
         const options = {
             chart: {
                 type: "line", height: 320, fontFamily: "inherit",
+                background: "transparent",
+                foreColor: _tok("--ink", "#E8ECF1"),
                 toolbar: { show: true, tools: { download: false, pan: true, zoom: true, reset: true } },
                 zoom: { enabled: true },
             },
+            theme: { mode: _isDark() ? "dark" : "light" },
+            tooltip: { theme: _isDark() ? "dark" : "light" },
             series: [
                 { name: "Market Max", data: marketMax },
                 { name: "New Funding Rate", data: newFunding },
@@ -102,14 +121,14 @@
                 title: { text: "Oran (%)" },
             },
             stroke: { width: [2.5, 2.5], curve: "smooth" },
-            colors: ["#206bc4", "#d63939"],
+            colors: [_tok("--gold", "#D4A656"), _tok("--liq", "#6B8AFD")],
             markers: { size: 0, hover: { size: 5 } },
             tooltip: {
                 x: { format: "dd MMM yyyy" },
                 y: { formatter: v => v != null ? v.toFixed(2) + "%" : "-" },
             },
             legend: { position: "top" },
-            grid: { borderColor: "#e0e6ed", strokeDashArray: 3 },
+            grid: { borderColor: _tok("--border-soft", "#1F2433"), strokeDashArray: 0 },
         };
 
         if (chart) { chart.updateOptions(options); }

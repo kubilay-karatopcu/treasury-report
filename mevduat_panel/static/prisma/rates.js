@@ -61,8 +61,8 @@
     var d = el.date.value;
     if (!d) return;
     M.setStatus(el.status, 'Yükleniyor…');
-    document.querySelectorAll('.mvp-card, .mvp-kpis').forEach(function (c) {
-      c.classList.add('mvp-loading');
+    document.querySelectorAll('.pk-card, .pk-kpis').forEach(function (c) {
+      c.classList.add('pk-loading');
     });
     M.fetchJson(EP.rates + d)
       .then(function (rows) {
@@ -80,8 +80,8 @@
         M.showError(el.kpis, 'Veri alınamadı — ' + e.message);
       })
       .finally(function () {
-        document.querySelectorAll('.mvp-loading').forEach(function (c) {
-          c.classList.remove('mvp-loading');
+        document.querySelectorAll('.pk-loading').forEach(function (c) {
+          c.classList.remove('pk-loading');
         });
       });
   }
