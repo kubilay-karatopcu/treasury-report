@@ -1,0 +1,54 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   _page.html — PRISMA-native rezervasyon/rakip sayfalarının ortak kabuğu (S1).
+
+   PRISMA shell'i (home/_base_prisma.html) extend eder: topbar, tema toggle,
+   canvas ve token'lar oradan gelir. Yeni renk/kabuk TANIMLANMAZ.
+
+   mode=consumer + hide_mode_switch: bu sayfalar birer SÜREÇ görünümüdür —
+   kullanıcı kararı (2026-07-22) gereği sağ üstte "Atölyeye geç" gösterilmez.
+
+   Alt şablon sözleşmesi: eyebrow/title/sub/meta değişkenleri + `mvp_filters`
+   ve `mvp_body` blokları; sayfaya özel JS `page_scripts` bloğunda.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set hide_mode_switch = True %}
+
+{% block head %}
+<link rel="stylesheet"
+      href="{{ url_for('mevduat_panel.static', filename='prisma/pages.css') }}?v={{ mevduat_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="mvp-page">
+  <div class="mvp-head">
+    <div>
+      <div class="eyebrow">{{ eyebrow|default('Mevduat') }}</div>
+      <h2>{{ page_heading }}</h2>
+      <div class="sub">{{ page_sub }}</div>
+    </div>
+    <div class="mvp-meta" id="mvpMeta">—</div>
+  </div>
+
+  <div class="filter-bar" role="region" aria-label="Sayfa filtreleri">
+    <div class="filter-bar__widgets">
+      {% block mvp_filters %}{% endblock %}
+    </div>
+    <div class="filter-bar__actions">
+      <span class="filter-bar__status" id="mvpStatus"></span>
+      <button type="button" class="mvp-btn mvp-btn--primary" id="mvpApply">Güncelle</button>
+    </div>
+  </div>
+
+  {% block mvp_body %}{% endblock %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# Fetch tabanları tek JSON payload'ıyla gömülür (keşif atölyesi deseni) —
+   url_for OpenShift SCRIPT_NAME prefix'ini doğru üretir. #}
+<script id="mvp-endpoints" type="application/json">{{ endpoints|tojson }}</script>
+<script src="{{ url_for('mevduat_panel.static', filename='vendor/apexcharts.min.js') }}"></script>
+<script src="{{ url_for('mevduat_panel.static', filename='prisma/common.js') }}?v={{ mevduat_version }}"></script>
+{% block page_scripts %}{% endblock %}
+{% endblock %}

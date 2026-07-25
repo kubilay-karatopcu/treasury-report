@@ -1,0 +1,68 @@
+{% extends "mevduat_panel/prisma/_page.html" %}
+{% set crumb = "Mevduat · Rezervasyon Miktarları" %}
+{% block title %}Rezervasyon Miktarları — PRISMA{% endblock %}
+
+{% block mvp_filters %}
+  <div class="filter-widget">
+    <span class="filter-widget__label">Tarih</span>
+    <div class="filter-widget__body">
+      <input type="date" id="fDate">
+    </div>
+  </div>
+  <div class="filter-widget">
+    <span class="filter-widget__label">Kaynak</span>
+    <div class="filter-widget__body"><div class="filter-chips" id="fSrc"></div></div>
+  </div>
+  <div class="filter-widget">
+    <span class="filter-widget__label">Para Birimi</span>
+    <div class="filter-widget__body"><select id="fCcy"></select></div>
+  </div>
+  <div class="filter-widget">
+    <span class="filter-widget__label">Müşteri Tipi</span>
+    <div class="filter-widget__body"><select id="fCust"></select></div>
+  </div>
+  <div class="filter-widget">
+    <span class="filter-widget__label">Revizyon</span>
+    <div class="filter-widget__body">
+      <div class="filter-chips" id="fRev">
+        <button type="button" class="filter-chip" id="fRevMax">Yalnız son revizyon</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block mvp_body %}
+  <div class="mvp-kpis" id="kpis"></div>
+  <div class="mvp-grid">
+    <div class="mvp-card mvp-card--half">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Vade Bazında Rezervasyon Hacmi</span>
+        <span class="mvp-card__note">toplam tutar</span>
+      </div>
+      <div class="mvp-chart" id="chByTenor"></div>
+    </div>
+    <div class="mvp-card mvp-card--third">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Müşteri Tipi Dağılımı</span>
+      </div>
+      <div class="mvp-chart" id="chBySegment"></div>
+    </div>
+    <div class="mvp-card mvp-card--third">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Kaynak Dağılımı</span>
+      </div>
+      <div class="mvp-chart" id="chBySource"></div>
+    </div>
+    <div class="mvp-card">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Vade Özeti</span>
+        <span class="mvp-card__note">tutar kalemleri toplam</span>
+      </div>
+      <div id="tblTenor"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block page_scripts %}
+<script src="{{ url_for('mevduat_panel.static', filename='prisma/amounts.js') }}?v={{ mevduat_version }}"></script>
+{% endblock %}

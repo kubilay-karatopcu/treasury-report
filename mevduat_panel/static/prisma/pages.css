@@ -1,0 +1,194 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   pages.css — PRISMA-native rezervasyon/rakip sayfaları (Faz S1).
+
+   Token kaynağı: prisma_home/static/css/prisma.css (_base_prisma.html yükler).
+   Burada YENİ renk token'ı TANIMLANMAZ — yalnız PRISMA token'ları kullanılır
+   (--ink*, --gold*, --bg-*, --border*, --mono, --serif). Böylece açık/koyu tema
+   <html data-theme> üzerinden otomatik akar.
+
+   Görsel dil: Atölye sayfalarının (bloklar.html/tablolar.html) flat-dark dili —
+   köşesiz (border-radius: 0), mono etiketler, gold focus/hover.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.mvp-page { padding: 22px clamp(14px, 1.6vw, 22px) 64px; }
+
+/* ── Sayfa başlığı ───────────────────────────────────────────────────────── */
+.mvp-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  margin-bottom: 22px; gap: 32px; flex-wrap: wrap;
+}
+.mvp-head .eyebrow {
+  font-size: 10px; letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--gold); margin-bottom: 14px;
+}
+.mvp-head h2 {
+  font-size: 38px; font-weight: 200; letter-spacing: -0.015em;
+  color: var(--ink); margin: 0 0 6px;
+}
+.mvp-head .sub {
+  font-family: var(--serif); font-style: italic;
+  font-size: 14px; color: var(--ink-mute);
+  line-height: 1.55; max-width: 580px;
+}
+.mvp-meta {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-faint); letter-spacing: 0.04em;
+  white-space: nowrap; text-align: right;
+}
+
+/* ── Filtre barı — PRISMA FilterBar konvansiyonu (vanilla karşılığı) ──────
+   Sınıf adları presentations/FilterBar.jsx ile hizalı: .filter-bar,
+   .filter-widget, __label, __body. Görsel dil atölye filtre satırı. */
+.filter-bar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: 14px; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  padding: 12px 14px;
+  margin: 0 0 20px;
+}
+.filter-bar__widgets {
+  display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end;
+  flex: 1; min-width: 0;
+}
+.filter-bar__actions { display: flex; align-items: center; gap: 10px; }
+
+.filter-widget { display: flex; flex-direction: column; gap: 5px; min-width: 140px; }
+.filter-widget__label {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+  color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.18em;
+}
+.filter-widget__body { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* Girdiler — tarih dahil hepsi aynı kalıp (PRISMA: native input[type=date]).
+   Etkileşimli kontrollerde --border-soft DEĞİL --border kullanılır: soft ton
+   her iki temada da neredeyse görünmez, kontrol "düz metin" gibi okunuyordu. */
+.filter-widget input[type="date"],
+.filter-widget input[type="number"],
+.filter-widget select {
+  background: var(--bg-0); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 0;
+  padding: 7px 10px; font-size: 12px; font-family: var(--mono);
+  min-width: 140px;
+}
+.filter-widget input:focus, .filter-widget select:focus {
+  outline: none; border-color: var(--gold);
+}
+/* Koyu temada tarayıcının takvim ikonunu görünür kıl */
+:root[data-theme="dark"] .filter-widget input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+}
+.filter-widget__date-sep { color: var(--ink-faint); font-size: 11px; }
+
+/* Çoklu seçim chip'leri (enum_multi karşılığı).
+   NOT: seçiciler `body.prisma` ile başlar — prisma.css:154'teki global
+   `body.prisma button { border:none; background:none; font:inherit }` reset'i
+   sınıf-tek seçiciyi ezer; kabuğun kendi kalıbı (editor_dark.css) da böyle
+   aşar. Ön ek düşerse chip/butonlar düz metin gibi render olur. */
+.filter-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+body.prisma .filter-chip {
+  background: var(--bg-0); color: var(--ink-mute);
+  border: 1px solid var(--border); border-radius: 0;
+  padding: 6px 11px; font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; cursor: pointer; transition: all 0.15s;
+}
+body.prisma .filter-chip:hover { color: var(--gold); border-color: var(--gold); }
+body.prisma .filter-chip.is-on {
+  color: var(--bg-0); background: var(--gold); border-color: var(--gold);
+}
+
+/* Aksiyon butonları — atölye .bloklar-btn kalıbı */
+body.prisma .mvp-btn {
+  height: 34px; padding: 0 16px;
+  background: var(--bg-0); color: var(--ink-soft);
+  border: 1px solid var(--border); border-radius: 0;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  cursor: pointer; transition: all 0.2s;
+}
+body.prisma .mvp-btn:hover { color: var(--gold); border-color: var(--gold); }
+body.prisma .mvp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+body.prisma .mvp-btn--primary { color: var(--gold); border-color: var(--gold); }
+body.prisma .mvp-btn--primary:hover { background: var(--gold); color: var(--bg-0); }
+
+.filter-bar__status {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+.filter-bar__status.is-err { color: var(--red); }
+
+/* ── KPI şeridi ──────────────────────────────────────────────────────────── */
+.mvp-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px; margin-bottom: 20px;
+}
+.mvp-kpi {
+  background: var(--bg-1); border: 1px solid var(--border-soft);
+  padding: 16px 18px;
+}
+.mvp-kpi__label {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px;
+}
+.mvp-kpi__value {
+  font-size: 26px; font-weight: 200; letter-spacing: -0.01em; color: var(--ink);
+}
+.mvp-kpi__unit { font-size: 13px; color: var(--ink-mute); margin-left: 4px; }
+.mvp-kpi__sub {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
+  margin-top: 6px; letter-spacing: 0.04em;
+}
+
+/* ── Kartlar / grid ──────────────────────────────────────────────────────── */
+.mvp-grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }
+.mvp-card {
+  background: var(--bg-1); border: 1px solid var(--border-soft);
+  padding: 16px 18px 10px; grid-column: span 12; min-width: 0;
+}
+.mvp-card--half { grid-column: span 6; }
+.mvp-card--third { grid-column: span 4; }
+@media (max-width: 1100px) {
+  .mvp-card--half, .mvp-card--third { grid-column: span 12; }
+}
+.mvp-card__head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 4px;
+}
+.mvp-card__title {
+  font-size: 13px; font-weight: 500; color: var(--ink); letter-spacing: 0.01em;
+}
+.mvp-card__note {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+.mvp-chart { width: 100%; min-height: 260px; }
+
+/* ── Tablo (AG Grid'siz hafif tablo) ─────────────────────────────────────── */
+.mvp-table-wrap { overflow-x: auto; }
+.mvp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mvp-table th {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
+  text-align: right; padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap; position: sticky; top: 0; background: var(--bg-1);
+}
+.mvp-table th:first-child, .mvp-table td:first-child { text-align: left; }
+.mvp-table td {
+  padding: 7px 10px; text-align: right; color: var(--ink-soft);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--mono); font-size: 11.5px; white-space: nowrap;
+}
+.mvp-table tbody tr:hover td { background: var(--bg-2); color: var(--ink); }
+.mvp-table td.is-num-pos { color: var(--green); }
+.mvp-table td.is-num-neg { color: var(--red); }
+
+/* ── Durum blokları ──────────────────────────────────────────────────────── */
+.mvp-empty, .mvp-error {
+  padding: 42px 18px; text-align: center;
+  font-family: var(--serif); font-style: italic; font-size: 13.5px;
+  color: var(--ink-faint);
+}
+.mvp-error { color: var(--red); font-style: normal; font-family: var(--mono); font-size: 11.5px; }
+.mvp-loading { opacity: 0.45; transition: opacity 0.15s; }

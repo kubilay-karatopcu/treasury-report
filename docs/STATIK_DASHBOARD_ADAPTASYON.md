@@ -132,12 +132,37 @@ Süreç kaydı (`prisma_home/processes.py` — modül dışı, string-endpoint):
   sentetik dev.db'de bulunmaz). DEV yolu bu sorgular için ofiste seed gerektirir;
   testler `load_dataframe`'i monkeypatch'ler (mevduat_panel test disiplini).
 
-### Faz S1 — PRISMA-native sayfalar
-- 4 sayfa `_base_prisma.html` extend eder; PRISMA topbar/sidebar/tab, token CSS.
-- Chart'lar ApexCharts (`chartHelpers.js` konvansiyonları); tarih seçimi tek
-  PRISMA kalıbı (litepicker yerine PRISMA date control).
-- `competitor` AG Grid yerine PRISMA `data_table`/AG Grid Community teması.
-- Her sayfa kendi endpoint'i (`mevduat_panel.prisma_rates` vb.).
+### Faz S1 — PRISMA-native sayfalar — ✅ TAMAMLANDI
+- 4 sayfa `home/_base_prisma.html`'i extend eder (`mode=consumer`,
+  `hide_mode_switch` — süreç görünümü). Ortak kabuk:
+  `templates/mevduat_panel/prisma/_page.html`.
+- **Filtre konvansiyonu PRISMA'dan**: sınıf adları `FilterBar.jsx` ile hizalı
+  (`.filter-bar`, `.filter-widget`, `__label`, `__body`); görsel dil atölye
+  sayfalarının flat-dark kalıbı (köşesiz, mono etiket, gold focus).
+- **Date picker PRISMA kalıbı**: native `<input type="date">` (litepicker/
+  flatpickr DEĞİL — PRISMA'nın her yerde kullandığı kontrol), min/max veri
+  aralığından bağlanır; koyu temada takvim ikonu `invert` ile görünür.
+- Chart'lar ApexCharts (vendored, CDN'siz); `common.js` `chartHelpers.js`
+  konvansiyonlarının vanilla karşılığı (toolbar kapalı, transparent zemin,
+  inherit font, ince grid, token'dan türeyen palet). Tema flip'i
+  MutationObserver ile izlenir → chart'lar yeniden boyanır (kabuk custom
+  event yaymıyor).
+- Oran agregasyonları **daima tutar ağırlıklı** (`MVP.wavg`, Σ(B×r)/ΣB);
+  vade/bant etiketleri sayısal alt sınıra göre sıralanır (`MVP.bandSort` —
+  Python `_band_sort_key` karşılığı).
+- Route'lar: `mevduat_panel.prisma_rates|prisma_amounts|prisma_historic|
+  prisma_competitor` → `/mevduat-panel/{oranlar,miktarlar,tarihsel,rakip}`.
+- **Kabuk guard'ı**: `prisma_home` kayıtlı değilse sayfa 503 döner (stack
+  trace değil); modülün SPA'sı ve API'leri etkilenmez.
+- Doğrulama: headless Chromium — 4 sayfa 0 JS hatası, chart/KPI/tablo/chip
+  render, tema flip repaint'i çalışıyor; `tests/test_prisma_pages.py` 15 test.
+- **Yakalanan hata**: `prisma.css:154` global `body.prisma button {border:none}`
+  reset'i sınıf-tek seçiciyi eziyordu → chip/butonlar düz metin gibi
+  render oluyordu. Seçiciler `body.prisma` ön ekiyle aşıldı (editor_dark.css
+  kalıbı); regresyon testi eklendi.
+
+Kapsam dışı bırakılanlar (S3'e): `competitor` LLM piyasa özeti,
+AG Grid'li tam veri tablosu (şu an hafif `.mvp-table`, ilk 300 satır).
 
 ### Faz S2 — Süreç + uzman bağlama
 - `PROCESS_REGISTRY`'ye 4 entry (documentation + blocks descriptor'ları).

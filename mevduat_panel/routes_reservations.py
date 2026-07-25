@@ -15,6 +15,7 @@ DataFrame→JSON: ``df.to_json(orient="records")`` + ``Response`` (asla ``jsonif
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 
 from flask import Response, jsonify
@@ -116,9 +117,9 @@ def api_reservation_competitor() -> Response:
     """Rakip faiz verisi + banka listesi (legacy competitor_page)."""
     df = _competitor_df()
     banks = sorted(df["BANKA_ADI"].dropna().unique().tolist()) if not df.empty else []
-    rows = df[_valid(df, _COMPETITOR_COLS)] if not df.empty else df
-    payload = rows.to_json(orient="records", date_format="iso") if not df.empty else "[]"
-    return Response(
-        '{"banks": %s, "rows": %s}' % (jsonify(banks).get_data(as_text=True), payload),
-        mimetype="application/json",
-    )
+    # rows pandas'ın to_json'ı ile üretilir (NaN → null garantisi); banks düz
+    # listedir, json.dumps güvenli. İkisi tek zarfta birleştirilir.
+    rows_json = (df[_valid(df, _COMPETITOR_COLS)].to_json(orient="records", date_format="iso")
+                 if not df.empty else "[]")
+    body = '{"banks":%s,"rows":%s}' % (json.dumps(banks, ensure_ascii=False), rows_json)
+    return Response(body, mimetype="application/json")

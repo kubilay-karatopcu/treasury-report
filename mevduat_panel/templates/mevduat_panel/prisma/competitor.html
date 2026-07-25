@@ -1,0 +1,66 @@
+{% extends "mevduat_panel/prisma/_page.html" %}
+{% set crumb = "Sektör · Rakip Faiz Analizi" %}
+{% block title %}Rakip Faiz Analizi — PRISMA{% endblock %}
+
+{% block mvp_filters %}
+  <div class="filter-widget">
+    <span class="filter-widget__label">Tarih</span>
+    <div class="filter-widget__body">
+      <input type="date" id="fDate">
+    </div>
+  </div>
+  <div class="filter-widget">
+    <span class="filter-widget__label">Para Birimi</span>
+    <div class="filter-widget__body"><select id="fCcy"></select></div>
+  </div>
+  <div class="filter-widget">
+    <span class="filter-widget__label">Vade Aralığı (gün)</span>
+    <div class="filter-widget__body">
+      <input type="number" id="fVadeMin" placeholder="min" min="0">
+      <span class="filter-widget__date-sep">→</span>
+      <input type="number" id="fVadeMax" placeholder="max" min="0">
+    </div>
+  </div>
+  <div class="filter-widget">
+    <span class="filter-widget__label">Banka</span>
+    <div class="filter-widget__body"><div class="filter-chips" id="fBank"></div></div>
+  </div>
+{% endblock %}
+
+{% block mvp_body %}
+  <div class="mvp-kpis" id="kpis"></div>
+  <div class="mvp-grid">
+    <div class="mvp-card mvp-card--half">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Banka Bazında En Yüksek Faiz</span>
+        <span class="mvp-card__note">seçili tarih ve vade aralığı</span>
+      </div>
+      <div class="mvp-chart" id="chByBank"></div>
+    </div>
+    <div class="mvp-card mvp-card--half">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Vade Eğrisi</span>
+        <span class="mvp-card__note">vade bandına göre ortalama faiz</span>
+      </div>
+      <div class="mvp-chart" id="chCurve"></div>
+    </div>
+    <div class="mvp-card">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Piyasa En Yüksek Faiz — Zaman Serisi</span>
+        <span class="mvp-card__note">gün bazında maksimum ve ortalama</span>
+      </div>
+      <div class="mvp-chart" id="chTrend"></div>
+    </div>
+    <div class="mvp-card">
+      <div class="mvp-card__head">
+        <span class="mvp-card__title">Rakip Oran Tablosu</span>
+        <span class="mvp-card__note">seçili filtrelerdeki tüm kayıtlar</span>
+      </div>
+      <div id="tblRows"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block page_scripts %}
+<script src="{{ url_for('mevduat_panel.static', filename='prisma/competitor.js') }}?v={{ mevduat_version }}"></script>
+{% endblock %}
