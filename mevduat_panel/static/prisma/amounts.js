@@ -34,6 +34,16 @@
   el.apply.addEventListener('click', load);
   [el.ccy, el.cust].forEach(function (s) { s.addEventListener('change', draw); });
 
+
+  // Embed modu: veri yüklenip ilk çizim yapıldıktan sonra bir kez başlatılır
+  // (kontrol select'leri ancak o zaman dolu olur).
+  var _embedStarted = false;
+  function _embedOnce() {
+    if (_embedStarted) return;
+    _embedStarted = true;
+    M.initEmbed(draw);
+  }
+
   function filtered() {
     var rows = raw;
     if (onlyMax) rows = rows.filter(function (r) { return r.IS_MAX_REVIZE; });
@@ -56,6 +66,7 @@
         M.fillSelect(el.cust, M.distinct(raw, 'CUST_TP'));
         M.setStatus(el.status, raw.length + ' kayıt');
         draw();
+        _embedOnce();
       })
       .catch(function (e) {
         M.setStatus(el.status, 'Hata: ' + e.message, true);

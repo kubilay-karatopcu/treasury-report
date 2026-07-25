@@ -34,26 +34,26 @@
 {% block mvp_body %}
   <div class="mvp-kpis" id="kpis"></div>
   <div class="mvp-grid">
-    <div class="mvp-card mvp-card--half">
+    <div class="mvp-card mvp-card--half" id="card-tenor">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Vade Bazında Rezervasyon Hacmi</span>
         <span class="mvp-card__note">toplam tutar</span>
       </div>
       <div class="mvp-chart" id="chByTenor"></div>
     </div>
-    <div class="mvp-card mvp-card--third">
+    <div class="mvp-card mvp-card--third" id="card-segment">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Müşteri Tipi Dağılımı</span>
       </div>
       <div class="mvp-chart" id="chBySegment"></div>
     </div>
-    <div class="mvp-card mvp-card--third">
+    <div class="mvp-card mvp-card--third" id="card-source">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Kaynak Dağılımı</span>
       </div>
       <div class="mvp-chart" id="chBySource"></div>
     </div>
-    <div class="mvp-card">
+    <div class="mvp-card" id="card-tenor-table">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Vade Özeti</span>
         <span class="mvp-card__note">tutar kalemleri toplam</span>

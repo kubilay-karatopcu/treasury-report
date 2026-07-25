@@ -349,7 +349,90 @@
     return d;
   }
 
+  // ── Embed modu (?embed=1&anchor=<id,...>&state=<b64url>) ────────────────
+  // SPA'nın (mevduat_panel.js:8949) sözleşmesiyle aynı: uzman brifingindeki
+  // atıf modalı bu sayfayı iframe'de açar. Kabuk + filtre barı gizlenir,
+  // anchor'lanan kart(lar) izole edilip vurgulanır, state paketindeki kontrol
+  // değerleri yazılır (digest'in hesapladığı görünüm birebir açılsın).
+  function initEmbed(onControlsApplied) {
+    var qs = new URLSearchParams(window.location.search);
+    if (qs.get("embed") !== "1") return false;
+    document.body.classList.add("mvp-embed");
+
+    var raw = qs.get("anchor") || "";
+    if (!/^[A-Za-z0-9_,-]*$/.test(raw)) raw = "";
+    var anchors = raw.split(",").filter(Boolean);
+
+    var controls = [];
+    try {
+      var s = qs.get("state") || "";
+      if (s) {
+        s = s.replace(/-/g, "+").replace(/_/g, "/");
+        s += "===".slice(0, (4 - s.length % 4) % 4);
+        var st = JSON.parse(atob(s));
+        if (st && Array.isArray(st.controls)) controls = st.controls;
+      }
+    } catch (e) { controls = []; }   // bozuk state → varsayılan görünüm
+
+    var applied = false;
+    function applyControls() {
+      var did = false;
+      controls.forEach(function (c) {
+        if (!c) return;
+        if (c.click) {
+          var t = document.querySelector(c.click);
+          if (t) { t.click(); did = true; }
+          return;
+        }
+        if (!c.id) return;
+        var el = document.getElementById(c.id);
+        if (!el) return;
+        if (el.tagName === "SELECT" &&
+            !Array.prototype.some.call(el.options, function (o) {
+              return o.value === String(c.value);
+            })) return;                      // option henüz yüklenmedi
+        if (el.value === String(c.value)) return;
+        el.value = String(c.value);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        did = true;
+      });
+      return did;
+    }
+
+    function isolate() {
+      if (!anchors.length) return;
+      var wanted = {};
+      anchors.forEach(function (a) { wanted[a] = 1; });
+      var found = false;
+      document.querySelectorAll(".mvp-card").forEach(function (card) {
+        if (wanted[card.id]) { card.classList.add("mvp-embed-target"); found = true; }
+        else { card.setAttribute("data-embed-hidden", "1"); }
+      });
+      if (found) {
+        var first = document.getElementById(anchors[0]);
+        if (first) first.scrollIntoView({ block: "start" });
+      }
+    }
+
+    // Kontroller veri geldikten sonra dolar (select option'ları) — birkaç tur
+    // dene, sonra izole et. Kontrol yoksa doğrudan izole edilir.
+    var tries = 0;
+    (function tick() {
+      tries++;
+      if (controls.length && !applied) {
+        applied = applyControls();
+        if (applied && onControlsApplied) onControlsApplied();
+      }
+      if ((controls.length && !applied) && tries < 25) {
+        return setTimeout(tick, 200);
+      }
+      isolate();
+    })();
+    return true;
+  }
+
   window.MVP = {
+    initEmbed: initEmbed,
     token: token, isDark: isDark, palette: palette,
     formatNumber: formatNumber, formatRate: formatRate, formatAmt: formatAmt,
     ratePct: ratePct, wavg: wavg, sum: sum, distinct: distinct, groupBy: groupBy,

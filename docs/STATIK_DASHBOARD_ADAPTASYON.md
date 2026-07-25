@@ -164,10 +164,36 @@ Süreç kaydı (`prisma_home/processes.py` — modül dışı, string-endpoint):
 Kapsam dışı bırakılanlar (S3'e): `competitor` LLM piyasa özeti,
 AG Grid'li tam veri tablosu (şu an hafif `.mvp-table`, ilk 300 satır).
 
-### Faz S2 — Süreç + uzman bağlama
-- `PROCESS_REGISTRY`'ye 4 entry (documentation + blocks descriptor'ları).
-- `dep.yaml`'a process id'leri + `department_views` topic grupları.
-- `config_flag = MEVDUAT_PANEL_ENABLED` (mevcut) — modül kapalıysa süreç gizli.
+### Faz S2 — Süreç + uzman bağlama — ✅ TAMAMLANDI
+- `PROCESS_REGISTRY`'ye 4 süreç: `mevduat.oranlar`, `mevduat.miktarlar`,
+  `mevduat.tarihsel`, `mevduat.rakip` — her biri 4 alanlı dökümantasyon +
+  3 blok descriptor'ı (toplam 12 yeni blok, 4/4 dökümante).
+- Yeni yardımcı `_pblock()`: SPA'nın `?page=` deep-link'i yerine PRISMA-native
+  sayfaların kendi endpoint'ini kullanır (`page: None`); `anchor` sayfadaki
+  `.mvp-card` id'sidir.
+- `dep.yaml` (v2 → v3): `bound_content.processes`'e 4 id; `department_views`
+  topic'leri **"Rezervasyon & Fiyatlama"** (oranlar/miktarlar/tarihsel) ve
+  **"Sektör & Rakip"** (sektor + rakip — eski "Sektör Karşılaştırma" genişledi).
+- `config_flag = MEVDUAT_PANEL_ENABLED` — modül kapalıysa süreç kartı gizli
+  (mevcut sözleşme, testle korunuyor).
+- **Embed modu eklendi** (S2 gereği): süreç blokları uzman brifingi atıf
+  iframe'inde `?embed=1&anchor=<id,...>&state=<b64>` ile açılır. SPA'nın
+  `body.mv-embed` sözleşmesinin PRISMA-native karşılığı — `common.js::initEmbed`
+  kabuğu/filtre barını gizler, anchor'lanan kart(lar)ı izole edip vurgular,
+  `state.controls` değerlerini filtrelere yazar. KPI şeridi bilerek kalır
+  (başlık ve filtre gizliyken izole grafiğin tek bağlamı odur).
+- Doğrulama: `tests/test_statik_dashboard_processes.py` 10 test (URL çözümü,
+  embed hedefi, **anchor↔şablon eşleşmesi**, blok id tekilliği, uzman
+  topic'leri, modül kapalıyken gizlenme); headless embed turu 3/3 (tek ve
+  çoklu anchor izolasyonu, 0 JS hatası); uzman sayfası uçtan uca 200 +
+  kartlar doğru linklerle.
+- **Düzeltilen regresyon**: `test_expert_processes.py::test_yedi_mevduat_sureci`
+  süreç sayısını 7'ye sabitlemişti → SPA (7, `page`'li) ve PRISMA-native
+  (4, `page`'siz) setlerini ayrı ayrı doğrulayan teste dönüştürüldü.
+
+Not: `mevduat.bsc` hâlâ hiçbir topic'te değil (S2 öncesinden gelen durum) →
+FinAI bakışında görünmüyor. Bilinçli değişiklik yapılmadı; gerekiyorsa ayrı
+karar.
 
 ### Faz S3 — Competitor LLM özeti + cila
 - `competitor/summary` → config'ten LLM (`PRESENTATIONS_LLM_*` veya

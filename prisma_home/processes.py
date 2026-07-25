@@ -49,8 +49,32 @@ def _cblock(bid: str, title: str, page: str, anchor: str | None, purpose: str,
     }
 
 
+def _pblock(bid: str, title: str, endpoint: str, anchor: str | None, purpose: str,
+            *, business_context: str = "", decision_support: str = "",
+            known_limitations: str = "") -> dict:
+    """PRISMA-native sayfaların (Faz S1) bileşen descriptor'ı.
+
+    ``_cblock``ın kardeşi: SPA'nın tek sayfası + ``?page=`` yerine bu sayfaların
+    her biri kendi endpoint'idir, ``page`` taşımaz. ``anchor`` sayfadaki kart
+    id'sidir (``.mvp-card``); embed modu (``?embed=1&anchor=``) o kartı izole
+    eder — bkz. mevduat_panel/static/prisma/common.js::initEmbed."""
+    return {
+        "id": bid,
+        "title": title,
+        "kind": "custom",
+        "custom_render": {"endpoint": endpoint, "page": None, "anchor": anchor},
+        "documentation": {
+            "purpose": purpose,
+            "business_context": business_context or None,
+            "decision_support": decision_support or None,
+            "known_limitations": known_limitations or None,
+        },
+    }
+
+
 #: id → süreç tanımı. ``page`` mevduat panel SPA'sının ?page= deep-link'i
 #: (mevduat_panel.js boot'u sidebar'daki data-page id'lerine karşı doğrular).
+#: PRISMA-native sayfalar (Faz S1) ``page`` taşımaz — her biri kendi endpoint'i.
 PROCESS_REGISTRY: dict[str, dict] = {
     "mevduat.maliyet": {
         "label": "Outstanding Cost Analysis",
@@ -306,6 +330,217 @@ PROCESS_REGISTRY: dict[str, dict] = {
                     "kanala inen fiyatlama gözden geçirilir.",
                     known_limitations="BDDK/TCMB verisi yayın takvimiyle gecikir; "
                     "sektör ortalaması banka kompozisyon farklarını düzler."),
+        ],
+    },
+    # ── Faz S1/S2: legacy statik dashboard'ların PRISMA-native karşılıkları ──
+    # (docs/STATIK_DASHBOARD_ADAPTASYON.md). Kaynak: PRISMA öncesi /oranlar,
+    # /miktarlar, /historic, /competitor sayfaları. Veri hattı ortak: rezervasyon
+    # ETL'i (MYU + core_comparison + TREASURY) — engine/reservation_data.py.
+    "mevduat.oranlar": {
+        "label": "Rezervasyon Oranları",
+        "desc": "Gün içi teklif/talep/rakip oranları · vade kırılımı · ağırlıklı ortalama",
+        "endpoint": "mevduat_panel.prisma_rates", "config_flag": _FLAG,
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "Fiyatlama masasının gün içinde verdiği mevduat teklif "
+                       "oranlarını; müşteri talebi, rakip kotasyonu ve piyasa üst "
+                       "sınırıyla birlikte vade kırılımında izler.",
+            "business_context": "Her rezervasyon bir fiyatlama kararıdır. Teklifin "
+                       "talebe ve piyasaya göre nerede durduğu, masanın o gün ne "
+                       "kadar agresif/temkinli fiyatladığını gösterir.",
+            "decision_support": "Gün içi sapmaları ve vade bazında fiyatlama "
+                       "tutarlılığını görünür kılar; piyasa üst sınırına yaklaşan "
+                       "vadeler istisna incelemesine alınır.",
+            "known_limitations": "Oranlar tutar ağırlıklıdır (Σ(tutar×oran)/Σtutar) "
+                       "— tekil büyük rezervasyon ortalamayı çekebilir. Talep ve "
+                       "rakip serileri %99 percentile ile uç-değer kırpılmıştır.",
+        },
+        "blocks": [
+            _pblock("res_intraday", "Gün İçi Teklif Oranları",
+                    "mevduat_panel.prisma_rates", "card-intraday",
+                    "Rezervasyonların saat ekseninde teklif oranı dağılımı; "
+                    "nokta rengi veri kaynağını (MYU/TREASURY) ayırır.",
+                    business_context="Gün içi fiyat sapması, masanın piyasa "
+                    "hareketine mi yoksa müşteri özelinde istisnaya mı tepki "
+                    "verdiğini gösterir.",
+                    decision_support="Yorum kuralı: gün boyunca yukarı yürüyen "
+                    "nokta bulutu piyasa baskısıdır; tek başına yükseğe oturan "
+                    "noktalar müşteri-özel istisnadır, onay listesiyle karşılaştırılır.",
+                    known_limitations="Nokta konumu tek rezervasyondur, tutarla "
+                    "ağırlıklandırılmaz — küçük ve büyük işlem aynı görünür."),
+            _pblock("res_tenor", "Vade Bazında Oran Karşılaştırması",
+                    "mevduat_panel.prisma_rates", "card-tenor",
+                    "Vade bandı bazında teklif, talep ve rakip oranlarının tutar "
+                    "ağırlıklı karşılaştırması.",
+                    business_context="Vade merdiveninin sağlığı: hangi vadede "
+                    "müşteri talebiyle aramızdaki fark açılıyor, hangisinde "
+                    "rakibin altında/üstünde kalıyoruz.",
+                    decision_support="Yorum kuralı: teklifin rakibi belirgin aştığı "
+                    "vade bandı marj sızıntısı adayıdır; talebin çok altında kalan "
+                    "band ise hacim kaybı riskidir.",
+                    known_limitations="Bandlar sayısal alt sınıra göre sıralanır; "
+                    "seyrek bandlarda ağırlıklı ortalama tek işleme yaslanabilir."),
+            _pblock("res_tenor_tbl", "Vade Özeti Tablosu",
+                    "mevduat_panel.prisma_rates", "card-tenor-table",
+                    "Vade bandı × (adet, tutar, teklif, talep, rakip, piyasa max) "
+                    "sayısal özet.",
+                    business_context="Grafiklerin arkasındaki sayıların denetim "
+                    "izi; komite sunumlarına doğrudan taşınabilir.",
+                    decision_support="Yorum kuralı: adet düşük ama tutar yüksek "
+                    "bandlarda ortalama yanıltıcıdır — tekil işlem doğrulanmalı.",
+                    known_limitations="Yalnız seçili günün ve aktif filtrelerin "
+                    "özeti; dönem karşılaştırması Tarihsel Görünüm'dedir."),
+        ],
+    },
+    "mevduat.miktarlar": {
+        "label": "Rezervasyon Miktarları",
+        "desc": "Hacim · vade/segment/kaynak dağılımı · portföy büyüklüğü",
+        "endpoint": "mevduat_panel.prisma_amounts", "config_flag": _FLAG,
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "Rezerve edilen tutarların vade, müşteri tipi ve veri "
+                       "kaynağı kırılımındaki dağılımını; gelen tutar ve portföy "
+                       "büyüklüğüyle birlikte izler.",
+            "business_context": "Fiyatın yanında hacmin nereye yığıldığı, fonlama "
+                       "kompozisyonunun ve yoğunlaşma riskinin göstergesidir.",
+            "decision_support": "Hangi vade/segmentin hacmi taşıdığını ve "
+                       "rezervasyonun müşteri portföyüne oranını gösterir.",
+            "known_limitations": "Tutarlar rezervasyon anıdır — gerçekleşen "
+                       "(booked) hacimle birebir aynı olmayabilir.",
+        },
+        "blocks": [
+            _pblock("amt_tenor", "Vade Bazında Rezervasyon Hacmi",
+                    "mevduat_panel.prisma_amounts", "card-tenor",
+                    "Vade bandı bazında rezervasyon ve gelen tutar toplamları.",
+                    business_context="Hacmin vade dağılımı fonlamanın ortalama "
+                    "vadesini ve likidite profilini belirler.",
+                    decision_support="Yorum kuralı: hacim kısa bandlara yığılıyorsa "
+                    "fonlama kısalıyor demektir — vade teşviki değerlendirilir.",
+                    known_limitations="Nominal TL toplamdır; kur etkisi ayrıştırılmaz."),
+            _pblock("amt_segment", "Müşteri Tipi Dağılımı",
+                    "mevduat_panel.prisma_amounts", "card-segment",
+                    "Rezervasyon hacminin müşteri tipi (G/T) kırılımı.",
+                    business_context="Segment karması, fonlamanın davranışsal "
+                    "istikrarı hakkında bilgi verir.",
+                    decision_support="Yorum kuralı: tek segmente aşırı yoğunlaşma "
+                    "dönüş riskini bir davranış grubuna bağlar.",
+                    known_limitations="Segment tanımı kaynak sistemden gelir; "
+                    "boş/eşleşmeyen kayıtlar '—' altında toplanır."),
+            _pblock("amt_source", "Kaynak Dağılımı",
+                    "mevduat_panel.prisma_amounts", "card-source",
+                    "Hacmin veri kaynağına (MYU / TREASURY) göre dağılımı.",
+                    business_context="İki fiyatlama kanalının göreli ağırlığı; "
+                    "kanal bazlı fiyat farkı bu dağılımla birlikte okunmalıdır.",
+                    decision_support="Yorum kuralı: bir kanalın payı hızla "
+                    "büyüyorsa o kanalın fiyatlama disiplini öncelikli denetlenir.",
+                    known_limitations="Kaynak etiketi ETL'de atanır; kanal "
+                    "tanımı değişirse tarihsel seri kırılır."),
+        ],
+    },
+    "mevduat.tarihsel": {
+        "label": "Tarihsel Görünüm",
+        "desc": "Son 30 gün · günlük hacim + ağırlıklı oran · teklif/talep/piyasa bandı",
+        "endpoint": "mevduat_panel.prisma_historic", "config_flag": _FLAG,
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "Rezervasyon hacmi ve ağırlıklı teklif oranının son 30 "
+                       "gündeki evrimini; teklif–talep–piyasa üst sınırı bandıyla "
+                       "birlikte izler.",
+            "business_context": "Günlük fotoğraf tek başına yanıltıcıdır; "
+                       "fiyatlama duruşunun yönü ancak dönem serisinde görülür.",
+            "decision_support": "Oranın trend mi yoksa tek günlük sapma mı "
+                       "olduğunu ayırır; hacim–fiyat ilişkisini görünür kılar.",
+            "known_limitations": "Pencere son 30 günle sınırlıdır (legacy "
+                       "sözleşme); daha uzun tarih için EDW sorgusu gerekir.",
+        },
+        "blocks": [
+            _pblock("hist_combo", "Günlük Hacim ve Ağırlıklı Teklif Oranı",
+                    "mevduat_panel.prisma_historic", "card-combo",
+                    "Bar = günlük rezervasyon tutarı (sol eksen), çizgi = tutar "
+                    "ağırlıklı teklif oranı (sağ eksen).",
+                    business_context="Fiyat ve hacmin birlikte hareketi, "
+                    "fiyatlamanın talebi mi kovaladığı yoksa talebi mi yönlendirdiği "
+                    "sorusunu yanıtlar.",
+                    decision_support="Yorum kuralı: oran yükselirken hacim "
+                    "artmıyorsa fiyat piyasayı takip ediyor (maliyet baskısı); "
+                    "oran sabitken hacim artıyorsa fiyatlama rekabetçi.",
+                    known_limitations="İki eksen farklı ölçeklidir — eğim "
+                    "karşılaştırması değil, yön karşılaştırması yapılmalıdır."),
+            _pblock("hist_bands", "Oran Bandı",
+                    "mevduat_panel.prisma_historic", "card-bands",
+                    "Teklif, talep ve piyasa üst sınırının günlük seyri "
+                    "(piyasa max kesikli çizgi).",
+                    business_context="Teklifin talep ile piyasa tavanı arasındaki "
+                    "konumu, masanın manevra alanını gösterir.",
+                    decision_support="Yorum kuralı: teklif tavana yapıştıysa "
+                    "manevra alanı bitmiştir — yetki/istisna süreci devreye girer; "
+                    "talebe yaklaştıkça müşteri kaybı riski azalır, marj daralır.",
+                    known_limitations="Piyasa üst sınırı gün bazında tek değerdir; "
+                    "gün içi güncellemeler bu seride görünmez."),
+            _pblock("hist_source", "Kaynak Bazında Günlük Adet",
+                    "mevduat_panel.prisma_historic", "card-source",
+                    "Veri kaynağına göre günlük rezervasyon adedinin yığılmış "
+                    "alan grafiği.",
+                    business_context="Kanal hacimlerinin zaman içindeki kayması "
+                    "operasyonel yük ve fiyatlama sorumluluğunu değiştirir.",
+                    decision_support="Yorum kuralı: bir kanalın adedinde ani "
+                    "sıçrama sistem/süreç değişikliği ya da kampanya işaretidir.",
+                    known_limitations="Adet bazlıdır — tutar ağırlığını göstermez; "
+                    "hacim için Miktarlar sürecine bakılmalıdır."),
+        ],
+    },
+    "mevduat.rakip": {
+        "label": "Rakip Faiz Analizi",
+        "desc": "Rakip banka kotasyonları · banka/vade kırılımı · piyasa zaman serisi",
+        "endpoint": "mevduat_panel.prisma_competitor", "config_flag": _FLAG,
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "Rakip bankaların ilan ettiği mevduat faiz kotasyonlarını "
+                       "banka, vade bandı ve zaman ekseninde izler; piyasanın en "
+                       "yüksek ve ortalama seviyesini çıkarır.",
+            "business_context": "Kendi fiyatımızın rekabetçiliği ancak piyasa "
+                       "kotasyonlarına göre anlam kazanır; müşteri karşılaştırmayı "
+                       "bu ilan edilen oranlar üzerinden yapar.",
+            "decision_support": "Piyasa tavanını ve yayılımı gösterir; kendi "
+                       "teklif oranımızın (Rezervasyon Oranları) nereye düştüğü "
+                       "bu referansla okunur.",
+            "known_limitations": "Kotasyon verisi ilan edilen orandır — "
+                       "gerçekleşen işlem oranı değildir; ağırlıklandıracak bakiye "
+                       "bulunmadığından ortalamalar DÜZ ortalamadır. Kaynak "
+                       "yayın sıklığına bağlı olarak gecikebilir.",
+        },
+        "blocks": [
+            _pblock("comp_bank", "Banka Bazında En Yüksek Faiz",
+                    "mevduat_panel.prisma_competitor", "card-bank",
+                    "Seçili tarih ve vade aralığında her bankanın verdiği en "
+                    "yüksek kotasyon (yatay bar, azalan sıralı).",
+                    business_context="Piyasadaki fiyat liderini ve takipçileri "
+                    "tek bakışta gösterir.",
+                    decision_support="Yorum kuralı: liderle aramızdaki fark "
+                    "kalıcılaşıyorsa hacim kaybı beklenir; liderin tek başına "
+                    "ayrışması agresif kampanya işaretidir.",
+                    known_limitations="Banka başına maksimum alınır — o bankanın "
+                    "tipik/ortalama fiyatı değil, en uç teklifidir."),
+            _pblock("comp_curve", "Vade Eğrisi",
+                    "mevduat_panel.prisma_competitor", "card-curve",
+                    "Vade bandına göre piyasa ortalaması ve maksimumu.",
+                    business_context="Piyasanın vade tercihini gösterir: hangi "
+                    "vadeye prim ödeniyor.",
+                    decision_support="Yorum kuralı: piyasa eğrisinin dikleştiği "
+                    "vade, rakiplerin fonlamayı uzatmak istediği yerdir — kendi "
+                    "vade stratejimizle karşılaştırılır.",
+                    known_limitations="Bandlar kaynak etiketinden türetilir; "
+                    "banka bazında farklı band tanımları eğriyi düzleştirebilir."),
+            _pblock("comp_trend", "Piyasa En Yüksek Faiz — Zaman Serisi",
+                    "mevduat_panel.prisma_competitor", "card-trend",
+                    "Gün bazında piyasa maksimumu ve ortalaması.",
+                    business_context="Piyasa seviyesinin yönü, kendi fiyat "
+                    "aksiyonumuzun zamanlamasını belirler.",
+                    decision_support="Yorum kuralı: maksimum yükselirken ortalama "
+                    "sabitse tek bir agresif oyuncu vardır (takip etmek şart "
+                    "değil); ikisi birlikte yükseliyorsa piyasa kaymıştır.",
+                    known_limitations="Seri seçili tarihten bağımsızdır (tüm "
+                    "tarih aralığını gösterir); vade/banka filtreleri uygulanır."),
         ],
     },
     "mevduat.bsc": {

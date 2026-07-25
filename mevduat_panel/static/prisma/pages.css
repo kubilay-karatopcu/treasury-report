@@ -184,6 +184,22 @@ body.prisma .mvp-btn--primary:hover { background: var(--gold); color: var(--bg-0
 .mvp-table td.is-num-pos { color: var(--green); }
 .mvp-table td.is-num-neg { color: var(--red); }
 
+/* ── Embed modu (?embed=1) ───────────────────────────────────────────────
+   Uzman brifingindeki atıf modalı sayfayı iframe'de açar: kabuk kontrolleri
+   gizlenir, yalnız anchor'lanan kart(lar) kalır. SPA'nın body.mv-embed
+   sözleşmesinin (mevduat_panel.js) PRISMA-native karşılığı. */
+body.prisma.mvp-embed .topbar,
+body.prisma.mvp-embed .mvp-head,
+body.prisma.mvp-embed .filter-bar { display: none; }
+body.prisma.mvp-embed .canvas,
+body.prisma.mvp-embed .mvp-page { padding: 10px 12px; }
+/* KPI şeridi embed'de KALIR: sayfa başlığı ve filtre barı gizlendiği için
+   izole edilen grafiğin dönem/kayıt bağlamını yalnız o taşır. */
+body.prisma.mvp-embed .mvp-card[data-embed-hidden="1"] { display: none; }
+body.prisma.mvp-embed .mvp-card.mvp-embed-target {
+  grid-column: span 12; border-color: var(--gold);
+}
+
 /* ── Durum blokları ──────────────────────────────────────────────────────── */
 .mvp-empty, .mvp-error {
   padding: 42px 18px; text-align: center;

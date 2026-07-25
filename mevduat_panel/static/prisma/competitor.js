@@ -65,6 +65,16 @@
     });
   }
 
+
+  // Embed modu: veri yüklenip ilk çizim yapıldıktan sonra bir kez başlatılır
+  // (kontrol select'leri ancak o zaman dolu olur).
+  var _embedStarted = false;
+  function _embedOnce() {
+    if (_embedStarted) return;
+    _embedStarted = true;
+    M.initEmbed(draw);
+  }
+
   function filtered() {
     var rows = filteredNoDate();
     if (el.date.value) {
@@ -230,6 +240,7 @@
       M.fillSelect(el.ccy, M.distinct(raw, 'DOVIZ_CINSI'));
       M.setStatus(el.status, raw.length + ' kayıt');
       draw();
+      _embedOnce();
     })
     .catch(function (e) {
       M.setStatus(el.status, 'Hata: ' + e.message, true);

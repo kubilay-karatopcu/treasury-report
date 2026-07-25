@@ -36,27 +36,27 @@
 {% block mvp_body %}
   <div class="mvp-kpis" id="kpis"></div>
   <div class="mvp-grid">
-    <div class="mvp-card">
+    <div class="mvp-card" id="card-combo">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Günlük Hacim ve Ağırlıklı Teklif Oranı</span>
         <span class="mvp-card__note">bar = tutar (sol) · çizgi = oran (sağ)</span>
       </div>
       <div class="mvp-chart" id="chCombo"></div>
     </div>
-    <div class="mvp-card mvp-card--half">
+    <div class="mvp-card mvp-card--half" id="card-bands">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Oran Bandı</span>
         <span class="mvp-card__note">teklif · talep · piyasa üst sınırı</span>
       </div>
       <div class="mvp-chart" id="chBands"></div>
     </div>
-    <div class="mvp-card mvp-card--half">
+    <div class="mvp-card mvp-card--half" id="card-source">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Kaynak Bazında Günlük Adet</span>
       </div>
       <div class="mvp-chart" id="chBySource"></div>
     </div>
-    <div class="mvp-card">
+    <div class="mvp-card" id="card-daily-table">
       <div class="mvp-card__head">
         <span class="mvp-card__title">Günlük Özet</span>
         <span class="mvp-card__note">oranlar Σ(tutar×oran)/Σtutar</span>
