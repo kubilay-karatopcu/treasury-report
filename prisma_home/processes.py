@@ -543,6 +543,72 @@ PROCESS_REGISTRY: dict[str, dict] = {
                     "tarih aralığını gösterir); vade/banka filtreleri uygulanır."),
         ],
     },
+    # ── Faz S4: Uygulamalar — analiz panosu değil, etkileşimli araçlar ──────
+    # (docs/STATIK_DASHBOARD_ADAPTASYON.md). Bunlar veri üretmez, veri/parametre
+    # DEĞİŞTİRİR ya da soru cevaplar; bu yüzden ``blocks`` boştur — brifingde
+    # atıf verilecek bir grafik/analiz bileşenleri yoktur (mevduat.bsc ile aynı
+    # modelleme). Kendi modül bayraklarıyla korunurlar.
+    "uygulamalar.panel_parametreler": {
+        "label": "Mevduat Paneli — Parametreler",
+        "desc": "Fiyatlama model parametreleri · hyperparametreler · strateji bandı",
+        "endpoint": "deposit_panel.params", "config_flag": "DEPOSIT_PANEL_ENABLED",
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "Mevduat fiyatlama modelinin girdi parametrelerini "
+                       "(piyasa üst sınırı, yeni fonlama maliyeti), "
+                       "hyperparametrelerini ve vade bandı bazlı fiyatlama "
+                       "stratejisini görüntüler ve düzenler.",
+            "business_context": "Panolar 'ne oldu' sorusunu yanıtlar; bu araç "
+                       "'ne yapacağız' tarafıdır — fiyatlama motorunun davranışı "
+                       "buradaki değerlerle belirlenir.",
+            "decision_support": "Parametrelerin tarihsel seyrini gösterir, "
+                       "böylece bugünkü ayarın geçmişe göre nerede durduğu "
+                       "görülür; değişiklik doğrudan modele yazılır.",
+            "known_limitations": "YAZMA yetkisi departman beyaz listesine bağlıdır "
+                       "(hyperparametreler yalnız yetkili departmanda düzenlenebilir); "
+                       "değişiklik anında geçerli olur, sürüm geçmişi tutulmaz.",
+        },
+        "blocks": [],
+    },
+    "uygulamalar.panel_rezervasyon": {
+        "label": "Mevduat Paneli — Rezervasyon Takip",
+        "desc": "Canlı rezervasyon listesi · filtrelenebilir tablo",
+        "endpoint": "deposit_panel.reservations", "config_flag": "DEPOSIT_PANEL_ENABLED",
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "Gün içi rezervasyonları satır seviyesinde, filtrelenebilir "
+                       "tabloda izler (fiyatlama masasının operasyonel ekranı).",
+            "business_context": "Rezervasyon Oranları/Miktarları süreçleri "
+                       "toplulaştırılmış görünüm verir; burada tekil işleme "
+                       "inilir — itiraz, doğrulama ve müşteri teması bu ekrandan "
+                       "yürür.",
+            "decision_support": "Agregada anomali görüldüğünde onu üreten tekil "
+                       "kayıtlara inmeyi sağlar.",
+            "known_limitations": "Operasyonel liste görünümüdür; trend/karşılaştırma "
+                       "taşımaz. Veri kaynağı rezervasyon ETL'idir — modül kapalıysa "
+                       "liste boş döner.",
+        },
+        "blocks": [],
+    },
+    "uygulamalar.asistan": {
+        "label": "Mevduat Asistanı",
+        "desc": "Sohbet arayüzü · fiyatlama sorularına yanıt",
+        "endpoint": "deposit.chat", "config_flag": None,
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "Mevduat fiyatlaması hakkındaki soruları sohbet arayüzünde "
+                       "yanıtlayan asistan.",
+            "business_context": "Panolara ve parametre ekranına dağılmış bilgiye "
+                       "doğal dille erişim sağlar; masaya yeni katılanlar için "
+                       "giriş kapısıdır.",
+            "decision_support": "Hangi ekrana bakılacağını bilmeden soru sorulmasına "
+                       "izin verir.",
+            "known_limitations": "Erişim departman kuralına bağlıdır "
+                       "(ROUTE_ACCESS_MAP `uygulamalar.asistan`); yanıtlar LLM "
+                       "üretimidir, sayısal karar öncesi ilgili panodan doğrulanmalıdır.",
+        },
+        "blocks": [],
+    },
     "mevduat.bsc": {
         "label": "BSC Presentation",
         "desc": "Full-screen presentation mode · deposit & sector slide set",

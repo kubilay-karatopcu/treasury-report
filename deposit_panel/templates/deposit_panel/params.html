@@ -1,9 +1,20 @@
-{% extends "base.html" %}
+{# Faz S4 — PRISMA kabuğuna taşındı (docs/STATIK_DASHBOARD_ADAPTASYON.md).
+   `light_content`: sayfanın iç markup'ı Tabler için yazıldığından kabuğun
+   resmi opt-in'i kullanılır — topbar/sidebar PRISMA koyu kalır, canvas açık
+   Tabler yüzeyi olur (prisma.css "light-content opt-in" bölümü). Markup
+   yeniden yazılmaz; bu bir süreç görünümü olduğu için mod-geçiş pili gizli. #}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set light_content = True %}
+{% set hide_mode_switch = True %}
+{% set crumb = "Uygulamalar · Mevduat Paneli · Parametreler" %}
 
 {% block title %}Mevduat Paneli – Parametreler{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/apexcharts@3/dist/apexcharts.css">
+{# ApexCharts CSS'i v3'te opsiyoneldir (chart kendi stilini inline üretir);
+   '@'li CDN URL'i kurumsal proxy'de mangle olduğu için kaldırıldı — JS
+   static/vendor'dan yükleniyor (bkz. scripts bloğu). #}
 <style>
 /* ── Strategy Slider Styling ─────────────────────────────────────── */
 .strategy-slider-row {
@@ -247,7 +258,13 @@ input.strategy-range.state-2::-moz-range-thumb     { background: #d63939; }
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/apexcharts@3"></script>
+{# Tabler/Bootstrap JS'i eskiden base.html yüklüyordu (jsdelivr, '@'li URL —
+   kurumsal proxy tehlikesi). PRISMA kabuğu bunu yüklemez; uygulamanın kendi
+   yerel bundle'ı kullanılıyor. deposit_panel.js `bootstrap.Toast` çağırır. #}
+<script src="{{ url_for('static', filename='js/tabler.min.js') }}"></script>
+{# CDN yerine vendor: '@'li jsdelivr URL'i kurumsal proxy'de mangle oluyor
+   (CLAUDE.md CDN kuralı) — v3.54.0, mevduat_panel'in kullandığı sürümün aynısı. #}
+<script src="{{ url_for('deposit_panel.static', filename='vendor/apexcharts.min.js') }}"></script>
 <script>
     const DEPOSIT_PANEL_BASE = "{{ url_for('deposit_panel.index') }}".replace(/\/$/, '');
     const CAN_EDIT_HP = {{ can_edit_hp | tojson }};

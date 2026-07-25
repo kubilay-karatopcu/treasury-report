@@ -195,15 +195,53 @@ Not: `mevduat.bsc` hâlâ hiçbir topic'te değil (S2 öncesinden gelen durum) �
 FinAI bakışında görünmüyor. Bilinçli değişiklik yapılmadı; gerekiyorsa ayrı
 karar.
 
-### Faz S3 — Competitor LLM özeti + cila
-- `competitor/summary` → config'ten LLM (`PRESENTATIONS_LLM_*` veya
-  `MEVDUAT_PANEL_LLM_*`), hardcoded token DEĞİL.
-- Refresh: `current_df`/`competitor_df` `admin/refresh` akışına bağlanır.
+### Faz S3 — Cila — KAPSAM DIŞI (kullanıcı kararı 2026-07-25)
+- **LLM piyasa özeti yapılmayacak** (`competitor/summary` portlanmadı).
+- Kalan (isteğe bağlı): `admin/refresh` akışına rezervasyon cache'lerinin
+  bağlanması, competitor tablosunun AG Grid'e taşınması.
 
-### Faz S4 — Uygulamalar (ayrı)
-- `deposit_panel` blueprint'i app.py'de register (bugün edilmemiş).
-- `deposit_panel`/`deposit` süreç olarak `dep` altında "Uygulamalar" topic'inde.
-- Bu grup mevduat_panel'e GİRMEZ (S2 kararı).
+### Faz S4 — Uygulamalar — ✅ TAMAMLANDI
+- **`deposit_panel` app.py'de register edildi** (PRISMA kabuğu gelirken kayıt
+  düşmüştü): korumalı try/except + `DEPOSIT_PANEL_ENABLED` bayrağı.
+  `init_app(dc, get_df)` — legacy paylaşılan `current_df`'in karşılığı olarak
+  `mevduat_panel.engine.reservation_data.load_reservation_df` **config
+  üzerinden** geçirilir; `deposit_panel` mevduat_panel'i import etmez, modül
+  kapalıysa `None` geçer (sayfa yine açılır, liste boş döner).
+- **Sayfalar PRISMA kabuğuna taşındı**: `params.html` + `reservations.html`
+  artık `home/_base_prisma.html` extend ediyor; iç markup Tabler için yazıldığı
+  için kabuğun resmi opt-in'i **`light_content = True`** kullanıldı (topbar/
+  sidebar PRISMA koyu, canvas açık Tabler yüzeyi — prisma.css "light-content
+  opt-in"). Markup yeniden yazılmadı; `hide_mode_switch` (süreç görünümü).
+- Süreçler: `uygulamalar.panel_parametreler`, `uygulamalar.panel_rezervasyon`,
+  `uygulamalar.asistan` (→ `deposit.chat`). **`blocks: []`** — bunlar araçtır
+  (parametre yazar / tekil kayıt gösterir / soru yanıtlar), brifingde atıf
+  verilecek analiz bileşenleri yoktur (`mevduat.bsc` ile aynı modelleme).
+- `dep.yaml`: **"Uygulamalar"** topic'i (analiz süreçlerinden sonra).
+
+**CDN → vendor (yol boyunca çıkan gerçek hata):** her iki sayfa da
+ApexCharts/AG Grid'i `@`'li jsdelivr URL'lerinden çekiyordu — CLAUDE.md'nin
+yasakladığı desen; mevduat_panel Faz A0 notu jsdelivr'ın ofis ağında **engelli**
+olduğunu kaydetmiş. Headless turda sayfalar gerçekten kırıldı
+(`ApexCharts is not defined`, `agGrid is not defined`). Düzeltme:
+- `apexcharts.min.js` (v3.54.0, mevduat_panel'in sürümü) → `deposit_panel/static/vendor/`
+- `ag-grid-enterprise.min.noStyle.js` + `ag-grid.css` + `ag-theme-alpine.css`
+  (31.3.2, CDN pin'iyle birebir) → aynı klasör (npm'den).
+- Tabler/Bootstrap JS'i eskiden `base.html` yüklüyordu (o da `@`'liydi); artık
+  uygulamanın **yerel** `static/js/tabler.min.js`'i (`bootstrap.Toast` gerekli).
+
+> **AG Grid Enterprise notu (kullanıcı bilgisine):** sayfa enterprise-özel
+> özellikler kullanıyor (`agSetColumnFilter`, `sideBar`, `rowGroupPanelShow`,
+> `statusBar`, `aggFunc`) → community ile değiştirilemez. Vendor'lanan dosya
+> CDN'in servis ettiğinin **aynısı**; teslimat yolu değişti, lisans durumu
+> değişmedi. Lisans anahtarı ayarlı olmadığından grid değerlendirme
+> filigranıyla çalışır (mevcut/önceki davranış). Repoya eklenen boyut ~2.8 MB.
+
+- Doğrulama: headless Chromium 2/2 sayfa 0 JS hatası (params: 4 kart + Apex
+  chart + `bootstrap` yüklü; reservations: AG Grid 31 hücre render); süreç
+  çözümü + bayrak kapalıyken gizlenme + uzman topic'i uçtan uca; 7 yeni test
+  (toplam 17) — `@`'li CDN kalmadığını doğrulayan regresyon kapısı dahil.
+- Not: `deposit/chat.html` (asistan) kendi tam-sayfa dokümanıdır; süreç olarak
+  bağlandı ama PRISMA kabuğuna taşınmadı — sohbet arayüzü ayrı bir uyarlama işi.
 
 ---
 

@@ -148,12 +148,111 @@ def test_department_view_topics_expose_new_processes(expert, app_ctx):
     assert "mevduat.rakip" in by_title["Sektör & Rakip"]
 
 
-def test_topic_processes_all_resolve(expert, app_ctx):
-    """Bakıştaki her süreç id'si kayıtlı olmalı — YAML yazım hatası kapısı."""
+def test_topic_processes_all_registered(expert):
+    """Bakıştaki her süreç id'si registry'de olmalı — YAML yazım hatası kapısı.
+
+    Kasıtlı olarak URL çözümü DEĞİL registry üyeliği sınanır: `resolve_processes`
+    ayrıca ilgili blueprint'in kayıtlı olmasını ister, bu ise uygulama
+    kompozisyonu meselesidir (her modülün kaydı kendi testinde doğrulanır).
+    """
     view = resolve_view(expert, DEPT)["view"]
-    resolved = {c["id"] for c in resolve_processes(view["process_ids"])}
-    missing = set(view["process_ids"]) - resolved
+    missing = [p for p in view["process_ids"] if p not in PROCESS_REGISTRY]
     assert not missing, missing
+
+
+# ── Faz S4: Uygulamalar (deposit_panel + asistan) ────────────────────────────
+
+APP_PROCESSES = {
+    "uygulamalar.panel_parametreler": "/deposit-panel/params",
+    "uygulamalar.panel_rezervasyon": "/deposit-panel/reservations",
+}
+
+
+@pytest.fixture
+def app_ctx_deposit():
+    """deposit_panel kayıtlı + bayrak açık app bağlamı."""
+    from deposit_panel import deposit_panel_bp, init_app as dp_init
+
+    dp_init(None, None)
+    app = Flask(__name__)
+    app.config.update(SECRET_KEY="test", DEPOSIT_PANEL_ENABLED=True)
+    app.register_blueprint(deposit_panel_bp, url_prefix="/deposit-panel")
+    with app.test_request_context():
+        yield app
+
+
+def test_app_processes_resolve(app_ctx_deposit):
+    cards = {c["id"]: c for c in resolve_processes(list(APP_PROCESSES))}
+    assert set(cards) == set(APP_PROCESSES)
+    for pid, path in APP_PROCESSES.items():
+        assert cards[pid]["url"] == path
+        assert cards[pid]["documented"] is True
+
+
+def test_app_processes_hidden_when_disabled(app_ctx_deposit):
+    app_ctx_deposit.config["DEPOSIT_PANEL_ENABLED"] = False
+    assert resolve_processes(list(APP_PROCESSES)) == []
+
+
+def test_app_processes_have_no_blocks():
+    """Uygulamalar araçtır, analiz bileşeni değil — atıf verilecek blok yok.
+
+    Bilinçli modelleme (mevduat.bsc ile aynı); blok eklenirse embed hedefi de
+    gerekir, bu test o kararın farkında olunmasını sağlar.
+    """
+    for pid in list(APP_PROCESSES) + ["uygulamalar.asistan"]:
+        assert PROCESS_REGISTRY[pid]["blocks"] == []
+
+
+def test_assistant_process_registered():
+    meta = PROCESS_REGISTRY["uygulamalar.asistan"]
+    assert meta["endpoint"] == "deposit.chat"
+    # Asistan kendi blueprint'iyle gelir; modül bayrağı yok (endpoint yoksa
+    # resolve_processes zaten sessizce düşürür).
+    assert meta["config_flag"] is None
+
+
+def test_deposit_panel_pages_use_prisma_shell():
+    """Sayfalar legacy base.html yerine PRISMA kabuğunu extend etmeli."""
+    base = REPO / "deposit_panel/templates/deposit_panel"
+    for name in ("params.html", "reservations.html"):
+        html = (base / name).read_text(encoding="utf-8")
+        assert 'extends "home/_base_prisma.html"' in html, name
+        assert 'extends "base.html"' not in html, name
+        # Tabler markup'ı korunduğu için kabuğun light_content opt-in'i şart
+        assert "light_content = True" in html, name
+        assert "hide_mode_switch = True" in html, name
+
+
+def test_deposit_panel_assets_are_vendored():
+    """'@'li CDN URL'i kalmamalı — kurumsal proxy mangle ediyor (CLAUDE.md).
+
+    jsdelivr ofis ağında engelli (mevduat_panel Faz A0 notu); bu sayfalar
+    ApexCharts/AG Grid'i oradan çekiyordu ve headless turda gerçekten
+    yüklenemedi. Vendor dosyaları repoda.
+    """
+    base = REPO / "deposit_panel/templates/deposit_panel"
+    for name in ("params.html", "reservations.html"):
+        html = (base / name).read_text(encoding="utf-8")
+        script_srcs = [line for line in html.splitlines()
+                       if ("<script src=" in line or "<link rel=\"stylesheet\"" in line)]
+        for line in script_srcs:
+            assert "@" not in line, (name, line.strip()[:90])
+    vendor = REPO / "deposit_panel/static/vendor"
+    for asset in ("apexcharts.min.js", "ag-grid-enterprise.min.noStyle.js",
+                  "ag-grid.css", "ag-theme-alpine.css"):
+        assert (vendor / asset).is_file(), asset
+
+
+def test_expert_view_has_uygulamalar_topic(expert, app_ctx_deposit):
+    view = resolve_view(expert, DEPT)["view"]
+    by_title = {t["title"]: t["process_ids"] for t in view["topics"]}
+    assert "Uygulamalar" in by_title
+    assert by_title["Uygulamalar"] == [
+        "uygulamalar.panel_parametreler",
+        "uygulamalar.panel_rezervasyon",
+        "uygulamalar.asistan",
+    ]
 
 
 def test_embed_mode_implemented_for_prisma_pages():

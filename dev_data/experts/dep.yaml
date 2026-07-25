@@ -24,6 +24,10 @@ bound_content:
     - mevduat.miktarlar
     - mevduat.tarihsel
     - mevduat.rakip
+    # Faz S4 — Uygulamalar: analiz panosu değil, etkileşimli araçlar.
+    - uygulamalar.panel_parametreler
+    - uygulamalar.panel_rezervasyon
+    - uygulamalar.asistan
 briefing_recipe:
   cache_ttl_seconds: 1800
   sections: []
@@ -64,3 +68,10 @@ department_views:
         processes:
           - mevduat.sektor
           - mevduat.rakip
+      # Faz S4 — panoların yanındaki araçlar (parametre yazma, tekil kayıt,
+      # sohbet). Analiz süreçlerinden sonra, ayrı başlık altında.
+      - title: Uygulamalar
+        processes:
+          - uygulamalar.panel_parametreler
+          - uygulamalar.panel_rezervasyon
+          - uygulamalar.asistan

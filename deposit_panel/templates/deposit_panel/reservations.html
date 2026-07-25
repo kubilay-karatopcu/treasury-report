@@ -1,10 +1,18 @@
-{% extends "base.html" %}
+{# Faz S4 — PRISMA kabuğuna taşındı (bkz. params.html başındaki not). #}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set light_content = True %}
+{% set hide_mode_switch = True %}
+{% set crumb = "Uygulamalar · Mevduat Paneli · Rezervasyon Takip" %}
 
 {% block title %}Mevduat Paneli – Rezervasyon Takip{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+{# CDN yerine vendor: '@'li jsdelivr URL'leri kurumsal proxy'de mangle oluyor
+   (CLAUDE.md CDN kuralı; mevduat_panel Faz A0'da jsdelivr'ın ofis ağında
+   engelli olduğu kaydedilmiş). Sürümler CDN pin'iyle birebir: 31.3.2. #}
+<link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-grid.css') }}">
+<link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-theme-alpine.css') }}">
 <style>
 .ag-theme-alpine {
     --ag-header-height: 38px;
@@ -68,7 +76,13 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@31.3.2/dist/ag-grid-enterprise.min.noStyle.js"></script>
+{# AG Grid ENTERPRISE — sayfa enterprise-özel özellikler kullanır
+   (agSetColumnFilter, sideBar, rowGroupPanelShow, statusBar, aggFunc), bu
+   yüzden community ile değiştirilemez. Dosya CDN'in servis ettiğinin aynısı
+   (31.3.2); vendor'lama yalnız TESLİMAT yolunu değiştirir, lisans durumunu
+   değiştirmez — kullanım zaten aynıydı. Lisans anahtarı ayarlanmadığı için
+   grid değerlendirme filigranıyla çalışır (mevcut davranış). #}
+<script src="{{ url_for('deposit_panel.static', filename='vendor/ag-grid-enterprise.min.noStyle.js') }}"></script>
 <script>
 (function () {
     "use strict";
