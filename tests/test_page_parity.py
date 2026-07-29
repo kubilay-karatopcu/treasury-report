@@ -180,3 +180,72 @@ def test_carousel_and_metric_styles_exist():
     for cls in (".pk-carousel__slide", ".pk-carousel__nav", ".pk-metrics",
                 ".pk-metric__value", ".pk-plot"):
         assert cls in css, cls
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Rezervasyon Miktarları — eski templates/amounts.html + static/js/amounts.js
+# ═══════════════════════════════════════════════════════════════════════════
+
+AMT_HTML = REPO / "mevduat_panel/templates/mevduat_panel/prisma/amounts.html"
+AMT_JS = REPO / "mevduat_panel/static/prisma/amounts.js"
+AMT_OLD_JS = REPO / "static/js/amounts.js"
+
+#: Eski sayfadaki 4 kart ve slayt sayıları.
+AMT_CAROUSELS = {
+    "carousel-time-series": 2,
+    "carousel-dist-current": 3,
+    "carousel-dist-incoming": 3,
+    "carousel-dist-portfolio": 3,
+}
+
+
+def test_amounts_carousels_and_slide_counts():
+    html = AMT_HTML.read_text(encoding="utf-8")
+    roots = set(re.findall(r'class="pk-carousel" id="([\w-]+)"', html))
+    assert roots == set(AMT_CAROUSELS), roots
+    assert html.count("pk-carousel__slide") == sum(AMT_CAROUSELS.values())
+    assert html.count('class="pk-card"') == 4
+
+
+def test_amounts_plot_ids_match_original():
+    html = AMT_HTML.read_text(encoding="utf-8")
+    for pid in ("chart-time-cumulative", "chart-time-hourly",
+                "chart-curr-pie-vol", "chart-curr-pie-count", "chart-curr-hist",
+                "chart-inc-pie-vol", "chart-inc-pie-count", "chart-inc-hist",
+                "chart-port-pie-vol", "chart-port-pie-count", "chart-port-hist"):
+        assert f'id="{pid}"' in html, pid
+
+
+def test_amounts_computation_functions_ported():
+    old, new = AMT_OLD_JS.read_text(encoding="utf-8"), AMT_JS.read_text(encoding="utf-8")
+    for fn in ("groupRowsByHour", "getDistributionBucket",
+               "calculateDistributionStats", "calculateHistogramStats",
+               "formatCurrency", "parseCurrencyStr", "calculateAllStats"):
+        assert fn in old, f"kaynak değişmiş: {fn}"
+        assert fn in new, f"portlanmamış: {fn}"
+
+
+def test_amounts_histogram_bin_and_bands():
+    """500k bin ve dağılım bantları kaynakla aynı olmalı (sayılar buna bağlı)."""
+    new = AMT_JS.read_text(encoding="utf-8")
+    assert "HIST_BIN = 500000" in new
+    for band in ("0-5M", "5-10M", "10-25M", "25-100M", "100-200M",
+                 "200-500M", "500-1000M", "1000M+"):
+        assert band in new, band
+
+
+def test_amounts_series_names_and_stacking():
+    new = AMT_JS.read_text(encoding="utf-8")
+    for name in ("Roll Hacim", "Yeni Hacim", "İşlem Adedi"):
+        assert name in new, name
+    # Hacim kolonları yığılır ve ortak eksen max'ıyla hizalanır.
+    assert "stacked: true" in new
+    assert "group: 'vol'" in new
+
+
+def test_amounts_uses_kit_and_shared_renderer():
+    html, new = AMT_HTML.read_text(encoding="utf-8"), AMT_JS.read_text(encoding="utf-8")
+    assert 'id="fDims"' in html
+    assert "renderBubFilters" in new
+    assert "MVP.renderChart(" in new
+    assert "new ApexCharts(" not in new

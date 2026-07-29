@@ -1,3 +1,17 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   Rezervasyon Miktarları — eski templates/amounts.html'in BİREBİR karşılığı.
+
+   Yapı kaynağı: templates/amounts.html + static/js/amounts.js.
+     4 kart, her biri karosel:
+       1) Gün İçinde Hacim ve İşlem Grafiği → Kümülatif · Saatlik
+       2) CURRENT AMOUNT (Roll Hacmi)       → hacim pie · adet pie · histogram
+       3) INCOMING AMOUNT (Yeni Para)       → aynı üçlü
+       4) PORTFOLIO AMOUNT                  → aynı üçlü
+   Ekstra kart/blok EKLENMEZ (kullanıcı kararı: birebir parite).
+
+   Filtreler Outstanding kitinde (R4): çok değerli boyutlar All | None açılır
+   listesi, para birimi tekil seçim, tarih tek gün + ileri/geri okları.
+   ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "mevduat_panel/prisma/_page.html" %}
 {% set crumb = "Mevduat · Rezervasyon Miktarları" %}
 {% block title %}Rezervasyon Miktarları — PRISMA{% endblock %}
@@ -6,63 +20,140 @@
   <div class="pk-field">
     <span class="pk-label">Tarih</span>
     <div class="pk-field__body">
+      <button type="button" class="pk-btn" id="fDatePrev" title="Önceki gün">‹</button>
       <input type="date" class="pk-input" id="fDate">
+      <button type="button" class="pk-btn" id="fDateNext" title="Sonraki gün">›</button>
     </div>
   </div>
-  <div class="pk-field">
-    <span class="pk-label">Kaynak</span>
-    <div class="pk-field__body"><div class="pk-chips" id="fSrc"></div></div>
-  </div>
+
   <div class="pk-field">
     <span class="pk-label">Para Birimi</span>
-    <div class="pk-field__body"><select id="fCcy" class="pk-select"></select></div>
-  </div>
-  <div class="pk-field">
-    <span class="pk-label">Müşteri Tipi</span>
-    <div class="pk-field__body"><select id="fCust" class="pk-select"></select></div>
-  </div>
-  <div class="pk-field">
-    <span class="pk-label">Revizyon</span>
     <div class="pk-field__body">
-      <div class="pk-chips" id="fRev">
-        <button type="button" class="pk-chip" id="fRevMax">Yalnız son revizyon</button>
-      </div>
+      <select class="pk-input" id="fCcy">
+        <option value="TRY">TRY</option>
+        <option value="USD">USD</option>
+        <option value="EUR">EUR</option>
+        <option value="GBP">GBP</option>
+        <option value="CAD">CAD</option>
+        <option value="JPY">JPY</option>
+        <option value="XAU">XAU</option>
+      </select>
     </div>
+  </div>
+
+  <div class="pk-field">
+    <span class="pk-label">Boyutlar</span>
+    <div class="pkf-panel" id="fDims"></div>
   </div>
 {% endblock %}
 
 {% block mvp_body %}
-  <div class="pk-kpis" id="kpis"></div>
-  <div class="pk-grid">
-    <div class="pk-card pk-card--half" id="card-tenor">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Vade Bazında Rezervasyon Hacmi</span>
-        <span class="pk-card__note">toplam tutar</span>
+<div class="pk-grid">
+
+  {# ── 1) Gün içi hacim / işlem ──────────────────────────────────────────── #}
+  <div class="pk-card" id="card-time-series">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Gün İçinde Hacim ve İşlem Grafiği</span>
+      <div class="pk-carousel__nav">
+        <button type="button" data-car-prev="carousel-time-series" aria-label="Önceki">‹</button>
+        <span class="pk-carousel__ind" data-car-ind="carousel-time-series"></span>
+        <button type="button" data-car-next="carousel-time-series" aria-label="Sonraki">›</button>
       </div>
-      <div class="pk-chart" id="chByTenor"></div>
     </div>
-    <div class="pk-card pk-card--third" id="card-segment">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Müşteri Tipi Dağılımı</span>
+    <div class="pk-carousel" id="carousel-time-series">
+      <div class="pk-carousel__slide is-active">
+        <div class="pk-carousel__cap">Kümülatif</div>
+        <div id="chart-time-cumulative" class="pk-plot"></div>
       </div>
-      <div class="pk-chart" id="chBySegment"></div>
-    </div>
-    <div class="pk-card pk-card--third" id="card-source">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Kaynak Dağılımı</span>
+      <div class="pk-carousel__slide">
+        <div class="pk-carousel__cap">Saatlik (O Saatteki Hacim)</div>
+        <div id="chart-time-hourly" class="pk-plot"></div>
       </div>
-      <div class="pk-chart" id="chBySource"></div>
-    </div>
-    <div class="pk-card" id="card-tenor-table">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Vade Özeti</span>
-        <span class="pk-card__note">tutar kalemleri toplam</span>
-      </div>
-      <div id="tblTenor"></div>
     </div>
   </div>
+
+  {# ── 2) CURRENT AMOUNT ─────────────────────────────────────────────────── #}
+  <div class="pk-card" id="card-dist-current">
+    <div class="pk-card__head">
+      <span class="pk-card__title">CURRENT AMOUNT (Roll Hacmi)</span>
+      <div class="pk-carousel__nav">
+        <button type="button" data-car-prev="carousel-dist-current" aria-label="Önceki">‹</button>
+        <span class="pk-carousel__ind" data-car-ind="carousel-dist-current"></span>
+        <button type="button" data-car-next="carousel-dist-current" aria-label="Sonraki">›</button>
+      </div>
+    </div>
+    <div class="pk-carousel" id="carousel-dist-current">
+      <div class="pk-carousel__slide is-active">
+        <div class="pk-carousel__cap">Hacim Bazlı Dağılım</div>
+        <div id="chart-curr-pie-vol" class="pk-plot pk-plot--tall"></div>
+      </div>
+      <div class="pk-carousel__slide">
+        <div class="pk-carousel__cap">Adet Bazlı Dağılım</div>
+        <div id="chart-curr-pie-count" class="pk-plot pk-plot--tall"></div>
+      </div>
+      <div class="pk-carousel__slide">
+        <div class="pk-carousel__cap">Tutar Dağılım Grafiği (Frekans)</div>
+        <div id="chart-curr-hist" class="pk-plot"></div>
+      </div>
+    </div>
+  </div>
+
+  {# ── 3) INCOMING AMOUNT ────────────────────────────────────────────────── #}
+  <div class="pk-card" id="card-dist-incoming">
+    <div class="pk-card__head">
+      <span class="pk-card__title">INCOMING AMOUNT (Yeni Para)</span>
+      <div class="pk-carousel__nav">
+        <button type="button" data-car-prev="carousel-dist-incoming" aria-label="Önceki">‹</button>
+        <span class="pk-carousel__ind" data-car-ind="carousel-dist-incoming"></span>
+        <button type="button" data-car-next="carousel-dist-incoming" aria-label="Sonraki">›</button>
+      </div>
+    </div>
+    <div class="pk-carousel" id="carousel-dist-incoming">
+      <div class="pk-carousel__slide is-active">
+        <div class="pk-carousel__cap">Hacim Bazlı Dağılım</div>
+        <div id="chart-inc-pie-vol" class="pk-plot pk-plot--tall"></div>
+      </div>
+      <div class="pk-carousel__slide">
+        <div class="pk-carousel__cap">Adet Bazlı Dağılım</div>
+        <div id="chart-inc-pie-count" class="pk-plot pk-plot--tall"></div>
+      </div>
+      <div class="pk-carousel__slide">
+        <div class="pk-carousel__cap">Tutar Dağılım Grafiği (Frekans)</div>
+        <div id="chart-inc-hist" class="pk-plot"></div>
+      </div>
+    </div>
+  </div>
+
+  {# ── 4) PORTFOLIO AMOUNT ───────────────────────────────────────────────── #}
+  <div class="pk-card" id="card-dist-portfolio">
+    <div class="pk-card__head">
+      <span class="pk-card__title">PORTFOLIO AMOUNT</span>
+      <div class="pk-carousel__nav">
+        <button type="button" data-car-prev="carousel-dist-portfolio" aria-label="Önceki">‹</button>
+        <span class="pk-carousel__ind" data-car-ind="carousel-dist-portfolio"></span>
+        <button type="button" data-car-next="carousel-dist-portfolio" aria-label="Sonraki">›</button>
+      </div>
+    </div>
+    <div class="pk-carousel" id="carousel-dist-portfolio">
+      <div class="pk-carousel__slide is-active">
+        <div class="pk-carousel__cap">Hacim Bazlı Dağılım</div>
+        <div id="chart-port-pie-vol" class="pk-plot pk-plot--tall"></div>
+      </div>
+      <div class="pk-carousel__slide">
+        <div class="pk-carousel__cap">Adet Bazlı Dağılım</div>
+        <div id="chart-port-pie-count" class="pk-plot pk-plot--tall"></div>
+      </div>
+      <div class="pk-carousel__slide">
+        <div class="pk-carousel__cap">Tutar Dağılım Grafiği (Frekans)</div>
+        <div id="chart-port-hist" class="pk-plot"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
 {% endblock %}
 
 {% block page_scripts %}
+<script src="{{ url_for('mevduat_panel.static', filename='prisma/carousel.js') }}?v={{ mevduat_version }}"></script>
 <script src="{{ url_for('mevduat_panel.static', filename='prisma/amounts.js') }}?v={{ mevduat_version }}"></script>
 {% endblock %}

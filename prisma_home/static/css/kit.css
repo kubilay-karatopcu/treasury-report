@@ -164,6 +164,8 @@ body.prisma.pk-embed .pk-fnav { display: none; }
 }
 /* Grafik kabı: karosel slaytları arası yükseklik zıplamasını önler. */
 .pk-plot { min-height: 350px; }
+/* Pie slaytları kaynakta 500px yüksekti (legend altta) — parite için. */
+.pk-plot--tall { min-height: 500px; }
 
 /* Karosel slaytı içindeki metrik kutuları (eski "Ekstrem / Ekstrem+Yetki"). */
 .pk-metrics {
