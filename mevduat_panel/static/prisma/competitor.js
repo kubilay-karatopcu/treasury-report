@@ -50,14 +50,42 @@
 
   // ── Eski yardımcılar (birebir) ───────────────────────────────────────────
 
-  /* Banka rengi: PRISMA paletinden deterministik atama. Kaynakta sabit bir
-     BANK_COLORS haritası + fallback palet vardı; burada tema token'larından
-     gelen palet kullanılır (aynı banka daima aynı rengi alır). */
+  /* R6 — Banka renkleri ESKİ SİSTEMDEN BİREBİR (kurumsal renkler önemli;
+     static/js/competitor.js BANK_COLORS + FALLBACK_PALETTE). Haritada olmayan
+     bankalara fallback paletinden deterministik atanır; eşleşme Türkçe
+     karakter normalize edilerek büyük/küçük harf duyarsız yapılır. */
+  var BANK_COLORS = {
+    'DENİZBANK': 'rgb(0, 51, 160)',
+    'DENIZBANK': 'rgb(0, 51, 160)',
+    'Denizbank': 'rgb(0, 51, 160)',
+    'AKBANK': 'rgb(220, 0, 5)',
+    'Akbank': 'rgb(220, 0, 5)',
+    'VAKIFBANK': 'rgb(253, 185, 19)',
+    'VakıfBank': 'rgb(253, 185, 19)',
+    'Vakıfbank': 'rgb(253, 185, 19)',
+    'YAPI KREDİ': 'rgb(19, 102, 178)',
+    'Yapı Kredi': 'rgb(19, 102, 178)',
+    'YAPIKREDI': 'rgb(19, 102, 178)',
+    'ENPARA': 'rgb(180, 78, 167)',
+    'Enpara': 'rgb(180, 78, 167)'
+  };
+  var FALLBACK_PALETTE = [
+    '#2fb344', '#f76707', '#ae3ec9', '#0ca678', '#d6336c',
+    '#3bc9db', '#fcc419', '#868e96', '#4263eb', '#f06595',
+    '#20c997', '#fab005', '#e64980', '#7048e8', '#15aabf'
+  ];
+
   function bankColor(name) {
-    if (!name) return MVP.token('--ink-faint', '#868e96');
+    if (!name) return '#868e96';
+    if (BANK_COLORS[name]) return BANK_COLORS[name];
+    var up = name.toUpperCase().replace(/İ/g, 'I').replace(/Ş/g, 'S');
+    for (var k in BANK_COLORS) {
+      if (k.toUpperCase().replace(/İ/g, 'I').replace(/Ş/g, 'S') === up) {
+        return BANK_COLORS[k];
+      }
+    }
     if (!_fbMap[name]) {
-      var pal = MVP.palette();
-      _fbMap[name] = pal[_fbIdx % pal.length];
+      _fbMap[name] = FALLBACK_PALETTE[_fbIdx % FALLBACK_PALETTE.length];
       _fbIdx++;
     }
     return _fbMap[name];
@@ -183,7 +211,7 @@
     if (!el) return;
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'bar', height: 300, toolbar: { show: false } },
+        chart: { type: 'bar', height: '100%', toolbar: { show: false } },
         plotOptions: { bar: { horizontal: false, columnWidth: '55%',
                               distributed: true } },
         colors: colors,
@@ -206,7 +234,7 @@
     if (!el) return;
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'bar', height: 200, toolbar: { show: false } },
+        chart: { type: 'bar', height: '100%', toolbar: { show: false } },
         plotOptions: { bar: { horizontal: false, columnWidth: '55%',
                               distributed: true } },
         colors: colors,
@@ -230,7 +258,7 @@
     if (!el) return;
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'line', height: 400, zoom: { enabled: true } },
+        chart: { type: 'line', height: '100%', zoom: { enabled: true } },
         colors: colors,
         stroke: { width: widths, dashArray: dashes, curve: 'smooth' },
         dataLabels: { enabled: false },
@@ -435,4 +463,41 @@
   if (elApply) elApply.addEventListener('click', apply);
   elFrom.addEventListener('change', apply);
   elTo.addEventListener('change', apply);
+
+  // ── R6 — Veri kaynağı uyarı popup'ı (eski sourceDisclaimerModal portu) ────
+  (function () {
+    var overlay = document.getElementById('source-disclaimer');
+    var btnClose = document.getElementById('btn-close-disclaimer');
+    var countdownSpan = document.getElementById('countdown-val');
+    if (!overlay || !btnClose) return;
+    var remaining = 3;
+    var timer = setInterval(function () {
+      remaining--;
+      if (countdownSpan) countdownSpan.textContent = remaining;
+      if (remaining <= 0) {
+        clearInterval(timer);
+        btnClose.disabled = false;
+        btnClose.textContent = 'Anladım';
+      }
+    }, 1000);
+    btnClose.addEventListener('click', function () { overlay.remove(); });
+    // Kaynak linkleri veri gelince aynalanır (kaynaktaki 2 sn bekleme deseni).
+    setTimeout(function () {
+      var srcEl = document.getElementById('source-links');
+      var popupEl = document.getElementById('popup-source-links');
+      if (srcEl && popupEl) popupEl.innerHTML = srcEl.innerHTML;
+    }, 2000);
+  })();
+
+  // LLM özeti disclaimer'ı (kaynak MutationObserver deseni): özet doluysa
+  // sonuna açık-kaynak notu eklenir.
+  if (elSummaryText) {
+    new MutationObserver(function () {
+      var text = elSummaryText.textContent || '';
+      if (text.length > 30 && text.indexOf('açık kaynaklardan') < 0) {
+        elSummaryText.textContent = text.replace(/\s+$/, '') +
+          ' Tüm veriler açık kaynaklardan elde edilmiştir.';
+      }
+    }).observe(elSummaryText, { childList: true, characterData: true, subtree: true });
+  }
 })();

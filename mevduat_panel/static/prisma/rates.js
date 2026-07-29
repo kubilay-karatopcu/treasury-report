@@ -363,7 +363,7 @@
     var faint = MVP.token('--ink-faint', '#888888');
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'line', height: 350 },
+        chart: { type: 'line', height: '100%' },
         colors: [countColor, rateColor, faint],
         stroke: { width: [0, 3, 2], dashArray: [0, 0, 4], curve: 'smooth' },
         plotOptions: { bar: { columnWidth: '50%' } },
@@ -392,7 +392,7 @@
     if (!el) return;
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'bar', height: 350 },
+        chart: { type: 'bar', height: '100%' },
         colors: [color],
         plotOptions: { bar: { horizontal: false, columnWidth: '60%' } },
         dataLabels: { enabled: false },
@@ -410,7 +410,7 @@
     var pal = MVP.palette();
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'line', height: 350 },
+        chart: { type: 'line', height: '100%' },
         colors: [pal[0], pal[2]],
         stroke: { width: 3, curve: curve },
         dataLabels: { enabled: false },

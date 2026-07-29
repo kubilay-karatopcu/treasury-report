@@ -13,15 +13,17 @@
 {% set crumb = "Mevduat · Rezervasyon Oranları" %}
 {% block title %}Rezervasyon Oranları — PRISMA{% endblock %}
 
-{% block mvp_filters %}
-  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+{% block mvp_controls %}
+  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
     Tarih
-    <button type="button" class="wf-nav-btn" id="fDatePrev" title="Önceki gün">&#9664;</button>
-    <input type="date" id="fDate"
-           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-    <button type="button" class="wf-nav-btn" id="fDateNext" title="Sonraki gün">&#9654;</button>
+    <span style="display:flex;gap:6px;align-items:center;">
+      <button type="button" class="wf-nav-btn" id="fDatePrev" title="Önceki gün">&#9664;</button>
+      <input type="date" id="fDate"
+             style="flex:1;min-width:0;font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+      <button type="button" class="wf-nav-btn" id="fDateNext" title="Sonraki gün">&#9654;</button>
+    </span>
   </label>
-  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:8px;">
+  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
     Para Birimi
     <select id="fCcy"
             style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
@@ -61,15 +63,15 @@
       <div class="mv-carousel" id="{{ cid }}">
         <div class="mvc-slide">
           <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Zaman İçindeki Değişim (Saatlik)</div>
-          <div class="card"><div id="chart-{{ prefix }}" class="plot-container"></div></div>
+          <div class="card"><div id="chart-{{ prefix }}" class="plot-container" style="height:350px;"></div></div>
         </div>
         <div class="mvc-slide hidden">
           <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Saatlik Performans (Anlık)</div>
-          <div class="card"><div id="chart-{{ prefix }}-hourly" class="plot-container"></div></div>
+          <div class="card"><div id="chart-{{ prefix }}-hourly" class="plot-container" style="height:350px;"></div></div>
         </div>
         <div class="mvc-slide hidden">
           <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Oran Dağılımı (Frekans)</div>
-          <div class="card"><div id="chart-{{ prefix }}-dist" class="plot-container"></div></div>
+          <div class="card"><div id="chart-{{ prefix }}-dist" class="plot-container" style="height:350px;"></div></div>
           {{ metric_tiles(suffix) }}
         </div>
       </div>
@@ -94,11 +96,11 @@
     <div class="mv-carousel" id="carousel-spread">
       <div class="mvc-slide">
         <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Saatlik Spread</div>
-        <div class="card"><div id="chart-spread" class="plot-container"></div></div>
+        <div class="card"><div id="chart-spread" class="plot-container" style="height:350px;"></div></div>
       </div>
       <div class="mvc-slide hidden">
         <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Kümülatif Spread</div>
-        <div class="card"><div id="chart-spread-cumulative" class="plot-container"></div></div>
+        <div class="card"><div id="chart-spread-cumulative" class="plot-container" style="height:350px;"></div></div>
       </div>
     </div>
   </div>

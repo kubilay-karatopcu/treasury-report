@@ -36,7 +36,7 @@ CAROUSEL_JS = REPO / "mevduat_panel/static/prisma/carousel.js"
 
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 
-_PAGE_STUB = ("{% block title %}{% endblock %}{% block mvp_filters %}{% endblock %}"
+_PAGE_STUB = ("{% block title %}{% endblock %}{% block mvp_controls %}{% endblock %}"
               "{% block mvp_body %}{% endblock %}{% block page_scripts %}{% endblock %}")
 
 
@@ -427,3 +427,77 @@ def test_competitor_uses_filter_kit():
     assert "renderBubFilters" in new
     assert "MVP.renderChart(" in new
     assert "new ApexCharts(" not in new
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# R6 — ufak düzeltme turu (2026-07-29): kurallar docs/CUSTOM_PAGE_DESIGN.md
+# ═══════════════════════════════════════════════════════════════════════════
+
+PAGE_SHELL = REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html"
+CAROUSEL = REPO / "mevduat_panel/static/prisma/carousel.js"
+
+
+def test_controls_live_in_sidebar_not_content():
+    """R6.2 — tarih/ccy kontrolleri sol-alt kontrol panelinde (mvp_controls)."""
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert "mvp_controls" in shell
+    assert "sidebar-controls" in shell
+    assert "margin-top:auto" in shell
+    # İçerik alanındaki filtre satırında yalnız boyutlar kalır.
+    assert "mvp_filters" not in shell
+    for page in ("rates.html", "amounts.html", "historic.html", "competitor.html"):
+        src = (REPO / "mevduat_panel/templates/mevduat_panel/prisma" / page).read_text(
+            encoding="utf-8")
+        assert "{% block mvp_controls %}" in src, page
+
+
+def test_ag_grid_css_loads_in_head_before_panel_css():
+    """R6.5 — dark override'lar ancak vendor CSS head'de ÖNCE yüklenirse kazanır."""
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    # Yorum metinleri de bu adları içerir — GERÇEK link satırları karşılaştırılır.
+    assert shell.index("filename='vendor/ag-theme-alpine.css'") < \
+        shell.index("filename='mevduat_panel.css'")
+
+
+def test_accordion_header_grows_plot_not_collapse():
+    """R6.3 — başlık tıklaması plot büyütme; aç/kapa değil."""
+    js = CAROUSEL.read_text(encoding="utf-8")
+    assert "plot-max" in js
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert ".accordion.plot-max .plot-container" in shell
+    # Chart'lar kabı doldurur; kaplar açık yükseklik taşır.
+    assert "height: '100%'" in _js()
+    assert 'style="height:350px;"' in _html()
+
+
+def test_competitor_bank_colors_restored_from_legacy():
+    """R6.4 — kurumsal banka renkleri eski sistemden birebir."""
+    new = CMP_JS.read_text(encoding="utf-8")
+    old = CMP_OLD_JS.read_text(encoding="utf-8")
+    for pair in ("'rgb(0, 51, 160)'", "'rgb(220, 0, 5)'",
+                 "'rgb(253, 185, 19)'", "'rgb(19, 102, 178)'",
+                 "'rgb(180, 78, 167)'"):
+        assert pair in old, f"kaynak değişmiş: {pair}"
+        assert pair in new, f"taşınmamış: {pair}"
+    assert "FALLBACK_PALETTE" in new
+
+
+def test_competitor_disclaimer_popup_restored():
+    """R6.6 — kaynak bilgilendirme popup'ı (3 sn geri sayım + Anladım)."""
+    html = _render_page("competitor.html")
+    assert 'id="source-disclaimer"' in html
+    assert 'id="popup-source-links"' in html
+    assert 'id="btn-close-disclaimer"' in html
+    js = CMP_JS.read_text(encoding="utf-8")
+    assert "countdown-val" in js
+    assert "Anladım" in js
+
+
+def test_design_rules_doc_exists_and_is_referenced():
+    """R6.7 — tasarım kuralları dosyası + CLAUDE.md hafıza işaretçisi."""
+    doc = (REPO / "docs/CUSTOM_PAGE_DESIGN.md").read_text(encoding="utf-8")
+    for key in ("bub-filter", "plot-max", "AG-Grid", "mvp_controls",
+                "BANK_COLORS", "render çıktısına"):
+        assert key in doc, key
+    claude = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "CUSTOM_PAGE_DESIGN.md" in claude

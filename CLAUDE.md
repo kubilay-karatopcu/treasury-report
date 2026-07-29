@@ -475,6 +475,15 @@ No new infra dependencies. Reuse the existing S3 client and Oracle DataClient.
 - No `print` statements in committed code.
 - Comments only when the *why* is non-obvious. Code should read top-to-bottom.
 
+### Custom page tasarımı — BAĞLAYICI kurallar
+
+Legacy'den taşınan ya da sıfırdan yazılan her custom sayfa (rezervasyon
+sayfaları gibi) **`docs/CUSTOM_PAGE_DESIGN.md`**'e göre yapılır — kabuk
+Outstanding SPA'sının aynası, kontroller sidebar sol-altta, bub-filter
+bileşeni, accordion=plot-büyütme, AG-Grid (CSS'i head'de), parite kuralları,
+Jinja/test tuzakları. Yeni sayfaya başlamadan önce O DOSYAYI OKU; sapma
+gerekiyorsa önce dosyayı güncelle.
+
 ### Ofis çalışma ortamı — `jobs/` script'leri (Spyder)
 
 Ofis makinesinde tek-atımlık `jobs/*.py` script'leri **Spyder içinden "Run" (F5)** ile
