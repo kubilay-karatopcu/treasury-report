@@ -179,3 +179,69 @@ def test_spa_nav_click_falls_through_for_foreign_endpoints():
     assert "if (!this.dataset.page) return;" in handler
     assert handler.index("if (!this.dataset.page) return;") < handler.index(
         "e.preventDefault();")
+
+
+# ── Şablonun GERÇEK veriyle render'ı ─────────────────────────────────────────
+# Regresyon: `folder_menu.items` Jinja'da dict.items METODUNU döndürüyordu
+# (attribute önce denenir) → daima truthy, döngüde TypeError. Şablonu gerçek
+# sözlükle render etmeyen testler bunu kaçırdı; bu blok o boşluğu kapatır.
+
+@pytest.fixture
+def nav_tpl():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader(str(REPO / "mevduat_panel/templates")))
+    return env.get_template("mevduat_panel/_folder_nav.html")
+
+
+def _menu(**over):
+    base = {"title": "Daily View", "items": [
+        {"id": "mevduat.oranlar", "label": "Rezervasyon Oranları",
+         "url": "/mevduat-panel/oranlar", "page": None,
+         "endpoint": "mevduat_panel.prisma_rates", "active": True},
+        {"id": "mevduat.miktarlar", "label": "Rezervasyon Miktarları",
+         "url": "/mevduat-panel/miktarlar", "page": None,
+         "endpoint": "mevduat_panel.prisma_amounts", "active": False},
+    ]}
+    base.update(over)
+    return base
+
+
+def test_nav_renders_with_real_dict(nav_tpl):
+    out = nav_tpl.render(folder_menu=_menu(), nav_variant="pk")
+    assert "Daily View" in out
+    assert "Rezervasyon Oranları" in out
+    assert "/mevduat-panel/miktarlar" in out
+    assert 'class="active"' in out
+    assert "pk-fnav" in out
+
+
+def test_nav_spa_variant_emits_data_page(nav_tpl):
+    spa = _menu(title="Macro Deposit View", items=[
+        {"id": "mevduat.bakiye", "label": "Outstanding Balance",
+         "url": "/mevduat-panel/?page=balance-analysis", "page": "balance-analysis",
+         "endpoint": "mevduat_panel.index", "active": True}])
+    out = nav_tpl.render(folder_menu=spa, nav_variant="sidebar",
+                         spa_endpoint="mevduat_panel.index")
+    assert 'data-page="balance-analysis"' in out
+    assert 'id="deposit-nav"' in out
+    assert "sidebar-group" in out
+
+
+def test_nav_foreign_endpoint_gets_no_data_page(nav_tpl):
+    """Başka endpoint'teki kardeş data-page taşımaz → tarayıcı href'i izler."""
+    out = nav_tpl.render(folder_menu=_menu(), nav_variant="sidebar",
+                         spa_endpoint="mevduat_panel.index")
+    assert "data-page=" not in out
+
+
+def test_nav_silent_when_absent_or_empty(nav_tpl):
+    assert nav_tpl.render(folder_menu=None).strip() == ""
+    assert nav_tpl.render(folder_menu={"title": "X", "items": []}).strip() == ""
+
+
+def test_nav_template_uses_subscript_not_dot_items():
+    """`.items` yasak — dict metodunu döndürür. Anahtar erişimi köşeli parantez."""
+    src = (REPO / "mevduat_panel/templates/mevduat_panel/_folder_nav.html").read_text(
+        encoding="utf-8")
+    assert "folder_menu.items" not in src
+    assert "folder_menu['items']" in src

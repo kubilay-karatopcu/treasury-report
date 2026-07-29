@@ -17,24 +17,28 @@
    mevduat_panel.js bunları sunucuya gitmeden açar. Farklı endpoint'tekiler
    data-page taşımaz → tarayıcı href'i normal takip eder.
    ═══════════════════════════════════════════════════════════════════════════ #}
-{% if folder_menu and folder_menu.items %}
+{# DİKKAT: sözlükte `folder_menu.items` Jinja'da `dict.items` METODUNU döndürür
+   (attribute önce denenir) — daima truthy'dir ve döngüde patlar. Anahtarlara
+   köşeli parantezle erişilir. #}
+{% set _items = folder_menu['items'] if folder_menu else none %}
+{% if _items %}
 {% set _spa = (nav_variant|default('sidebar')) == 'sidebar' %}
 <aside class="{{ 'sidebar' if _spa else 'pk-fnav' }}">
   <div class="{{ 'sidebar-group' if _spa else 'pk-fnav__group' }}">
     <div class="{{ 'sidebar-group-header' if _spa else 'pk-fnav__head' }}"
          {% if _spa %}data-group="folder"{% endif %}>
-      {{ folder_menu.title }}
+      {{ folder_menu['title'] }}
       {% if _spa %}<span class="sidebar-group-icon">&#9660;</span>{% endif %}
     </div>
     <div class="{{ 'sidebar-group-body' if _spa else 'pk-fnav__body' }}">
       <ul class="{{ 'sidebar-nav' if _spa else 'pk-fnav__list' }}"
           {% if _spa %}id="deposit-nav"{% endif %}>
-        {% for it in folder_menu.items %}
+        {% for it in _items %}
         <li>
-          <a href="{{ it.url }}"
-             {% if spa_endpoint and it.page and it.endpoint == spa_endpoint %}
-             data-page="{{ it.page }}"{% endif %}
-             {% if it.active %}class="active"{% endif %}>{{ it.label }}</a>
+          <a href="{{ it['url'] }}"
+             {% if spa_endpoint and it['page'] and it['endpoint'] == spa_endpoint %}
+             data-page="{{ it['page'] }}"{% endif %}
+             {% if it['active'] %}class="active"{% endif %}>{{ it['label'] }}</a>
         </li>
         {% endfor %}
       </ul>
