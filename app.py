@@ -547,6 +547,14 @@ app.register_blueprint(presentations_bp, url_prefix="/presentations")
 # Spec §3 — pre-existing index route is replaced by prisma_home.landing.
 app.register_blueprint(prisma_home_bp, url_prefix="")
 
+# R3 — klasor bazli sol menu saglayicisi. Panel modulleri prisma_home'u import
+# ETMEZ (izolasyon sozlesmesi); menuyu bu config anahtari uzerinden okurlar.
+# Saglayici yoksa menu cizilmez ve sayfalar eskisi gibi calisir.
+from prisma_home.folders import folder_menu, folder_menu_for_page
+
+app.config["FOLDER_MENU_PROVIDER"] = folder_menu
+app.config["FOLDER_MENU_FOR_PAGE_PROVIDER"] = folder_menu_for_page
+
 # NIM Panel: izole dashboard portu (docs/DASHBOARD_ADAPTATION_PLAN.md).
 # Korumali kayit — modul yuklenemezse uygulamanin geri kalani etkilenmez;
 # MEVDUAT_PANEL_ENABLED bayragi masa kartinin gorunurlugunu belirler.

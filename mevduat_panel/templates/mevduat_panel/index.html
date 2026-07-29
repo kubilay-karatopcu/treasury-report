@@ -42,33 +42,12 @@
       <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
     </svg>
   </button>
-  <aside class="sidebar">
-    <!-- ── Mevduat panoları grubu ───────────────────────────────────── -->
-    <div class="sidebar-group" id="grp-deposit">
-      <div class="sidebar-group-header" data-group="deposit">
-        Deposit Dashboards
-        <span class="sidebar-group-icon">&#9660;</span>
-      </div>
-      <div class="sidebar-group-body">
-        <ul class="sidebar-nav" id="deposit-nav">
-          <li><a href="#" data-page="cost-analysis"><span class="snav-icon">₺</span>Outstanding Cost Analysis</a></li>
-          <li><a href="#" data-page="balance-analysis"><span class="snav-icon">&#9776;</span>Outstanding Balance Analysis</a></li>
-          <li><a href="#" data-page="tenor-analysis"><span class="snav-icon">&#9201;</span>Outstanding Tenor Analysis</a></li>
-          <li><a href="#" data-page="weekly-report"><span class="snav-icon">&#9636;</span>Weekly Deposit Rollovers</a></li>
-          <!-- BSC Sunumu navdan kaldırıldı (P2 UX); uzman süreç kartındaki
-               ?page=bsc-presentation deep-link'i çalışmaya devam eder. -->
-        </ul>
-
-        <ul class="sidebar-nav" id="np-nav" style="margin-top:4px;">
-          <li><a href="#" data-page="np-volume-pricing"><span class="snav-icon">&#9656;</span>New Production — Volume &amp; Pricing</a></li>
-        </ul>
-
-        <ul class="sidebar-nav" id="sector-nav" style="margin-top:4px;">
-          <li><a href="#" data-page="sector-comparison"><span class="snav-icon">&#9878;</span>Sector Comparison</a></li>
-        </ul>
-      </div>
-    </div>
-  </aside>
+  {# R3 — sol menü artık klasörden üretilir (elle yazılmış nav listesi kaldırıldı).
+     Aynı endpoint'teki kardeşler data-page taşır → SPA içi geçiş korunur.
+     BSC hiçbir klasörde olmadığı için menüde de çıkmaz; ?page=bsc-presentation
+     deep-link'i çalışmaya devam eder. #}
+  {% set spa_endpoint = "mevduat_panel.index" %}
+  {% include "mevduat_panel/_folder_nav.html" with context %}
 
   <main class="main">
     <div id="err" class="error-msg hidden"></div>

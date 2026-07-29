@@ -26,6 +26,49 @@
 /* ── 1. Sayfa iskeleti ───────────────────────────────────────────────────── */
 .pk-page { padding: 22px clamp(14px, 1.6vw, 22px) 64px; }
 
+/* R3 — klasör bazlı sol menü (PRISMA-native sayfa varyantı). SPA kabuğu aynı
+   partial'ı `.sidebar` varyantıyla kullanır (mevduat_panel.css); sınıflar
+   bilinçli olarak ayrıdır — iki stylesheet aynı sayfada yüklü olabiliyor. */
+.pk-shell { display: flex; align-items: flex-start; }
+/* Menü yanındayken içerik kalan genişliği alır; min-width:0 grid/flex taşmasını
+   (geniş tablo + chart) engeller. */
+.pk-shell > .pk-page { flex: 1; min-width: 0; }
+
+.pk-fnav {
+  flex: 0 0 auto; width: 214px; align-self: stretch;
+  border-right: 1px solid var(--border);
+  padding: 22px 0 64px;
+}
+.pk-fnav__head {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--ink-faint);
+  padding: 0 14px 10px;
+}
+.pk-fnav__list { list-style: none; margin: 0; padding: 0; }
+.pk-fnav__list a {
+  display: block; padding: 7px 14px;
+  font-size: 12.5px; line-height: 1.35;
+  color: var(--ink-mute); text-decoration: none;
+  border-left: 2px solid transparent;
+}
+.pk-fnav__list a:hover { color: var(--gold); }
+.pk-fnav__list a.active {
+  color: var(--ink); border-left-color: var(--gold);
+}
+/* Dar ekranda menü üste geçer (yatay kaydırma yerine yığılma). */
+@media (max-width: 900px) {
+  .pk-shell { display: block; }
+  .pk-fnav {
+    width: auto; border-right: 0; border-bottom: 1px solid var(--border);
+    padding: 14px 0;
+  }
+  .pk-fnav__list { display: flex; flex-wrap: wrap; gap: 2px; }
+  .pk-fnav__list a { border-left: 0; border-bottom: 2px solid transparent; }
+  .pk-fnav__list a.active { border-left: 0; border-bottom-color: var(--gold); }
+}
+/* Embed modunda (blok izolasyonu) menü çizilmez — kart tek başına gömülür. */
+body.prisma.pk-embed .pk-fnav { display: none; }
+
 .pk-head {
   display: flex; align-items: flex-end; justify-content: space-between;
   margin-bottom: 22px; gap: 32px; flex-wrap: wrap;
