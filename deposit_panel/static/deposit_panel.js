@@ -113,7 +113,11 @@
             ],
             xaxis: {
                 categories: dates, type: "datetime",
-                labels: { format: "dd MMM yy", rotate: -45, style: { fontSize: "11px" } },
+                // datetimeUTC:false ŞART — API tarihleri tz'siz ISO gelir, JS
+                // yerel gece yarısı olarak parse eder; Apex varsayılanı UTC'de
+                // etiketler → T günü T-1 görünür (2026-07-29 bug'ı).
+                labels: { format: "dd MMM yy", rotate: -45, style: { fontSize: "11px" },
+                          datetimeUTC: false },
                 tickAmount: Math.min(dates.length, 20),
             },
             yaxis: {
