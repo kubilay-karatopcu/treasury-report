@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from mevduat_panel import mevduat_panel_bp  # noqa: E402
-from prisma_home.expert_views import resolve_view  # noqa: E402
+from prisma_home.expert_views import resolve_applications, resolve_view  # noqa: E402
 from prisma_home.experts import LocalExpertStore  # noqa: E402
 from prisma_home.processes import (  # noqa: E402
     PROCESS_REGISTRY,
@@ -184,6 +184,7 @@ def test_seed_job_matches_dev_expert(expert):
                 for v in views for t in v["topics"]]
 
     assert tree(built["department_views"]) == tree(expert.department_views)
+    assert built["applications"] == expert.applications
 
 
 def _load_seed_job():
@@ -306,15 +307,40 @@ def test_deposit_panel_assets_are_vendored():
         assert (vendor / asset).is_file(), asset
 
 
-def test_expert_view_has_uygulamalar_topic(expert, app_ctx_deposit):
-    view = resolve_view(expert, DEPT)["view"]
-    by_title = {t["title"]: t["process_ids"] for t in view["topics"]}
-    assert "Uygulamalar" in by_title
-    assert by_title["Uygulamalar"] == [
+def test_applications_are_their_own_section(expert, app_ctx_deposit):
+    """R2 — Uygulamalar süreç topic'i DEĞİL, ayrı `applications` bölümü."""
+    assert resolve_applications(expert, DEPT) == [
         "uygulamalar.panel_parametreler",
         "uygulamalar.panel_rezervasyon",
         "uygulamalar.asistan",
     ]
+    view = resolve_view(expert, DEPT)["view"]
+    assert "Uygulamalar" not in [t["title"] for t in view["topics"]]
+    assert not [p for p in view["process_ids"] if p.startswith("uygulamalar.")]
+
+
+def test_application_department_gating(expert):
+    """R2 — uygulama başına departman yetkisi; boş liste = herkes."""
+    from prisma_home.experts import Expert
+
+    gated = Expert.from_dict({**expert.to_dict(), "applications": [
+        {"id": "uygulamalar.asistan", "departments": ["HAZINE"]},
+        {"id": "uygulamalar.panel_rezervasyon", "departments": []},
+    ]})
+    assert resolve_applications(gated, "HAZINE") == [
+        "uygulamalar.asistan", "uygulamalar.panel_rezervasyon"]
+    # Kısıtlı uygulama başka departmana görünmez; kısıtsız olan herkese görünür.
+    assert resolve_applications(gated, DEPT) == ["uygulamalar.panel_rezervasyon"]
+    assert resolve_applications(gated, "") == ["uygulamalar.panel_rezervasyon"]
+
+
+def test_applications_absent_is_empty():
+    """Alan taşımayan (legacy) uzman → uygulama bölümü hiç render edilmez."""
+    from prisma_home.experts import Expert
+
+    bare = Expert.from_dict({"id": "x", "version": 1, "code": "X", "name": "x",
+                             "domain_label": "x", "short_description": "x"})
+    assert resolve_applications(bare, DEPT) == []
 
 
 def test_embed_mode_implemented_for_prisma_pages():

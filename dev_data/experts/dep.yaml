@@ -1,5 +1,5 @@
 id: dep
-version: 4
+version: 5
 code: DEP
 name: Mevduat Uzmanı
 domain_label: Mevduat & Fonlama
@@ -68,10 +68,14 @@ department_views:
       - title: Sektör
         processes:
           - mevduat.rakip
-      # Faz S4 — panoların yanındaki araçlar (parametre yazma, tekil kayıt,
-      # sohbet). R2'de kendi "Uygulamalar" bölümüne taşınacak.
-      - title: Uygulamalar
-        processes:
-          - uygulamalar.panel_parametreler
-          - uygulamalar.panel_rezervasyon
-          - uygulamalar.asistan
+# Faz R2 — Uygulamalar: analiz panosu değil etkileşimli araçlar. Süreçlerden
+# AYRI bir bölümde (brifingin altında, süreçlerin üstünde) render edilir.
+# Her uygulama kendi `departments` listesini taşır: boş/yok = uzmanı görebilen
+# herkes; dolu = yalnız o departmanlar (birebir string eşleşmesi, "*" yok).
+applications:
+  - id: uygulamalar.panel_parametreler
+    departments: []
+  - id: uygulamalar.panel_rezervasyon
+    departments: []
+  - id: uygulamalar.asistan
+    departments: []

@@ -98,11 +98,16 @@ TOPICS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Sektör", (
         "mevduat.rakip",
     )),
-    ("Uygulamalar", (
-        "uygulamalar.panel_parametreler",
-        "uygulamalar.panel_rezervasyon",
-        "uygulamalar.asistan",
-    )),
+)
+
+# Faz R2 — Uygulamalar: analiz panosu değil etkileşimli araçlar. Süreçlerden
+# AYRI bir bölümde (brifingin altında, süreçlerin üstünde) render edilir.
+# İkinci eleman = o uygulamayı görebilecek departmanlar; BOŞ tuple = uzmanı
+# görebilen herkes. Dolu ise birebir string eşleşmesi ("*" joker DESTEKLENMEZ).
+APPLICATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("uygulamalar.panel_parametreler", ()),
+    ("uygulamalar.panel_rezervasyon", ()),
+    ("uygulamalar.asistan", ()),
 )
 
 BRIEFING_FOCUS = (
@@ -152,7 +157,7 @@ def build_expert(*, read_departments: str | Sequence[str],
     """Build the S3ExpertStore-compatible DEP document."""
     return {
         "id": EXPERT_ID,
-        "version": 4,
+        "version": 5,
         "code": "DEP",
         "name": "Mevduat Uzmanı",
         "domain_label": "Mevduat & Fonlama",
@@ -187,6 +192,8 @@ def build_expert(*, read_departments: str | Sequence[str],
         },
         "status": "active",
         "department_views": build_department_views(view_departments),
+        "applications": [{"id": pid, "departments": list(depts)}
+                         for pid, depts in APPLICATIONS],
     }
 
 
@@ -232,6 +239,9 @@ def main() -> int:
     if saved.get("department_views") != expert["department_views"]:
         print("Hata: S3 yazımı sonrası klasör ağacı doğrulanamadı.", file=sys.stderr)
         return 6
+    if saved.get("applications") != expert["applications"]:
+        print("Hata: S3 yazımı sonrası uygulama bağları doğrulanamadı.", file=sys.stderr)
+        return 7
 
     action = "güncellendi" if existing is not None else "oluşturuldu"
     print(
@@ -242,10 +252,15 @@ def main() -> int:
         print(f"  Bakış: {view.get('label')} → {view.get('departments')}")
         for topic in view.get("topics") or []:
             print(f"    {topic.get('title')}: {len(topic.get('processes') or [])} süreç")
-    hidden = [p for p in PROCESS_IDS
-              if not any(p in (t.get("processes") or [])
-                         for v in (saved.get("department_views") or [])
-                         for t in (v.get("topics") or []))]
+    for app in saved.get("applications") or []:
+        depts = app.get("departments") or []
+        scope = ", ".join(depts) if depts else "tüm departmanlar"
+        print(f"  Uygulama: {app.get('id')} → {scope}")
+    # Gizli = ne klasörde ne uygulamalarda yer alan süreç (ör. mevduat.bsc).
+    placed = {p for v in (saved.get("department_views") or [])
+              for t in (v.get("topics") or []) for p in (t.get("processes") or [])}
+    placed |= {a.get("id") for a in (saved.get("applications") or [])}
+    hidden = [p for p in PROCESS_IDS if p not in placed]
     if hidden and saved.get("department_views"):
         print(f"  Masada gizli (klasörsüz): {', '.join(hidden)}")
     return 0

@@ -633,15 +633,6 @@
   </div>
   {% endif %}{# not masa_mode — expert-hero #}
 
-  {% if processes %}
-  {# ── W8: departman bakışının süreçleri, topic başlıkları altında. ─────── #}
-  <div class="section-head">
-    <span class="section-num">01</span>
-    <span class="section-title">Süreçler · Canlı Panolar{% if view_label %}
-      <span class="view-label">· {{ view_label }}</span>{% endif %}</span>
-    <span class="section-tail"></span>
-  </div>
-
   {% if commentary %}
   {# W5b/W5c — uzman brifing anlatısı: piramit Aşama-C kaydı segmentli render
      edilir, atıflar çip olur (tıklama → blok modalı). Kayıt yoksa (eski
@@ -692,6 +683,10 @@
   {# FB3 — Kaynakça bölümü kaldırıldı: cümle sonu atıf çipleri yeterli. #}
   {% endif %}
 
+  {# R2 — bölüm numaraları akışa göre: Uygulamalar varsa 01, süreçler 02. #}
+  {% set app_num = "01" if applications else none %}
+  {% set proc_num = "02" if applications else "01" %}
+
   {# W8 — süreçler topic gruplarına bölünür (yazar tanımlar). topics yoksa
      (beklenmez) tek grupta tüm süreçler.
      FB2 — süreç özeti (Aşama-B) kart içinde varsayılan GİZLİ; "Özeti gör"
@@ -712,6 +707,29 @@
       </div>
     </div>
   {%- endmacro %}
+  {# R2 — Uygulamalar: analiz panosu değil etkileşimli araçlar. Kendi bölümünde,
+     brifingin ALTINDA ve süreçlerin ÜSTÜNDE. Her uygulama kendi departman
+     listesiyle süzülür (expert_views.resolve_applications). #}
+  {% if applications %}
+  <div class="section-head">
+    <span class="section-num">{{ app_num }}</span>
+    <span class="section-title">Uygulamalar</span>
+    <span class="section-tail"></span>
+  </div>
+  <div class="process-grid">
+    {% for p in applications %}{{ proc_card(p) }}{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if processes %}
+  {# ── W8: departman bakışının süreçleri, topic başlıkları altında. ─────── #}
+  <div class="section-head">
+    <span class="section-num">{{ proc_num }}</span>
+    <span class="section-title">Süreçler · Canlı Panolar{% if view_label %}
+      <span class="view-label">· {{ view_label }}</span>{% endif %}</span>
+    <span class="section-tail"></span>
+  </div>
+
   {% for topic in (topics if topics else [{"title": "", "processes": processes}]) %}
     {% if topic.title %}
     <div class="topic-head">{{ topic.title }}</div>
@@ -720,6 +738,7 @@
       {% for p in topic.processes %}{{ proc_card(p) }}{% endfor %}
     </div>
   {% endfor %}
+  {% endif %}
 
   <script>
   (function () {
@@ -735,7 +754,6 @@
     });
   })();
   </script>
-  {% endif %}
 
   {% if brief_slides %}
   {# ── W6c — Brifing Sunumu: slide = madde + state chip'i + atıf bloğunun

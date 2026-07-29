@@ -88,7 +88,11 @@ def expert_detail(code: str):
         abort(404)
 
     # W8 — departman bakışı: erişim + süreç seti + topic gruplama tek yerden.
-    from prisma_home.expert_views import legacy_view, resolve_view
+    from prisma_home.expert_views import (
+        legacy_view,
+        resolve_applications,
+        resolve_view,
+    )
 
     dept = getattr(current_user, "department", None) or ""
     r = resolve_view(expert, dept)
@@ -108,6 +112,11 @@ def expert_detail(code: str):
         cards = [card_by_id[pid] for pid in t["process_ids"] if pid in card_by_id]
         if cards:
             topics.append({"title": t["title"], "processes": cards})
+
+    # R2 — Uygulamalar kendi bölümünde, süreçlerin ÜSTÜNDE render edilir ve her
+    # uygulama kendi departman listesiyle süzülür. Süreç kartlarıyla aynı
+    # şekilde çözülür (kapalı config bayrağı / kayıtsız endpoint sessizce düşer).
+    applications = resolve_processes(resolve_applications(expert, dept))
 
     # Masa modu: brifing/özet/değerlendirme HİÇ hesaplanmaz (sıfır LLM). Sayfa
     # yalnız başlık + klasörlenmiş süreçlerle render edilir.
@@ -174,6 +183,7 @@ def expert_detail(code: str):
         snapshots=bound,
         processes=processes,
         topics=topics,
+        applications=applications,
         view_label=view.get("label") or "",
         commentary=commentary,
         commentary_rec=commentary_rec,
