@@ -1,74 +1,96 @@
-{% extends "base.html" %}
+{# Faz S4/S5 — PRISMA kabuğu + paylaşılan UI kit.
+   S5'te Tabler (light_content) bırakıldı: bileşenler kabuğun kit.css'inden
+   gelir, sayfa kendi kart/buton stilini tanımlamaz. AG Grid teması PRISMA
+   token'larına bağlandı → açık/koyu tema otomatik izler. #}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set hide_mode_switch = True %}
+{% set crumb = "Uygulamalar · Mevduat Paneli · Rezervasyon Takip" %}
 
 {% block title %}Mevduat Paneli – Rezervasyon Takip{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+{# CDN yerine vendor: '@'li jsdelivr URL'leri kurumsal proxy'de mangle oluyor
+   (CLAUDE.md CDN kuralı; mevduat_panel Faz A0'da jsdelivr'ın ofis ağında
+   engelli olduğu kaydedilmiş). Sürümler CDN pin'iyle birebir: 31.3.2. #}
+<link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-grid.css') }}">
+<link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-theme-alpine.css') }}">
 <style>
+/* AG Grid'i PRISMA token'larına bağla — yeni renk TANIMLANMAZ, tema
+   <html data-theme> ile flip olunca grid de otomatik izler. */
 .ag-theme-alpine {
     --ag-header-height: 38px;
     --ag-row-height: 34px;
-    --ag-font-size: 13px;
-}
-.theme-dark .ag-theme-alpine {
-    --ag-background-color: #1a2234;
-    --ag-header-background-color: #1f2937;
-    --ag-odd-row-background-color: #1e293b;
-    --ag-row-hover-color: rgba(32, 107, 196, 0.15);
-    --ag-header-foreground-color: #e2e8f0;
-    --ag-foreground-color: #cbd5e1;
-    --ag-border-color: #334155;
-    --ag-control-panel-background-color: #1a2234;
-    --ag-side-button-selected-background-color: #1f2937;
+    --ag-font-size: 12px;
+    --ag-font-family: var(--mono);
+    --ag-background-color: var(--bg-1);
+    --ag-odd-row-background-color: var(--bg-1);
+    --ag-header-background-color: var(--bg-2);
+    --ag-header-foreground-color: var(--ink-faint);
+    --ag-foreground-color: var(--ink-soft);
+    --ag-border-color: var(--border-soft);
+    --ag-row-border-color: var(--border-soft);
+    --ag-row-hover-color: var(--bg-2);
+    --ag-control-panel-background-color: var(--bg-1);
+    --ag-side-button-selected-background-color: var(--bg-2);
+    --ag-selected-row-background-color: var(--bg-2);
+    --ag-input-focus-border-color: var(--gold);
+    --ag-alpine-active-color: var(--gold);
+    --ag-borders: 1px solid;
+    --ag-border-radius: 0;
+    --ag-wrapper-border-radius: 0;
 }
 </style>
 {% endblock %}
 
-{% block filter_panel %}
-<!-- Empty -->
-{% endblock %}
-
 {% block content %}
-<div class="container-xl">
-    <div class="card mb-4">
-        <div class="card-header d-flex align-items-center justify-content-between">
-            <h3 class="card-title mb-0">Bugünkü Rezervasyonlar</h3>
-            <div class="d-flex align-items-center gap-2">
-                <span class="text-muted small" id="grid-info"></span>
-                <button class="btn btn-sm btn-outline-secondary" id="btn-reset-all">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-refresh me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></svg>
-                    Sıfırla
-                </button>
-                <button class="btn btn-sm btn-outline-primary" id="btn-export-csv">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-download me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" /><path d="M7 11l5 5l5 -5" /><path d="M12 4l0 12" /></svg>
-                    CSV İndir
-                </button>
-            </div>
-        </div>
-        <div class="card-body p-0">
-            <div id="reservations-grid" class="ag-theme-alpine" style="height: 700px; width: 100%;"></div>
-        </div>
-        
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body py-3">
-                    <div class="d-flex align-items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="icon me-2 text-muted flex-shrink-0" width="18" height="18" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 6h-6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>
-                            <path d="M11 13l9-9"/><path d="M15 4h5v5"/>
-                        </svg>
-                        <span class="text-muted small fw-bold me-2">Rakip banka oranları müşterilerden alınan geri bildirimler sonucu elde edilmiştir.</span>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="pk-page">
+  <div class="pk-head">
+    <div>
+      <div class="pk-eyebrow">Uygulamalar · Mevduat Paneli</div>
+      <h2>Rezervasyon Takip</h2>
+      <div class="pk-sub">Bugünkü rezervasyonların satır seviyesinde,
+        filtrelenebilir operasyonel görünümü.</div>
     </div>
+    <div class="pk-meta" id="grid-info">—</div>
+  </div>
+
+  <div class="pk-grid">
+    <div class="pk-card">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Bugünkü Rezervasyonlar</span>
+        <span style="display:flex; gap:8px;">
+          <button class="pk-btn pk-btn--sm" id="btn-reset-all">
+            <svg class="pk-ico" width="13" height="13" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
+            Sıfırla
+          </button>
+          <button class="pk-btn pk-btn--sm pk-btn--primary" id="btn-export-csv">
+            <svg class="pk-ico" width="13" height="13" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"/><path d="M7 11l5 5l5 -5"/><path d="M12 4l0 12"/></svg>
+            CSV İndir
+          </button>
+        </span>
+      </div>
+      <div id="reservations-grid" class="ag-theme-alpine" style="height: 700px; width: 100%; margin-top: 10px;"></div>
+    </div>
+
+    <div class="pk-card">
+      <div class="pk-alert">
+        <svg class="pk-ico" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6h-6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/><path d="M11 13l9-9"/><path d="M15 4h5v5"/></svg>
+        <div>Rakip banka oranları müşterilerden alınan geri bildirimler sonucu elde edilmiştir.</div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@31.3.2/dist/ag-grid-enterprise.min.noStyle.js"></script>
+{# AG Grid ENTERPRISE — sayfa enterprise-özel özellikler kullanır
+   (agSetColumnFilter, sideBar, rowGroupPanelShow, statusBar, aggFunc), bu
+   yüzden community ile değiştirilemez. Dosya CDN'in servis ettiğinin aynısı
+   (31.3.2); vendor'lama yalnız TESLİMAT yolunu değiştirir, lisans durumunu
+   değiştirmez — kullanım zaten aynıydı. Lisans anahtarı ayarlanmadığı için
+   grid değerlendirme filigranıyla çalışır (mevcut davranış). #}
+<script src="{{ url_for('deposit_panel.static', filename='vendor/ag-grid-enterprise.min.noStyle.js') }}"></script>
 <script>
 (function () {
     "use strict";

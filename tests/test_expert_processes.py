@@ -26,8 +26,23 @@ class TestRegistry:
             assert meta.get("label"), pid
             assert meta.get("endpoint"), pid
 
-    def test_yedi_mevduat_sureci(self):
-        assert sum(1 for p in PROCESS_REGISTRY if p.startswith("mevduat.")) == 7
+    def test_mevduat_surec_seti(self):
+        """Mevduat süreçleri iki kaynaktan gelir; ikisi de eksiksiz olmalı.
+
+        - SPA (Faz A): NIM portunun 7 deposit sayfası, ``mevduat_panel.index``
+          + ``?page=`` deep-link'iyle.
+        - PRISMA-native (Faz S1/S2): legacy statik dashboard'ların karşılıkları,
+          her biri kendi endpoint'i (``page`` taşımaz).
+        """
+        spa = {"mevduat.maliyet", "mevduat.bakiye", "mevduat.vade",
+               "mevduat.donusler", "mevduat.yeni_uretim", "mevduat.sektor",
+               "mevduat.bsc"}
+        native = {"mevduat.oranlar", "mevduat.miktarlar", "mevduat.tarihsel",
+                  "mevduat.rakip"}
+        found = {p for p in PROCESS_REGISTRY if p.startswith("mevduat.")}
+        assert found == spa | native
+        assert all(PROCESS_REGISTRY[p].get("page") for p in spa)
+        assert all(not PROCESS_REGISTRY[p].get("page") for p in native)
 
 
 class TestResolve:

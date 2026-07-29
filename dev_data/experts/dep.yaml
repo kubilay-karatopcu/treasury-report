@@ -1,5 +1,5 @@
 id: dep
-version: 2
+version: 3
 code: DEP
 name: Mevduat Uzmanı
 domain_label: Mevduat & Fonlama
@@ -18,6 +18,16 @@ bound_content:
     - mevduat.yeni_uretim
     - mevduat.sektor
     - mevduat.bsc
+    # Faz S2 — legacy statik dashboard'ların PRISMA-native karşılıkları
+    # (docs/STATIK_DASHBOARD_ADAPTASYON.md).
+    - mevduat.oranlar
+    - mevduat.miktarlar
+    - mevduat.tarihsel
+    - mevduat.rakip
+    # Faz S4 — Uygulamalar: analiz panosu değil, etkileşimli araçlar.
+    - uygulamalar.panel_parametreler
+    - uygulamalar.panel_rezervasyon
+    - uygulamalar.asistan
 briefing_recipe:
   cache_ttl_seconds: 1800
   sections: []
@@ -48,6 +58,20 @@ department_views:
         processes:
           - mevduat.donusler
           - mevduat.yeni_uretim
-      - title: Sektör Karşılaştırma
+      # Faz S2 — rezervasyon/fiyatlama hattı (gün içi teklif, hacim, tarihsel).
+      - title: Rezervasyon & Fiyatlama
+        processes:
+          - mevduat.oranlar
+          - mevduat.miktarlar
+          - mevduat.tarihsel
+      - title: Sektör & Rakip
         processes:
           - mevduat.sektor
+          - mevduat.rakip
+      # Faz S4 — panoların yanındaki araçlar (parametre yazma, tekil kayıt,
+      # sohbet). Analiz süreçlerinden sonra, ayrı başlık altında.
+      - title: Uygulamalar
+        processes:
+          - uygulamalar.panel_parametreler
+          - uygulamalar.panel_rezervasyon
+          - uygulamalar.asistan

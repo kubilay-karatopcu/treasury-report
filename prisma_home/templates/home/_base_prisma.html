@@ -36,6 +36,11 @@
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   {% endif %}
   <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/prisma.css') }}?v=4">
+  {# Paylaşılan bileşen kiti (pk-*): buton, alan, filtre barı, kart, KPI,
+     tablo, konuşma bileşenleri. Kabuğun parçası olarak yüklenir ki kabuğu
+     extend eden HER sayfa (panolar, uygulamalar, asistan) aynı UI kitini
+     kullansın — modüller kendi buton/kart stilini tanımlamaz. #}
+  <link rel="stylesheet" href="{{ url_for('prisma_home.static', filename='css/kit.css') }}?v=1">
   {% block head %}{% endblock %}
 </head>
 <body class="prisma {{ mode|default('consumer') }}{% if light_content %} light-content{% endif %}{% if canvas_bleed %} canvas-bleed{% endif %}{% if no_atolye_sidebar %} no-sidebar{% endif %}">

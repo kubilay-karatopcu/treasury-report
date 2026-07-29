@@ -575,6 +575,28 @@ except Exception:
     app.config["MEVDUAT_PANEL_ENABLED"] = False
     app.logger.exception("mevduat_panel blueprint yuklenemedi — modul atlandi")
 
+# Uygulamalar / Mevduat Paneli: fiyatlama parametre editoru + rezervasyon takibi
+# (docs/STATIK_DASHBOARD_ADAPTASYON.md Faz S4). PRISMA oncesi uretim app.py'sinde
+# kayitliydi; PRISMA kabugu gelirken kayit dusmustu — geri baglaniyor.
+# `get_df`: legacy paylasilan current_df'in karsiligi = mevduat_panel'in
+# rezervasyon ETL'i. Saglayici config uzerinden gecirilir (deposit_panel
+# mevduat_panel'i import ETMEZ); mevduat_panel yuklenemediyse None gecer ve
+# rezervasyon endpoint'i bos doner (sayfa yine acilir).
+try:
+    from deposit_panel import deposit_panel_bp, init_app as deposit_panel_init
+
+    _reservation_df_provider = None
+    if app.config.get("MEVDUAT_PANEL_ENABLED"):
+        from mevduat_panel.engine.reservation_data import load_reservation_df
+
+        _reservation_df_provider = load_reservation_df
+    deposit_panel_init(dc, _reservation_df_provider)
+    app.register_blueprint(deposit_panel_bp, url_prefix="/deposit-panel")
+    app.config["DEPOSIT_PANEL_ENABLED"] = True
+except Exception:
+    app.config["DEPOSIT_PANEL_ENABLED"] = False
+    app.logger.exception("deposit_panel blueprint yuklenemedi — modul atlandi")
+
 # Masa modu: tek anahtar. Acikken PRISMA "LLM kullanmiyormus gibi" durur —
 # brifing/blok/surec aciklamalari hesaplanmaz, Atolye gizli/erisilemez,
 # "Uzman" -> "Masa" adlandirilir (prisma_home/masa.py). Varsayilan KAPALI:

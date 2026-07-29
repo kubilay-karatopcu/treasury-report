@@ -1,0 +1,67 @@
+{% extends "mevduat_panel/prisma/_page.html" %}
+{% set crumb = "Mevduat · Rezervasyon Oranları" %}
+{% block title %}Rezervasyon Oranları — PRISMA{% endblock %}
+
+{% block mvp_filters %}
+  <div class="pk-field">
+    <span class="pk-label">Tarih</span>
+    <div class="pk-field__body">
+      <input type="date" class="pk-input" id="fDate">
+    </div>
+  </div>
+  <div class="pk-field">
+    <span class="pk-label">Kaynak</span>
+    <div class="pk-field__body"><div class="pk-chips" id="fSrc"></div></div>
+  </div>
+  <div class="pk-field">
+    <span class="pk-label">Para Birimi</span>
+    <div class="pk-field__body"><select id="fCcy" class="pk-select"></select></div>
+  </div>
+  <div class="pk-field">
+    <span class="pk-label">Müşteri Tipi</span>
+    <div class="pk-field__body"><select id="fCust" class="pk-select"></select></div>
+  </div>
+  <div class="pk-field">
+    <span class="pk-label">Vade</span>
+    <div class="pk-field__body"><select id="fVade" class="pk-select"></select></div>
+  </div>
+  <div class="pk-field">
+    <span class="pk-label">Revizyon</span>
+    <div class="pk-field__body">
+      <div class="pk-chips" id="fRev">
+        <button type="button" class="pk-chip" id="fRevMax">Yalnız son revizyon</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block mvp_body %}
+  <div class="pk-kpis" id="kpis"></div>
+  <div class="pk-grid">
+    <div class="pk-card pk-card--half" id="card-intraday">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Gün İçi Teklif Oranları</span>
+        <span class="pk-card__note">nokta = rezervasyon · boyut = tutar</span>
+      </div>
+      <div class="pk-chart" id="chIntraday"></div>
+    </div>
+    <div class="pk-card pk-card--half" id="card-tenor">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Vade Bazında Oran Karşılaştırması</span>
+        <span class="pk-card__note">tutar ağırlıklı ortalama</span>
+      </div>
+      <div class="pk-chart" id="chByTenor"></div>
+    </div>
+    <div class="pk-card" id="card-tenor-table">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Vade Özeti</span>
+        <span class="pk-card__note">oranlar Σ(tutar×oran)/Σtutar</span>
+      </div>
+      <div id="tblTenor"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block page_scripts %}
+<script src="{{ url_for('mevduat_panel.static', filename='prisma/rates.js') }}?v={{ mevduat_version }}"></script>
+{% endblock %}
