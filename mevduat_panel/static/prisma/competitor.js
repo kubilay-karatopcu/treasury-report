@@ -1,249 +1,434 @@
-/* Rakip Faiz Analizi — PRISMA-native sayfa mantığı (Faz S1).
-   Veri: /api/reservations/competitor → {banks, rows}. Tek çekim, filtreler
-   client-side.
+/* ═══════════════════════════════════════════════════════════════════════════
+   competitor.js — Rakip Faiz Analizi (R5: eski static/js/competitor.js paritesi).
 
-   Not: bu sayfadaki oranlar KOTASYONDUR (bankaların ilan ettiği faiz), bizim
-   kitabımızdaki bakiye değil — ağırlıklandıracak tutar yoktur. Bu yüzden
-   "ortalama" burada düz ortalamadır; tutar-ağırlıklı wavg kuralı kendi
-   stok/rezervasyon sayfalarımıza (oranlar/miktarlar/tarihsel) özgüdür. */
+   Hesap mantığı ESKİ SAYFADAN BİREBİR portlanmıştır: (gün, banka) bazında maks.
+   oran, snapshot sıralaması + önceki güne göre değişim, banka bazlı tarihsel
+   trend + sektör ortalaması, vade aralığı örtüşme testi ve kaynakça çıkarımı.
+
+   Kaynak eşlemesi (static/js/competitor.js):
+     rangesOverlap · bankColor · fmtDate · updateSourceLinks ·
+     processAndDisplay (maxByDayBank / snapshot / trend) · buildGroupedGrid
+
+   Tablo AG-Grid ENTERPRISE ile kurulur — banka > vade satır gruplaması
+   Community build'de yoktur.
+
+   Piyasa Özeti: kaynak `POST /competitor/summary` LLM ucunu çağırıyordu. O uç
+   bu modüle PORTLANMADI (masa modu sıfır-LLM sözleşmesi + modül izolasyonu
+   kararı gerektirir). Panel yalnız uç yapılandırılmışsa görünür; aksi halde
+   gizlenir — layout paritesi korunur, LLM bağımlılığı dayatılmaz.
+   ═══════════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
-  var M = window.MVP;
+
+  var MVP = window.MVP;
   var EP = JSON.parse(document.getElementById('mvp-endpoints').textContent);
 
-  var el = {
-    date: document.getElementById('fDate'),
-    ccy: document.getElementById('fCcy'),
-    vadeMin: document.getElementById('fVadeMin'),
-    vadeMax: document.getElementById('fVadeMax'),
-    bank: document.getElementById('fBank'),
-    apply: document.getElementById('mvpApply'),
-    status: document.getElementById('mvpStatus'),
-    meta: document.getElementById('mvpMeta'),
-    kpis: document.getElementById('kpis'),
-    byBank: document.getElementById('chByBank'),
-    curve: document.getElementById('chCurve'),
-    trend: document.getElementById('chTrend'),
-    tblRows: document.getElementById('tblRows'),
+  //: Kaynaktaki vade aralıkları (min/max gün) — örtüşme testiyle uygulanır.
+  var VADE_RANGES = ['1-31', '32-45', '46-60', '61-91', '92-180', '181-365', '366-10000'];
+  var VADE_LABELS = {
+    '1-31': '1 - 31 Gün', '32-45': '32 - 45 Gün', '46-60': '46 - 60 Gün',
+    '61-91': '61 - 91 Gün', '92-180': '92 - 180 Gün', '181-365': '181 - 365 Gün',
+    '366-10000': '366+ Gün'
   };
+  var DIM = { VADE: 'Vade', BANK: 'Banka' };
+  //: Kaynakta Litepicker varsayılanı son 30 gündü.
+  var DEFAULT_RANGE_DAYS = 30;
 
-  var raw = [];
-  var bankChips = null;
+  var meta = {}, state = {}, merges = {};
+  var rawRows = [];
+  var gridApi = null;
+  var _fbMap = {}, _fbIdx = 0;
 
-  el.apply.addEventListener('click', draw);
-  [el.date, el.ccy, el.vadeMin, el.vadeMax].forEach(function (s) {
-    s.addEventListener('change', draw);
-  });
+  var elStatus = document.getElementById('mvpStatus');
+  var elMeta = document.getElementById('mvpMeta');
+  var elFrom = document.getElementById('fFrom');
+  var elTo = document.getElementById('fTo');
+  var elSnapDate = document.getElementById('snapshot-date');
+  var elSources = document.getElementById('source-links');
+  var elSummaryPanel = document.getElementById('summary-panel');
+  var elSummaryText = document.getElementById('summary-text');
 
-  function mean(list, key) {
-    var t = 0, n = 0;
-    list.forEach(function (r) {
-      var v = M.ratePct(r[key]);
-      if (v != null && !isNaN(v)) { t += v; n++; }
-    });
-    return n ? t / n : null;
-  }
-  function maxOf(list, key) {
-    var best = null;
-    list.forEach(function (r) {
-      var v = M.ratePct(r[key]);
-      if (v != null && !isNaN(v) && (best == null || v > best)) best = v;
-    });
-    return best;
-  }
+  // ── Eski yardımcılar (birebir) ───────────────────────────────────────────
 
-  /** Tarih filtresi HARİÇ süzülmüş satırlar — zaman serisi bunu kullanır. */
-  function filteredNoDate() {
-    var rows = raw;
-    var vMin = el.vadeMin.value === '' ? null : Number(el.vadeMin.value);
-    var vMax = el.vadeMax.value === '' ? null : Number(el.vadeMax.value);
-    if (vMin != null) rows = rows.filter(function (r) { return Number(r.VADE_MAX) >= vMin; });
-    if (vMax != null) rows = rows.filter(function (r) { return Number(r.VADE_MIN) <= vMax; });
-    return M.applyFilters(rows, {
-      DOVIZ_CINSI: el.ccy.value ? [el.ccy.value] : [],
-      BANKA_ADI: bankChips ? bankChips.get() : [],
-    });
-  }
-
-
-  // Embed modu: veri yüklenip ilk çizim yapıldıktan sonra bir kez başlatılır
-  // (kontrol select'leri ancak o zaman dolu olur).
-  var _embedStarted = false;
-  function _embedOnce() {
-    if (_embedStarted) return;
-    _embedStarted = true;
-    M.initEmbed(draw);
-  }
-
-  function filtered() {
-    var rows = filteredNoDate();
-    if (el.date.value) {
-      rows = rows.filter(function (r) { return r.DATE_STR === el.date.value; });
+  /* Banka rengi: PRISMA paletinden deterministik atama. Kaynakta sabit bir
+     BANK_COLORS haritası + fallback palet vardı; burada tema token'larından
+     gelen palet kullanılır (aynı banka daima aynı rengi alır). */
+  function bankColor(name) {
+    if (!name) return MVP.token('--ink-faint', '#868e96');
+    if (!_fbMap[name]) {
+      var pal = MVP.palette();
+      _fbMap[name] = pal[_fbIdx % pal.length];
+      _fbIdx++;
     }
-    return rows;
+    return _fbMap[name];
   }
 
-  function draw() {
-    var rows = filtered();
-    el.meta.textContent = (el.date.value || 'tüm tarihler') + ' · ' + rows.length + ' kotasyon';
-    drawKpis(rows);
-    drawTrend(filteredNoDate());
-    if (!rows.length) {
-      [el.byBank, el.curve, el.tblRows].forEach(M.showEmpty);
+  /* Vade filtresi ARALIK ÖRTÜŞMESİdir (kaynakla birebir): satırın [min,max]
+     aralığı seçili aralıklardan biriyle kesişiyorsa geçer. Hiç seçim yoksa
+     hiçbir satır geçmez. */
+  function rangesOverlap(ranges, rMin, rMax) {
+    if (!ranges.length) return false;
+    return ranges.some(function (r) {
+      var p = String(r).split('-').map(Number);
+      return rMin <= p[1] && rMax >= p[0];
+    });
+  }
+
+  function fmtDate(str) {
+    if (!str) return '';
+    var dt = new Date(String(str).replace(/-/g, '/'));
+    if (isNaN(dt.getTime())) return String(str);
+    return dt.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+  }
+
+  /* Kaynakça: filtrelenmiş satırların KAYNAK alanından tekil liste. URL ise
+     doğrudan bağlanır, alan adı gibiyse https:// eklenir (kaynak davranışı). */
+  function updateSourceLinks(rows) {
+    if (!elSources) return;
+    elSources.innerHTML = '';
+    var sources = [];
+    rows.forEach(function (row) {
+      var k = row.KAYNAK;
+      if (k && k !== '0' && k !== 0 && sources.indexOf(String(k)) < 0) {
+        sources.push(String(k));
+      }
+    });
+    if (!sources.length) {
+      var span = document.createElement('span');
+      span.className = 'pk-status';
+      span.textContent = 'Kaynak bilgisi bulunamadı.';
+      elSources.appendChild(span);
       return;
     }
-    drawByBank(rows);
-    drawCurve(rows);
-    drawTable(rows);
-  }
-
-  function drawKpis(rows) {
-    el.kpis.innerHTML = '';
-    var banks = M.distinct(rows, 'BANKA_ADI');
-    var mx = maxOf(rows, 'FAIZ');
-    var av = mean(rows, 'FAIZ');
-    // En yüksek faizi veren banka
-    var top = null;
-    rows.forEach(function (r) {
-      var v = M.ratePct(r.FAIZ);
-      if (v != null && (top == null || v > top.v)) top = { v: v, bank: r.BANKA_ADI };
-    });
-    M.kpi(el.kpis, 'Banka', String(banks.length), '', 'kotasyon veren');
-    M.kpi(el.kpis, 'Kotasyon', String(rows.length), 'adet', 'seçili filtrelerde');
-    M.kpi(el.kpis, 'Piyasa En Yüksek', mx == null ? '—' : mx.toFixed(2) + '%', '',
-          top ? top.bank : '');
-    M.kpi(el.kpis, 'Piyasa Ortalaması', av == null ? '—' : av.toFixed(2) + '%', '',
-          'düz ortalama (kotasyon)');
-    M.kpi(el.kpis, 'En Yüksek − Ortalama',
-          (mx == null || av == null) ? '—' : (mx - av).toFixed(2), 'puan', 'yayılım');
-  }
-
-  function drawByBank(rows) {
-    var g = M.groupBy(rows, 'BANKA_ADI');
-    var data = [];
-    g.forEach(function (list, name) {
-      var v = maxOf(list, 'FAIZ');
-      if (v != null) data.push({ name: name, v: Number(v.toFixed(2)) });
-    });
-    data.sort(function (a, b) { return b.v - a.v; });
-    M.renderChart(el.byBank, function () {
-      return {
-        series: [{ name: 'En yüksek faiz', data: data.map(function (d) { return d.v; }) }],
-        chart: { type: 'bar', height: Math.max(300, data.length * 26) },
-        plotOptions: { bar: { horizontal: true, barHeight: '68%', borderRadius: 0,
-                              distributed: true } },
-        legend: { show: false },
-        dataLabels: {
-          enabled: true,
-          formatter: function (v) { return v == null ? '' : v.toFixed(2) + '%'; },
-          style: { fontSize: '10px' }, offsetX: 26,
-        },
-        xaxis: { categories: data.map(function (d) { return d.name; }),
-                 labels: { formatter: function (v) { return Number(v).toFixed(1) + '%'; } } },
-        tooltip: { y: { formatter: function (v) { return v == null ? '—' : v.toFixed(2) + '%'; } } },
-      };
-    });
-  }
-
-  function drawCurve(rows) {
-    // Vade bandı etiketleri sayısal alt sınıra göre sıralanır (platform kuralı).
-    var cats = M.distinct(rows, 'VADE').sort(function (a, b) {
-      var ra = rows.find(function (r) { return String(r.VADE) === a; });
-      var rb = rows.find(function (r) { return String(r.VADE) === b; });
-      return (Number(ra && ra.VADE_MIN) || 0) - (Number(rb && rb.VADE_MIN) || 0);
-    });
-    var g = M.groupBy(rows, 'VADE');
-    var avg = cats.map(function (c) {
-      var v = mean(g.get(c) || [], 'FAIZ');
-      return v == null ? null : Number(v.toFixed(2));
-    });
-    var mx = cats.map(function (c) {
-      var v = maxOf(g.get(c) || [], 'FAIZ');
-      return v == null ? null : Number(v.toFixed(2));
-    });
-    M.renderChart(el.curve, function () {
-      return {
-        series: [
-          { name: 'Ortalama', data: avg },
-          { name: 'En yüksek', data: mx },
-        ],
-        chart: { type: 'line', height: 300 },
-        stroke: { width: 2.5, curve: 'straight', dashArray: [0, 4] },
-        markers: { size: 4 },
-        xaxis: { categories: cats },
-        yaxis: { labels: { formatter: function (v) { return v == null ? '' : v.toFixed(1) + '%'; } } },
-        tooltip: { shared: true,
-                   y: { formatter: function (v) { return v == null ? '—' : v.toFixed(2) + '%'; } } },
-      };
-    });
-  }
-
-  function drawTrend(rows) {
-    var days = M.distinct(rows, 'DATE_STR');
-    if (!days.length) { M.showEmpty(el.trend); return; }
-    var g = M.groupBy(rows, 'DATE_STR');
-    var mx = days.map(function (d) {
-      var v = maxOf(g.get(d) || [], 'FAIZ');
-      return v == null ? null : Number(v.toFixed(2));
-    });
-    var av = days.map(function (d) {
-      var v = mean(g.get(d) || [], 'FAIZ');
-      return v == null ? null : Number(v.toFixed(2));
-    });
-    M.renderChart(el.trend, function () {
-      return {
-        series: [
-          { name: 'Piyasa en yüksek', data: mx },
-          { name: 'Piyasa ortalaması', data: av },
-        ],
-        chart: { type: 'line', height: 300 },
-        stroke: { width: 2.5, curve: 'smooth' },
-        markers: { size: 0 },
-        xaxis: { categories: days, labels: { rotate: -45, hideOverlappingLabels: true } },
-        yaxis: { labels: { formatter: function (v) { return v == null ? '' : v.toFixed(1) + '%'; } } },
-        tooltip: { shared: true,
-                   y: { formatter: function (v) { return v == null ? '—' : v.toFixed(2) + '%'; } } },
-      };
-    });
-  }
-
-  function drawTable(rows) {
-    var data = rows.slice().sort(function (a, b) {
-      return (M.ratePct(b.FAIZ) || 0) - (M.ratePct(a.FAIZ) || 0);
-    }).slice(0, 300);
-    M.renderTable(el.tblRows, [
-      { header: 'Banka', value: function (r) { return r.BANKA_ADI; } },
-      { header: 'Tarih', value: function (r) { return r.DATE_STR; } },
-      { header: 'Vade', value: function (r) { return r.VADE; } },
-      { header: 'Tutar', value: function (r) { return r.TUTAR; } },
-      { header: 'Döviz', value: function (r) { return r.DOVIZ_CINSI; } },
-      { header: 'Faiz', value: function (r) { return M.formatRate(r.FAIZ); } },
-    ], data);
-  }
-
-  // ── Başlangıç ───────────────────────────────────────────────────────────
-  M.setStatus(el.status, 'Yükleniyor…');
-  M.fetchJson(EP.competitor)
-    .then(function (payload) {
-      raw = (payload && payload.rows) || [];
-      var banks = (payload && payload.banks) || M.distinct(raw, 'BANKA_ADI');
-      if (!raw.length) {
-        M.setStatus(el.status, 'Veri yok', true);
-        M.showEmpty(el.kpis, 'Rakip faiz verisi bulunamadı.');
-        return;
+    sources.sort().forEach(function (src) {
+      var a = document.createElement('a');
+      if (src.indexOf('http://') === 0 || src.indexOf('https://') === 0) {
+        a.href = src;
+        try { a.textContent = new URL(src).hostname.replace('www.', ''); }
+        catch (e) { a.textContent = src; }
+      } else {
+        a.href = src.indexOf('.') >= 0
+          ? 'https://' + src.replace(/^https?:\/\//, '') : '#';
+        a.textContent = src;
       }
-      var days = M.distinct(raw, 'DATE_STR');
-      el.date.min = days[0];
-      el.date.max = days[days.length - 1];
-      el.date.value = days[days.length - 1];
-      bankChips = M.chipGroup(el.bank, banks, draw);
-      M.fillSelect(el.ccy, M.distinct(raw, 'DOVIZ_CINSI'));
-      M.setStatus(el.status, raw.length + ' kayıt');
-      draw();
-      _embedOnce();
-    })
-    .catch(function (e) {
-      M.setStatus(el.status, 'Hata: ' + e.message, true);
-      M.showError(el.kpis, 'Veri alınamadı — ' + e.message);
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      elSources.appendChild(a);
     });
+  }
+
+  // ── Filtre boyutları ─────────────────────────────────────────────────────
+
+  function buildMeta(rows, banks) {
+    var found = [];
+    rows.forEach(function (r) {
+      var b = String(r.BANKA_ADI || '').trim();
+      if (b && found.indexOf(b) < 0) found.push(b);
+    });
+    meta = {};
+    meta[DIM.VADE] = VADE_RANGES.slice();
+    meta[DIM.BANK] = (banks && banks.length ? banks.slice() : found).sort();
+    // Kaynakta tüm bankalar ve tüm vadeler seçili başlıyordu.
+  }
+
+  function labelOf(dim, v) {
+    return dim === DIM.VADE ? (VADE_LABELS[v] || v) : v;
+  }
+
+  function renderFilters() {
+    MVP.renderBubFilters('fDims', meta, state, merges, apply, {
+      sort: function (dim, vals) {
+        if (dim === DIM.VADE) {
+          return VADE_RANGES.filter(function (v) { return vals.indexOf(v) >= 0; });
+        }
+        return vals.slice().sort(function (a, b) {
+          return String(a).localeCompare(String(b), 'tr');
+        });
+      }
+    });
+    document.querySelectorAll('#fDims .pkf-dd').forEach(function (dd) {
+      var dim = dd.dataset.dim;
+      dd.querySelectorAll('.pkf-dd-opt').forEach(function (opt) {
+        var raw = opt.textContent.trim();
+        var pretty = labelOf(dim, raw);
+        if (pretty !== raw) opt.lastChild.textContent = ' ' + pretty;
+      });
+    });
+  }
+
+  function selected(dim) { return MVP.bubSelected(dim, meta, state, merges); }
+
+  function filterRows() {
+    var vadeSel = selected(DIM.VADE);
+    var bankSel = selected(DIM.BANK);
+    var from = elFrom.value, to = elTo.value;
+
+    return rawRows.filter(function (row) {
+      if (from && row.DATE_STR < from) return false;
+      if (to && row.DATE_STR > to) return false;
+      var vMin = parseInt(row.VADE_MIN, 10) || 0;
+      var vMax = parseInt(row.VADE_MAX, 10) || 0;
+      if (!rangesOverlap(vadeSel, vMin, vMax)) return false;
+      if (bankSel.indexOf(String(row.BANKA_ADI || '').trim()) < 0) return false;
+      return true;
+    });
+  }
+
+  // ── Chart kurucuları ─────────────────────────────────────────────────────
+
+  function snapshotBars(el, categories, values, colors, yMin, yMax) {
+    if (!el) return;
+    MVP.renderChart(el, function () {
+      return {
+        chart: { type: 'bar', height: 300, toolbar: { show: false } },
+        plotOptions: { bar: { horizontal: false, columnWidth: '55%',
+                              distributed: true } },
+        colors: colors,
+        dataLabels: { enabled: true,
+          formatter: function (v) { return v == null ? '' : v.toFixed(2) + '%'; } },
+        series: [{ name: 'Maks. Oran (%)', data: values }],
+        xaxis: { type: 'category', categories: categories },
+        yaxis: { min: yMin, max: yMax,
+                 labels: { formatter: function (v) {
+                   return v == null ? '' : v.toFixed(1); } } },
+        tooltip: { y: { formatter: function (v) {
+          return v == null ? '-' : v.toFixed(2) + '%'; } } },
+        legend: { show: false },
+        noData: { text: 'Veri bulunamadı' }
+      };
+    });
+  }
+
+  function snapshotChange(el, categories, values, colors) {
+    if (!el) return;
+    MVP.renderChart(el, function () {
+      return {
+        chart: { type: 'bar', height: 200, toolbar: { show: false } },
+        plotOptions: { bar: { horizontal: false, columnWidth: '55%',
+                              distributed: true } },
+        colors: colors,
+        dataLabels: { enabled: true, formatter: function (v) {
+          return v == null ? '' : (v > 0 ? '+' : '') + v.toFixed(2); } },
+        series: [{ name: 'Değişim', data: values }],
+        xaxis: { type: 'category', categories: categories },
+        yaxis: { title: { text: 'Günlük Değişim (bps)' },
+                 labels: { formatter: function (v) {
+                   return v == null ? '' : v.toFixed(2); } } },
+        tooltip: { y: { formatter: function (v) {
+          return v == null ? '-' : (v > 0 ? '+' : '') + v.toFixed(2) + ' bps'; } } },
+        legend: { show: false },
+        noData: { text: 'Değişim verisi yok' }
+      };
+    });
+  }
+
+  /* Sektör ortalaması kalın kesikli, bankalar ince düz — kaynakla birebir. */
+  function trendChart(el, categories, series, widths, dashes, colors) {
+    if (!el) return;
+    MVP.renderChart(el, function () {
+      return {
+        chart: { type: 'line', height: 400, zoom: { enabled: true } },
+        colors: colors,
+        stroke: { width: widths, dashArray: dashes, curve: 'smooth' },
+        dataLabels: { enabled: false },
+        series: series,
+        xaxis: { type: 'category', categories: categories,
+                 labels: { rotate: -45 } },
+        yaxis: { labels: { formatter: function (v) {
+          return v == null ? '' : v.toFixed(2); } } },
+        legend: { position: 'top' },
+        tooltip: { shared: true, intersect: false },
+        noData: { text: 'Veri bulunamadı' }
+      };
+    });
+  }
+
+  // ── AG-Grid (Enterprise: banka > vade satır gruplaması) ──────────────────
+
+  function buildGroupedGrid(rows) {
+    var gridDiv = document.getElementById('competitor-grid');
+    if (!gridDiv || typeof agGrid === 'undefined') return;
+
+    var rowData = rows.map(function (row) {
+      return {
+        BANKA_ADI: row.BANKA_ADI || '',
+        VADE: row.VADE || '',
+        TUTAR: row.TUTAR || '',
+        TARIH: row.DATE_STR || '',
+        FAIZ: parseFloat(row.FAIZ) || null,
+        DOVIZ: row.DOVIZ_CINSI || ''
+      };
+    });
+
+    var columnDefs = [
+      { field: 'BANKA_ADI', headerName: 'Banka', rowGroup: true, hide: true,
+        enableRowGroup: true },
+      { field: 'VADE', headerName: 'Vade', rowGroup: true, hide: true,
+        enableRowGroup: true },
+      { field: 'TUTAR', headerName: 'Tutar', enableRowGroup: true },
+      { field: 'TARIH', headerName: 'Tarih', sort: 'desc',
+        valueFormatter: function (p) { return p.value ? fmtDate(p.value) : ''; },
+        enableRowGroup: true },
+      { field: 'FAIZ', headerName: 'Faiz (%)', type: 'numericColumn',
+        valueFormatter: function (p) {
+          return p.value != null ? p.value.toFixed(2) + '%' : '-'; },
+        aggFunc: 'max', enableValue: true },
+      { field: 'DOVIZ', headerName: 'Döviz', enableRowGroup: true }
+    ];
+
+    if (gridApi) { gridApi.destroy(); gridApi = null; gridDiv.innerHTML = ''; }
+
+    gridApi = agGrid.createGrid(gridDiv, {
+      columnDefs: columnDefs,
+      rowData: rowData,
+      defaultColDef: { sortable: true, resizable: true, filter: true,
+                       flex: 1, minWidth: 100 },
+      autoGroupColumnDef: { headerName: 'Grup', minWidth: 250,
+                            cellRendererParams: { suppressCount: false } },
+      groupDefaultExpanded: 0,
+      rowGroupPanelShow: 'always',
+      animateRows: true,
+      suppressAggFuncInHeader: true,
+      domLayout: 'normal'
+    });
+  }
+
+  // ── Çizim (eski processAndDisplay birebir) ───────────────────────────────
+
+  function draw() {
+    var rows = filterRows();
+    var $ = function (id) { return document.getElementById(id); };
+
+    updateSourceLinks(rows);
+
+    // (gün, banka) → maks. oran
+    var maxByDayBank = {};
+    rows.forEach(function (row) {
+      var d = row.DATE_STR, bank = row.BANKA_ADI, rate = parseFloat(row.FAIZ);
+      if (!d || !bank || isNaN(rate) || rate <= 0) return;
+      if (!maxByDayBank[d]) maxByDayBank[d] = {};
+      if (!maxByDayBank[d][bank] || rate > maxByDayBank[d][bank]) {
+        maxByDayBank[d][bank] = rate;
+      }
+    });
+
+    var days = Object.keys(maxByDayBank).sort();
+    var bankSet = {};
+    days.forEach(function (d) {
+      Object.keys(maxByDayBank[d]).forEach(function (b) { bankSet[b] = true; });
+    });
+    var bankList = Object.keys(bankSet).sort();
+
+    // ── Snapshot: en son gün + önceki güne göre değişim ──
+    var latest = days[days.length - 1] || null;
+    var prev = days[days.length - 2] || null;
+    if (elSnapDate) elSnapDate.textContent = latest ? fmtDate(latest) : '';
+
+    if (latest && maxByDayBank[latest]) {
+      var today = maxByDayBank[latest];
+      var sorted = Object.keys(today).map(function (b) { return [b, today[b]]; })
+        .sort(function (a, b) { return b[1] - a[1]; });
+
+      var labels = sorted.map(function (e) { return e[0]; });
+      var values = sorted.map(function (e) { return e[1]; });
+      var colors = sorted.map(function (e) { return bankColor(e[0]); });
+
+      var prevRates = prev ? (maxByDayBank[prev] || {}) : {};
+      var changes = sorted.map(function (e) {
+        var p = prevRates[e[0]];
+        return p != null ? parseFloat((e[1] - p).toFixed(2)) : null;
+      });
+
+      // Eksen kaynakta ±1 puan pay bırakır — farklar görünür kalsın.
+      var yMin = parseFloat((Math.min.apply(null, values) - 1).toFixed(1));
+      var yMax = parseFloat((Math.max.apply(null, values) + 1).toFixed(1));
+
+      snapshotBars($('chart-snapshot-bars'), labels, values, colors, yMin, yMax);
+      snapshotChange($('chart-snapshot-change'), labels, changes, colors);
+    } else {
+      snapshotBars($('chart-snapshot-bars'), [], [], [], undefined, undefined);
+      snapshotChange($('chart-snapshot-change'), [], [], []);
+    }
+
+    // ── Trend: banka serileri + sektör ortalaması ──
+    var trendLabels = days.map(fmtDate);
+    var series = bankList.map(function (bank) {
+      return { name: bank, data: days.map(function (d) {
+        return maxByDayBank[d][bank] || null; }) };
+    });
+    var avg = days.map(function (d) {
+      var vals = Object.keys(maxByDayBank[d]).map(function (b) {
+        return maxByDayBank[d][b]; });
+      if (!vals.length) return null;
+      return parseFloat((vals.reduce(function (a, b) { return a + b; }, 0) /
+                         vals.length).toFixed(2));
+    });
+    series.unshift({ name: 'Sektör Ortalaması', data: avg, type: 'line' });
+
+    var colors = [MVP.token('--ink', '#1d273b')].concat(
+      bankList.map(function (b) { return bankColor(b); }));
+    var widths = [3].concat(bankList.map(function () { return 2; }));
+    var dashes = [5].concat(bankList.map(function () { return 0; }));
+
+    trendChart($('chart-trend'), trendLabels, series, widths, dashes, colors);
+
+    buildGroupedGrid(rows);
+
+    if (elStatus) {
+      elStatus.textContent = rows.length + ' kayıt' +
+        (elFrom.value && elTo.value ? ' (' + elFrom.value + ' – ' + elTo.value + ')' : '');
+    }
+    if (elMeta) {
+      elMeta.textContent = (elFrom.value || '—') + ' → ' + (elTo.value || '—');
+    }
+
+    // Piyasa Özeti: uç yapılandırılmamışsa panel gizli kalır (bkz. başlık notu).
+    if (elSummaryPanel) elSummaryPanel.hidden = !EP.competitorSummary;
+    if (EP.competitorSummary && latest) fetchSummary(latest);
+  }
+
+  function fetchSummary(day) {
+    if (!elSummaryText) return;
+    elSummaryText.textContent = 'Özet hazırlanıyor…';
+    MVP.fetchJson(EP.competitorSummary + '?date=' + encodeURIComponent(day))
+      .then(function (res) {
+        elSummaryText.textContent = (res && res.summary) || 'Özet üretilemedi.';
+      })
+      .catch(function () {
+        if (elSummaryPanel) elSummaryPanel.hidden = true;
+      });
+  }
+
+  function apply() { draw(); }
+
+  // ── Veri yükleme ─────────────────────────────────────────────────────────
+
+  function defaultRange(rows) {
+    var days = [];
+    rows.forEach(function (r) {
+      if (r.DATE_STR && days.indexOf(r.DATE_STR) < 0) days.push(r.DATE_STR);
+    });
+    days.sort();
+    if (!days.length) return;
+    elTo.value = days[days.length - 1];
+    elFrom.value = days[Math.max(0, days.length - DEFAULT_RANGE_DAYS)];
+  }
+
+  if (elStatus) elStatus.textContent = 'Veri indiriliyor…';
+  MVP.fetchJson(EP.competitor)
+    .then(function (res) {
+      rawRows = (res && res.rows) || [];
+      defaultRange(rawRows);
+      buildMeta(rawRows, (res && res.banks) || []);
+      renderFilters();
+      draw();
+      MVP.initEmbed();
+    })
+    .catch(function (err) {
+      if (elStatus) elStatus.textContent = 'Veri alınamadı: ' + err.message;
+    });
+
+  document.getElementById('mvpApply').addEventListener('click', apply);
+  elFrom.addEventListener('change', apply);
+  elTo.addEventListener('change', apply);
 })();

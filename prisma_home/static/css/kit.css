@@ -168,6 +168,31 @@ body.prisma.pk-embed .pk-fnav { display: none; }
 .pk-plot--tall { min-height: 500px; }
 /* Tarihsel trend grafikleri kaynakta 400px. */
 .pk-plot--wide { min-height: 400px; }
+/* Rakip sayfası: snapshot 300px, altındaki değişim grafiği 200px. */
+.pk-plot--snapshot { min-height: 300px; }
+.pk-plot--short { min-height: 200px; }
+
+/* Rakip sayfası: AG-Grid kabı + kaynakça rozetleri + piyasa özeti paneli. */
+.pk-grid-table { width: 100%; height: 520px; }
+.pk-sources { display: flex; flex-wrap: wrap; gap: 6px; }
+.pk-sources a {
+  display: inline-block; padding: 4px 10px;
+  border: 1px solid var(--border); color: var(--ink-mute);
+  font-size: 12px; text-decoration: none;
+}
+.pk-sources a:hover { color: var(--gold); border-color: var(--gold); }
+.pk-summary {
+  margin-top: 14px; padding: 12px 14px;
+  border-left: 2px solid var(--gold); background: var(--bg-0);
+}
+.pk-summary__label {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--gold); margin-bottom: 6px;
+}
+.pk-summary__text {
+  font-family: var(--serif); font-size: 14px; font-style: italic;
+  line-height: 1.6; color: var(--ink-soft);
+}
 
 /* Karosel slaytı içindeki metrik kutuları (eski "Ekstrem / Ekstrem+Yetki"). */
 .pk-metrics {

@@ -315,3 +315,86 @@ def test_historic_uses_kit_and_shared_renderer():
     assert "renderBubFilters" in new
     assert "MVP.renderChart(" in new
     assert "new ApexCharts(" not in new
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Rakip Faiz Analizi — eski templates/competitor.html + static/js/competitor.js
+# ═══════════════════════════════════════════════════════════════════════════
+
+CMP_HTML = REPO / "mevduat_panel/templates/mevduat_panel/prisma/competitor.html"
+CMP_JS = REPO / "mevduat_panel/static/prisma/competitor.js"
+CMP_OLD_JS = REPO / "static/js/competitor.js"
+VENDOR = REPO / "mevduat_panel/static/vendor"
+
+
+def test_competitor_cards_and_plots():
+    """4 kart: snapshot (iki grafik), trend, AG-Grid tablosu, kaynakça."""
+    html = CMP_HTML.read_text(encoding="utf-8")
+    assert html.count('class="pk-card"') == 4
+    assert "pk-carousel" not in html          # kaynakta karosel yoktu
+    for pid in ("chart-snapshot-bars", "chart-snapshot-change", "chart-trend",
+                "competitor-grid", "source-links"):
+        assert f'id="{pid}"' in html, pid
+
+
+def test_competitor_uses_ag_grid_enterprise_not_plain_table():
+    """Madde 6: tablo AG-Grid olmalı; satır gruplaması Enterprise ister."""
+    html, new = CMP_HTML.read_text(encoding="utf-8"), CMP_JS.read_text(encoding="utf-8")
+    assert "ag-grid-enterprise" in html
+    assert "ag-theme-alpine" in html
+    assert "agGrid.createGrid" in new
+    assert "rowGroup: true" in new
+    assert "rowGroupPanelShow" in new
+    assert "renderTable" not in new           # düz HTML tablo kalmadı
+
+
+def test_competitor_vendor_assets_present():
+    for asset in ("ag-grid-enterprise.min.noStyle.js", "ag-theme-alpine.css",
+                  "ag-grid.css"):
+        assert (VENDOR / asset).is_file(), asset
+
+
+def test_competitor_grid_columns_match_original():
+    new = CMP_JS.read_text(encoding="utf-8")
+    for field in ("BANKA_ADI", "VADE", "TUTAR", "TARIH", "FAIZ", "DOVIZ"):
+        assert f"field: '{field}'" in new, field
+    assert "aggFunc: 'max'" in new             # Faiz agregasyonu
+
+
+def test_competitor_computation_functions_ported():
+    old, new = CMP_OLD_JS.read_text(encoding="utf-8"), CMP_JS.read_text(encoding="utf-8")
+    for fn in ("rangesOverlap", "bankColor", "fmtDate", "updateSourceLinks",
+               "buildGroupedGrid"):
+        assert fn in old, f"kaynak değişmiş: {fn}"
+        assert fn in new, f"portlanmamış: {fn}"
+
+
+def test_competitor_vade_filter_is_range_overlap():
+    """Vade filtresi aralık ÖRTÜŞMESİ (kesişim), eşitlik değil."""
+    new = CMP_JS.read_text(encoding="utf-8")
+    assert "rMin <= p[1] && rMax >= p[0]" in new
+
+
+def test_competitor_sector_average_series():
+    """Sektör ortalaması ilk seri, kalın + kesikli (kaynak stili)."""
+    new = CMP_JS.read_text(encoding="utf-8")
+    assert "Sektör Ortalaması" in new
+    assert "series.unshift" in new
+    assert "var widths = [3]" in new
+    assert "var dashes = [5]" in new
+
+
+def test_competitor_llm_summary_is_optional():
+    """Piyasa Özeti ucu portlanmadı; panel yapılandırılmadıkça gizli kalmalı."""
+    html, new = CMP_HTML.read_text(encoding="utf-8"), CMP_JS.read_text(encoding="utf-8")
+    assert 'id="summary-panel"' in html
+    assert "hidden" in html
+    assert "EP.competitorSummary" in new
+
+
+def test_competitor_uses_filter_kit():
+    html, new = CMP_HTML.read_text(encoding="utf-8"), CMP_JS.read_text(encoding="utf-8")
+    assert 'id="fDims"' in html
+    assert "renderBubFilters" in new
+    assert "MVP.renderChart(" in new
+    assert "new ApexCharts(" not in new
