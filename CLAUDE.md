@@ -475,6 +475,19 @@ No new infra dependencies. Reuse the existing S3 client and Oracle DataClient.
 - No `print` statements in committed code.
 - Comments only when the *why* is non-obvious. Code should read top-to-bottom.
 
+### Ofis çalışma ortamı — `jobs/` script'leri (Spyder)
+
+Ofis makinesinde tek-atımlık `jobs/*.py` script'leri **Spyder içinden "Run" (F5)** ile
+çalıştırılıyor; **komut satırı argümanları geçilemiyor**. Bu yüzden:
+
+- `jobs/` script'lerinde **`argparse` / `sys.argv` KULLANMA.** Davranışı dosyanın
+  başındaki, elle düzenlenen büyük harfli **KONFİG sabitlerinden** (ör.
+  `READ_DEPARTMENTS`, `OVERWRITE`) oku. `print` kısıtı burada geçerli değil —
+  bu script'ler operatör çıktısı için `print` kullanır.
+- Departman/scope girdilerini listeye çevirirken `list(x)` yerine string-güvenli
+  bir yardımcı kullan (string verilirse tek elemanlı liste); `list("ABC")` string'i
+  harflere böler ve `access_scope`'u sessizce bozar.
+
 ---
 
 ## What to build first
