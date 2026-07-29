@@ -220,3 +220,120 @@ def test_myu_datetime_create_dt_survives(monkeypatch):
     rd.reset_caches()
     df = rd.build_reservation_df()
     assert (df["DATA_SRC"] == "MYU").sum() == 2   # 3. satır tutar filtresi (<50k)
+
+
+# ── R10 Yenilik 2: MEVDUAT_YETKILER kural bazlı EKSTREM türetimi ─────────────
+
+def _yetki_frame() -> pd.DataFrame:
+    """MEVDUAT_YETKILER-stili kural tablosu: TRY 2026-07-24, bant [32, 45]."""
+    return pd.DataFrame({
+        "DAT": ["2026-07-24"],
+        "DOVIZ": ["TRY"],
+        "VADE_BASLANGIC": [32],
+        "VADE_BITIS": [45],
+        "MAKSIMUM": [0.50],
+        "EKSTREM": [0.46],
+        "EKSTREM_LIMIT_ALTI": [0.44],
+        "ZARAR_YETKISI": [50.0],          # /100 → +0.50
+        "EKSTREM_TUZEL": [0.42],
+        "EKSTREM_LIMIT_ALTI_TUZEL": [0.40],
+        "ZARAR_YETKISI_TUZEL": [30.0],    # /100 → +0.30
+    })
+
+
+def _res_row(cust_tp="G", aum=200_000_000.0, vade="32-35", ccy="TRY",
+             dt="2026-07-24") -> pd.DataFrame:
+    return pd.DataFrame({
+        "CREATE_DT": [pd.Timestamp(dt)],
+        "CCY_CODE": [ccy],
+        "VADE_BASLANGIC": [vade],
+        "CUST_TP": [cust_tp],
+        "PORTFOLIO_AMT": [aum],
+        "EKSTREM": [9.9],          # SQL'den gelen eski değer — ezilmeli
+        "EKSTREM_YETKI": [9.9],
+    })
+
+
+def test_ekstrem_gercek_ust_esik():
+    """G + AUM ≥ eşik → EKSTREM + ZARAR_YETKISI/100 (normal kolonlar)."""
+    out = rd.derive_ekstrem_columns(_res_row(cust_tp="G", aum=150_000_000),
+                                    _yetki_frame())
+    assert out["EKSTREM"].iloc[0] == pytest.approx(0.46)
+    assert out["EKSTREM_YETKI"].iloc[0] == pytest.approx(0.46 + 0.50)
+
+
+def test_ekstrem_gercek_alt_esik():
+    """G + AUM < eşik (parametrik 100M) → EKSTREM_LIMIT_ALTI kullanılır."""
+    out = rd.derive_ekstrem_columns(_res_row(cust_tp="G", aum=99_000_000),
+                                    _yetki_frame())
+    assert out["EKSTREM"].iloc[0] == pytest.approx(0.44)
+    assert out["EKSTREM_YETKI"].iloc[0] == pytest.approx(0.44 + 0.50)
+
+
+def test_ekstrem_tuzel_kolonlari():
+    """CUST_TP F/T → _TUZEL kolon seti (hem üst hem alt eşikte)."""
+    ust = rd.derive_ekstrem_columns(_res_row(cust_tp="F", aum=150_000_000),
+                                    _yetki_frame())
+    assert ust["EKSTREM"].iloc[0] == pytest.approx(0.42)
+    assert ust["EKSTREM_YETKI"].iloc[0] == pytest.approx(0.42 + 0.30)
+    alt = rd.derive_ekstrem_columns(_res_row(cust_tp="T", aum=50_000_000),
+                                    _yetki_frame())
+    assert alt["EKSTREM"].iloc[0] == pytest.approx(0.40)
+    assert alt["EKSTREM_YETKI"].iloc[0] == pytest.approx(0.40 + 0.30)
+
+
+def test_ekstrem_aum_bilinmiyorsa_ust_set():
+    """AUM NaN (MYU satırları PORTFOLIO_AMT taşımaz) → üst set (EKSTREM)."""
+    out = rd.derive_ekstrem_columns(_res_row(cust_tp="G", aum=float("nan")),
+                                    _yetki_frame())
+    assert out["EKSTREM"].iloc[0] == pytest.approx(0.46)
+
+
+def test_ekstrem_esik_parametrik():
+    """Eşik parametre olarak değiştirilebilir (kullanıcı kararı: parametrik)."""
+    out = rd.derive_ekstrem_columns(_res_row(cust_tp="G", aum=150_000_000),
+                                    _yetki_frame(), esik=200_000_000)
+    assert out["EKSTREM"].iloc[0] == pytest.approx(0.44)  # eşik altı sayıldı
+
+
+def test_ekstrem_bant_araligi_ve_string_vade():
+    """'32-35' bant etiketi İLK sayıdan (32) çözülür ve [32,45] bandına oturur;
+    aralık dışı vade (60) eşleşmez → SQL değeri korunur."""
+    ic = rd.derive_ekstrem_columns(_res_row(vade="32-35"), _yetki_frame())
+    assert ic["EKSTREM"].iloc[0] == pytest.approx(0.46)
+    dis = rd.derive_ekstrem_columns(_res_row(vade="60-90"), _yetki_frame())
+    assert dis["EKSTREM"].iloc[0] == pytest.approx(9.9)
+    assert dis["EKSTREM_YETKI"].iloc[0] == pytest.approx(9.9)
+
+
+def test_ekstrem_eslesmeyen_gun_dokunulmaz():
+    """Kural tablosunda olmayan gün → satırın mevcut değerleri aynen kalır."""
+    out = rd.derive_ekstrem_columns(_res_row(dt="2026-07-25"), _yetki_frame())
+    assert out["EKSTREM"].iloc[0] == pytest.approx(9.9)
+
+
+def test_ekstrem_bos_yetki_dokunulmaz():
+    """Boş/None kural tablosu → df aynen döner (kolonlar garanti edilir)."""
+    out = rd.derive_ekstrem_columns(_res_row(), _yetki_frame().iloc[0:0])
+    assert out["EKSTREM"].iloc[0] == pytest.approx(9.9)
+    out2 = rd.derive_ekstrem_columns(_res_row(), None)
+    assert out2["EKSTREM_YETKI"].iloc[0] == pytest.approx(9.9)
+
+
+def test_ekstrem_pipeline_entegrasyonu(monkeypatch):
+    """build_reservation_df kural tablosunu yükleyip uygular; yüklenemezse
+    (KeyError) sayfa kırılmaz (diğer testler bunu örtük doğrular)."""
+    base = _fake_loader()
+
+    def _loader(name, params=None):
+        if name == "mevduat_yetkiler":
+            return _yetki_frame()
+        return base(name, params)
+
+    monkeypatch.setattr(rd, "load_dataframe", _loader)
+    rd.reset_caches()
+    df = rd.build_reservation_df()
+    myu = df[(df["DATA_SRC"] == "MYU") & (df["CUST_TP"] == "G")]
+    # MYU satırları PORTFOLIO_AMT taşımaz → üst set: EKSTREM + 50/100
+    assert myu["EKSTREM_YETKI"].tolist() == pytest.approx([0.96] * len(myu))
+    assert len(myu) == 2

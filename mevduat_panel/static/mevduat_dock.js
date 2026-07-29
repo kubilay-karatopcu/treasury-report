@@ -163,6 +163,23 @@
     var txt = el("span", "mv-dock-datetext", null);
     txt.textContent = input.value ? _fmtDmy(input.value) : "gg.aa.yyyy";
     wrap.appendChild(txt);
+    // R10 — edit glitch'i: overlay yalnız GÖSTERİM içindir. Odaktayken
+    // (klavyeyle yazarken) overlay gizlenir ve input'un kendi metni görünür
+    // (is-editing, CSS mevduat_prisma.css'te); değer her tuşta başlığa
+    // yansısın diye 'input' da dinlenir (change yalnız commit'te tetiklenir).
+    if (!input._mvDockEditBound) {
+      input._mvDockEditBound = true;
+      input.addEventListener("focus", function () {
+        var w = input.closest(".mv-dock-datewrap");
+        if (w) w.classList.add("is-editing");
+      });
+      input.addEventListener("blur", function () {
+        var w = input.closest(".mv-dock-datewrap");
+        if (w) w.classList.remove("is-editing");
+        setTimeout(updateDates, 0);
+      });
+      input.addEventListener("input", function () { setTimeout(updateDates, 0); });
+    }
     dateWraps.push({ wrap: wrap, input: input });
   }
 

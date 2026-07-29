@@ -648,11 +648,14 @@ def test_masa_back_targets_current_expert():
 
 
 def test_app_pages_share_wide_canvas():
-    """Uygulama sayfaları masa ile aynı sabit-geniş canvas'ı kullanır."""
+    """R10 — uygulama sayfaları TAM genişlik: min(97vw,1800px) tipik ekranda
+    1280'den hissedilir fark yaratmadı → max-width tamamen kalkar (kullanıcı
+    kararı 2026-07-29 4. tur)."""
     for tpl in ("deposit_panel/templates/deposit_panel/params.html",
                 "deposit_panel/templates/deposit_panel/reservations.html"):
         src = (REPO / tpl).read_text(encoding="utf-8")
-        assert "min(97vw, 1800px)" in src, tpl
+        assert "max-width: none !important" in src, tpl
+        assert "min(97vw" not in src, tpl
 
 
 def test_setdateval_single_path_loading():
@@ -663,3 +666,92 @@ def test_setdateval_single_path_loading():
         src = (REPO / "mevduat_panel/static/prisma" / js_name).read_text(encoding="utf-8")
         assert "MVP.setDateVal(elDate, latest, true)" in src, js_name
         assert "setDateVal(elDate, availableDates[next], true)" in src, js_name
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# R10 — genişlik/masa-back, tek satır şerit, dock edit, çerçeve, notranslate,
+#       Ekstrem+Yetki (2026-07-29 4. tur)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_app_pages_masa_back_via_provider():
+    """Uygulama sayfalarından 'Masaya dön' landing'e değil UZMANA gider:
+    deposit_panel FOLDER_MENU_PROVIDER'dan expert_url alır (prisma_home
+    import ETMEDEN) ve iki sayfa da masa_back_url geçirir."""
+    src = (REPO / "deposit_panel/__init__.py").read_text(encoding="utf-8")
+    assert "FOLDER_MENU_PROVIDER" in src
+    assert "import prisma_home" not in src          # izolasyon sözleşmesi
+    assert 'expert_url' in src
+    assert '_masa_back_url("uygulamalar.panel_parametreler")' in src
+    assert '_masa_back_url("uygulamalar.panel_rezervasyon")' in src
+
+
+def test_filter_strip_single_row_no_scroll():
+    """R10 — üst şerit TEK SATIR: flex-basis:100% sarmalayıcı yasak (bub
+    panel status ile aynı satırda, status en sağda), yatay scroll asla."""
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert "flex-basis:100%" not in shell
+    assert "overflow-x:hidden" in shell
+    # Sıra: filtre paneli (fDims) status'tan ÖNCE gelir; status margin-left:auto.
+    assert shell.index('id="fDims"') < shell.index('id="mvpStatus"')
+    assert "margin-left:auto" in shell
+    assert "overflow-x: hidden" in (REPO / "mevduat_panel/static/mevduat_prisma.css").read_text(encoding="utf-8")
+
+
+def test_dock_date_edit_mode():
+    """R10 — tarih editlerken overlay yazımı gizlemez: focus'ta is-editing
+    (overlay gizlenir, gerçek input metni görünür), input'ta canlı tazeleme."""
+    js = (REPO / "mevduat_panel/static/mevduat_dock.js").read_text(encoding="utf-8")
+    assert 'classList.add("is-editing")' in js
+    assert 'classList.remove("is-editing")' in js
+    assert 'addEventListener("input"' in js
+    css = (REPO / "mevduat_panel/static/mevduat_prisma.css").read_text(encoding="utf-8")
+    assert ".mv-dock-datewrap.is-editing .mv-dock-datetext" in css
+    assert "display: none" in css.split(".mv-dock-datewrap.is-editing .mv-dock-datetext")[1].split("}")[0]
+
+
+def test_bub_filter_buttons_have_border():
+    """R10 — dd butonları çıplak metin DEĞİL: prisma'nın body.prisma button
+    reset'ini yenen 2-sınıflı kural border+arka plan geri verir."""
+    css = (REPO / "mevduat_panel/static/mevduat_prisma.css").read_text(encoding="utf-8")
+    seg = css.split(".mevduat-mount .bub-filter-dd-btn {")[1].split("}")[0]
+    assert "border: 1px solid var(--border-mid)" in seg
+    assert "background:" in seg
+
+
+def test_notranslate_meta_everywhere():
+    """R10 — tarayıcı 'çevir?' balonu kapalı: iki base'de de notranslate."""
+    for tpl in ("prisma_home/templates/home/_base_prisma.html",
+                "templates/base.html"):
+        src = (REPO / tpl).read_text(encoding="utf-8")
+        assert 'name="google" content="notranslate"' in src, tpl
+
+
+def test_params_ekstrem_yetki_field():
+    """R10 Yenilik 1 — New Funding Rate altında salt-okunur Ekstrem+Yetki:
+    her yüklemede taze endpoint'ten (ana df'ten DEĞİL), tarih GG.AA.YYYY."""
+    tpl = (REPO / "deposit_panel/templates/deposit_panel/params.html").read_text(encoding="utf-8")
+    # Alan New Funding input'undan SONRA, aynı kart içinde.
+    assert tpl.index("inp-new-funding") < tpl.index("inp-ekstrem-yetki")
+    assert 'readonly' in tpl.split("inp-ekstrem-yetki")[1].split(">")[0]
+    py = (REPO / "deposit_panel/__init__.py").read_text(encoding="utf-8")
+    assert "api_get_ekstrem_yetki" in py
+    assert "dep_ekstrem_yetki.sql" in py
+    assert '"%d.%m.%Y"' in py                       # GG.AA.YYYY kuralı
+    sql = (REPO / "queries/dep_ekstrem_yetki.sql").read_text(encoding="utf-8")
+    assert "GREATEST" in sql and "VADE_BASLANGIC = 32" in sql and "'TRY'" in sql
+    js = (REPO / "deposit_panel/static/deposit_panel.js").read_text(encoding="utf-8")
+    assert "loadEkstremYetki" in js
+    assert "api/get-ekstrem-yetki" in js
+
+
+def test_mevduat_yetkiler_rule_join_wired():
+    """R10 Yenilik 2 — kural bazlı EKSTREM türetimi devrede: sorgu dosyası +
+    parametrik eşik + tüzel kolon seti + pipeline çağrısı."""
+    sql = (REPO / "mevduat_panel/queries/mevduat_yetkiler.sql").read_text(encoding="utf-8")
+    for col in ("EKSTREM_LIMIT_ALTI", "EKSTREM_TUZEL", "ZARAR_YETKISI_TUZEL",
+                "VADE_BITIS"):
+        assert col in sql, col
+    py = (REPO / "mevduat_panel/engine/reservation_data.py").read_text(encoding="utf-8")
+    assert "AUM_LIMIT_ALTI_ESIK = 100_000_000" in py
+    assert "_apply_mevduat_yetkileri(final_df)" in py
+    assert "derive_ekstrem_columns" in py

@@ -610,7 +610,17 @@ body.mv-embed .dev-banner { display: none !important; }
 
 /* 8e. Filtre şeridi okunabilirliği + Grupla butonu. */
 .mevduat-mount .main label { font-size: 13px; }
-.mevduat-mount .bub-filter-dd-btn { font-size: 12px; }
+/* R10 — dd butonunun SPA görünümü GERİ: prisma kabuğunun global
+   `body.prisma button { border:none; background:none }` reset'i (0,1,1)
+   tek sınıflı .bub-filter-dd-btn'i (0,1,0) eziyordu → butonlar çıplak metin
+   görünüyordu. İki sınıflı seçici reset'i yener (docs/CUSTOM_PAGE_DESIGN.md). */
+.mevduat-mount .bub-filter-dd-btn {
+  font-size: 12px;
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  padding: 5px 10px;
+}
 .mevduat-mount .bub-filter-dd-groupbtn {
   background: transparent;
   border: 1px solid var(--gold-dim);
@@ -667,16 +677,26 @@ body.mv-embed .dev-banner { display: none !important; }
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
-  padding: 14px 16px;
+  /* R10 — kompakt tek satır: yatay scroll ASLA yok, sığmazsa sarar. */
+  padding: 8px 12px;
   margin-bottom: 6px !important;
+  overflow-x: hidden;
 }
 body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250, 0.94); }
 .mevduat-mount .mv-page-filters .bub-filter-panel {
   margin: 0;
   border: none;
   background: transparent;
-  padding: 6px 0 0;
+  /* R10 — panel artık status ile AYNI satırda (flex-basis sarmalayıcı
+     kalktı) → üst padding kalktı, kendi flex'i satır içinde akar. */
+  padding: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
+/* R10 — şeritteki dd butonları kompakt (160px sabit genişlik tek satırı
+   taşırıyordu); içerik kadar yer kaplar. */
+.mevduat-mount .mv-page-filters .bub-filter-dd-btn { min-width: 0; }
 
 /* 9c. Dock — tarih hizalama + boyut satırı yeni düzeni. */
 .mv-dock-row--date label { justify-content: flex-start; }
@@ -702,6 +722,18 @@ body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250
 }
 .mv-dock-row--date .mv-dock-datewrap input[type="date"]::-webkit-datetime-edit {
   color: transparent;
+}
+/* R10 — EDİT MODU: input odaktayken overlay gizlenir, gerçek input metni
+   görünür olur — yazarken "ne yazdığım gözükmüyor / üst üste biniyor"
+   glitch'inin düzeltmesi (mevduat_dock.js focus/blur is-editing). Tarayıcı
+   edit alanı o an kendi yerel formatını gösterir; blur'da GG.AA.YYYY
+   overlay'i geri gelir. */
+.mv-dock-row--date .mv-dock-datewrap.is-editing input[type="date"],
+.mv-dock-row--date .mv-dock-datewrap.is-editing input[type="date"]::-webkit-datetime-edit {
+  color: var(--ink);
+}
+.mv-dock-row--date .mv-dock-datewrap.is-editing .mv-dock-datetext {
+  display: none;
 }
 .mv-dock-datetext {
   position: absolute;

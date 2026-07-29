@@ -44,6 +44,13 @@
 - Programatik değer yazma `MVP.setDateVal(el, iso, fire)` ile; `fire=true`
   change yayınlar → dock overlay'i VE sayfanın yükleme listener'ı TEK yoldan
   tetiklenir (manuel `loadDate` + setDateVal çifti YASAK — çift yükleme).
+- **EDİT MODU (R10):** overlay yalnız GÖSTERİM içindir. Input odak alınca
+  dock `mv-dock-datewrap`'e `is-editing` ekler → overlay gizlenir, gerçek
+  input metni görünür olur (kullanıcı ne yazdığını görür; tarayıcı o an kendi
+  yerel formatını gösterir — kabul edilen tek istisna). Blur'da sınıf kalkar,
+  GG.AA.YYYY overlay'i güncel değerle geri gelir; `input` event'i başlıktaki
+  tarih etiketini canlı tazeler. Overlay'li her tarih alanında bu üçlü
+  (focus/blur/input) ZORUNLUDUR — yoksa yazarken metin üst üste biner.
 - Dock'suz bağlamlar (mevduat kabuğu dışı) için `MVP.initDatePicker`
   (flatpickr, altInput d.m.Y) yedek olarak durur.
 
@@ -55,6 +62,21 @@
   Özellikler: All | None, "＋ Group Selected" birleştirme, grup bozma,
   `All (n)` / `None` / `k / n` buton etiketi.
 - Host: `.mv-page-filters` satırındaki `#fDims.bub-filter-panel` (kabukta hazır).
+- **ÜST ŞERİT TEK SATIRDIR (R10):** filtre butonları ve durum metni
+  (`#mvpStatus`, "X işlem listeleniyor") AYNI satırda sıralanır — panel önce,
+  status `margin-left:auto` ile en sağda. `flex-basis:100%` sarmalayıcı YASAK
+  (paneli ikinci satıra atıyordu). **Yatay scroll ASLA çıkmaz:**
+  `overflow-x:hidden` + kompakt padding + şeritteki dd butonlarında
+  `min-width:0` (SPA'nın 160px sabiti şeridi taşırıyordu); yer kalmazsa
+  sarma (wrap) kabul, kaydırma değil.
+- **`body.prisma button` RESET TUZAĞI:** prisma.css'in global buton reset'i
+  (`background:none;border:none` — 0,1,1 özgüllük) tek sınıflı
+  `.bub-filter-dd-btn`'i (0,1,0) ezer → butonlar çıplak metin görünür.
+  Çözüm mevduat_prisma.css'te İKİ sınıflı kural:
+  `.mevduat-mount .bub-filter-dd-btn { border:1px solid var(--border-mid);
+  border-radius:4px; background:var(--bg-panel); padding:5px 10px }`.
+  Prisma kabuğunda buton stili tanımlarken özgüllüğü daima bu reset'e karşı
+  kontrol et.
 - "Güncelle" butonu YOK — değişiklik anında uygulanır (Outstanding deseni).
 - Seçim sorgulama: `MVP.bubSelected` (grupları üyelerine açar), `MVP.bubIsAll`.
 - Boş seçim = "hiçbiri" (satır geçmez); sabit listelerde (tutar/vade/revize)
@@ -140,14 +162,50 @@
   hedefi **bulunduğun sürecin UZMANIDIR**: `folders.folder_menu` menüye
   `expert_url` koyar, sayfa şablonu `{% set masa_back_url =
   folder_menu['expert_url'] ... %}` ile topbar'a geçirir; yoksa landing.
-- Uygulama sayfaları (deposit_panel params/reservations) masa ile AYNI sabit
-  genişliği kullanır: `body.prisma .canvas { max-width: min(97vw, 1800px) }`
-  (şablonun kendi <style> bloğunda). Tablolar/plotlar tam genişlik alır.
+  **Uygulama sayfaları da (R10):** deposit_panel route'ları
+  `FOLDER_MENU_PROVIDER`'ı kendi süreç id'siyle
+  (`uygulamalar.panel_parametreler` / `uygulamalar.panel_rezervasyon`) çağırıp
+  `masa_back_url`'i render context'inde geçirir — prisma_home İMPORT EDİLMEZ,
+  sağlayıcı yoksa landing'e düşülür.
+- **Uygulama sayfaları TAM GENİŞLİKTİR (R10):** `body.prisma .canvas
+  { max-width: none !important; padding: 40px clamp(20px,2.5vw,48px) 80px }`
+  (şablonun kendi <style> bloğunda). Önceki `min(97vw,1800px)` kuralı tipik
+  ofis ekranında 1280'den hissedilir fark yaratmadığı için KALDIRILDI —
+  rezervasyon sayfalarının (canvas_bleed) genişlik hissiyle eşleşir.
+  Masa (expert.html) `min(97vw, 1800px)`'de KALIR (kart ızgarası aşırı
+  genişlikte dağılıyor).
 - Süreç kartının TAMAMI tıklanabilir (delegasyon `.proc-cta` href'ine gider;
   iç buton/link/metin seçimi hariç) + `cursor:pointer`.
 - Süreçler klasörlere (`department_views[].topics[]`) gruplanır; klasörsüz
   süreç masada görünmez (gizleme mekanizması). Uygulamalar ayrı bölümdedir ve
   uygulama başına departman yetkisi taşır.
+
+## 7b. Kabuk genel kuralları (R10)
+
+- **Tarayıcı çeviri balonu kapalı:** her iki base'de (`home/_base_prisma.html`
+  ve legacy `templates/base.html`) `<meta name="google" content="notranslate">`
+  bulunur — TR/EN karışık metin Chrome'un dil algısını şaşırtıp her sayfada
+  "çevir?" önerisi çıkarıyordu. Yeni base yazılırsa meta'yı taşı.
+
+## 7c. Rezervasyon veri kuralları — MEVDUAT_YETKILER (R10)
+
+- **Params ekranı "Ekstrem + Yetki" alanı:** New Funding Rate'in hemen altında
+  salt-okunur input. Değer `queries/dep_ekstrem_yetki.sql` ile HER sayfa
+  yüklemesinde taze çekilir (ana df'ten GELMEZ): tablodaki en son DAT'ın
+  TRY / VADE_BASLANGIC=32 satırlarından
+  `MAX(GREATEST(EKSTREM + ZARAR_YETKISI/100, EKSTREM_LIMIT_ALTI +
+  ZARAR_YETKISI/100))`. Tarih etiketi GG.AA.YYYY.
+- **Rezervasyon sayfalarının EKSTREM / EKSTREM_YETKI metrikleri kural
+  bazlıdır** (`reservation_data.derive_ekstrem_columns`):
+  - Eşleşme: satır günü = `DAT`, `CCY_CODE` = `DOVIZ`, satır vadesinin İLK
+    sayısı ("32-35" → 32) yetki bandının `[VADE_BASLANGIC, VADE_BITIS]`
+    aralığında.
+  - `CUST_TP` `F`/`T` (tüzel) → `*_TUZEL` kolon seti; `G` → normal set.
+  - AUM (`PORTFOLIO_AMT`) < **`AUM_LIMIT_ALTI_ESIK` (PARAMETRİK, 100M)** →
+    `EKSTREM_LIMIT_ALTI`; değilse (AUM bilinmiyorsa dahil) `EKSTREM`.
+  - `EKSTREM_YETKI = seçilen + ZARAR_YETKISI/100` (tüzelde `_TUZEL`).
+  - Kural tablosu yüklenemezse / gün eşleşmezse satırın SQL'den gelen değeri
+    aynen kalır — sayfa asla kırılmaz.
 
 ## 8. Jinja/test tuzakları (yaşandı, tekrarlama)
 
