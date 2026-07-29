@@ -102,11 +102,26 @@ def build_reservation_df() -> pd.DataFrame:
     ))
 
     myu_df = pd.concat([myu_df, core_df], ignore_index=True)
+    # DTYPE TUZAĞI (2026-07-29 veri-kaybı kökü): legacy bu veriyi DataClient'ın
+    # S3 parquet önbelleğinden okurdu (CREATE_TM int/str olarak korunur); port
+    # taze oracledb çeker → NUMBER kolonlar float64 gelir. float'ta
+    # str(93015.0)='93015.0' → zfill(6) pad'lemez ve esnek parser 5 haneli saati
+    # çözemez → 10:00 ÖNCESİ TÜM MYU SATIRLARI DÜŞERDİ (6 haneli '103015.0'
+    # kesirli saniye gibi parse olup hayatta kalıyordu — o yüzden gün 10:00'da
+    # "başlıyor" görünüyordu). Saat daima rakama indirgenir + zfill(6).
+    _dt_str = pd.to_datetime(myu_df["CREATE_DT"], errors="coerce").dt.strftime("%Y-%m-%d")
+    _dt_str = _dt_str.fillna(myu_df["CREATE_DT"].astype(str))
+    _tm_str = (myu_df["CREATE_TM"].astype(str)
+               .str.replace(r"\.0+$", "", regex=True)
+               .str.replace(r"\D", "", regex=True)
+               .str.zfill(6))
     myu_df["DATE_TIME"] = pd.to_datetime(
-        myu_df["CREATE_DT"].astype(str) + " "
-        + myu_df["CREATE_TM"].astype(str).str.zfill(6),
-        errors="coerce",
-    )
+        _dt_str + " " + _tm_str, format="%Y-%m-%d %H%M%S", errors="coerce")
+    _miss = myu_df["DATE_TIME"].isna()
+    if _miss.any():
+        # CREATE_DT beklenmedik biçimdeyse legacy'nin esnek parser'ına düş.
+        myu_df.loc[_miss, "DATE_TIME"] = pd.to_datetime(
+            _dt_str[_miss] + " " + _tm_str[_miss], errors="coerce")
     myu_df["DATA_SRC"] = "MYU"
 
     # ── TREASURY ──
@@ -122,10 +137,26 @@ def build_reservation_df() -> pd.DataFrame:
         "PRCNG_CNT": "TALEP_REVIZE_NO",
     }, inplace=True)
     treasury_df["DATA_SRC"] = "TREASURY"
+    # Aynı dtype tuzağı (yukarıdaki MYU notu): CREATE_TM float64 gelirse
+    # str()[:14] '.0' kuyruğunu/karışık biçimi keserek 14 haneyi bozar →
+    # TÜM TREASURY (Hazine) SATIRLARI NaT olup düşerdi. Rakama indirgeyip
+    # 14 hane al; olmazsa Oracle DATE dönmüş olabilir → doğrudan parse;
+    # o da olmazsa satırı öldürme, CREATE_DT (gün 00:00) ile yaşat.
+    _tm_raw = treasury_df["CREATE_TM"]
+    _tm14 = (_tm_raw.astype(str)
+             .str.replace(r"\.0+$", "", regex=True)
+             .str.replace(r"\D", "", regex=True)
+             .str[:14])
     treasury_df["DATE_TIME"] = pd.to_datetime(
-        treasury_df["CREATE_TM"].astype(str).str[:14],
-        format="%Y%m%d%H%M%S", errors="coerce",
-    )
+        _tm14, format="%Y%m%d%H%M%S", errors="coerce")
+    _miss = treasury_df["DATE_TIME"].isna()
+    if _miss.any():
+        treasury_df.loc[_miss, "DATE_TIME"] = pd.to_datetime(
+            _tm_raw[_miss], errors="coerce")
+    _miss = treasury_df["DATE_TIME"].isna()
+    if _miss.any():
+        treasury_df.loc[_miss, "DATE_TIME"] = pd.to_datetime(
+            treasury_df.loc[_miss, "CREATE_DT"], errors="coerce")
     treasury_df = _dedup_cols(treasury_df)
 
     # ── Birleştir + sırala ──

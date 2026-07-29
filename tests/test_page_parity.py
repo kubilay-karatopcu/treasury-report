@@ -546,3 +546,47 @@ def test_design_rules_doc_exists_and_is_referenced():
         assert key in doc, key
     claude = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
     assert "CUSTOM_PAGE_DESIGN.md" in claude
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# R8 — veri paritesi + masa/params rötuşları (2026-07-29 ikinci tur)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_reservation_time_parse_is_dtype_safe():
+    """oracledb float64 tuzağı: zaman kolonları rakama indirgenip pad'lenmeli."""
+    src = (REPO / "mevduat_panel/engine/reservation_data.py").read_text(encoding="utf-8")
+    assert src.count(r'\.0+$') >= 2          # float kuyruğu iki kaynakta da kırpılır
+    assert ".str.zfill(6)" in src            # MYU 5-haneli sabah saatleri
+    assert "%Y%m%d%H%M%S" in src             # TREASURY 14-hane
+    assert 'treasury_df.loc[_miss, "CREATE_DT"]' in src   # son çare: satır düşmez
+
+
+def test_params_chart_datetime_axis_is_local():
+    """Apex datetime ekseni datetimeUTC:false olmalı — yoksa T günü T-1 görünür."""
+    js = (REPO / "deposit_panel/static/deposit_panel.js").read_text(encoding="utf-8")
+    assert "datetimeUTC: false" in js
+
+
+def test_params_layout_left_column_and_wide_strategy():
+    """Model+Hyper alt alta (sol kolon); Fiyatlama sağda iki kart boyunda."""
+    html = (REPO / "deposit_panel/templates/deposit_panel/params.html").read_text(
+        encoding="utf-8")
+    assert "params-left-col" in html
+    assert "params-strategy" in html
+    assert html.index("params-left-col") < html.index("params-strategy")
+    assert 'class="pk-card pk-card--third"' not in html
+
+
+def test_masa_mode_topbar_has_return_button():
+    """Masa modunda landing hariç her sayfada '← Masaya dön' pili."""
+    top = (REPO / "prisma_home/templates/partials/topbar.html").read_text(encoding="utf-8")
+    assert "{% if masa_mode %}" in top
+    assert top.count("← Masaya dön") >= 2    # atölye ana + masa modu pili
+    assert "prisma_home.landing" in top
+
+
+def test_expert_section_title_is_just_surecler():
+    html = (REPO / "prisma_home/templates/home/expert.html").read_text(encoding="utf-8")
+    assert '<span class="section-title">Süreçler</span>' in html
+    assert "Süreçler · Canlı Panolar" not in html
+    assert "min(97vw, 1800px)" in html       # masa genişliği

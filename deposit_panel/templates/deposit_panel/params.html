@@ -21,6 +21,16 @@
    Renkler PRISMA token'larından: yeni token TANIMLANMAZ, tema otomatik izler. */
 /* Dar kartta (pk-card--third) yatay yerleşimde tick etiketleri üst üste
    biniyordu → bant etiketi kaydırıcının ÜSTÜNE alındı. */
+/* R8 — Model+Hyper sol kolonda alt alta; Fiyatlama Stratejisi sağda iki
+   kart boyunda ve geniş. Dar ekranda hepsi alt alta düşer. */
+.params-left-col {
+    grid-column: span 6; display: flex; flex-direction: column;
+    gap: 14px; min-width: 0;
+}
+.params-strategy { grid-column: span 6; display: flex; flex-direction: column; }
+@media (max-width: 1100px) {
+    .params-left-col, .params-strategy { grid-column: span 12; }
+}
 .strategy-slider-row {
     display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px;
 }
@@ -84,8 +94,9 @@ input.strategy-range.state-2::-moz-range-thumb     { background: var(--red); }
       <div class="pk-chart" id="chart-params-ts" style="height:320px;"></div>
     </div>
 
-    <!-- Model parametreleri -->
-    <div class="pk-card pk-card--third">
+    <!-- Model parametreleri + Hyperparametreler: sol kolonda alt alta (R8) -->
+    <div class="params-left-col">
+    <div class="pk-card">
       <div class="pk-card__head">
         <span class="pk-card__title">Model Parametreleri</span>
         {% if not can_edit_hp %}<span class="pk-badge">Salt Okunur</span>{% endif %}
@@ -105,7 +116,7 @@ input.strategy-range.state-2::-moz-range-thumb     { background: var(--red); }
     </div>
 
     <!-- Hyperparametreler -->
-    <div class="pk-card pk-card--third">
+    <div class="pk-card">
       <div class="pk-card__head">
         <span class="pk-card__title">Hyperparametreler</span>
         {% if not can_edit_hp %}<span class="pk-badge">Salt Okunur</span>{% endif %}
@@ -131,8 +142,10 @@ input.strategy-range.state-2::-moz-range-thumb     { background: var(--red); }
       </div>
     </div>
 
+    </div>{# R8: sol kolon sonu #}
+
     <!-- Fiyatlama stratejisi -->
-    <div class="pk-card pk-card--third">
+    <div class="pk-card params-strategy">
       <div class="pk-card__head">
         <span class="pk-card__title">Fiyatlama Stratejisi</span>
         <span class="pk-card__note">beklenen roll rasyosu</span>

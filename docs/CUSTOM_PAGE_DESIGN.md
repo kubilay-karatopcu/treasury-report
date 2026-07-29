@@ -77,6 +77,9 @@
 
 - Chart: **ApexCharts**, daima `MVP.renderChart` üzerinden (tema flip'inde
   otomatik yeniden kurulur). `new ApexCharts(...)` doğrudan çağrılmaz.
+- **datetime ekseninde `labels.datetimeUTC: false` ZORUNLU** — API tarihleri
+  tz'siz ISO gelir, JS yerel gece yarısı olarak parse eder; Apex varsayılanı
+  UTC'de etiketler → T günü T-1 görünür (2026-07-29 params bug'ı).
 - Renkler `MVP.palette()` / `MVP.token()` — palet **6 renklidir**; sınır dışı
   indeks Apex'te "undefined color" üretir, daima `pal[i % pal.length]` ya da
   bilinen indeks kullan. İSTİSNA: anlamlı sabit renkler
@@ -105,8 +108,11 @@
 
 ## 7. Masa (uzman sayfası) kuralları
 
-- İçerik alanı geniş: `body.prisma .canvas { max-width: min(96vw, 1600px) }`
-  (kabuğun 1280px sınırı masada gevşetilir).
+- İçerik alanı geniş ve responsive: `body.prisma .canvas
+  { max-width: min(97vw, 1800px) }` (kabuğun 1280px sınırı masada gevşetilir).
+- Süreç bölümünün başlığı sadece **"Süreçler"** (ek etiket yok).
+- Masa modunda (PRISMA_MASA_MODE) topbar'da Atölye pili yerine landing hariç
+  her sayfada **"← Masaya dön"** görünür (hide_mode_switch'ten bağımsız).
 - Süreç kartının TAMAMI tıklanabilir (delegasyon `.proc-cta` href'ine gider;
   iç buton/link/metin seçimi hariç) + `cursor:pointer`.
 - Süreçler klasörlere (`department_views[].topics[]`) gruplanır; klasörsüz
@@ -122,3 +128,8 @@
   döndürür (vendor asset adları doğrulanabilsin). Bkz. `tests/test_page_parity.py`.
 - `jobs/` script'leri argparse KULLANMAZ (Spyder); KONFİG sabitleri + string-
   güvenli liste çevirici (CLAUDE.md'deki ofis kuralı).
+- **oracledb dtype tuzağı:** legacy DataClient S3 parquet önbelleğinden okurdu
+  (int/str korunur); taze oracledb NUMBER'ı float64 döndürür → zaman kolonları
+  ('93015' → '93015.0') string parse'ı sessizce kırar ve satırlar DÜŞER
+  (2026-07-29: Hazine tamamen, MYU 10:00 öncesi kayboldu). Zaman/ID kolonları
+  daima rakama indirgenip pad'lenir; bkz. reservation_data.py DATE_TIME blokları.

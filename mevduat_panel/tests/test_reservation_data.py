@@ -170,3 +170,53 @@ def test_competitor_build(monkeypatch):
     assert out.iloc[0]["VADE_MIN"] == 32 and out.iloc[0]["VADE_MAX"] == 45
     assert "DATE_STR" in out.columns
     assert out["FAIZ"].notna().all()
+
+
+# ── 2026-07-29 veri-kaybı regresyonu: oracledb float64 dtype tuzağı ─────────
+# Legacy veri DataClient'ın S3 parquet önbelleğinden gelirdi (int/str korunur);
+# port taze oracledb çeker → NUMBER kolonlar float64. Eski parse bu yüzden
+# 10:00 öncesi MYU'yu ve TÜM TREASURY'yi (Hazine) sessizce düşürüyordu.
+
+def test_myu_float_create_tm_before_10am_survives(monkeypatch):
+    """float 93015.0 (5 hane + .0) → 09:30:15; sabah satırları düşmemeli."""
+    myu = _myu_frame()
+    myu["CREATE_TM"] = [93000.0, 94500.0, 100000.0]   # oracledb float64
+    monkeypatch.setattr(rd, "load_dataframe", _fake_loader(myu=myu))
+    rd.reset_caches()
+    df = rd.build_reservation_df()
+    myu_rows = df[df["DATA_SRC"] == "MYU"]
+    hours = sorted(myu_rows["DATE_TIME"].dt.strftime("%H:%M:%S"))
+    assert "09:30:00" in hours, "10:00 öncesi MYU satırı düştü (float dtype)"
+    assert "09:45:00" in hours
+
+
+def test_treasury_float_create_tm_survives(monkeypatch):
+    """float 20260724093000.0 → '.0' kuyruğu 14 haneyi bozmamalı; Hazine yaşar."""
+    tre = _treasury_frame()
+    tre["CREATE_TM"] = [20260724093000.0]             # oracledb float64
+    monkeypatch.setattr(rd, "load_dataframe", _fake_loader(treasury=tre))
+    rd.reset_caches()
+    df = rd.build_reservation_df()
+    tre_rows = df[df["DATA_SRC"] == "TREASURY"]
+    assert len(tre_rows) == 1, "TREASURY (Hazine) satırları tamamen düştü"
+    assert tre_rows["DATE_TIME"].dt.strftime("%H:%M:%S").iloc[0] == "09:30:00"
+
+
+def test_treasury_oracle_date_create_tm_falls_back(monkeypatch):
+    """CREATE_TM Oracle DATE dönerse (14-hane değil) satır yine yaşamalı."""
+    tre = _treasury_frame()
+    tre["CREATE_TM"] = pd.to_datetime(["2026-07-24 09:30:00"])
+    monkeypatch.setattr(rd, "load_dataframe", _fake_loader(treasury=tre))
+    rd.reset_caches()
+    df = rd.build_reservation_df()
+    assert (df["DATA_SRC"] == "TREASURY").sum() == 1
+
+
+def test_myu_datetime_create_dt_survives(monkeypatch):
+    """CREATE_DT datetime64 dönerse ('2026-07-24 00:00:00' str'i) parse kırılmamalı."""
+    myu = _myu_frame()
+    myu["CREATE_DT"] = pd.to_datetime(myu["CREATE_DT"])
+    monkeypatch.setattr(rd, "load_dataframe", _fake_loader(myu=myu))
+    rd.reset_caches()
+    df = rd.build_reservation_df()
+    assert (df["DATA_SRC"] == "MYU").sum() == 2   # 3. satır tutar filtresi (<50k)

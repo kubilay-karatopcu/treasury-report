@@ -28,7 +28,16 @@
        gizler — kullanıcı kararı 2026-07-22: bir sürece tıkladığımda sağ üstte
        "Atölyeye geç" olmasın. #}
     {# masa_mode: Atölye tamamen gizli — mod-geçiş pili hiç render edilmez. #}
-    {% if not hide_mode_switch and not masa_mode %}
+    {# R8 — masa modunda Atölye pili yerine "Masaya dön": landing dışındaki
+       her sayfada (süreç/pano/uygulama; hide_mode_switch'ten bağımsız). #}
+    {% if masa_mode %}
+      {% if request.endpoint != 'prisma_home.landing' %}
+      <a class="mode-back" id="modeBack"
+         href="{{ url_for('prisma_home.landing') }}"
+         data-target="masa"
+         title="Masa ana ekranına dön">← Masaya dön</a>
+      {% endif %}
+    {% elif not hide_mode_switch %}
     {% if request.endpoint == 'prisma_home.atolye_home' %}
       <a class="mode-back" id="modeBack"
          href="{{ url_for('prisma_home.landing') }}"
