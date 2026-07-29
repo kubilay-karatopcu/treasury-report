@@ -100,6 +100,36 @@ def can_access(expert, department: str | None) -> bool:
     return "*" in read or ((department or "").strip() in read)
 
 
+def resolve_applications(expert, department: str | None) -> list[str]:
+    """Kullanıcının görebileceği uygulama süreç id'leri (R2).
+
+    Şema (Expert.applications): ``[{id: pid, departments?: [str]}]``. Bir
+    uygulamanın ``departments`` listesi:
+      - boş/tanımsız → uzmanı görebilen HERKES görür (uzman erişimi zaten
+        yukarıda çözülmüştür; uygulama ek kısıt getirmez),
+      - dolu → yalnız listedeki departmanlar görür (birebir string eşleşmesi,
+        ``resolve_view`` ile aynı sözleşme — "*" joker DESTEKLENMEZ).
+
+    Sıra YAML'daki sırayı korur; tekrarlı id'ler tekilleştirilir. Uzman erişimi
+    bu fonksiyonun sorumluluğu DEĞİLDİR (çağıran ``can_access``/``resolve_view``
+    ile zaten karar vermiştir).
+    """
+    dept = (department or "").strip()
+    out: list[str] = []
+    for app in (getattr(expert, "applications", None) or []):
+        if not isinstance(app, dict):
+            continue
+        pid = (app.get("id") or "").strip()
+        if not pid or pid in out:
+            continue
+        depts = [d for d in (app.get("departments") or [])
+                 if isinstance(d, str) and d.strip()]
+        if depts and dept not in depts:
+            continue
+        out.append(pid)
+    return out
+
+
 def legacy_view(expert) -> dict:
     """Legacy uzman için tek-topic bakış (render + piramit tek yoldan aksın)."""
     pids = list((getattr(expert, "bound_content", None) or {}).get("processes") or [])

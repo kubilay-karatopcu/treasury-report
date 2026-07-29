@@ -60,6 +60,11 @@ class Expert:
     #   [{departments: [str], label?, briefing_focus?,
     #     topics: [{title, processes: [pid]}]}]
     department_views: list = field(default_factory=list)
+    # R2 — Uygulamalar: analiz panosu değil, etkileşimli araçlar. Süreçlerden
+    # ayrı bir bölümde render edilir ve HER UYGULAMA kendi departman listesini
+    # taşır (boş/yok = uzmanı görebilen herkes). Bkz. expert_views.resolve_applications.
+    #   [{id: pid, departments?: [str]}]
+    applications: list = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Expert":
