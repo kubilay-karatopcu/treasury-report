@@ -141,7 +141,11 @@
         fontFamily: 'inherit',
         background: 'transparent',
         foreColor: ink,
-        animations: { enabled: true, speed: 250 },
+        // R9 — seriler tek seferde çizilir; animateGradually seri seri
+        // "pıt pıt" getiriyordu (kullanıcı kararı 2026-07-29).
+        animations: { enabled: true, speed: 250,
+                      animateGradually: { enabled: false },
+                      dynamicAnimation: { enabled: true, speed: 250 } },
         zoom: { enabled: false },
       },
       theme: { mode: dark ? 'dark' : 'light' },
@@ -452,11 +456,13 @@
     return fp;
   }
 
-  /** Değeri programatik yaz (ISO) — flatpickr görünümünü de senkronlar. */
-  function setDateVal(el, iso) {
+  /** Değeri programatik yaz (ISO). fire=true ise change yayınlar — dock'un
+      GG.AA.YYYY overlay'i ve sayfanın change listener'ları tek yoldan tetiklenir. */
+  function setDateVal(el, iso, fire) {
     if (!el) return;
     if (el._fp) el._fp.setDate(iso, false);
     el.value = iso || '';
+    if (fire) el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   window.MVP = {

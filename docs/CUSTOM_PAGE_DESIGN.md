@@ -23,25 +23,29 @@
   Elle yazılmış nav listesi YASAK. İzolasyon: `mevduat_panel`, `prisma_home`'u
   import ETMEZ; sağlayıcı config üzerinden gelir, yoksa/patlarsa menü çizilmez
   ve sayfa çalışmaya devam eder.
-- **Tarih / para birimi / dönem kontrolleri SOL ALTTA, menünün parçasıdır**
-  (`mvp_controls` bloğu; aside içinde `margin-top:auto` ile altta, üstünde
-  `--mv-border` ayracı). Ana içerik alanına tarih/ccy kontrolü KONMAZ.
-- Kontrol satırı SPA filtre satırıyla AYNI dildedir: **label YANDA**
-  (`display:flex;align-items:center;gap:6px`), input/select SPA stiliyle
-  (`.sidebar-controls input/select` — _page.html CSS'i). Dikey label YASAK.
-  Tarih ileri/geri okları `.wf-nav-btn`. Aralıklar iki ayrı satır:
-  "Başlangıç" / "Bitiş" (SPA'nın Date (Start)/(End) karşılığı).
-- Durum metni (`#mvpStatus`) kontrol panelinin altındadır.
+- **Sol-alt kontrol paneli = SPA'NIN DOCK'U (`mevduat_dock.js`) — elle panel
+  stillemek YASAK** (3 tur ıskalandı; dock tek kaynak). Akış: sayfa
+  kontrolleri (tarih/para birimi/dönem) ÜST ŞERİTTE (`mvp_controls` bloğu,
+  `.mv-page-filters` içinde) `<label>Metin <input/select></label>` olarak
+  tanımlanır; dock DOMContentLoaded'da bunları toplayıp sidebar'ın altına
+  CANLI taşır. "Date Range / Dimensions & View" başlıkları, seçici ◀ ▶
+  okları (hover'da boyanan, çerçevesiz `.mv-dock-arrow`), köşeli input
+  görünümü ve tarih overlay'i DOCK'TAN gelir — sayfada yeniden yazılmaz.
+- Kabuk `mevduat_dock.js`'i script olarak yükler (carousel.js'ten sonra).
+- Durum metni (`#mvpStatus`) üst şeritte sağda durur.
 
 ## 2b. Tarih formatı — İSTİSNASIZ KURAL
 
 - **Her tarih seçici GG.AA.YYYY gösterir; ABD formatı (AA/GG/YYYY) YASAKTIR.**
-- Native `<input type="date">` tarayıcı locale'ine göre ABD formatı
-  gösterebildiği için doğrudan KULLANILMAZ: `MVP.initDatePicker(el)` çağrılır
-  (flatpickr, vendored) — altInput GG.AA.YYYY gösterir, asıl input ISO
-  (`Y-m-d`) kalır, sayfa JS'i `.value`'yu değiştirmeden okur.
-- Programatik değer yazma `MVP.setDateVal(el, iso)` ile (flatpickr görünümünü
-  senkronlar). flatpickr yoksa native'e zarifçe düşer.
+- mevduat kabuğunda BİRİNCİL mekanizma DOCK OVERLAY'idir: `mevduat_dock.js`
+  native `<input type=date>`'in metnini şeffaflaştırıp üstüne GG.AA.YYYY yazar
+  (takvim ikonu/picker aynen çalışır, `.value` ISO kalır). Sayfa JS'i flatpickr
+  ÇAĞIRMAZ.
+- Programatik değer yazma `MVP.setDateVal(el, iso, fire)` ile; `fire=true`
+  change yayınlar → dock overlay'i VE sayfanın yükleme listener'ı TEK yoldan
+  tetiklenir (manuel `loadDate` + setDateVal çifti YASAK — çift yükleme).
+- Dock'suz bağlamlar (mevduat kabuğu dışı) için `MVP.initDatePicker`
+  (flatpickr, altInput d.m.Y) yedek olarak durur.
 
 ## 3. Filtreler
 
@@ -55,17 +59,32 @@
 - Seçim sorgulama: `MVP.bubSelected` (grupları üyelerine açar), `MVP.bubIsAll`.
 - Boş seçim = "hiçbiri" (satır geçmez); sabit listelerde (tutar/vade/revize)
   verilen sıra korunur, veriden gelenler Türkçe alfabetik.
+- **VARSAYILAN FİLTRELER (tüm sayfalarda ortak):** Kaynak=**MYU**, Tutar=tümü,
+  Para Birimi=**TRY**, Vade=**32-35**, Müşteri Tipi=**G**, Revize=**Son
+  Revize**. (Değer veride yoksa o boyut tümü-seçili kalır.)
+- Filtre bölgesi `.mv-page-filters` ÇITIR ÇERÇEVELİDİR: `border:1px solid
+  var(--border-mid); border-radius:6px; background:var(--bg-panel)` — koyu
+  temada iç içe görünmesin.
 
 ## 4. İçerik bölümleri
 
 - Bölüm = `.accordion` + `.accordion-header.open` + `.accordion-body`
   (`max-height:none;overflow:visible;padding:0 16px 16px`).
-- **Başlık tıklaması AÇ/KAPA DEĞİL, TAM EKRAN'dır**: SPA'nın `_open` deseni —
-  gövde placeholder bırakılarak `document.body`'ye eklenen
-  `.chart-fs-overlay`'e TAŞINIR (chart örnekleri yaşar), ✕ / Esc / boşluğa
-  tıklama geri koyar. Sınıflar mevduat_panel.css'ten (`chart-fs-*`);
-  carousel.js `MVP.openFullscreen/closeFullscreen` sağlar. Overlay'de
-  `.chart-fs-body .plot-container` 72vh'ye çekilir.
+- **Başlık tıklaması AÇ/KAPA DEĞİL, TAM EKRAN MODALDIR — MODAL SPEC'İ:**
+  - Açılış: SPA `_open` deseni — accordion gövdesi placeholder bırakılarak
+    `document.body`'deki `.chart-fs-overlay`'e TAŞINIR (chart örnekleri yaşar).
+  - Yapı: overlay (`padding:4vh 5vw` → KENARLAR BOŞ) > topbar(✕) +
+    `.chart-fs-inner` iç kutu (`margin:auto; width:min(1500px,100%);`
+    `max-height:calc(100%-46px); overflow:auto; bg var(--bg-panel); border`).
+  - İçeride `.plot-container` 68vh'ye çekilir (`_page.html` CSS'i).
+  - Kapatma ÜÇ yol, hepsi ZORUNLU: **✕**, **Esc**, **iç kutunun DIŞINA
+    (overlay boşluğuna) tıklama** (`closest('.chart-fs-inner')` kontrolü).
+  - Açılış/kapanışta rAF içinde `resize` yayınlanır (Apex yeniden ölçer).
+  - carousel.js sağlar (`MVP.openFullscreen/closeFullscreen`); accordion
+    bağları `MVP.initCarousels()` ile kurulur → **karoseli olmayan sayfalar
+    dahil HER sayfanın draw() sonunda `MVP.initCarousels()` çağrılır**
+    (unutulursa başlık tıklaması ölü kalır — tarihselde yaşandı).
+  - Overlay'ler DAİMA `document.body`'de yaşar (bkz. §6 portal notu).
 - Karosel: kontroller `.wf-carousel-nav` içinde `.wf-slide-label` (`n / N`) +
   `.wf-nav-btn` (◀ ▶); slaytlar `.mv-carousel > .mvc-slide` (`hidden` toggle).
   ApexCharts gizli kapta 0 genişlikle çizildiği için slayt/büyütme değişiminde
@@ -77,6 +96,11 @@
 
 - Chart: **ApexCharts**, daima `MVP.renderChart` üzerinden (tema flip'inde
   otomatik yeniden kurulur). `new ApexCharts(...)` doğrudan çağrılmaz.
+- **Animasyon:** seriler TEK SEFERDE çizilir — `animateGradually` kapalıdır
+  (common.js baseOptions; seri seri "pıt pıt" gelmesi yasak).
+- **Stacked mixed chart:** kolon+çizgi kombinasyonunda yığılma isteniyorsa
+  `chart.type: 'bar'` kullan (`'line'` + `stacked:true` Apex'te yan yana
+  çizebiliyor — tarihsel hacim grafiğinde yaşandı).
 - **datetime ekseninde `labels.datetimeUTC: false` ZORUNLU** — API tarihleri
   tz'siz ISO gelir, JS yerel gece yarısı olarak parse eder; Apex varsayılanı
   UTC'de etiketler → T günü T-1 görünür (2026-07-29 params bug'ı).
@@ -112,7 +136,13 @@
   { max-width: min(97vw, 1800px) }` (kabuğun 1280px sınırı masada gevşetilir).
 - Süreç bölümünün başlığı sadece **"Süreçler"** (ek etiket yok).
 - Masa modunda (PRISMA_MASA_MODE) topbar'da Atölye pili yerine landing hariç
-  her sayfada **"← Masaya dön"** görünür (hide_mode_switch'ten bağımsız).
+  her sayfada **"← Masaya dön"** görünür (hide_mode_switch'ten bağımsız) ve
+  hedefi **bulunduğun sürecin UZMANIDIR**: `folders.folder_menu` menüye
+  `expert_url` koyar, sayfa şablonu `{% set masa_back_url =
+  folder_menu['expert_url'] ... %}` ile topbar'a geçirir; yoksa landing.
+- Uygulama sayfaları (deposit_panel params/reservations) masa ile AYNI sabit
+  genişliği kullanır: `body.prisma .canvas { max-width: min(97vw, 1800px) }`
+  (şablonun kendi <style> bloğunda). Tablolar/plotlar tam genişlik alır.
 - Süreç kartının TAMAMI tıklanabilir (delegasyon `.proc-cta` href'ine gider;
   iç buton/link/metin seçimi hariç) + `cursor:pointer`.
 - Süreçler klasörlere (`department_views[].topics[]`) gruplanır; klasörsüz
@@ -128,6 +158,11 @@
   döndürür (vendor asset adları doğrulanabilsin). Bkz. `tests/test_page_parity.py`.
 - `jobs/` script'leri argparse KULLANMAZ (Spyder); KONFİG sabitleri + string-
   güvenli liste çevirici (CLAUDE.md'deki ofis kuralı).
+- **İlk açılışta veri boş görünebilir:** rezervasyon ETL'i pod açılışında
+  arka planda ısınır (`prewarm.py` `_warm_steps` → `load_reservation_df`);
+  Oracle sorguları bitene dek sayfalar boş döner — hata değildir. Elle
+  tazeleme: `/mevduat-panel/admin/refresh` (`refresh_all` tüm cache'leri
+  boşaltıp yeniden ısıtır). Sayfa status'u ısınma ihtimalini söyler.
 - **oracledb dtype tuzağı:** legacy DataClient S3 parquet önbelleğinden okurdu
   (int/str korunur); taze oracledb NUMBER'ı float64 döndürür → zaman kolonları
   ('93015' → '93015.0') string parse'ı sessizce kırar ve satırlar DÜŞER

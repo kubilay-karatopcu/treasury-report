@@ -16,6 +16,10 @@
 <link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-grid.css') }}">
 <link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-theme-alpine.css') }}">
 <style>
+/* R9 — uygulama sayfaları geniş ve sabit genişlikte (masa ile aynı değer;
+   kabuğun 1280px sınırı gevşetilir — tablo/plotlar dar kalıyordu). */
+body.prisma .canvas { max-width: min(97vw, 1800px); }
+
 /* AG Grid'i PRISMA token'larına bağla — yeni renk TANIMLANMAZ, tema
    <html data-theme> ile flip olunca grid de otomatik izler. */
 .ag-theme-alpine {

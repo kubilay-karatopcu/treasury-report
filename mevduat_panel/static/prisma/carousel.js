@@ -157,13 +157,15 @@
     topbar.appendChild(btn);
     overlay.appendChild(topbar);
 
-    var body = document.createElement('div');
-    body.className = 'chart-fs-body';
-    body.appendChild(el);
-    overlay.appendChild(body);
-    // Boşluğa (grafik dışına) tıklama da kapatır — eski davranış.
+    // İçerik kenarları boş bir İÇ KUTUDA durur; kutunun DIŞINA (overlay
+    // padding alanı) tıklama kapatır — eski sitedeki modal davranışı.
+    var inner = document.createElement('div');
+    inner.className = 'chart-fs-body chart-fs-inner';
+    inner.appendChild(el);
+    overlay.appendChild(inner);
     overlay.addEventListener('click', function (ev) {
-      if (ev.target === overlay || ev.target === body) closeFullscreen();
+      if (!ev.target.closest('.chart-fs-inner') &&
+          !ev.target.closest('.chart-fs-close')) closeFullscreen();
     });
     document.body.appendChild(overlay);
 

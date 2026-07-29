@@ -437,14 +437,13 @@ PAGE_SHELL = REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html"
 CAROUSEL = REPO / "mevduat_panel/static/prisma/carousel.js"
 
 
-def test_controls_live_in_sidebar_not_content():
-    """R6.2 — tarih/ccy kontrolleri sol-alt kontrol panelinde (mvp_controls)."""
+def test_controls_go_through_spa_dock():
+    """R9 — kontrol paneli SPA'nın dock'u: kontroller üst şeritte tanımlanır,
+    mevduat_dock.js sol-alta taşır. Elle panel stillemek yasak."""
     shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert "mevduat_dock.js" in shell
     assert "mvp_controls" in shell
-    assert "sidebar-controls" in shell
-    assert "margin-top:auto" in shell
-    # İçerik alanındaki filtre satırında yalnız boyutlar kalır.
-    assert "mvp_filters" not in shell
+    assert "sidebar-controls" not in shell        # elle panel kalktı
     for page in ("rates.html", "amounts.html", "historic.html", "competitor.html"):
         src = (REPO / "mevduat_panel/templates/mevduat_panel/prisma" / page).read_text(
             encoding="utf-8")
@@ -468,23 +467,23 @@ def test_accordion_header_opens_fullscreen_overlay():
         assert key in js, key
     assert "plot-max" not in js            # eski toggle kalmadı
     shell = PAGE_SHELL.read_text(encoding="utf-8")
-    assert ".chart-fs-body .plot-container" in shell
+    assert ".chart-fs-inner .plot-container" in shell
     # Chart'lar kabı doldurur; kaplar açık yükseklik taşır.
     assert "height: '100%'" in _js()
     assert 'style="height:350px;"' in _html()
 
 
 def test_date_pickers_are_ddmmyyyy_never_us():
-    """R7 — İSTİSNASIZ kural: tarih GG.AA.YYYY; native picker doğrudan yasak."""
-    common = (REPO / "mevduat_panel/static/prisma/common.js").read_text(encoding="utf-8")
-    assert "initDatePicker" in common
-    assert "'d.m.Y'" in common             # altInput görünümü
-    assert "altInput: true" in common      # asıl değer ISO kalır
+    """R9 — GG.AA.YYYY birincil mekanizması dock overlay'i; flatpickr sayfadan
+    çağrılmaz (yedek olarak common.js'te durur)."""
+    dock = (REPO / "mevduat_panel/static/mevduat_dock.js").read_text(encoding="utf-8")
+    assert "_fmtDmy" in dock               # ISO → gün.ay.yıl overlay
     shell = PAGE_SHELL.read_text(encoding="utf-8")
-    assert "flatpickr.min.js" in shell
+    assert "mevduat_dock.js" in shell
+    assert "flatpickr" not in shell        # kabuk flatpickr yüklemez
     for js_name in ("rates.js", "amounts.js", "historic.js", "competitor.js"):
         src = (REPO / "mevduat_panel/static/prisma" / js_name).read_text(encoding="utf-8")
-        assert "initDatePicker(" in src, js_name
+        assert "initDatePicker(" not in src, js_name
 
 
 def test_palette_indices_within_bounds():
@@ -504,9 +503,9 @@ def test_disclaimer_popup_portals_and_fills_links():
 
 
 def test_control_panel_labels_are_inline_rows():
-    """R7 — kontrol paneli SPA dili: label yanda (satır), dikey değil."""
+    """R9 — üst şerit kontrol stili SPA dili: label yanda (satır)."""
     shell = PAGE_SHELL.read_text(encoding="utf-8")
-    assert ".sidebar-controls label" in shell
+    assert ".mv-page-filters label" in shell
     assert "align-items: center" in shell
     for page in ("rates.html", "amounts.html", "historic.html", "competitor.html"):
         src = (REPO / "mevduat_panel/templates/mevduat_panel/prisma" / page).read_text(
@@ -590,3 +589,77 @@ def test_expert_section_title_is_just_surecler():
     assert '<span class="section-title">Süreçler</span>' in html
     assert "Süreçler · Canlı Panolar" not in html
     assert "min(97vw, 1800px)" in html       # masa genişliği
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# R9 — dock kontrol paneli, modal spec, defaults, masa-back (2026-07-29 3. tur)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_fullscreen_modal_spec():
+    """Modal: iç kutu + kenar boşluğu + dışa-tık kapatma + her draw'da bağ."""
+    js = CAROUSEL.read_text(encoding="utf-8")
+    assert "chart-fs-inner" in js
+    assert "closest('.chart-fs-inner')" in js       # dışa tık kapatır
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert ".chart-fs-inner" in shell
+    assert "padding: 4vh 5vw" in shell              # kenarlar boş
+    # Karoselsiz sayfalar dahil her draw() accordion bağlarını kurar.
+    for js_name in ("rates.js", "amounts.js", "historic.js", "competitor.js"):
+        src = (REPO / "mevduat_panel/static/prisma" / js_name).read_text(encoding="utf-8")
+        assert "MVP.initCarousels()" in src, js_name
+
+
+def test_default_filters_myu_and_g():
+    """Varsayılanlar: Kaynak=MYU, Müşteri Tipi=G (TRY/32-35/Son Revize zaten)."""
+    for js_name in ("rates.js", "amounts.js", "historic.js"):
+        src = (REPO / "mevduat_panel/static/prisma" / js_name).read_text(encoding="utf-8")
+        assert "v === 'MYU'" in src, js_name
+        assert "v === 'G'" in src, js_name
+
+
+def test_animations_draw_all_series_at_once():
+    common = (REPO / "mevduat_panel/static/prisma/common.js").read_text(encoding="utf-8")
+    assert "animateGradually: { enabled: false }" in common
+
+
+def test_historic_volume_is_stacked_bar():
+    src = (REPO / "mevduat_panel/static/prisma/historic.js").read_text(encoding="utf-8")
+    assert "type: 'bar', height: '100%', stacked: true" in src
+
+
+def test_filter_strip_has_subtle_border():
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    seg = shell.split(".mv-page-filters {")[1].split("}")[0]
+    assert "border: 1px solid var(--border-mid)" in seg
+
+
+def test_masa_back_targets_current_expert():
+    """Masaya dön → bulunduğun sürecin uzmanı (folders.expert_url zinciri)."""
+    folders = (REPO / "prisma_home/folders.py").read_text(encoding="utf-8")
+    assert "expert_url" in folders
+    assert "prisma_home.expert_detail" in folders
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert "masa_back_url" in shell
+    spa = (REPO / "mevduat_panel/templates/mevduat_panel/index.html").read_text(
+        encoding="utf-8")
+    assert "masa_back_url" in spa
+    top = (REPO / "prisma_home/templates/partials/topbar.html").read_text(encoding="utf-8")
+    assert "masa_back_url or url_for('prisma_home.landing')" in top
+
+
+def test_app_pages_share_wide_canvas():
+    """Uygulama sayfaları masa ile aynı sabit-geniş canvas'ı kullanır."""
+    for tpl in ("deposit_panel/templates/deposit_panel/params.html",
+                "deposit_panel/templates/deposit_panel/reservations.html"):
+        src = (REPO / tpl).read_text(encoding="utf-8")
+        assert "min(97vw, 1800px)" in src, tpl
+
+
+def test_setdateval_single_path_loading():
+    """setDateVal(el, iso, true) tek yol; manuel loadDate çifti yasak."""
+    common = (REPO / "mevduat_panel/static/prisma/common.js").read_text(encoding="utf-8")
+    assert "function setDateVal(el, iso, fire)" in common
+    for js_name in ("rates.js", "amounts.js"):
+        src = (REPO / "mevduat_panel/static/prisma" / js_name).read_text(encoding="utf-8")
+        assert "MVP.setDateVal(elDate, latest, true)" in src, js_name
+        assert "setDateVal(elDate, availableDates[next], true)" in src, js_name
