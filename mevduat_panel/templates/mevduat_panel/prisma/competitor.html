@@ -1,66 +1,90 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   Rakip Faiz Analizi — eski templates/competitor.html'in BİREBİR karşılığı.
+
+   Yapı kaynağı: templates/competitor.html + static/js/competitor.js.
+     1) Güncel Banka Sıralaması (Maks. Oran) → iki grafik alt alta
+        (#chart-snapshot-bars + #chart-snapshot-change) + Piyasa Özeti paneli
+     2) Tarihsel Faiz Trendi (Maks. Oran)    → #chart-trend
+     3) Detay Tablosu                        → AG-Grid (#competitor-grid)
+     4) Kaynakça                             → #source-links
+   Karosel YOK (kaynakta da yoktu). Ekstra kart/blok EKLENMEZ.
+
+   Filtre paneli bu sayfada kendine özgüydü (Vade + Banka + tarih aralığı);
+   Outstanding kitine çevrildi (R4).
+
+   Piyasa Özeti: kaynakta `POST /competitor/summary` LLM ucunu çağırıyordu.
+   Bu uç mevduat_panel'e PORTLANMADI (masa modu = sıfır LLM sözleşmesi ve modül
+   izolasyonu kararı gerektiriyor). Panel yerinde durur; uç yapılandırılmamışsa
+   kendini gizler — layout paritesi korunur, LLM bağımlılığı dayatılmaz.
+   ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "mevduat_panel/prisma/_page.html" %}
 {% set crumb = "Sektör · Rakip Faiz Analizi" %}
 {% block title %}Rakip Faiz Analizi — PRISMA{% endblock %}
 
 {% block mvp_filters %}
   <div class="pk-field">
-    <span class="pk-label">Tarih</span>
+    <span class="pk-label">Dönem</span>
     <div class="pk-field__body">
-      <input type="date" class="pk-input" id="fDate">
-    </div>
-  </div>
-  <div class="pk-field">
-    <span class="pk-label">Para Birimi</span>
-    <div class="pk-field__body"><select id="fCcy" class="pk-select"></select></div>
-  </div>
-  <div class="pk-field">
-    <span class="pk-label">Vade Aralığı (gün)</span>
-    <div class="pk-field__body">
-      <input type="number" class="pk-input" id="fVadeMin" placeholder="min" min="0">
+      <input type="date" class="pk-input" id="fFrom">
       <span class="pk-sep">→</span>
-      <input type="number" class="pk-input" id="fVadeMax" placeholder="max" min="0">
+      <input type="date" class="pk-input" id="fTo">
     </div>
   </div>
+
   <div class="pk-field">
-    <span class="pk-label">Banka</span>
-    <div class="pk-field__body"><div class="pk-chips" id="fBank"></div></div>
+    <span class="pk-label">Boyutlar</span>
+    <div class="pkf-panel" id="fDims"></div>
   </div>
 {% endblock %}
 
 {% block mvp_body %}
-  <div class="pk-kpis" id="kpis"></div>
-  <div class="pk-grid">
-    <div class="pk-card pk-card--half" id="card-bank">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Banka Bazında En Yüksek Faiz</span>
-        <span class="pk-card__note">seçili tarih ve vade aralığı</span>
-      </div>
-      <div class="pk-chart" id="chByBank"></div>
+<div class="pk-grid">
+
+  {# ── 1) Güncel banka sıralaması ────────────────────────────────────────── #}
+  <div class="pk-card" id="card-snapshot">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Güncel Banka Sıralaması (Maks. Oran)</span>
+      <span class="pk-card__note" id="snapshot-date"></span>
     </div>
-    <div class="pk-card pk-card--half" id="card-curve">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Vade Eğrisi</span>
-        <span class="pk-card__note">vade bandına göre ortalama faiz</span>
-      </div>
-      <div class="pk-chart" id="chCurve"></div>
-    </div>
-    <div class="pk-card" id="card-trend">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Piyasa En Yüksek Faiz — Zaman Serisi</span>
-        <span class="pk-card__note">gün bazında maksimum ve ortalama</span>
-      </div>
-      <div class="pk-chart" id="chTrend"></div>
-    </div>
-    <div class="pk-card" id="card-rows-table">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Rakip Oran Tablosu</span>
-        <span class="pk-card__note">seçili filtrelerdeki tüm kayıtlar</span>
-      </div>
-      <div id="tblRows"></div>
+    <div id="chart-snapshot-bars" class="pk-plot pk-plot--snapshot"></div>
+    <div id="chart-snapshot-change" class="pk-plot pk-plot--short"></div>
+    <div class="pk-summary" id="summary-panel" hidden>
+      <div class="pk-summary__label">Piyasa Özeti</div>
+      <div class="pk-summary__text" id="summary-text"></div>
     </div>
   </div>
+
+  {# ── 2) Tarihsel trend ─────────────────────────────────────────────────── #}
+  <div class="pk-card" id="card-trend">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Tarihsel Faiz Trendi (Maks. Oran)</span>
+    </div>
+    <div id="chart-trend" class="pk-plot pk-plot--wide"></div>
+  </div>
+
+  {# ── 3) Detay tablosu (AG-Grid, banka+vade gruplu) ─────────────────────── #}
+  <div class="pk-card" id="card-grid">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Detay Tablosu</span>
+    </div>
+    <div id="competitor-grid" class="ag-theme-alpine pk-grid-table"></div>
+  </div>
+
+  {# ── 4) Kaynakça ───────────────────────────────────────────────────────── #}
+  <div class="pk-card" id="card-sources">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Kaynakça</span>
+    </div>
+    <div id="source-links" class="pk-sources"></div>
+  </div>
+
+</div>
 {% endblock %}
 
 {% block page_scripts %}
+<link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid.css') }}">
+<link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-theme-alpine.css') }}">
+{# Enterprise build: satır gruplama (banka > vade) Community'de yok. #}
+<script src="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid-enterprise.min.noStyle.js') }}"></script>
 <script src="{{ url_for('mevduat_panel.static', filename='prisma/competitor.js') }}?v={{ mevduat_version }}"></script>
 {% endblock %}
