@@ -41,6 +41,12 @@ from DataClient import DataClient
 READ_DEPARTMENTS: list[str] = ["FİNANSAL YAPAY ZEKA UYGULAMALARI"]
 #: Uzmanı ATÖLYE'de düzenleyebilecek departmanlar.
 EDIT_DEPARTMENTS: list[str] = ["FİNANSAL YAPAY ZEKA UYGULAMALARI"]
+#: Masadaki klasör ağacını (department_views) görecek departmanlar. Boş
+#: bırakılırsa READ_DEPARTMENTS kullanılır. DİKKAT: bakış eşleşmesi birebir
+#: string karşılaştırmasıdır — "*" joker DESTEKLENMEZ (expert_views.resolve_view).
+#: Liste boş kalırsa uzman LEGACY moda düşer: klasör olmaz, tüm süreçler düz
+#: listelenir ve gizli süreçler (BSC) görünür.
+VIEW_DEPARTMENTS: list[str] = []
 #: S3'te DEP zaten varsa üzerine yaz (mevcut kaydı güncellemek için True).
 OVERWRITE: bool = True
 # ---------------------------------------------------------------------------
@@ -71,6 +77,40 @@ PROCESS_IDS = (
     "uygulamalar.asistan",
 )
 
+# Faz R1 — masadaki klasör ağacı. dev_data/experts/dep.yaml ile birebir tutulur.
+# Bir süreç hangi başlığın altındaysa masada orada çıkar; HİÇBİR başlıkta yer
+# almayan süreç masada GÖRÜNMEZ. ``mevduat.bsc`` bilinçli olarak dışarıda:
+# PROCESS_IDS'te (bağlı) durur ama masada gizlidir.
+TOPICS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Macro Deposit View", (
+        "mevduat.maliyet",
+        "mevduat.bakiye",
+        "mevduat.vade",
+        "mevduat.donusler",
+        "mevduat.yeni_uretim",
+        "mevduat.sektor",
+    )),
+    ("Daily View", (
+        "mevduat.oranlar",
+        "mevduat.miktarlar",
+        "mevduat.tarihsel",
+    )),
+    ("Sektör", (
+        "mevduat.rakip",
+    )),
+    ("Uygulamalar", (
+        "uygulamalar.panel_parametreler",
+        "uygulamalar.panel_rezervasyon",
+        "uygulamalar.asistan",
+    )),
+)
+
+BRIEFING_FOCUS = (
+    "Yapay zekâ / analitik ekip bakışı: fiyatlama ve maliyet sinyallerini, "
+    "yeni üretim davranışını ve vade/likidite risklerini modellenebilir, "
+    "aksiyon-odaklı biçimde özetle. Anomali ve yapısal kaymaları öne çıkar."
+)
+
 
 def _as_list(value: str | Sequence[str] | None) -> list[str]:
     """Departman girdisini güvenle listeye çevirir.
@@ -87,12 +127,32 @@ def _as_list(value: str | Sequence[str] | None) -> list[str]:
     return [str(v) for v in value]
 
 
+def build_department_views(view_departments: str | Sequence[str]) -> list[dict]:
+    """Masadaki klasör ağacını taşıyan department_views bloğu.
+
+    Departman listesi boşsa BOŞ liste döner — uzman legacy moda düşer (klasör
+    yok, tüm süreçler düz listelenir). ``resolve_view`` birebir string eşleşmesi
+    yaptığı için buraya "*" yazmak işe yaramaz; gerçek departman adı şarttır.
+    """
+    depts = _as_list(view_departments)
+    if not depts:
+        return []
+    return [{
+        "departments": depts,
+        "label": "FinAI Bakışı",
+        "briefing_focus": BRIEFING_FOCUS,
+        "topics": [{"title": title, "processes": list(pids)}
+                   for title, pids in TOPICS],
+    }]
+
+
 def build_expert(*, read_departments: str | Sequence[str],
-                 edit_departments: str | Sequence[str]) -> dict:
+                 edit_departments: str | Sequence[str],
+                 view_departments: str | Sequence[str] = ()) -> dict:
     """Build the S3ExpertStore-compatible DEP document."""
     return {
         "id": EXPERT_ID,
-        "version": 3,
+        "version": 4,
         "code": "DEP",
         "name": "Mevduat Uzmanı",
         "domain_label": "Mevduat & Fonlama",
@@ -126,6 +186,7 @@ def build_expert(*, read_departments: str | Sequence[str],
             "glyph": "DEP",
         },
         "status": "active",
+        "department_views": build_department_views(view_departments),
     }
 
 
@@ -134,7 +195,15 @@ def main() -> int:
     expert = build_expert(
         read_departments=READ_DEPARTMENTS,
         edit_departments=EDIT_DEPARTMENTS,
+        view_departments=_as_list(VIEW_DEPARTMENTS) or READ_DEPARTMENTS,
     )
+    if not expert["department_views"]:
+        print(
+            "UYARI: department_views boş — masada klasör oluşmaz, tüm süreçler "
+            "düz listelenir ve gizli süreçler (BSC) görünür. Klasör ağacı için "
+            "VIEW_DEPARTMENTS ya da READ_DEPARTMENTS'e gerçek departman adı yaz.",
+            file=sys.stderr,
+        )
     body = yaml.safe_dump(
         expert, allow_unicode=True, sort_keys=False, default_flow_style=False,
     ).encode("utf-8")
@@ -160,12 +229,25 @@ def main() -> int:
     if saved.get("bound_content", {}).get("processes") != list(PROCESS_IDS):
         print("Hata: S3 yazımı sonrası pano süreç bağları doğrulanamadı.", file=sys.stderr)
         return 5
+    if saved.get("department_views") != expert["department_views"]:
+        print("Hata: S3 yazımı sonrası klasör ağacı doğrulanamadı.", file=sys.stderr)
+        return 6
 
     action = "güncellendi" if existing is not None else "oluşturuldu"
     print(
         f"OK: {EXPERT_KEY} {action}; {len(PROCESS_IDS)} süreç bağlı; "
         f"read={saved['access_scope']['read']}, edit={saved['access_scope']['edit']}."
     )
+    for view in saved.get("department_views") or []:
+        print(f"  Bakış: {view.get('label')} → {view.get('departments')}")
+        for topic in view.get("topics") or []:
+            print(f"    {topic.get('title')}: {len(topic.get('processes') or [])} süreç")
+    hidden = [p for p in PROCESS_IDS
+              if not any(p in (t.get("processes") or [])
+                         for v in (saved.get("department_views") or [])
+                         for t in (v.get("topics") or []))]
+    if hidden and saved.get("department_views"):
+        print(f"  Masada gizli (klasörsüz): {', '.join(hidden)}")
     return 0
 
 
