@@ -459,15 +459,59 @@ def test_ag_grid_css_loads_in_head_before_panel_css():
         shell.index("filename='mevduat_panel.css'")
 
 
-def test_accordion_header_grows_plot_not_collapse():
-    """R6.3 — başlık tıklaması plot büyütme; aç/kapa değil."""
+def test_accordion_header_opens_fullscreen_overlay():
+    """R7 — başlık tıklaması SPA'daki gibi TAM EKRAN overlay (aç/kapa değil)."""
     js = CAROUSEL.read_text(encoding="utf-8")
-    assert "plot-max" in js
+    for key in ("chart-fs-overlay", "chart-fs-body", "chart-fs-close",
+                "openFullscreen", "closeFullscreen", "Escape",
+                "document.body.appendChild"):
+        assert key in js, key
+    assert "plot-max" not in js            # eski toggle kalmadı
     shell = PAGE_SHELL.read_text(encoding="utf-8")
-    assert ".accordion.plot-max .plot-container" in shell
+    assert ".chart-fs-body .plot-container" in shell
     # Chart'lar kabı doldurur; kaplar açık yükseklik taşır.
     assert "height: '100%'" in _js()
     assert 'style="height:350px;"' in _html()
+
+
+def test_date_pickers_are_ddmmyyyy_never_us():
+    """R7 — İSTİSNASIZ kural: tarih GG.AA.YYYY; native picker doğrudan yasak."""
+    common = (REPO / "mevduat_panel/static/prisma/common.js").read_text(encoding="utf-8")
+    assert "initDatePicker" in common
+    assert "'d.m.Y'" in common             # altInput görünümü
+    assert "altInput: true" in common      # asıl değer ISO kalır
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert "flatpickr.min.js" in shell
+    for js_name in ("rates.js", "amounts.js", "historic.js", "competitor.js"):
+        src = (REPO / "mevduat_panel/static/prisma" / js_name).read_text(encoding="utf-8")
+        assert "initDatePicker(" in src, js_name
+
+
+def test_palette_indices_within_bounds():
+    """R7 — palet 6 renk; sınır dışı indeks Apex 'undefined color' üretir."""
+    import re as _re
+    for js_name in ("rates.js", "amounts.js", "historic.js", "competitor.js"):
+        src = (REPO / "mevduat_panel/static/prisma" / js_name).read_text(encoding="utf-8")
+        for idx in _re.findall(r"pal\[(\d+)\]", src):
+            assert int(idx) < 6, f"{js_name}: pal[{idx}]"
+
+
+def test_disclaimer_popup_portals_and_fills_links():
+    """R7 — popup body'ye portallanır; kaynak linkleri popup'ta DAİMA dolar."""
+    js = CMP_JS.read_text(encoding="utf-8")
+    assert "document.body.appendChild(overlay)" in js
+    assert "popupEl.innerHTML = elSources.innerHTML" in js
+
+
+def test_control_panel_labels_are_inline_rows():
+    """R7 — kontrol paneli SPA dili: label yanda (satır), dikey değil."""
+    shell = PAGE_SHELL.read_text(encoding="utf-8")
+    assert ".sidebar-controls label" in shell
+    assert "align-items: center" in shell
+    for page in ("rates.html", "amounts.html", "historic.html", "competitor.html"):
+        src = (REPO / "mevduat_panel/templates/mevduat_panel/prisma" / page).read_text(
+            encoding="utf-8")
+        assert "flex-direction:column" not in src.split("mvp_body")[0], page
 
 
 def test_competitor_bank_colors_restored_from_legacy():
@@ -496,8 +540,9 @@ def test_competitor_disclaimer_popup_restored():
 def test_design_rules_doc_exists_and_is_referenced():
     """R6.7 — tasarım kuralları dosyası + CLAUDE.md hafıza işaretçisi."""
     doc = (REPO / "docs/CUSTOM_PAGE_DESIGN.md").read_text(encoding="utf-8")
-    for key in ("bub-filter", "plot-max", "AG-Grid", "mvp_controls",
-                "BANK_COLORS", "render çıktısına"):
+    for key in ("bub-filter", "chart-fs", "AG-Grid", "mvp_controls",
+                "BANK_COLORS", "GG.AA.YYYY", "initDatePicker",
+                "render çıktısına"):
         assert key in doc, key
     claude = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
     assert "CUSTOM_PAGE_DESIGN.md" in claude
