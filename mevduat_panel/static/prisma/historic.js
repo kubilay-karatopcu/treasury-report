@@ -226,6 +226,16 @@
     meta[DIM.CUST] = custs.sort();
     meta[DIM.REV] = ['MAX'].concat(revs);
 
+    // R9 — varsayılan filtreler (tüm sayfalarda ortak; CUSTOM_PAGE_DESIGN §3):
+    // Kaynak=MYU, Müşteri Tipi=G (değer veride yoksa hepsi seçili kalır).
+    if (!state[DIM.SRC] && srcs.indexOf('MYU') >= 0) {
+      state[DIM.SRC] = {};
+      srcs.forEach(function (v) { state[DIM.SRC][v] = (v === 'MYU'); });
+    }
+    if (!state[DIM.CUST] && custs.indexOf('G') >= 0) {
+      state[DIM.CUST] = {};
+      custs.forEach(function (v) { state[DIM.CUST][v] = (v === 'G'); });
+    }
     if (!state[DIM.VADE]) {
       state[DIM.VADE] = {};
       VADE_RANGES.forEach(function (v) { state[DIM.VADE][v] = (v === VADE_DEFAULT); });
@@ -368,7 +378,9 @@
     var pal = MVP.palette();
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'line', height: '100%', stacked: true },
+        // R9 — stacked mixed chart 'line' tipinde yan yana çiziyordu;
+        // 'bar' + stacked kaynaktaki yığılmış görünümü verir.
+        chart: { type: 'bar', height: '100%', stacked: true },
         colors: [pal[0], pal[1], pal[5]],
         stroke: { width: [0, 0, 3], curve: 'smooth' },
         plotOptions: { bar: { columnWidth: '70%' } },
@@ -436,6 +448,7 @@
     ], [0, 0, 5, 5, 5]);
 
     if (elStatus) elStatus.textContent = rows.length + ' işlem listeleniyor.';
+    MVP.initCarousels();   // R9 — accordion başlığı = tam ekran (karosel yok ama bağ burada)
     if (elMeta) {
       elMeta.textContent = (elFrom.value || '—') + ' → ' + (elTo.value || '—');
     }
@@ -473,8 +486,6 @@
 
   var elApply = document.getElementById('mvpApply');
   if (elApply) elApply.addEventListener('click', apply);
-  MVP.initDatePicker(elFrom);   // R7 — GG.AA.YYYY
-  MVP.initDatePicker(elTo);
   elFrom.addEventListener('change', apply);
   elTo.addEventListener('change', apply);
   elCcy.addEventListener('change', apply);

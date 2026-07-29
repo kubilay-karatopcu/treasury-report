@@ -1,59 +1,63 @@
 {# ═══════════════════════════════════════════════════════════════════════════
    _page.html — Rezervasyon/rakip sayfalarının ortak kabuğu.
 
-   HOMOJENLİK (2026-07-29): kabuk Outstanding SPA'sının (index.html) BİREBİR
-   aynasıdır — aynı stylesheet'ler, aynı layout (.mevduat-mount > .sidebar +
-   .main), aynı başlık ve filtre dili. Sayfalar Outstanding'den yalnız
-   İÇERİKLE ayrılır. Kurallar: docs/CUSTOM_PAGE_DESIGN.md.
+   HOMOJENLİK: kabuk Outstanding SPA'sının (index.html) BİREBİR aynasıdır.
+   Kurallar: docs/CUSTOM_PAGE_DESIGN.md.
 
-   R6 kararları:
-   - Tarih/para birimi kontrolleri SOL ALTTA, menünün parçası (mvp_controls
-     bloğu, aside içinde altta). .mv-page-filters satırında yalnız boyut
-     dropdown'ları (#fDims) + durum metni kalır.
-   - AG-Grid CSS'leri HEAD'de, mevduat_panel.css'ten ÖNCE yüklenir — dark
-     override'ları (.ag-theme-alpine {--ag-*}) ancak böyle kazanır. Sonda
-     yüklenirse vendor teması ezer, grid beyaz kalır.
-   - Accordion başlığı AÇ/KAPA DEĞİL, plot BÜYÜT toggle'ıdır (.plot-max).
+   R9 — KONTROL PANELİ = SPA'NIN DOCK'U (mevduat_dock.js, copy değil AYNI
+   dosya): sayfa kontrolleri (tarih/para birimi) üst şeritte (mvp_controls,
+   .mv-page-filters içinde) TANIMLANIR; dock DOMContentLoaded'da bunları
+   toplayıp sol-alt panele CANLI taşır — ◀ ▶ okları, "Date Range /
+   Dimensions & View" başlıkları ve GG.AA.YYYY overlay'i dock'tan gelir.
+   Elle kontrol paneli stillemek YASAK (3 kez ıskalandı; dock tek kaynak).
 
-   Alt şablon sözleşmesi: `page_heading` + `mvp_controls` (sol-alt kontrol
-   paneli) + `mvp_body`; sayfaya özel JS `page_scripts` bloğunda.
+   - AG-Grid CSS'leri HEAD'de, mevduat_panel.css'ten ÖNCE (dark override'lar).
+   - Accordion başlığı = TAM EKRAN modal (chart-fs; kenarlar boş, dışa tık /
+     ✕ / Esc kapatır — carousel.js).
    ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "home/_base_prisma.html" %}
 {% set mode = "consumer" %}
 {% set canvas_bleed = True %}
 {% set hide_mode_switch = True %}
+{# R9 — masa modunda "← Masaya dön" bu sayfanın uzmanına gider (topbar okur). #}
+{% set masa_back_url = folder_menu['expert_url'] if folder_menu else none %}
 
 {% block head %}
   <script src="{{ url_for('mevduat_panel.static', filename='vendor/apexcharts.min.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid.css') }}">
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-theme-alpine.css') }}">
-  {# R7 — tarih seçici: GG.AA.YYYY garantisi için flatpickr (native input
-     tarayıcı locale'ine göre ABD formatı gösterebiliyor — yasak). #}
-  <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/flatpickr.min.css') }}">
-  <script src="{{ url_for('mevduat_panel.static', filename='vendor/flatpickr.min.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_panel.css') }}?v={{ mevduat_version }}">
   {# PRISMA token köprüsü; mevduat_panel.css'ten SONRA (index.html deseni). #}
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_prisma.css') }}?v={{ mevduat_version }}">
   <style>
     .dev-banner { display: none !important; }
     html, body { margin: 0 !important; overflow: hidden !important; }
-    /* R7 — kontrol paneli (sol alt): SPA filtre satırıyla aynı dil — label
-       YANDA, kontrol yanında; input/select stili SPA'nın inline stiliyle
-       birebir. flatpickr'ın altInput'u da bu seçicilerle kapsanır. */
-    .sidebar-controls label {
+    /* R9 — üst şerit kontrol stilleri (SPA inline stilinin karşılığı; dock
+       kontrolleri toplayana kadarki görünüm + dock kapalıysa fallback). */
+    .mv-page-filters label {
       display: flex; align-items: center; gap: 6px;
       font-size: 13px; color: var(--text-secondary); white-space: nowrap;
     }
-    .sidebar-controls input, .sidebar-controls select {
-      flex: 1; min-width: 0;
+    .mv-page-filters input, .mv-page-filters select {
       font-size: 13px; padding: 5px 8px;
       border: 1px solid var(--border-mid); border-radius: 4px;
       background: var(--bg-surface); color: var(--text-primary);
     }
-    /* R7 — başlık tıklaması SPA'daki gibi TAM EKRAN overlay açar (chart-fs-*
-       sınıfları mevduat_panel.css'ten). Overlay'de plot ekranı doldurur. */
-    .chart-fs-body .plot-container { height: 72vh !important; }
-    .chart-fs-body { overflow: auto; }
+    /* R9 — filtre bölgesine çıtır çerçeve (koyu temada iç içe görünüyordu). */
+    .mv-page-filters {
+      border: 1px solid var(--border-mid); border-radius: 6px;
+      background: var(--bg-panel);
+      padding: 10px 12px;
+    }
+    /* R9 — tam ekran modal iç kutusu: kenarlar boş, dışa tık kapatır. */
+    .chart-fs-overlay { padding: 4vh 5vw; }
+    .chart-fs-inner {
+      margin: auto; width: min(1500px, 100%);
+      max-height: calc(100% - 46px); overflow: auto;
+      background: var(--bg-panel); border: 1px solid var(--border-mid);
+      border-radius: 6px; padding: 16px;
+    }
+    .chart-fs-inner .plot-container { height: 68vh !important; }
     /* Embed modu (blok izolasyonu): kabuk parçaları gizlenir, kart tek kalır. */
     body.pk-embed .sidebar,
     body.pk-embed .dashboard-title,
@@ -64,18 +68,12 @@
 {% block content %}
 <div class="mevduat-mount" lang="en">
   <aside class="sidebar" style="display:flex;flex-direction:column;">
-    {# R3 — klasör bazlı menü (SPA ile aynı bileşen, iç partial). #}
+    {# R3 — klasör bazlı menü (SPA ile aynı bileşen, iç partial). Dock kendini
+       bu aside'ın SONUNA ekler → kontrol paneli menünün altında (SPA aynı). #}
     {% set _items = folder_menu['items'] if folder_menu else none %}
     {% if _items %}
     {% include "mevduat_panel/_folder_nav_inner.html" with context %}
     {% endif %}
-
-    {# R6 — sol-alt kontrol paneli: tarih/para birimi menünün parçası. #}
-    <div class="sidebar-controls"
-         style="margin-top:auto;padding:16px 14px 8px;border-top:1px solid var(--mv-border);display:flex;flex-direction:column;gap:12px;">
-      {% block mvp_controls %}{% endblock %}
-      <span id="mvpStatus" style="font-size:11px;color:var(--text-muted);"></span>
-    </div>
   </aside>
 
   <main class="main">
@@ -83,9 +81,11 @@
 
     <h2 class="dashboard-title">{{ page_heading }}</h2>
 
-    {# Boyut filtreleri — Outstanding .mv-page-filters + .bub-filter-panel. #}
+    {# Üst şerit: sayfa kontrolleri (dock sol-alta taşır) + boyut filtreleri. #}
     <div class="mv-page-filters"
          style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+      {% block mvp_controls %}{% endblock %}
+      <span id="mvpStatus" style="font-size:11px;color:var(--text-muted);margin-left:auto;"></span>
       <div style="flex-basis:100%;"><div id="fDims" class="bub-filter-panel"></div></div>
     </div>
 
@@ -101,5 +101,8 @@
 <script src="{{ url_for('mevduat_panel.static', filename='prisma/common.js') }}?v={{ mevduat_version }}"></script>
 <script src="{{ url_for('mevduat_panel.static', filename='prisma/bubfilter.js') }}?v={{ mevduat_version }}"></script>
 <script src="{{ url_for('mevduat_panel.static', filename='prisma/carousel.js') }}?v={{ mevduat_version }}"></script>
+{# R9 — SPA'nın sol-alt kontrol paneli (dock): üst şeritteki kontrolleri
+   otomatik toplar; oklar/başlıklar/GG.AA.YYYY overlay'i buradan gelir. #}
+<script src="{{ url_for('mevduat_panel.static', filename='mevduat_dock.js') }}?v={{ mevduat_version }}"></script>
 {% block page_scripts %}{% endblock %}
 {% endblock %}

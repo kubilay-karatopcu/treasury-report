@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 
-from flask import current_app
+from flask import current_app, url_for
 
 from prisma_home.expert_views import (
     legacy_view,
@@ -41,7 +41,16 @@ def _endpoint_of(pid: str) -> str | None:
     return (PROCESS_REGISTRY.get(pid) or {}).get("endpoint")
 
 
-def _menu(title: str, pids: list[str], active_pid: str | None) -> dict | None:
+def _expert_url(expert) -> str | None:
+    """Uzmanın masa sayfası (R9 — 'Masaya dön' hedefi). Kayıtsızsa None."""
+    try:
+        return url_for("prisma_home.expert_detail", code=expert.code)
+    except Exception:
+        return None
+
+
+def _menu(title: str, pids: list[str], active_pid: str | None,
+          expert=None) -> dict | None:
     """Süreç id listesini menü sözlüğüne çevirir. Çözülebilen süreç yoksa None.
 
     ``resolve_processes`` kapalı modül bayrağı / kayıtsız endpoint durumunda
@@ -60,7 +69,8 @@ def _menu(title: str, pids: list[str], active_pid: str | None) -> dict | None:
         "endpoint": _endpoint_of(c["id"]),
         "active": c["id"] == active_pid,
     } for c in cards]
-    return {"title": title, "items": items}
+    return {"title": title, "items": items,
+            "expert_url": _expert_url(expert) if expert is not None else None}
 
 
 def _find_expert(process_id: str, department: str | None):
@@ -105,13 +115,15 @@ def folder_menu(process_id: str, department: str | None = None) -> dict | None:
 
     if in_apps:
         return _menu(APPLICATIONS_TITLE,
-                     resolve_applications(expert, department), process_id)
+                     resolve_applications(expert, department), process_id,
+                     expert=expert)
 
     for topic in (view.get("topics") or []):
         if process_id in (topic.get("process_ids") or []):
             # Legacy uzmanda topic başlığı boş olabilir → uzman adına düş.
             title = (topic.get("title") or "").strip() or expert.name
-            return _menu(title, list(topic["process_ids"]), process_id)
+            return _menu(title, list(topic["process_ids"]), process_id,
+                         expert=expert)
     return None
 
 

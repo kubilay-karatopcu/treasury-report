@@ -17,6 +17,10 @@
    '@'li CDN URL'i kurumsal proxy'de mangle olduğu için kaldırıldı — JS
    static/vendor'dan yükleniyor (bkz. scripts bloğu). #}
 <style>
+/* R9 — uygulama sayfaları geniş ve sabit genişlikte (masa ile aynı değer;
+   kabuğun 1280px sınırı gevşetilir — tablo/plotlar dar kalıyordu). */
+body.prisma .canvas { max-width: min(97vw, 1800px); }
+
 /* Strateji kaydırıcısı — sayfaya özgü tek bileşen (kitte karşılığı yok).
    Renkler PRISMA token'larından: yeni token TANIMLANMAZ, tema otomatik izler. */
 /* Dar kartta (pk-card--third) yatay yerleşimde tick etiketleri üst üste

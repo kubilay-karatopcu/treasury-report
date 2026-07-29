@@ -4,6 +4,7 @@
 {% set canvas_bleed = True %}
 {# Süreç/pano görünümü: sağ üstte "Atölyeye geç" gösterme (item 11). #}
 {% set hide_mode_switch = True %}
+{% set masa_back_url = folder_menu['expert_url'] if folder_menu else none %}
 {% block title %}Mevduat Paneli — PRISMA{% endblock %}
 
 {% block head %}

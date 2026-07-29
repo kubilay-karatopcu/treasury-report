@@ -406,6 +406,7 @@
     trendChart($('chart-trend'), trendLabels, series, widths, dashes, colors);
 
     buildGroupedGrid(rows);
+    MVP.initCarousels();   // R9 — accordion başlığı = tam ekran
 
     if (elStatus) {
       elStatus.textContent = rows.length + ' kayıt' +
@@ -463,8 +464,6 @@
 
   var elApply = document.getElementById('mvpApply');
   if (elApply) elApply.addEventListener('click', apply);
-  MVP.initDatePicker(elFrom);   // R7 — GG.AA.YYYY
-  MVP.initDatePicker(elTo);
   elFrom.addEventListener('change', apply);
   elTo.addEventListener('change', apply);
 

@@ -32,10 +32,12 @@
        her sayfada (süreç/pano/uygulama; hide_mode_switch'ten bağımsız). #}
     {% if masa_mode %}
       {% if request.endpoint != 'prisma_home.landing' %}
+      {# R9 — süreç/pano sayfaları masa_back_url set eder (bulunduğun uzmanın
+         masası); yoksa landing'e düşülür. #}
       <a class="mode-back" id="modeBack"
-         href="{{ url_for('prisma_home.landing') }}"
+         href="{{ masa_back_url or url_for('prisma_home.landing') }}"
          data-target="masa"
-         title="Masa ana ekranına dön">← Masaya dön</a>
+         title="Masaya dön">← Masaya dön</a>
       {% endif %}
     {% elif not hide_mode_switch %}
     {% if request.endpoint == 'prisma_home.atolye_home' %}

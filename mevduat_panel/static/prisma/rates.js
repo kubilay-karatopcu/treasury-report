@@ -206,6 +206,16 @@
     meta[DIM.REV] = ['MAX'].concat(revs);
 
     // Varsayılanlar yalnız İLK kurulumda yazılır; kullanıcının seçimi korunur.
+    // R9 — varsayılan filtreler (tüm sayfalarda ortak; CUSTOM_PAGE_DESIGN §3):
+    // Kaynak=MYU, Müşteri Tipi=G (değer veride yoksa hepsi seçili kalır).
+    if (!state[DIM.SRC] && srcs.indexOf('MYU') >= 0) {
+      state[DIM.SRC] = {};
+      srcs.forEach(function (v) { state[DIM.SRC][v] = (v === 'MYU'); });
+    }
+    if (!state[DIM.CUST] && custs.indexOf('G') >= 0) {
+      state[DIM.CUST] = {};
+      custs.forEach(function (v) { state[DIM.CUST][v] = (v === 'G'); });
+    }
     if (!state[DIM.VADE]) {
       state[DIM.VADE] = {};
       VADE_RANGES.forEach(function (v) { state[DIM.VADE][v] = (v === VADE_DEFAULT); });
@@ -542,8 +552,7 @@
     if (idx < 0) idx = availableDates.length - 1;
     var next = idx + delta;
     if (next < 0 || next >= availableDates.length) return;
-    MVP.setDateVal(elDate, availableDates[next]);
-    loadDate(elDate.value);
+    MVP.setDateVal(elDate, availableDates[next], true);
   }
 
   var _embedDone = false;
@@ -559,7 +568,9 @@
   // buton ileride geri gelirse yine çalışsın diye guard'lı bağlanır.
   var elApply = document.getElementById('mvpApply');
   if (elApply) elApply.addEventListener('click', function () { loadDate(elDate.value); });
-  MVP.initDatePicker(elDate);   // R7 — GG.AA.YYYY (docs/CUSTOM_PAGE_DESIGN.md)
+  // R9 — GG.AA.YYYY görünümü dock'un overlay'inden gelir (mevduat_dock.js);
+  // flatpickr kaldırıldı. Programatik set → setDateVal(el, iso, true) change
+  // yayınlar, yükleme TEK yoldan (bu listener) akar.
   elDate.addEventListener('change', function () { loadDate(elDate.value); });
   elCcy.addEventListener('change', apply);
   document.getElementById('fDatePrev').addEventListener('click', function () { shiftDate(-1); });
@@ -569,8 +580,11 @@
     .then(function (res) {
       availableDates = (res && res.dates) || [];
       var latest = (res && res.latest) || availableDates[availableDates.length - 1];
-      if (latest) { MVP.setDateVal(elDate, latest); loadDate(latest); }
-      else if (elStatus) elStatus.textContent = 'Veri yok.';
+      if (latest) { MVP.setDateVal(elDate, latest, true); }
+      else if (elStatus) {
+        elStatus.textContent =
+          'Veri yok — açılış ısınması (prewarm) sürüyor olabilir; birazdan yenileyin.';
+      }
     })
     .catch(function (err) {
       if (elStatus) elStatus.textContent = 'Tarih listesi alınamadı: ' + err.message;
