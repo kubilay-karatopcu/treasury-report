@@ -1,76 +1,53 @@
 {# ═══════════════════════════════════════════════════════════════════════════
-   Tarihsel Görünüm — eski templates/historic.html'in BİREBİR karşılığı.
+   Tarihsel Görünüm — içerik eski templates/historic.html ile BİREBİR;
+   görünüm Outstanding kabuğuyla BİREBİR (homojenlik revizyonu 2026-07-29).
 
-   Yapı kaynağı: templates/historic.html + static/js/historic.js.
-     3 kart, KAROSEL YOK (kaynakta da yoktu) — her kart tek grafik:
-       1) Genel Oran Trendleri (Ağırlıklı Ortalama) → çoklu çizgi
-       2) Hacim ve Market Max İlişkisi              → yığılmış kolon + çizgi
-       3) Ekstrem Yetki vs Talep Edilen Oran        → çoklu çizgi (saatlik, ≥10 işlem)
-   Ekstra kart/blok EKLENMEZ.
-
-   Tarih TEK GÜN değil ARALIK'tır (kaynakta Litepicker range, varsayılan son 7
-   gün). Filtreler Outstanding kitinde (R4).
+   3 bölüm (accordion), KAROSEL YOK (kaynakta da yoktu) — her biri tek grafik:
+     1) Genel Oran Trendleri (Ağırlıklı Ortalama)
+     2) Hacim ve Market Max İlişkisi
+     3) Ekstrem Yetki vs Talep Edilen Oran
+   Tarih ARALIK'tır (kaynakta Litepicker range, varsayılan son 7 gün).
    ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "mevduat_panel/prisma/_page.html" %}
 {% set crumb = "Mevduat · Tarihsel Görünüm" %}
 {% block title %}Tarihsel Görünüm — PRISMA{% endblock %}
 
 {% block mvp_filters %}
-  <div class="pk-field">
-    <span class="pk-label">Dönem</span>
-    <div class="pk-field__body">
-      <input type="date" class="pk-input" id="fFrom">
-      <span class="pk-sep">→</span>
-      <input type="date" class="pk-input" id="fTo">
-    </div>
-  </div>
-
-  <div class="pk-field">
-    <span class="pk-label">Para Birimi</span>
-    <div class="pk-field__body">
-      <select class="pk-input" id="fCcy">
-        <option value="TRY">TRY</option>
-        <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
-        <option value="GBP">GBP</option>
-        <option value="CAD">CAD</option>
-        <option value="JPY">JPY</option>
-        <option value="XAU">XAU</option>
-      </select>
-    </div>
-  </div>
-
-  <div class="pk-field">
-    <span class="pk-label">Boyutlar</span>
-    <div class="pkf-panel" id="fDims"></div>
-  </div>
+  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+    Dönem
+    <input type="date" id="fFrom"
+           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+    <span style="color:var(--text-muted);">→</span>
+    <input type="date" id="fTo"
+           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+  </label>
+  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:8px;">
+    Para Birimi
+    <select id="fCcy"
+            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+      <option value="TRY">TRY</option><option value="USD">USD</option>
+      <option value="EUR">EUR</option><option value="GBP">GBP</option>
+      <option value="CAD">CAD</option><option value="JPY">JPY</option>
+      <option value="XAU">XAU</option>
+    </select>
+  </label>
 {% endblock %}
 
 {% block mvp_body %}
-<div class="pk-grid">
-
-  <div class="pk-card" id="card-trend-rates">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Genel Oran Trendleri (Ağırlıklı Ortalama)</span>
+{% macro section(title, pid) -%}
+  <div class="accordion">
+    <button class="accordion-header open" type="button">
+      <span class="acc-icon">&#9654;</span> {{ title }}
+    </button>
+    <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
+      <div class="card"><div id="{{ pid }}" class="plot-container"></div></div>
     </div>
-    <div id="chart-trend-rates" class="pk-plot pk-plot--wide"></div>
   </div>
+{%- endmacro %}
 
-  <div class="pk-card" id="card-trend-volume">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Hacim ve Market Max İlişkisi</span>
-    </div>
-    <div id="chart-trend-volume" class="pk-plot pk-plot--wide"></div>
-  </div>
-
-  <div class="pk-card" id="card-trend-auth">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Ekstrem Yetki vs Talep Edilen Oran</span>
-    </div>
-    <div id="chart-trend-auth" class="pk-plot pk-plot--wide"></div>
-  </div>
-
-</div>
+{{ section("Genel Oran Trendleri (Ağırlıklı Ortalama)", "chart-trend-rates") }}
+{{ section("Hacim ve Market Max İlişkisi", "chart-trend-volume") }}
+{{ section("Ekstrem Yetki vs Talep Edilen Oran", "chart-trend-auth") }}
 {% endblock %}
 
 {% block page_scripts %}

@@ -27,8 +27,29 @@ KIT = REPO / "prisma_home/static/css/kit.css"
 CAROUSEL_JS = REPO / "mevduat_panel/static/prisma/carousel.js"
 
 
+
+# ── Render yardımcısı ────────────────────────────────────────────────────────
+# Şablonlar markup'ı Jinja makrolarıyla üretir; ham dosya metni yapıyı GÖSTERMEZ
+# (folder_nav 500'ü bu boşluktan kaçmıştı). Yapısal assert'ler render ÇIKTISI
+# üzerinde koşar. Kabuk (_page.html) stub'lanır — blok içerikleri aynen basılır,
+# url_for filename döndürür ki vendor asset adları çıktıda görünsün.
+
+from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
+
+_PAGE_STUB = ("{% block title %}{% endblock %}{% block mvp_filters %}{% endblock %}"
+              "{% block mvp_body %}{% endblock %}{% block page_scripts %}{% endblock %}")
+
+
+def _render_page(name: str) -> str:
+    env = Environment(loader=ChoiceLoader([
+        DictLoader({"mevduat_panel/prisma/_page.html": _PAGE_STUB}),
+        FileSystemLoader(str(REPO / "mevduat_panel/templates")),
+    ]))
+    env.globals["url_for"] = lambda *a, **k: k.get("filename", "#")
+    return env.get_template(f"mevduat_panel/prisma/{name}").render(mevduat_version=1)
+
 def _html() -> str:
-    return NEW_HTML.read_text(encoding="utf-8")
+    return _render_page("rates.html")
 
 
 def _js() -> str:
@@ -48,19 +69,19 @@ EXPECTED_CAROUSELS = {
 
 def test_four_carousels_with_exact_slide_counts():
     html = _html()
-    roots = set(re.findall(r'class="pk-carousel" id="([\w-]+)"', html))
+    roots = set(re.findall(r'class="mv-carousel" id="([\w-]+)"', html))
     assert roots == set(EXPECTED_CAROUSELS), roots
     for root, expected in EXPECTED_CAROUSELS.items():
         # Kökten sonraki bölümde slayt say — kartlar sırayla dizili.
         after = html.split(f'id="{root}"', 1)[1]
         nxt = min((after.index(f'id="{o}"') for o in EXPECTED_CAROUSELS
                    if o != root and f'id="{o}"' in after), default=len(after))
-        assert after[:nxt].count("pk-carousel__slide") == expected, root
+        assert after[:nxt].count("mvc-slide") == expected, root
 
 
 def test_no_extra_cards_beyond_original():
     """'Ekstra kart/blok ekleme' kuralı: tam olarak 4 kart olmalı."""
-    assert _html().count('class="pk-card"') == 4
+    assert _html().count('class="accordion"') == 4
 
 
 #: Eski sayfanın plot kimlikleri — birebir korunur.
@@ -156,9 +177,14 @@ def test_old_defaults_preserved():
 # ── Kit kullanımı (R4/R5 sözleşmesi) ─────────────────────────────────────────
 
 def test_page_uses_outstanding_filter_kit():
-    """Filtreler Outstanding kitiyle çizilir (All | None)."""
-    assert 'id="fDims"' in _html()
+    """Filtreler Outstanding bileşeniyle çizilir (All | None, bub-filter-*)."""
+    page = (REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html").read_text(
+        encoding="utf-8")
+    assert 'id="fDims"' in page          # tek filtre satırı kabukta
     assert "renderBubFilters" in _js()
+    bub = (REPO / "mevduat_panel/static/prisma/bubfilter.js").read_text(encoding="utf-8")
+    assert "bub-filter-dd" in bub        # SPA sınıf adları — ayrı stil yok
+    assert "pkf-" not in bub
 
 
 def test_page_uses_apexcharts_via_shared_renderer():
@@ -175,11 +201,17 @@ def test_carousel_dispatches_resize_for_apex():
     assert "new Event('resize')" in src
 
 
-def test_carousel_and_metric_styles_exist():
-    css = KIT.read_text(encoding="utf-8")
-    for cls in (".pk-carousel__slide", ".pk-carousel__nav", ".pk-metrics",
-                ".pk-metric__value", ".pk-plot"):
-        assert cls in css, cls
+def test_shell_is_outstanding_homogeneous():
+    """Kabuk Outstanding SPA'sıyla aynı stylesheet'leri yükler (homojenlik)."""
+    page = (REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html").read_text(
+        encoding="utf-8")
+    for asset in ("mevduat_panel.css", "mevduat_prisma.css",
+                  "bub-filter-panel", "mv-page-filters", "dashboard-title"):
+        assert asset in page, asset
+    # Karosel kontrolleri SPA'nın wf sınıflarını kullanır.
+    html = _html()
+    for cls in ("wf-carousel-nav", "wf-slide-label", "wf-nav-btn"):
+        assert cls in html, cls
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -200,15 +232,15 @@ AMT_CAROUSELS = {
 
 
 def test_amounts_carousels_and_slide_counts():
-    html = AMT_HTML.read_text(encoding="utf-8")
-    roots = set(re.findall(r'class="pk-carousel" id="([\w-]+)"', html))
+    html = _render_page("amounts.html")
+    roots = set(re.findall(r'class="mv-carousel" id="([\w-]+)"', html))
     assert roots == set(AMT_CAROUSELS), roots
-    assert html.count("pk-carousel__slide") == sum(AMT_CAROUSELS.values())
-    assert html.count('class="pk-card"') == 4
+    assert html.count("mvc-slide") == sum(AMT_CAROUSELS.values())
+    assert html.count('class="accordion"') == 4
 
 
 def test_amounts_plot_ids_match_original():
-    html = AMT_HTML.read_text(encoding="utf-8")
+    html = _render_page("amounts.html")
     for pid in ("chart-time-cumulative", "chart-time-hourly",
                 "chart-curr-pie-vol", "chart-curr-pie-count", "chart-curr-hist",
                 "chart-inc-pie-vol", "chart-inc-pie-count", "chart-inc-hist",
@@ -244,8 +276,7 @@ def test_amounts_series_names_and_stacking():
 
 
 def test_amounts_uses_kit_and_shared_renderer():
-    html, new = AMT_HTML.read_text(encoding="utf-8"), AMT_JS.read_text(encoding="utf-8")
-    assert 'id="fDims"' in html
+    html, new = _render_page("amounts.html"), AMT_JS.read_text(encoding="utf-8")
     assert "renderBubFilters" in new
     assert "MVP.renderChart(" in new
     assert "new ApexCharts(" not in new
@@ -262,16 +293,16 @@ HIS_OLD_JS = REPO / "static/js/historic.js"
 
 def test_historic_has_three_cards_and_no_carousel():
     """Kaynakta karosel YOKTU — üç düz kart, her biri tek grafik."""
-    html = HIS_HTML.read_text(encoding="utf-8")
-    assert html.count('class="pk-card"') == 3
-    assert "pk-carousel" not in html
+    html = _render_page("historic.html")
+    assert html.count('class="accordion"') == 3
+    assert "mv-carousel" not in html
     for pid in ("chart-trend-rates", "chart-trend-volume", "chart-trend-auth"):
         assert f'id="{pid}"' in html, pid
 
 
 def test_historic_uses_date_range_not_single_day():
     """Kaynakta Litepicker range vardı — tek gün değil aralık."""
-    html = HIS_HTML.read_text(encoding="utf-8")
+    html = _render_page("historic.html")
     assert 'id="fFrom"' in html and 'id="fTo"' in html
     assert 'id="fDate"' not in html
 
@@ -310,8 +341,7 @@ def test_historic_daily_mode_carries_last_known():
 
 
 def test_historic_uses_kit_and_shared_renderer():
-    html, new = HIS_HTML.read_text(encoding="utf-8"), HIS_JS.read_text(encoding="utf-8")
-    assert 'id="fDims"' in html
+    html, new = _render_page("historic.html"), HIS_JS.read_text(encoding="utf-8")
     assert "renderBubFilters" in new
     assert "MVP.renderChart(" in new
     assert "new ApexCharts(" not in new
@@ -329,9 +359,9 @@ VENDOR = REPO / "mevduat_panel/static/vendor"
 
 def test_competitor_cards_and_plots():
     """4 kart: snapshot (iki grafik), trend, AG-Grid tablosu, kaynakça."""
-    html = CMP_HTML.read_text(encoding="utf-8")
-    assert html.count('class="pk-card"') == 4
-    assert "pk-carousel" not in html          # kaynakta karosel yoktu
+    html = _render_page("competitor.html")
+    assert html.count('class="accordion"') == 4
+    assert "mv-carousel" not in html          # kaynakta karosel yoktu
     for pid in ("chart-snapshot-bars", "chart-snapshot-change", "chart-trend",
                 "competitor-grid", "source-links"):
         assert f'id="{pid}"' in html, pid
@@ -339,7 +369,7 @@ def test_competitor_cards_and_plots():
 
 def test_competitor_uses_ag_grid_enterprise_not_plain_table():
     """Madde 6: tablo AG-Grid olmalı; satır gruplaması Enterprise ister."""
-    html, new = CMP_HTML.read_text(encoding="utf-8"), CMP_JS.read_text(encoding="utf-8")
+    html, new = _render_page("competitor.html"), CMP_JS.read_text(encoding="utf-8")
     assert "ag-grid-enterprise" in html
     assert "ag-theme-alpine" in html
     assert "agGrid.createGrid" in new
@@ -386,15 +416,14 @@ def test_competitor_sector_average_series():
 
 def test_competitor_llm_summary_is_optional():
     """Piyasa Özeti ucu portlanmadı; panel yapılandırılmadıkça gizli kalmalı."""
-    html, new = CMP_HTML.read_text(encoding="utf-8"), CMP_JS.read_text(encoding="utf-8")
+    html, new = _render_page("competitor.html"), CMP_JS.read_text(encoding="utf-8")
     assert 'id="summary-panel"' in html
     assert "hidden" in html
     assert "EP.competitorSummary" in new
 
 
 def test_competitor_uses_filter_kit():
-    html, new = CMP_HTML.read_text(encoding="utf-8"), CMP_JS.read_text(encoding="utf-8")
-    assert 'id="fDims"' in html
+    html, new = _render_page("competitor.html"), CMP_JS.read_text(encoding="utf-8")
     assert "renderBubFilters" in new
     assert "MVP.renderChart(" in new
     assert "new ApexCharts(" not in new

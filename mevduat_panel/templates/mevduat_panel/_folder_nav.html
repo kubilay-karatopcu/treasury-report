@@ -1,38 +1,34 @@
 {# ═══════════════════════════════════════════════════════════════════════════
-   _folder_nav.html — klasör bazlı sol menü (R3).
+   _folder_nav.html — klasör bazlı sol menü (R3; homojenlik revizyonu 2026-07-29).
 
    Menü, raporun bulunduğu klasörün (masa topic'inin) kardeşlerinden üretilir;
    elle bakım gerektiren statik nav listesi yoktur. Kaynak: prisma_home.folders
    → app.config["FOLDER_MENU_PROVIDER"] → routes.folder_menu_for_*.
 
+   TEK varyant: Outstanding SPA'sının `.sidebar` bileşeni (mevduat_panel.css).
+   Rezervasyon sayfaları da aynı kabuğu yüklediği için menü her yerde birebir
+   aynı görünür (kullanıcı kararı: tam homojenlik).
+
    Sözleşme: `folder_menu` = {title, items:[{id,label,url,page,endpoint,active}]}
    ya da None (sağlayıcı yok / klasör bulunamadı → menü çizilmez).
-
-   `nav_variant` — SPA ve PRISMA sayfaları AYNI anda hem mevduat_panel.css hem
-   kit.css yükler; sınıflar çakışmasın diye varyant tek sınıf seti üretir:
-     "sidebar" → mevduat_panel.css `.sidebar` (SPA kabuğu, flex body layout)
-     "pk"      → kit.css `.pk-fnav`          (PRISMA-native sayfa kabuğu)
 
    `spa_endpoint` verilirse aynı endpoint'teki kardeşler `data-page` taşır;
    mevduat_panel.js bunları sunucuya gitmeden açar. Farklı endpoint'tekiler
    data-page taşımaz → tarayıcı href'i normal takip eder.
+
+   DİKKAT: sözlükte `.items` Jinja'da dict.items METODUNU döndürür (attribute
+   önce denenir) — anahtarlara daima köşeli parantezle erişilir.
    ═══════════════════════════════════════════════════════════════════════════ #}
-{# DİKKAT: sözlükte `folder_menu.items` Jinja'da `dict.items` METODUNU döndürür
-   (attribute önce denenir) — daima truthy'dir ve döngüde patlar. Anahtarlara
-   köşeli parantezle erişilir. #}
 {% set _items = folder_menu['items'] if folder_menu else none %}
 {% if _items %}
-{% set _spa = (nav_variant|default('sidebar')) == 'sidebar' %}
-<aside class="{{ 'sidebar' if _spa else 'pk-fnav' }}">
-  <div class="{{ 'sidebar-group' if _spa else 'pk-fnav__group' }}">
-    <div class="{{ 'sidebar-group-header' if _spa else 'pk-fnav__head' }}"
-         {% if _spa %}data-group="folder"{% endif %}>
+<aside class="sidebar">
+  <div class="sidebar-group" id="grp-folder">
+    <div class="sidebar-group-header" data-group="folder">
       {{ folder_menu['title'] }}
-      {% if _spa %}<span class="sidebar-group-icon">&#9660;</span>{% endif %}
+      <span class="sidebar-group-icon">&#9660;</span>
     </div>
-    <div class="{{ 'sidebar-group-body' if _spa else 'pk-fnav__body' }}">
-      <ul class="{{ 'sidebar-nav' if _spa else 'pk-fnav__list' }}"
-          {% if _spa %}id="deposit-nav"{% endif %}>
+    <div class="sidebar-group-body">
+      <ul class="sidebar-nav" id="deposit-nav">
         {% for it in _items %}
         <li>
           <a href="{{ it['url'] }}"
