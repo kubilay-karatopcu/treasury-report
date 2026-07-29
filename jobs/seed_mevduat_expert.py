@@ -5,17 +5,20 @@ manifestlerini değiştirmez. DEP uzmanının altındaki süreç bağlantıları
 ``/mevduat-panel/`` sayfalarına gider; o panel production'da DataClient üzerinden
 Oracle/EDW sorgularını çalıştırır.
 
-Ofis/production ortamında örnek kullanım::
+ÇALIŞTIRMA (Spyder — argparse/args YOK):
+    Aşağıdaki KONFİG bloğunu düzenle, sonra dosyayı doğrudan çalıştır (Run / F5).
+    Terminalden de argümansız çalışır: ``python jobs/seed_mevduat_expert.py``
 
-    python jobs/seed_mevduat_expert.py --edit-department HAZINE
+    - ``READ_DEPARTMENTS`` : uzmanı görebilecek departman(lar). BOŞ liste → herkes ("*").
+    - ``EDIT_DEPARTMENTS`` : Atölye'de düzenleyebilecek departman(lar).
+    - ``OVERWRITE``        : S3'te DEP zaten varsa üzerine yaz (güncelleme için True).
 
-Mevcut DEP kaydını bilinçli olarak güncellemek için::
-
-    python jobs/seed_mevduat_expert.py --edit-department HAZINE --overwrite
+    Departman string'i LDAP'teki ``TRESUARY_LDAP.DEPARTMENT`` ile BİREBİR
+    eşleşmeli (büyük/küçük harf ve Türkçe karakter dahil); erişim tam-string
+    karşılaştırmasıdır.
 """
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -29,6 +32,18 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from DataClient import DataClient
+
+
+# ---------------------------------------------------------------------------
+# KONFİG — Spyder'da args çalışmadığı için buradan düzenle (argparse yok).
+# ---------------------------------------------------------------------------
+#: Uzmanı GÖREBİLECEK departmanlar. Boş liste bırakırsan herkes görür (["*"]).
+READ_DEPARTMENTS: list[str] = ["FİNANSAL YAPAY ZEKA UYGULAMALARI"]
+#: Uzmanı ATÖLYE'de düzenleyebilecek departmanlar.
+EDIT_DEPARTMENTS: list[str] = ["FİNANSAL YAPAY ZEKA UYGULAMALARI"]
+#: S3'te DEP zaten varsa üzerine yaz (mevcut kaydı güncellemek için True).
+OVERWRITE: bool = True
+# ---------------------------------------------------------------------------
 
 
 EXPERT_ID = "dep"
@@ -57,7 +72,23 @@ PROCESS_IDS = (
 )
 
 
-def build_expert(*, read_departments: Sequence[str], edit_departments: Sequence[str]) -> dict:
+def _as_list(value: str | Sequence[str] | None) -> list[str]:
+    """Departman girdisini güvenle listeye çevirir.
+
+    Tek bir string verilirse tek elemanlı liste döner — ``list("ABC")``'nin
+    string'i tek tek harflere ("A","B","C") parçalama tuzağını önler. Bu, KONFİG
+    bloğuna yanlışlıkla liste yerine string yazılınca erişimin sessizce bozulmasını
+    engeller (aksi halde access_scope harf listesi olur, hiç kimse eşleşmez).
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    return [str(v) for v in value]
+
+
+def build_expert(*, read_departments: str | Sequence[str],
+                 edit_departments: str | Sequence[str]) -> dict:
     """Build the S3ExpertStore-compatible DEP document."""
     return {
         "id": EXPERT_ID,
@@ -87,8 +118,8 @@ def build_expert(*, read_departments: Sequence[str], edit_departments: Sequence[
             "sections": [],
         },
         "access_scope": {
-            "read": list(read_departments) or ["*"],
-            "edit": list(edit_departments),
+            "read": _as_list(read_departments) or ["*"],
+            "edit": _as_list(edit_departments),
         },
         "ui": {
             "accent_color": "#4A9B6E",
@@ -98,44 +129,15 @@ def build_expert(*, read_departments: Sequence[str], edit_departments: Sequence[
     }
 
 
-def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--edit-department", action="append", default=[], metavar="DEPARTMENT",
-        help="Uzmanı Atölye'de düzenleyebilecek departman. Birden çok kez verilebilir.",
-    )
-    parser.add_argument(
-        "--read-department", action="append", default=[], metavar="DEPARTMENT",
-        help="Uzmanı görebilecek departman. Verilmezse tüm kullanıcılar görebilir.",
-    )
-    parser.add_argument(
-        "--overwrite", action="store_true",
-        help="S3'teki mevcut DEP uzmanını bu tanımla değiştir.",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Yazmadan önce üretilecek YAML'ı ekrana bas.",
-    )
-    return parser.parse_args(argv)
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parse_args(argv)
-    if not args.edit_department:
-        print("Hata: en az bir --edit-department vermelisin.", file=sys.stderr)
-        return 2
-
+def main() -> int:
+    """Argümansız çalışır — davranış yukarıdaki KONFİG bloğundan okunur."""
     expert = build_expert(
-        read_departments=args.read_department,
-        edit_departments=args.edit_department,
+        read_departments=READ_DEPARTMENTS,
+        edit_departments=EDIT_DEPARTMENTS,
     )
     body = yaml.safe_dump(
         expert, allow_unicode=True, sort_keys=False, default_flow_style=False,
     ).encode("utf-8")
-
-    if args.dry_run:
-        print(body.decode("utf-8"))
-        return 0
 
     dc = DataClient()
     try:
@@ -143,9 +145,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception:
         existing = None
 
-    if existing is not None and not args.overwrite:
+    if existing is not None and not OVERWRITE:
         print(
-            f"Hata: {EXPERT_KEY} zaten var. Bilinçli güncelleme için --overwrite kullan.",
+            f"Hata: {EXPERT_KEY} zaten var. Güncellemek için KONFİG'te OVERWRITE=True yap.",
             file=sys.stderr,
         )
         return 3
@@ -160,7 +162,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 5
 
     action = "güncellendi" if existing is not None else "oluşturuldu"
-    print(f"OK: {EXPERT_KEY} {action}; {len(PROCESS_IDS)} mevduat süreci bağlı.")
+    print(
+        f"OK: {EXPERT_KEY} {action}; {len(PROCESS_IDS)} süreç bağlı; "
+        f"read={saved['access_scope']['read']}, edit={saved['access_scope']['edit']}."
+    )
     return 0
 
 
