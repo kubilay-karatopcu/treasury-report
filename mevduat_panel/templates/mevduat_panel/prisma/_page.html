@@ -19,6 +19,11 @@
    stilini TANIMLAMAZ (UI uniformluğu). #}
 
 {% block content %}
+{# R3 — klasör bazlı sol menü: bu raporun bulunduğu klasörün kardeşleri.
+   Menü her sayfada çıkar; sağlayıcı yoksa partial sessizce boş döner. #}
+<div class="pk-shell">
+{% set nav_variant = 'pk' %}
+{% include "mevduat_panel/_folder_nav.html" with context %}
 <div class="pk-page">
   <div class="pk-head">
     <div>
@@ -40,6 +45,7 @@
   </div>
 
   {% block mvp_body %}{% endblock %}
+</div>
 </div>
 {% endblock %}
 

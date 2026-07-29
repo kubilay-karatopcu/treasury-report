@@ -8681,6 +8681,10 @@
   // Deposit Dashboard > Cost Analysis nav
   document.querySelectorAll("#deposit-nav a").forEach(a => {
     a.addEventListener("click", function(e) {
+      // R3 — menü klasörden gelir ve başka endpoint'teki kardeşleri de
+      // taşıyabilir. data-page yoksa bu SPA sayfası DEĞİL: href'i normal
+      // takip et (preventDefault etme), yoksa link ölür.
+      if (!this.dataset.page) return;
       e.preventDefault();
       // BSC Presentation normal sayfa DEĞİL — tam-ekran sunum kabuğunu açar.
       if (this.dataset.page === "bsc-presentation") { _bscOpen(); return; }

@@ -36,13 +36,58 @@ def _masa_url() -> str:
     return "/"
 
 
+def _user_department() -> str:
+    """Oturumdaki kullanicinin departmani (LDAP). Anonim/eksikse bos string."""
+    try:
+        return getattr(current_user, "department", None) or ""
+    except Exception:
+        return ""
+
+
+def _folder_menu(config_key: str, arg: str | None) -> dict | None:
+    """R3 — klasor bazli sol menu, config saglayicisi uzerinden.
+
+    Izolasyon geregi prisma_home import EDILMEZ; saglayici app.py tarafindan
+    config'e konur. Saglayici yoksa ya da patlarsa menu cizilmez (None) ve
+    sayfa eskisi gibi calisir.
+    """
+    if not arg:
+        return None
+    provider = current_app.config.get(config_key)
+    if provider is None:
+        return None
+    try:
+        return provider(arg, _user_department())
+    except Exception:
+        current_app.logger.warning("folder_menu cozulemedi: %r", arg, exc_info=True)
+        return None
+
+
+def folder_menu_for_process(process_id: str | None) -> dict | None:
+    """Surec id'sinden klasor menusu (PRISMA-native sayfalar)."""
+    return _folder_menu("FOLDER_MENU_PROVIDER", process_id)
+
+
+def folder_menu_for_page(page: str | None) -> dict | None:
+    """SPA deep-link sayfasindan (``?page=``) klasor menusu."""
+    return _folder_menu("FOLDER_MENU_FOR_PAGE_PROVIDER", page)
+
+
+#: SPA acilisinda ?page= verilmezse gosterilen varsayilan sayfa (menu baglami).
+_DEFAULT_SPA_PAGE = "cost-analysis"
+
+
 @mevduat_panel_bp.route("/")
 @login_required
 def index() -> Response:
+    # R3 — SPA'nin sol menusu de klasorden gelir. Sayfa anahtari ?page= ile
+    # secilir; verilmezse varsayilan sayfanin klasoru gosterilir.
+    page = (request.args.get("page") or "").strip() or _DEFAULT_SPA_PAGE
     html = render_template(
         "mevduat_panel/index.html",
         masa_url=_masa_url(),
         mevduat_version=MEVDUAT_VERSION,
+        folder_menu=folder_menu_for_page(page),
     )
     resp = Response(html, mimetype="text/html")
     # Kaynak repo disiplini: sayfa SPA state'i tasir, bayat HTML/JS

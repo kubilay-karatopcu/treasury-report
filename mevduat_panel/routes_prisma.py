@@ -14,9 +14,9 @@ modülün geri kalanı (SPA + API'ler) etkilenmez.
 from __future__ import annotations
 
 from flask import Response, current_app, render_template, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 
-from .routes import MEVDUAT_VERSION, mevduat_panel_bp
+from .routes import MEVDUAT_VERSION, folder_menu_for_process, mevduat_panel_bp
 
 #: PRISMA kabuğunun varlık testi — topbar.html bu endpoint'lere url_for atar.
 _SHELL_ENDPOINTS = ("prisma_home.landing", "prisma_home.atolye_home")
@@ -38,7 +38,7 @@ def _endpoints() -> dict:
     }
 
 
-def _render(template: str, **ctx) -> Response:
+def _render(template: str, process_id: str | None = None, **ctx) -> Response:
     if not _shell_available():
         return Response(
             "PRISMA kabuğu (prisma_home) kayıtlı değil — bu sayfa kabuğu gerektirir.",
@@ -49,6 +49,8 @@ def _render(template: str, **ctx) -> Response:
         template,
         mevduat_version=MEVDUAT_VERSION,
         endpoints=_endpoints(),
+        # R3 — bu sayfanın klasöründeki kardeş raporlar (sol menü).
+        folder_menu=folder_menu_for_process(process_id),
         **ctx,
     )
     resp = Response(html, mimetype="text/html")
@@ -63,6 +65,7 @@ def _render(template: str, **ctx) -> Response:
 def prisma_rates() -> Response:
     return _render(
         "mevduat_panel/prisma/rates.html",
+        process_id="mevduat.oranlar",
         eyebrow="Mevduat · Rezervasyon",
         page_heading="Rezervasyon Oranları",
         page_sub="Gün içi teklif, talep ve rakip oranlarının vade kırılımında "
@@ -75,6 +78,7 @@ def prisma_rates() -> Response:
 def prisma_amounts() -> Response:
     return _render(
         "mevduat_panel/prisma/amounts.html",
+        process_id="mevduat.miktarlar",
         eyebrow="Mevduat · Rezervasyon",
         page_heading="Rezervasyon Miktarları",
         page_sub="Rezervasyon, gelen tutar ve portföy büyüklüklerinin vade, "
@@ -87,6 +91,7 @@ def prisma_amounts() -> Response:
 def prisma_historic() -> Response:
     return _render(
         "mevduat_panel/prisma/historic.html",
+        process_id="mevduat.tarihsel",
         eyebrow="Mevduat · Rezervasyon",
         page_heading="Tarihsel Görünüm",
         page_sub="Son 30 günün günlük hacim ve ağırlıklı oran evrimi; "
@@ -99,6 +104,7 @@ def prisma_historic() -> Response:
 def prisma_competitor() -> Response:
     return _render(
         "mevduat_panel/prisma/competitor.html",
+        process_id="mevduat.rakip",
         eyebrow="Sektör · Rekabet",
         page_heading="Rakip Faiz Analizi",
         page_sub="Rakip bankaların mevduat faiz kotasyonları: banka, vade "

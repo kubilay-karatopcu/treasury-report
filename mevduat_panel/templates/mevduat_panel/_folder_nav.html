@@ -1,0 +1,44 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   _folder_nav.html — klasör bazlı sol menü (R3).
+
+   Menü, raporun bulunduğu klasörün (masa topic'inin) kardeşlerinden üretilir;
+   elle bakım gerektiren statik nav listesi yoktur. Kaynak: prisma_home.folders
+   → app.config["FOLDER_MENU_PROVIDER"] → routes.folder_menu_for_*.
+
+   Sözleşme: `folder_menu` = {title, items:[{id,label,url,page,endpoint,active}]}
+   ya da None (sağlayıcı yok / klasör bulunamadı → menü çizilmez).
+
+   `nav_variant` — SPA ve PRISMA sayfaları AYNI anda hem mevduat_panel.css hem
+   kit.css yükler; sınıflar çakışmasın diye varyant tek sınıf seti üretir:
+     "sidebar" → mevduat_panel.css `.sidebar` (SPA kabuğu, flex body layout)
+     "pk"      → kit.css `.pk-fnav`          (PRISMA-native sayfa kabuğu)
+
+   `spa_endpoint` verilirse aynı endpoint'teki kardeşler `data-page` taşır;
+   mevduat_panel.js bunları sunucuya gitmeden açar. Farklı endpoint'tekiler
+   data-page taşımaz → tarayıcı href'i normal takip eder.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+{% if folder_menu and folder_menu.items %}
+{% set _spa = (nav_variant|default('sidebar')) == 'sidebar' %}
+<aside class="{{ 'sidebar' if _spa else 'pk-fnav' }}">
+  <div class="{{ 'sidebar-group' if _spa else 'pk-fnav__group' }}">
+    <div class="{{ 'sidebar-group-header' if _spa else 'pk-fnav__head' }}"
+         {% if _spa %}data-group="folder"{% endif %}>
+      {{ folder_menu.title }}
+      {% if _spa %}<span class="sidebar-group-icon">&#9660;</span>{% endif %}
+    </div>
+    <div class="{{ 'sidebar-group-body' if _spa else 'pk-fnav__body' }}">
+      <ul class="{{ 'sidebar-nav' if _spa else 'pk-fnav__list' }}"
+          {% if _spa %}id="deposit-nav"{% endif %}>
+        {% for it in folder_menu.items %}
+        <li>
+          <a href="{{ it.url }}"
+             {% if spa_endpoint and it.page and it.endpoint == spa_endpoint %}
+             data-page="{{ it.page }}"{% endif %}
+             {% if it.active %}class="active"{% endif %}>{{ it.label }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</aside>
+{% endif %}
