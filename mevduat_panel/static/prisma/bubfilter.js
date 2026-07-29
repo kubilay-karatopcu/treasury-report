@@ -5,9 +5,9 @@
    sadık portu: boyut başına açılır liste, üstte **All | None**, seçilenleri
    tek satırda birleştirme ("＋ Group Selected") ve grup bozma.
 
-   SINIF ADLARI BİLİNÇLİ AYRI (`pkf-*`): SPA aynı sayfada hem mevduat_panel.css
-   hem kit.css yükler; `bub-filter-*` adlarını yeniden kullanmak iki stylesheet
-   arasında yükleme sırasına bağlı çakışma üretirdi. Görsel sonuç aynıdır.
+   SINIF ADLARI SPA İLE AYNI (`bub-filter-*`): sayfalar artık Outstanding
+   kabuğunu (mevduat_panel.css) yüklüyor, stiller oradan birebir gelir — ayrı
+   bir kit stili YOK (kullanıcı kararı 2026-07-29: tam homojenlik).
 
    SPA'ya özel olduğu için PORT EDİLMEYENLER: AUM ↔ AUM_BAND grup aynası
    (`_mirrorAumMergeAcross`) ve sayfa-ailesi bazlı boyut sıralaması. Sıralama
@@ -96,12 +96,12 @@
       recomputeRows();
 
       var wrap = document.createElement('div');
-      wrap.className = 'pkf-dd';
+      wrap.className = 'bub-filter-dd';
       wrap.dataset.dim = dim;
 
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'pkf-dd-btn';
+      btn.className = 'bub-filter-dd-btn';
 
       /* Görünür "satır" kimlikleri = emilmemiş ham değerler + grup adları. */
       function effectiveEntries() {
@@ -134,7 +134,7 @@
       }
 
       var popup = document.createElement('div');
-      popup.className = 'pkf-dd-popup hidden';
+      popup.className = 'bub-filter-dd-popup hidden';
 
       /* Satır kümesi her birleştirme/bozmada değiştiği için popup baştan
          kurulur. */
@@ -144,7 +144,7 @@
 
         // ── All | None ──────────────────────────────────────────────────────
         var actions = document.createElement('div');
-        actions.className = 'pkf-dd-actions';
+        actions.className = 'bub-filter-dd-actions';
         var allLink = document.createElement('a');
         allLink.href = '#';
         allLink.textContent = 'All';
@@ -169,7 +169,7 @@
         // ── Ham değer kutuları ──────────────────────────────────────────────
         availableVals.forEach(function (v) {
           var lblEl = document.createElement('label');
-          lblEl.className = 'pkf-dd-opt';
+          lblEl.className = 'bub-filter-dd-opt';
           var cb = document.createElement('input');
           cb.type = 'checkbox';
           cb.checked = state[dim][v] !== false;
@@ -187,7 +187,7 @@
         // ── Seçilenleri birleştir ───────────────────────────────────────────
         var groupBtn = document.createElement('button');
         groupBtn.type = 'button';
-        groupBtn.className = 'pkf-dd-groupbtn';
+        groupBtn.className = 'bub-filter-dd-groupbtn';
         groupBtn.textContent = '＋ Group Selected';
         function selectedVals() {
           return availableVals.filter(function (v) {
@@ -217,18 +217,18 @@
         // ── Mevcut gruplar ──────────────────────────────────────────────────
         if (mergedGroups.length) {
           var sep = document.createElement('div');
-          sep.className = 'pkf-dd-sep';
+          sep.className = 'bub-filter-dd-sep';
           popup.appendChild(sep);
           var hdr = document.createElement('div');
-          hdr.className = 'pkf-dd-grp-hdr';
+          hdr.className = 'bub-filter-dd-grp-hdr';
           hdr.textContent = 'Groups (' + mergedGroups.length + ')';
           popup.appendChild(hdr);
 
           mergedGroups.slice().forEach(function (g) {
             var row = document.createElement('div');
-            row.className = 'pkf-dd-merged';
+            row.className = 'bub-filter-dd-merged';
             var nameSpan = document.createElement('label');
-            nameSpan.className = 'pkf-dd-merged-name';
+            nameSpan.className = 'bub-filter-dd-merged-name';
             nameSpan.title = g.members.join(', ');
             var cb = document.createElement('input');
             cb.type = 'checkbox';
@@ -242,7 +242,7 @@
             nameSpan.appendChild(document.createTextNode(
               ' ' + g.name + ' (' + g.members.length + ')'));
             var xBtn = document.createElement('span');
-            xBtn.className = 'pkf-dd-merged-x';
+            xBtn.className = 'bub-filter-dd-merged-x';
             xBtn.textContent = '×';
             xBtn.title = 'Grubu boz';
             xBtn.addEventListener('click', function () {
@@ -265,7 +265,7 @@
 
       btn.addEventListener('click', function (ev) {
         ev.stopPropagation();
-        document.querySelectorAll('.pkf-dd-popup').forEach(function (p) {
+        document.querySelectorAll('.bub-filter-dd-popup').forEach(function (p) {
           if (p !== popup) p.classList.add('hidden');
         });
         popup.classList.toggle('hidden');
@@ -317,12 +317,12 @@
   MVP.bubIsAll = isAllSelected;
 
   // Dışarı tıklayınca açık açılır listeleri kapat (tek sefer bağlanır).
-  if (!window.__pkfClickBound) {
+  if (!window.__bubFilterClickBound) {
     document.addEventListener('click', function () {
-      document.querySelectorAll('.pkf-dd-popup').forEach(function (p) {
+      document.querySelectorAll('.bub-filter-dd-popup').forEach(function (p) {
         p.classList.add('hidden');
       });
     });
-    window.__pkfClickBound = true;
+    window.__bubFilterClickBound = true;
   }
 })();

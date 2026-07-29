@@ -200,9 +200,9 @@
         });
       }
     });
-    document.querySelectorAll('#fDims .pkf-dd').forEach(function (dd) {
+    document.querySelectorAll('#fDims .bub-filter-dd').forEach(function (dd) {
       var dim = dd.dataset.dim;
-      dd.querySelectorAll('.pkf-dd-opt').forEach(function (opt) {
+      dd.querySelectorAll('.bub-filter-dd-opt').forEach(function (opt) {
         var raw = opt.textContent.trim();
         var pretty = labelOf(dim, raw);
         if (pretty !== raw) opt.lastChild.textContent = ' ' + pretty;
@@ -450,9 +450,10 @@
 
   // ── Başlangıç ────────────────────────────────────────────────────────────
 
-  document.getElementById('mvpApply').addEventListener('click', function () {
-    loadDate(elDate.value);
-  });
+  // Güncelle butonu yok (Outstanding deseni: değişiklik anında uygulanır);
+  // buton ileride geri gelirse yine çalışsın diye guard'lı bağlanır.
+  var elApply = document.getElementById('mvpApply');
+  if (elApply) elApply.addEventListener('click', function () { loadDate(elDate.value); });
   elDate.addEventListener('change', function () { loadDate(elDate.value); });
   elCcy.addEventListener('change', apply);
   document.getElementById('fDatePrev').addEventListener('click', function () { shiftDate(-1); });

@@ -1,191 +1,110 @@
 {# ═══════════════════════════════════════════════════════════════════════════
-   Rezervasyon Oranları — eski templates/rates.html'in BİREBİR karşılığı (R5).
+   Rezervasyon Oranları — içerik eski templates/rates.html ile BİREBİR;
+   görünüm Outstanding kabuğuyla BİREBİR (homojenlik revizyonu 2026-07-29).
 
-   Yapı kaynağı: templates/rates.html + static/js/rates.js.
-     4 kart, her biri karosel:
-       1) Verilen Oran Analizi     → kümülatif combo · saatlik combo · dağılım+metrik
-       2) İstenen Oran Analizi     → aynı üçlü
-       3) Rakip Banka Oran Analizi → aynı üçlü
-       4) Spread Analizi           → saatlik · kümülatif
-   Ekstra kart/blok EKLENMEZ (kullanıcı kararı: birebir parite).
-
-   Filtreler Outstanding kitine çevrildi (R4): çok değerli boyutlar All | None
-   açılır listesi (bubfilter.js), para birimi tekil seçim (eski semantik: tam
-   olarak bir para birimi), tarih tek gün + ileri/geri okları.
+   4 bölüm (accordion), her biri karosel:
+     1) Verilen Oran Analizi     → kümülatif combo · saatlik combo · dağılım+metrik
+     2) İstenen Oran Analizi     → aynı üçlü
+     3) Rakip Banka Oran Analizi → aynı üçlü
+     4) Spread Analizi           → saatlik · kümülatif
+   Ekstra kart/blok EKLENMEZ.
    ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "mevduat_panel/prisma/_page.html" %}
 {% set crumb = "Mevduat · Rezervasyon Oranları" %}
 {% block title %}Rezervasyon Oranları — PRISMA{% endblock %}
 
 {% block mvp_filters %}
-  <div class="pk-field">
-    <span class="pk-label">Tarih</span>
-    <div class="pk-field__body">
-      <button type="button" class="pk-btn" id="fDatePrev" title="Önceki gün">‹</button>
-      <input type="date" class="pk-input" id="fDate">
-      <button type="button" class="pk-btn" id="fDateNext" title="Sonraki gün">›</button>
-    </div>
-  </div>
-
-  <div class="pk-field">
-    <span class="pk-label">Para Birimi</span>
-    <div class="pk-field__body">
-      <select class="pk-input" id="fCcy">
-        <option value="TRY">TRY</option>
-        <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
-        <option value="GBP">GBP</option>
-        <option value="CAD">CAD</option>
-        <option value="JPY">JPY</option>
-        <option value="XAU">XAU</option>
-      </select>
-    </div>
-  </div>
-
-  {# Çok değerli boyutlar — bubfilter.js doldurur (All | None + gruplama). #}
-  <div class="pk-field">
-    <span class="pk-label">Boyutlar</span>
-    <div class="pkf-panel" id="fDims"></div>
-  </div>
+  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+    Tarih
+    <button type="button" class="wf-nav-btn" id="fDatePrev" title="Önceki gün">&#9664;</button>
+    <input type="date" id="fDate"
+           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+    <button type="button" class="wf-nav-btn" id="fDateNext" title="Sonraki gün">&#9654;</button>
+  </label>
+  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:8px;">
+    Para Birimi
+    <select id="fCcy"
+            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+      <option value="TRY">TRY</option><option value="USD">USD</option>
+      <option value="EUR">EUR</option><option value="GBP">GBP</option>
+      <option value="CAD">CAD</option><option value="JPY">JPY</option>
+      <option value="XAU">XAU</option>
+    </select>
+  </label>
 {% endblock %}
 
 {% block mvp_body %}
-<div class="pk-grid">
-
-  {# ── 1) Verilen Oran ───────────────────────────────────────────────────── #}
-  <div class="pk-card" id="card-offered">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Verilen Oran Analizi</span>
-      <div class="pk-carousel__nav">
-        <button type="button" data-car-prev="carousel-offered" aria-label="Önceki">‹</button>
-        <span class="pk-carousel__ind" data-car-ind="carousel-offered"></span>
-        <button type="button" data-car-next="carousel-offered" aria-label="Sonraki">›</button>
-      </div>
+{% macro metric_tiles(suffix) -%}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;">
+    <div class="card" style="padding:12px 16px;">
+      <div style="font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Ekstrem + Yetki Üzeri</div>
+      <div style="font-size:24px;color:var(--text-primary);margin-top:4px;" id="metric-ekstrem-yetki-{{ suffix }}">%0.00</div>
     </div>
-    <div class="pk-carousel" id="carousel-offered">
-      <div class="pk-carousel__slide is-active">
-        <div class="pk-carousel__cap">Zaman İçindeki Değişim (Saatlik)</div>
-        <div id="chart-offered" class="pk-plot"></div>
+    <div class="card" style="padding:12px 16px;">
+      <div style="font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Ekstrem Üzeri</div>
+      <div style="font-size:24px;color:var(--accent);margin-top:4px;" id="metric-ekstrem-{{ suffix }}">%0.00</div>
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro rate_section(title, cid, prefix, suffix) -%}
+  <div class="accordion">
+    <button class="accordion-header open" type="button">
+      <span class="acc-icon">&#9654;</span> {{ title }}
+    </button>
+    <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
+      <div class="wf-carousel-nav">
+        <span class="wf-slide-label" data-car-ind="{{ cid }}">1 / 3</span>
+        <button class="wf-nav-btn" data-car-prev="{{ cid }}" aria-label="Önceki">&#9664;</button>
+        <button class="wf-nav-btn" data-car-next="{{ cid }}" aria-label="Sonraki">&#9654;</button>
       </div>
-      <div class="pk-carousel__slide">
-        <div class="pk-carousel__cap">Saatlik Performans (Anlık)</div>
-        <div id="chart-offered-hourly" class="pk-plot"></div>
-      </div>
-      <div class="pk-carousel__slide">
-        <div class="pk-carousel__cap">Oran Dağılımı (Frekans)</div>
-        <div id="chart-offered-dist" class="pk-plot"></div>
-        <div class="pk-metrics">
-          <div class="pk-metric">
-            <div class="pk-metric__label">Ekstrem + Yetki Üzeri</div>
-            <div class="pk-metric__value" id="metric-ekstrem-yetki-off">%0.00</div>
-          </div>
-          <div class="pk-metric pk-metric--warn">
-            <div class="pk-metric__label">Ekstrem Üzeri</div>
-            <div class="pk-metric__value" id="metric-ekstrem-off">%0.00</div>
-          </div>
+      <div class="mv-carousel" id="{{ cid }}">
+        <div class="mvc-slide">
+          <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Zaman İçindeki Değişim (Saatlik)</div>
+          <div class="card"><div id="chart-{{ prefix }}" class="plot-container"></div></div>
+        </div>
+        <div class="mvc-slide hidden">
+          <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Saatlik Performans (Anlık)</div>
+          <div class="card"><div id="chart-{{ prefix }}-hourly" class="plot-container"></div></div>
+        </div>
+        <div class="mvc-slide hidden">
+          <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Oran Dağılımı (Frekans)</div>
+          <div class="card"><div id="chart-{{ prefix }}-dist" class="plot-container"></div></div>
+          {{ metric_tiles(suffix) }}
         </div>
       </div>
     </div>
   </div>
+{%- endmacro %}
 
-  {# ── 2) İstenen Oran ───────────────────────────────────────────────────── #}
-  <div class="pk-card" id="card-demanded">
-    <div class="pk-card__head">
-      <span class="pk-card__title">İstenen Oran Analizi</span>
-      <div class="pk-carousel__nav">
-        <button type="button" data-car-prev="carousel-demanded" aria-label="Önceki">‹</button>
-        <span class="pk-carousel__ind" data-car-ind="carousel-demanded"></span>
-        <button type="button" data-car-next="carousel-demanded" aria-label="Sonraki">›</button>
-      </div>
+{{ rate_section("Verilen Oran Analizi", "carousel-offered", "offered", "off") }}
+{{ rate_section("İstenen Oran Analizi", "carousel-demanded", "demanded", "dem") }}
+{{ rate_section("Rakip Banka Oran Analizi", "carousel-competitor", "competitor", "comp") }}
+
+<div class="accordion">
+  <button class="accordion-header open" type="button">
+    <span class="acc-icon">&#9654;</span> Spread Analizi
+  </button>
+  <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
+    <div class="wf-carousel-nav">
+      <span class="wf-slide-label" data-car-ind="carousel-spread">1 / 2</span>
+      <button class="wf-nav-btn" data-car-prev="carousel-spread" aria-label="Önceki">&#9664;</button>
+      <button class="wf-nav-btn" data-car-next="carousel-spread" aria-label="Sonraki">&#9654;</button>
     </div>
-    <div class="pk-carousel" id="carousel-demanded">
-      <div class="pk-carousel__slide is-active">
-        <div class="pk-carousel__cap">Zaman İçindeki Değişim (Saatlik)</div>
-        <div id="chart-demanded" class="pk-plot"></div>
+    <div class="mv-carousel" id="carousel-spread">
+      <div class="mvc-slide">
+        <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Saatlik Spread</div>
+        <div class="card"><div id="chart-spread" class="plot-container"></div></div>
       </div>
-      <div class="pk-carousel__slide">
-        <div class="pk-carousel__cap">Saatlik Performans (Anlık)</div>
-        <div id="chart-demanded-hourly" class="pk-plot"></div>
-      </div>
-      <div class="pk-carousel__slide">
-        <div class="pk-carousel__cap">Oran Dağılımı (Frekans)</div>
-        <div id="chart-demanded-dist" class="pk-plot"></div>
-        <div class="pk-metrics">
-          <div class="pk-metric">
-            <div class="pk-metric__label">Ekstrem + Yetki Üzeri</div>
-            <div class="pk-metric__value" id="metric-ekstrem-yetki-dem">%0.00</div>
-          </div>
-          <div class="pk-metric pk-metric--warn">
-            <div class="pk-metric__label">Ekstrem Üzeri</div>
-            <div class="pk-metric__value" id="metric-ekstrem-dem">%0.00</div>
-          </div>
-        </div>
+      <div class="mvc-slide hidden">
+        <div style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Kümülatif Spread</div>
+        <div class="card"><div id="chart-spread-cumulative" class="plot-container"></div></div>
       </div>
     </div>
   </div>
-
-  {# ── 3) Rakip Banka Oranı ──────────────────────────────────────────────── #}
-  <div class="pk-card" id="card-competitor">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Rakip Banka Oran Analizi</span>
-      <div class="pk-carousel__nav">
-        <button type="button" data-car-prev="carousel-competitor" aria-label="Önceki">‹</button>
-        <span class="pk-carousel__ind" data-car-ind="carousel-competitor"></span>
-        <button type="button" data-car-next="carousel-competitor" aria-label="Sonraki">›</button>
-      </div>
-    </div>
-    <div class="pk-carousel" id="carousel-competitor">
-      <div class="pk-carousel__slide is-active">
-        <div class="pk-carousel__cap">Zaman İçindeki Değişim (Saatlik)</div>
-        <div id="chart-competitor" class="pk-plot"></div>
-      </div>
-      <div class="pk-carousel__slide">
-        <div class="pk-carousel__cap">Saatlik Performans (Anlık)</div>
-        <div id="chart-competitor-hourly" class="pk-plot"></div>
-      </div>
-      <div class="pk-carousel__slide">
-        <div class="pk-carousel__cap">Oran Dağılımı (Frekans)</div>
-        <div id="chart-competitor-dist" class="pk-plot"></div>
-        <div class="pk-metrics">
-          <div class="pk-metric">
-            <div class="pk-metric__label">Ekstrem + Yetki Üzeri</div>
-            <div class="pk-metric__value" id="metric-ekstrem-yetki-comp">%0.00</div>
-          </div>
-          <div class="pk-metric pk-metric--warn">
-            <div class="pk-metric__label">Ekstrem Üzeri</div>
-            <div class="pk-metric__value" id="metric-ekstrem-comp">%0.00</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  {# ── 4) Spread ─────────────────────────────────────────────────────────── #}
-  <div class="pk-card" id="card-spread">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Spread Analizi</span>
-      <div class="pk-carousel__nav">
-        <button type="button" data-car-prev="carousel-spread" aria-label="Önceki">‹</button>
-        <span class="pk-carousel__ind" data-car-ind="carousel-spread"></span>
-        <button type="button" data-car-next="carousel-spread" aria-label="Sonraki">›</button>
-      </div>
-    </div>
-    <div class="pk-carousel" id="carousel-spread">
-      <div class="pk-carousel__slide is-active">
-        <div class="pk-carousel__cap">Saatlik Spread</div>
-        <div id="chart-spread" class="pk-plot"></div>
-      </div>
-      <div class="pk-carousel__slide">
-        <div class="pk-carousel__cap">Kümülatif Spread</div>
-        <div id="chart-spread-cumulative" class="pk-plot"></div>
-      </div>
-    </div>
-  </div>
-
 </div>
 {% endblock %}
 
 {% block page_scripts %}
-<script src="{{ url_for('mevduat_panel.static', filename='prisma/carousel.js') }}?v={{ mevduat_version }}"></script>
 <script src="{{ url_for('mevduat_panel.static', filename='prisma/rates.js') }}?v={{ mevduat_version }}"></script>
 {% endblock %}

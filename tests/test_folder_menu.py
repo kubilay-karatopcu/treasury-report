@@ -162,13 +162,12 @@ def test_spa_template_has_no_hardcoded_nav():
 
 
 def test_prisma_shell_includes_folder_nav():
+    """Kabuk menüyü SPA'nın .sidebar bileşeniyle çizer (homojenlik)."""
     page = (REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html").read_text(
         encoding="utf-8")
     assert "_folder_nav.html" in page
-    assert "pk-shell" in page
-    css = (REPO / "prisma_home/static/css/kit.css").read_text(encoding="utf-8")
-    for cls in (".pk-shell", ".pk-fnav", ".pk-fnav__list"):
-        assert cls in css, cls
+    assert "mevduat-mount" in page
+    assert "mevduat_panel.css" in page
 
 
 def test_spa_nav_click_falls_through_for_foreign_endpoints():
@@ -207,12 +206,12 @@ def _menu(**over):
 
 
 def test_nav_renders_with_real_dict(nav_tpl):
-    out = nav_tpl.render(folder_menu=_menu(), nav_variant="pk")
+    out = nav_tpl.render(folder_menu=_menu())
     assert "Daily View" in out
     assert "Rezervasyon Oranları" in out
     assert "/mevduat-panel/miktarlar" in out
     assert 'class="active"' in out
-    assert "pk-fnav" in out
+    assert "sidebar-nav" in out
 
 
 def test_nav_spa_variant_emits_data_page(nav_tpl):
@@ -220,8 +219,7 @@ def test_nav_spa_variant_emits_data_page(nav_tpl):
         {"id": "mevduat.bakiye", "label": "Outstanding Balance",
          "url": "/mevduat-panel/?page=balance-analysis", "page": "balance-analysis",
          "endpoint": "mevduat_panel.index", "active": True}])
-    out = nav_tpl.render(folder_menu=spa, nav_variant="sidebar",
-                         spa_endpoint="mevduat_panel.index")
+    out = nav_tpl.render(folder_menu=spa, spa_endpoint="mevduat_panel.index")
     assert 'data-page="balance-analysis"' in out
     assert 'id="deposit-nav"' in out
     assert "sidebar-group" in out
@@ -229,8 +227,7 @@ def test_nav_spa_variant_emits_data_page(nav_tpl):
 
 def test_nav_foreign_endpoint_gets_no_data_page(nav_tpl):
     """Başka endpoint'teki kardeş data-page taşımaz → tarayıcı href'i izler."""
-    out = nav_tpl.render(folder_menu=_menu(), nav_variant="sidebar",
-                         spa_endpoint="mevduat_panel.index")
+    out = nav_tpl.render(folder_menu=_menu(), spa_endpoint="mevduat_panel.index")
     assert "data-page=" not in out
 
 

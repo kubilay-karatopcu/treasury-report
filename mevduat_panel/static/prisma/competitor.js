@@ -95,7 +95,7 @@
     });
     if (!sources.length) {
       var span = document.createElement('span');
-      span.className = 'pk-status';
+      span.style.cssText = 'font-size:12px;color:var(--text-muted);';
       span.textContent = 'Kaynak bilgisi bulunamadı.';
       elSources.appendChild(span);
       return;
@@ -113,6 +113,9 @@
       }
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
+      a.style.cssText = 'display:inline-block;padding:4px 10px;font-size:12px;' +
+        'border:1px solid var(--border-mid);border-radius:4px;' +
+        'color:var(--text-secondary);text-decoration:none;';
       elSources.appendChild(a);
     });
   }
@@ -146,9 +149,9 @@
         });
       }
     });
-    document.querySelectorAll('#fDims .pkf-dd').forEach(function (dd) {
+    document.querySelectorAll('#fDims .bub-filter-dd').forEach(function (dd) {
       var dim = dd.dataset.dim;
-      dd.querySelectorAll('.pkf-dd-opt').forEach(function (opt) {
+      dd.querySelectorAll('.bub-filter-dd-opt').forEach(function (opt) {
         var raw = opt.textContent.trim();
         var pretty = labelOf(dim, raw);
         if (pretty !== raw) opt.lastChild.textContent = ' ' + pretty;
@@ -428,7 +431,8 @@
       if (elStatus) elStatus.textContent = 'Veri alınamadı: ' + err.message;
     });
 
-  document.getElementById('mvpApply').addEventListener('click', apply);
+  var elApply = document.getElementById('mvpApply');
+  if (elApply) elApply.addEventListener('click', apply);
   elFrom.addEventListener('change', apply);
   elTo.addEventListener('change', apply);
 })();

@@ -1,83 +1,75 @@
 {# ═══════════════════════════════════════════════════════════════════════════
-   Rakip Faiz Analizi — eski templates/competitor.html'in BİREBİR karşılığı.
+   Rakip Faiz Analizi — içerik eski templates/competitor.html ile BİREBİR;
+   görünüm Outstanding kabuğuyla BİREBİR (homojenlik revizyonu 2026-07-29).
 
-   Yapı kaynağı: templates/competitor.html + static/js/competitor.js.
-     1) Güncel Banka Sıralaması (Maks. Oran) → iki grafik alt alta
-        (#chart-snapshot-bars + #chart-snapshot-change) + Piyasa Özeti paneli
-     2) Tarihsel Faiz Trendi (Maks. Oran)    → #chart-trend
-     3) Detay Tablosu                        → AG-Grid (#competitor-grid)
-     4) Kaynakça                             → #source-links
-   Karosel YOK (kaynakta da yoktu). Ekstra kart/blok EKLENMEZ.
+   4 bölüm (accordion), karosel yok (kaynakta da yoktu):
+     1) Güncel Banka Sıralaması (Maks. Oran) → snapshot bar + günlük değişim
+        + Piyasa Özeti paneli
+     2) Tarihsel Faiz Trendi (Maks. Oran)
+     3) Detay Tablosu → AG-Grid Enterprise (banka > vade gruplu)
+     4) Kaynakça
 
-   Filtre paneli bu sayfada kendine özgüydü (Vade + Banka + tarih aralığı);
-   Outstanding kitine çevrildi (R4).
-
-   Piyasa Özeti: kaynakta `POST /competitor/summary` LLM ucunu çağırıyordu.
-   Bu uç mevduat_panel'e PORTLANMADI (masa modu = sıfır LLM sözleşmesi ve modül
-   izolasyonu kararı gerektiriyor). Panel yerinde durur; uç yapılandırılmamışsa
-   kendini gizler — layout paritesi korunur, LLM bağımlılığı dayatılmaz.
+   Piyasa Özeti: kaynak `POST /competitor/summary` LLM ucunu çağırıyordu; uç
+   portlanmadı (masa modu sıfır-LLM sözleşmesi). Panel yalnız uç
+   yapılandırılmışsa görünür.
    ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "mevduat_panel/prisma/_page.html" %}
 {% set crumb = "Sektör · Rakip Faiz Analizi" %}
 {% block title %}Rakip Faiz Analizi — PRISMA{% endblock %}
 
 {% block mvp_filters %}
-  <div class="pk-field">
-    <span class="pk-label">Dönem</span>
-    <div class="pk-field__body">
-      <input type="date" class="pk-input" id="fFrom">
-      <span class="pk-sep">→</span>
-      <input type="date" class="pk-input" id="fTo">
-    </div>
-  </div>
-
-  <div class="pk-field">
-    <span class="pk-label">Boyutlar</span>
-    <div class="pkf-panel" id="fDims"></div>
-  </div>
+  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+    Dönem
+    <input type="date" id="fFrom"
+           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+    <span style="color:var(--text-muted);">→</span>
+    <input type="date" id="fTo"
+           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+  </label>
 {% endblock %}
 
 {% block mvp_body %}
-<div class="pk-grid">
-
-  {# ── 1) Güncel banka sıralaması ────────────────────────────────────────── #}
-  <div class="pk-card" id="card-snapshot">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Güncel Banka Sıralaması (Maks. Oran)</span>
-      <span class="pk-card__note" id="snapshot-date"></span>
-    </div>
-    <div id="chart-snapshot-bars" class="pk-plot pk-plot--snapshot"></div>
-    <div id="chart-snapshot-change" class="pk-plot pk-plot--short"></div>
-    <div class="pk-summary" id="summary-panel" hidden>
-      <div class="pk-summary__label">Piyasa Özeti</div>
-      <div class="pk-summary__text" id="summary-text"></div>
+<div class="accordion">
+  <button class="accordion-header open" type="button">
+    <span class="acc-icon">&#9654;</span> Güncel Banka Sıralaması (Maks. Oran)
+    <span id="snapshot-date" style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:400;"></span>
+  </button>
+  <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
+    <div class="card"><div id="chart-snapshot-bars" class="plot-container" style="min-height:300px;"></div></div>
+    <div class="card" style="margin-top:16px;"><div id="chart-snapshot-change" class="plot-container" style="min-height:200px;"></div></div>
+    <div class="card" id="summary-panel" hidden
+         style="margin-top:16px;padding:14px 18px;border-left:2px solid var(--accent);">
+      <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;">Piyasa Özeti</div>
+      <div id="summary-text" style="font-size:14px;line-height:1.6;color:var(--text-secondary);font-style:italic;"></div>
     </div>
   </div>
+</div>
 
-  {# ── 2) Tarihsel trend ─────────────────────────────────────────────────── #}
-  <div class="pk-card" id="card-trend">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Tarihsel Faiz Trendi (Maks. Oran)</span>
-    </div>
-    <div id="chart-trend" class="pk-plot pk-plot--wide"></div>
+<div class="accordion">
+  <button class="accordion-header open" type="button">
+    <span class="acc-icon">&#9654;</span> Tarihsel Faiz Trendi (Maks. Oran)
+  </button>
+  <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
+    <div class="card"><div id="chart-trend" class="plot-container" style="min-height:400px;"></div></div>
   </div>
+</div>
 
-  {# ── 3) Detay tablosu (AG-Grid, banka+vade gruplu) ─────────────────────── #}
-  <div class="pk-card" id="card-grid">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Detay Tablosu</span>
-    </div>
-    <div id="competitor-grid" class="ag-theme-alpine pk-grid-table"></div>
+<div class="accordion">
+  <button class="accordion-header open" type="button">
+    <span class="acc-icon">&#9654;</span> Detay Tablosu
+  </button>
+  <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
+    <div id="competitor-grid" class="ag-theme-alpine" style="width:100%;height:520px;"></div>
   </div>
+</div>
 
-  {# ── 4) Kaynakça ───────────────────────────────────────────────────────── #}
-  <div class="pk-card" id="card-sources">
-    <div class="pk-card__head">
-      <span class="pk-card__title">Kaynakça</span>
-    </div>
-    <div id="source-links" class="pk-sources"></div>
+<div class="accordion">
+  <button class="accordion-header open" type="button">
+    <span class="acc-icon">&#9654;</span> Kaynakça
+  </button>
+  <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
+    <div id="source-links" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
   </div>
-
 </div>
 {% endblock %}
 

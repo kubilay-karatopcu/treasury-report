@@ -1,21 +1,27 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   carousel.js — PRISMA sayfaları için hafif karosel (R5).
+   carousel.js — Outstanding tarzı karosel (R5, homojen UI revizyonu).
 
-   Eski sayfalar Bootstrap/Tabler karoselini kullanıyordu (`data-bs-slide`);
-   PRISMA kabuğunda Bootstrap JS YOK. Bu, aynı etkileşimi bağımlılıksız verir:
-   kart başlığındaki ‹ › okları + "n / N" göstergesi.
+   Görsel dil SPA'nın waterfall karoselinden (index.html): kontroller
+   `.wf-carousel-nav` içinde `.wf-slide-label` + `.wf-nav-btn` (◀ ▶),
+   slaytlar `hidden` sınıfıyla gizlenir (mevduat_panel.css:
+   `.hidden{display:none!important}`). Bu dosya stil TANIMLAMAZ — markup
+   SPA sınıflarını kullanır, stiller mevduat_panel.css'ten gelir.
 
    Kritik: ApexCharts gizli (display:none) kapta 0 genişlikle çizilir. Slayt
-   değişiminde `resize` yayınlanır — Apex bunu dinler ve yeni görünür slaytı
-   doğru genişlikte yeniden ölçer. Yayın rAF içinde yapılır, yani slayt görünür
-   olduktan SONRA.
+   değişiminde rAF içinde `resize` yayınlanır — Apex yeni görünür slaytı doğru
+   genişlikte yeniden ölçer.
 
    Markup sözleşmesi:
-     <div class="pk-carousel" id="X">
-       <div class="pk-carousel__slide is-active">…</div>
-       <div class="pk-carousel__slide">…</div>
+     <div class="mv-carousel" id="X">
+       <div class="mvc-slide">…</div>
+       <div class="mvc-slide hidden">…</div>
      </div>
-   Kontroller: <button data-car-prev="X">  <span data-car-ind="X">  <button data-car-next="X">
+   Kontroller (SPA deseni):
+     <div class="wf-carousel-nav">
+       <span class="wf-slide-label" data-car-ind="X">1 / N</span>
+       <button class="wf-nav-btn" data-car-prev="X">&#9664;</button>
+       <button class="wf-nav-btn" data-car-next="X">&#9654;</button>
+     </div>
 
    Global: window.MVP.initCarousels / MVP.carouselGo
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -26,15 +32,15 @@
   if (!MVP) { return; }
 
   function slidesOf(root) {
-    // Doğrudan çocuklar — iç içe karosel olursa yabancı slayt toplanmasın.
+    // Doğrudan çocuklar — iç içe yapılarda yabancı slayt toplanmasın.
     return Array.prototype.filter.call(root.children, function (el) {
-      return el.classList && el.classList.contains('pk-carousel__slide');
+      return el.classList && el.classList.contains('mvc-slide');
     });
   }
 
   function activeIndex(slides) {
     for (var i = 0; i < slides.length; i++) {
-      if (slides[i].classList.contains('is-active')) return i;
+      if (!slides[i].classList.contains('hidden')) return i;
     }
     return 0;
   }
@@ -54,8 +60,9 @@
 
     var cur = activeIndex(slides);
     var next = (cur + delta + slides.length) % slides.length;
-    slides[cur].classList.remove('is-active');
-    slides[next].classList.add('is-active');
+    slides.forEach(function (s, i) {
+      s.classList.toggle('hidden', i !== next);
+    });
     updateIndicator(id, next, slides.length);
 
     // Apex'in yeni görünür slaytı doğru ölçmesi için — slayt görünür olduktan
@@ -67,14 +74,15 @@
 
   /** Sayfadaki tüm karoselleri kurar (idempotent — iki kez çağrılabilir). */
   function initCarousels() {
-    document.querySelectorAll('.pk-carousel').forEach(function (root) {
+    document.querySelectorAll('.mv-carousel').forEach(function (root) {
       if (!root.id) return;
       var slides = slidesOf(root);
       if (!slides.length) return;
-      if (!slides.some(function (s) { return s.classList.contains('is-active'); })) {
-        slides[0].classList.add('is-active');
-      }
-      updateIndicator(root.id, activeIndex(slides), slides.length);
+      var act = activeIndex(slides);
+      slides.forEach(function (s, i) {
+        s.classList.toggle('hidden', i !== act);
+      });
+      updateIndicator(root.id, act, slides.length);
     });
 
     document.querySelectorAll('[data-car-prev]').forEach(function (btn) {
@@ -91,6 +99,20 @@
       btn.addEventListener('click', function (ev) {
         ev.preventDefault();
         go(btn.dataset.carNext, 1);
+      });
+    });
+
+    // Accordion başlıkları (SPA deseni): tıklayınca gövde açılır/kapanır.
+    document.querySelectorAll('.accordion-header').forEach(function (h) {
+      if (h.dataset.accBound) return;
+      h.dataset.accBound = '1';
+      h.addEventListener('click', function () {
+        h.classList.toggle('open');
+        var body = h.nextElementSibling;
+        if (body) body.classList.toggle('hidden');
+        window.requestAnimationFrame(function () {
+          window.dispatchEvent(new Event('resize'));
+        });
       });
     });
   }

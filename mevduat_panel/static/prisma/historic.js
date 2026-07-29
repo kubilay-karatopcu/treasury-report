@@ -256,9 +256,9 @@
         });
       }
     });
-    document.querySelectorAll('#fDims .pkf-dd').forEach(function (dd) {
+    document.querySelectorAll('#fDims .bub-filter-dd').forEach(function (dd) {
       var dim = dd.dataset.dim;
-      dd.querySelectorAll('.pkf-dd-opt').forEach(function (opt) {
+      dd.querySelectorAll('.bub-filter-dd-opt').forEach(function (opt) {
         var raw = opt.textContent.trim();
         var pretty = labelOf(dim, raw);
         if (pretty !== raw) opt.lastChild.textContent = ' ' + pretty;
@@ -471,7 +471,8 @@
       if (elStatus) elStatus.textContent = 'Veri alınamadı: ' + err.message;
     });
 
-  document.getElementById('mvpApply').addEventListener('click', apply);
+  var elApply = document.getElementById('mvpApply');
+  if (elApply) elApply.addEventListener('click', apply);
   elFrom.addEventListener('change', apply);
   elTo.addEventListener('change', apply);
   elCcy.addEventListener('change', apply);
