@@ -18,12 +18,11 @@
 {% block title %}Rakip Faiz Analizi — PRISMA{% endblock %}
 
 {% block mvp_controls %}
-  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
-    Dönem
-    <input type="date" id="fFrom"
-           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-    <input type="date" id="fTo"
-           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+  <label>Başlangıç
+    <input type="date" id="fFrom">
+  </label>
+  <label>Bitiş
+    <input type="date" id="fTo">
   </label>
 {% endblock %}
 

@@ -128,6 +128,7 @@
       elSources.appendChild(span);
       return;
     }
+    var popupEl = document.getElementById('popup-source-links');
     sources.sort().forEach(function (src) {
       var a = document.createElement('a');
       if (src.indexOf('http://') === 0 || src.indexOf('https://') === 0) {
@@ -146,6 +147,7 @@
         'color:var(--text-secondary);text-decoration:none;';
       elSources.appendChild(a);
     });
+    if (popupEl) popupEl.innerHTML = elSources.innerHTML;
   }
 
   // ── Filtre boyutları ─────────────────────────────────────────────────────
@@ -441,8 +443,8 @@
     });
     days.sort();
     if (!days.length) return;
-    elTo.value = days[days.length - 1];
-    elFrom.value = days[Math.max(0, days.length - DEFAULT_RANGE_DAYS)];
+    MVP.setDateVal(elTo, days[days.length - 1]);
+    MVP.setDateVal(elFrom, days[Math.max(0, days.length - DEFAULT_RANGE_DAYS)]);
   }
 
   if (elStatus) elStatus.textContent = 'Veri indiriliyor…';
@@ -461,6 +463,8 @@
 
   var elApply = document.getElementById('mvpApply');
   if (elApply) elApply.addEventListener('click', apply);
+  MVP.initDatePicker(elFrom);   // R7 — GG.AA.YYYY
+  MVP.initDatePicker(elTo);
   elFrom.addEventListener('change', apply);
   elTo.addEventListener('change', apply);
 
@@ -470,6 +474,9 @@
     var btnClose = document.getElementById('btn-close-disclaimer');
     var countdownSpan = document.getElementById('countdown-val');
     if (!overlay || !btnClose) return;
+    // .mevduat-mount ataları position:fixed'in referansını değiştirebiliyor
+    // (sağda aydınlık şerit + kayık merkez) → overlay body'ye portallanır.
+    document.body.appendChild(overlay);
     var remaining = 3;
     var timer = setInterval(function () {
       remaining--;

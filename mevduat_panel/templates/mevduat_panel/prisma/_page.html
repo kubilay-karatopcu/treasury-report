@@ -27,15 +27,33 @@
   <script src="{{ url_for('mevduat_panel.static', filename='vendor/apexcharts.min.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid.css') }}">
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-theme-alpine.css') }}">
+  {# R7 — tarih seçici: GG.AA.YYYY garantisi için flatpickr (native input
+     tarayıcı locale'ine göre ABD formatı gösterebiliyor — yasak). #}
+  <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/flatpickr.min.css') }}">
+  <script src="{{ url_for('mevduat_panel.static', filename='vendor/flatpickr.min.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_panel.css') }}?v={{ mevduat_version }}">
   {# PRISMA token köprüsü; mevduat_panel.css'ten SONRA (index.html deseni). #}
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_prisma.css') }}?v={{ mevduat_version }}">
   <style>
     .dev-banner { display: none !important; }
     html, body { margin: 0 !important; overflow: hidden !important; }
-    /* R6 — accordion başlığı plot BÜYÜTME toggle'ı: charts height:100% ile
-       kabı doldurur; .plot-max kabı ekran yüksekliğine çeker. */
-    .accordion.plot-max .plot-container { height: 72vh !important; }
+    /* R7 — kontrol paneli (sol alt): SPA filtre satırıyla aynı dil — label
+       YANDA, kontrol yanında; input/select stili SPA'nın inline stiliyle
+       birebir. flatpickr'ın altInput'u da bu seçicilerle kapsanır. */
+    .sidebar-controls label {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: var(--text-secondary); white-space: nowrap;
+    }
+    .sidebar-controls input, .sidebar-controls select {
+      flex: 1; min-width: 0;
+      font-size: 13px; padding: 5px 8px;
+      border: 1px solid var(--border-mid); border-radius: 4px;
+      background: var(--bg-surface); color: var(--text-primary);
+    }
+    /* R7 — başlık tıklaması SPA'daki gibi TAM EKRAN overlay açar (chart-fs-*
+       sınıfları mevduat_panel.css'ten). Overlay'de plot ekranı doldurur. */
+    .chart-fs-body .plot-container { height: 72vh !important; }
+    .chart-fs-body { overflow: auto; }
     /* Embed modu (blok izolasyonu): kabuk parçaları gizlenir, kart tek kalır. */
     body.pk-embed .sidebar,
     body.pk-embed .dashboard-title,

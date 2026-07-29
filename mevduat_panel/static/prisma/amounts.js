@@ -437,7 +437,7 @@
     if (idx < 0) idx = availableDates.length - 1;
     var next = idx + delta;
     if (next < 0 || next >= availableDates.length) return;
-    elDate.value = availableDates[next];
+    MVP.setDateVal(elDate, availableDates[next]);
     loadDate(elDate.value);
   }
 
@@ -454,6 +454,7 @@
   // buton ileride geri gelirse yine çalışsın diye guard'lı bağlanır.
   var elApply = document.getElementById('mvpApply');
   if (elApply) elApply.addEventListener('click', function () { loadDate(elDate.value); });
+  MVP.initDatePicker(elDate);   // R7 — GG.AA.YYYY (docs/CUSTOM_PAGE_DESIGN.md)
   elDate.addEventListener('change', function () { loadDate(elDate.value); });
   elCcy.addEventListener('change', apply);
   document.getElementById('fDatePrev').addEventListener('click', function () { shiftDate(-1); });
@@ -463,7 +464,7 @@
     .then(function (res) {
       availableDates = (res && res.dates) || [];
       var latest = (res && res.latest) || availableDates[availableDates.length - 1];
-      if (latest) { elDate.value = latest; loadDate(latest); }
+      if (latest) { MVP.setDateVal(elDate, latest); loadDate(latest); }
       else if (elStatus) elStatus.textContent = 'Veri yok.';
     })
     .catch(function (err) {

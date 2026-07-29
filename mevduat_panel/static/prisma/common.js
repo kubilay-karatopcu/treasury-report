@@ -431,8 +431,37 @@
     return true;
   }
 
+
+  // ── Tarih seçici (R7) ───────────────────────────────────────────────────
+  // KURAL: tarih GÖSTERİMİ daima GG.AA.YYYY — asla ABD formatı (bkz.
+  // docs/CUSTOM_PAGE_DESIGN.md). Native <input type="date"> tarayıcı
+  // locale'ine göre AA/GG/YYYY gösterebildiği için flatpickr (vendored)
+  // kullanılır: altInput GG.AA.YYYY gösterir, asıl input ISO (Y-m-d) kalır —
+  // sayfa JS'leri .value'yu değiştirmeden okumaya devam eder.
+  function initDatePicker(el) {
+    if (!el) return null;
+    if (typeof window.flatpickr !== 'function') return null;  // fallback: native
+    var fp = window.flatpickr(el, {
+      dateFormat: 'Y-m-d',
+      altInput: true,
+      altFormat: 'd.m.Y',
+      allowInput: true,
+      disableMobile: true
+    });
+    el._fp = fp;
+    return fp;
+  }
+
+  /** Değeri programatik yaz (ISO) — flatpickr görünümünü de senkronlar. */
+  function setDateVal(el, iso) {
+    if (!el) return;
+    if (el._fp) el._fp.setDate(iso, false);
+    el.value = iso || '';
+  }
+
   window.MVP = {
     initEmbed: initEmbed,
+    initDatePicker: initDatePicker, setDateVal: setDateVal,
     token: token, isDark: isDark, palette: palette,
     formatNumber: formatNumber, formatRate: formatRate, formatAmt: formatAmt,
     ratePct: ratePct, wavg: wavg, sum: sum, distinct: distinct, groupBy: groupBy,

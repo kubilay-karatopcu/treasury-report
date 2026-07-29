@@ -453,8 +453,8 @@
     });
     days.sort();
     if (!days.length) return;
-    elTo.value = days[days.length - 1];
-    elFrom.value = days[Math.max(0, days.length - DEFAULT_RANGE_DAYS)];
+    MVP.setDateVal(elTo, days[days.length - 1]);
+    MVP.setDateVal(elFrom, days[Math.max(0, days.length - DEFAULT_RANGE_DAYS)]);
   }
 
   if (elStatus) elStatus.textContent = 'Veri indiriliyor…';
@@ -473,6 +473,8 @@
 
   var elApply = document.getElementById('mvpApply');
   if (elApply) elApply.addEventListener('click', apply);
+  MVP.initDatePicker(elFrom);   // R7 — GG.AA.YYYY
+  MVP.initDatePicker(elTo);
   elFrom.addEventListener('change', apply);
   elTo.addEventListener('change', apply);
   elCcy.addEventListener('change', apply);

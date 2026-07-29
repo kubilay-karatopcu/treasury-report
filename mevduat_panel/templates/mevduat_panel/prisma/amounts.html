@@ -14,19 +14,13 @@
 {% block title %}Rezervasyon Miktarları — PRISMA{% endblock %}
 
 {% block mvp_controls %}
-  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
-    Tarih
-    <span style="display:flex;gap:6px;align-items:center;">
-      <button type="button" class="wf-nav-btn" id="fDatePrev" title="Önceki gün">&#9664;</button>
-      <input type="date" id="fDate"
-             style="flex:1;min-width:0;font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-      <button type="button" class="wf-nav-btn" id="fDateNext" title="Sonraki gün">&#9654;</button>
-    </span>
+  <label>Tarih
+    <button type="button" class="wf-nav-btn" id="fDatePrev" title="Önceki gün">&#9664;</button>
+    <input type="date" id="fDate">
+    <button type="button" class="wf-nav-btn" id="fDateNext" title="Sonraki gün">&#9654;</button>
   </label>
-  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
-    Para Birimi
-    <select id="fCcy"
-            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+  <label>Para Birimi
+    <select id="fCcy">
       <option value="TRY">TRY</option><option value="USD">USD</option>
       <option value="EUR">EUR</option><option value="GBP">GBP</option>
       <option value="CAD">CAD</option><option value="JPY">JPY</option>

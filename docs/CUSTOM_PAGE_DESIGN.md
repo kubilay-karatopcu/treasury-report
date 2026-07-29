@@ -26,7 +26,22 @@
 - **Tarih / para birimi / dönem kontrolleri SOL ALTTA, menünün parçasıdır**
   (`mvp_controls` bloğu; aside içinde `margin-top:auto` ile altta, üstünde
   `--mv-border` ayracı). Ana içerik alanına tarih/ccy kontrolü KONMAZ.
+- Kontrol satırı SPA filtre satırıyla AYNI dildedir: **label YANDA**
+  (`display:flex;align-items:center;gap:6px`), input/select SPA stiliyle
+  (`.sidebar-controls input/select` — _page.html CSS'i). Dikey label YASAK.
+  Tarih ileri/geri okları `.wf-nav-btn`. Aralıklar iki ayrı satır:
+  "Başlangıç" / "Bitiş" (SPA'nın Date (Start)/(End) karşılığı).
 - Durum metni (`#mvpStatus`) kontrol panelinin altındadır.
+
+## 2b. Tarih formatı — İSTİSNASIZ KURAL
+
+- **Her tarih seçici GG.AA.YYYY gösterir; ABD formatı (AA/GG/YYYY) YASAKTIR.**
+- Native `<input type="date">` tarayıcı locale'ine göre ABD formatı
+  gösterebildiği için doğrudan KULLANILMAZ: `MVP.initDatePicker(el)` çağrılır
+  (flatpickr, vendored) — altInput GG.AA.YYYY gösterir, asıl input ISO
+  (`Y-m-d`) kalır, sayfa JS'i `.value`'yu değiştirmeden okur.
+- Programatik değer yazma `MVP.setDateVal(el, iso)` ile (flatpickr görünümünü
+  senkronlar). flatpickr yoksa native'e zarifçe düşer.
 
 ## 3. Filtreler
 
@@ -45,8 +60,12 @@
 
 - Bölüm = `.accordion` + `.accordion-header.open` + `.accordion-body`
   (`max-height:none;overflow:visible;padding:0 16px 16px`).
-- **Başlık tıklaması AÇ/KAPA DEĞİL, PLOT BÜYÜTME toggle'ıdır**: `.plot-max`
-  sınıfı kabı `72vh`'ye çeker (carousel.js bağlar; CSS _page.html'de).
+- **Başlık tıklaması AÇ/KAPA DEĞİL, TAM EKRAN'dır**: SPA'nın `_open` deseni —
+  gövde placeholder bırakılarak `document.body`'ye eklenen
+  `.chart-fs-overlay`'e TAŞINIR (chart örnekleri yaşar), ✕ / Esc / boşluğa
+  tıklama geri koyar. Sınıflar mevduat_panel.css'ten (`chart-fs-*`);
+  carousel.js `MVP.openFullscreen/closeFullscreen` sağlar. Overlay'de
+  `.chart-fs-body .plot-container` 72vh'ye çekilir.
 - Karosel: kontroller `.wf-carousel-nav` içinde `.wf-slide-label` (`n / N`) +
   `.wf-nav-btn` (◀ ▶); slaytlar `.mv-carousel > .mvc-slide` (`hidden` toggle).
   ApexCharts gizli kapta 0 genişlikle çizildiği için slayt/büyütme değişiminde
@@ -58,7 +77,9 @@
 
 - Chart: **ApexCharts**, daima `MVP.renderChart` üzerinden (tema flip'inde
   otomatik yeniden kurulur). `new ApexCharts(...)` doğrudan çağrılmaz.
-- Renkler `MVP.palette()` / `MVP.token()` — İSTİSNA: anlamlı sabit renkler
+- Renkler `MVP.palette()` / `MVP.token()` — palet **6 renklidir**; sınır dışı
+  indeks Apex'te "undefined color" üretir, daima `pal[i % pal.length]` ya da
+  bilinen indeks kullan. İSTİSNA: anlamlı sabit renkler
   (ör. rakip bankaların kurumsal renkleri `BANK_COLORS`) legacy'den birebir
   taşınır, paletten türetilmez.
 - Tablo: **AG-Grid** (gruplama gerekiyorsa Enterprise). Düz HTML tablo YASAK.
@@ -75,6 +96,10 @@
   bile korunur (düzeltme ayrı karar ister).
 - Kaynak sayfada popup/uyarı varsa (ör. rakip sayfasının kaynak bilgilendirme
   popup'ı: 3 sn geri sayım + "Anladım") PRISMA diliyle geri getirilir.
+  Overlay'ler JS ile `document.body`'ye PORTALLANIR — `.mevduat-mount`
+  ataları `position:fixed`'in referansını değiştirebilir (kayık merkez +
+  kenarda aydınlık şerit belirtisi). Yasal bilgilendirme içeriyorsa (kaynak
+  linkleri) linkler popup'ta DAİMA doldurulur (her veri güncellemesinde).
 - LLM'e bağımlı parçalar (ör. Piyasa Özeti) masa modunun sıfır-LLM sözleşmesine
   takılır: uç yapılandırılmadıkça panel gizli.
 

@@ -436,7 +436,9 @@
     });
     var d = calculateStats(rows);
     var pal = MVP.palette();
-    var cOff = pal[5], cDem = pal[8], cComp = pal[2];
+    // Palet 6 renklidir (common.js) — sınır dışı indeks Apex'te 'undefined
+    // color' üretir. Verilen=gold, İstenen=nötr gri, Rakip=yeşil.
+    var cOff = pal[0], cDem = pal[5], cComp = pal[2];
     var L = d.labels;
     var $ = function (id) { return document.getElementById(id); };
 
@@ -540,7 +542,7 @@
     if (idx < 0) idx = availableDates.length - 1;
     var next = idx + delta;
     if (next < 0 || next >= availableDates.length) return;
-    elDate.value = availableDates[next];
+    MVP.setDateVal(elDate, availableDates[next]);
     loadDate(elDate.value);
   }
 
@@ -557,6 +559,7 @@
   // buton ileride geri gelirse yine çalışsın diye guard'lı bağlanır.
   var elApply = document.getElementById('mvpApply');
   if (elApply) elApply.addEventListener('click', function () { loadDate(elDate.value); });
+  MVP.initDatePicker(elDate);   // R7 — GG.AA.YYYY (docs/CUSTOM_PAGE_DESIGN.md)
   elDate.addEventListener('change', function () { loadDate(elDate.value); });
   elCcy.addEventListener('change', apply);
   document.getElementById('fDatePrev').addEventListener('click', function () { shiftDate(-1); });
@@ -566,7 +569,7 @@
     .then(function (res) {
       availableDates = (res && res.dates) || [];
       var latest = (res && res.latest) || availableDates[availableDates.length - 1];
-      if (latest) { elDate.value = latest; loadDate(latest); }
+      if (latest) { MVP.setDateVal(elDate, latest); loadDate(latest); }
       else if (elStatus) elStatus.textContent = 'Veri yok.';
     })
     .catch(function (err) {

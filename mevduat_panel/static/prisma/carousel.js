@@ -102,24 +102,81 @@
       });
     });
 
-    // R6 — accordion başlığı AÇ/KAPA DEĞİL, plot BÜYÜTME toggle'ı (eski
-    // sitedeki davranış: başlığa basınca plot büyür). .plot-max kabı 72vh'ye
-    // çeker (_page.html CSS'i); chart'lar height:100% olduğundan resize ile
-    // kabı doldurur. İkinci tıklama normale döndürür.
+    // R7 — accordion başlığı SPA'daki gibi TAM EKRAN overlay açar (_open
+    // deseninin sadeleşmiş aynası, mevduat_panel.js:~6400): gövde placeholder
+    // bırakılarak body'ye eklenen .chart-fs-overlay'e TAŞINIR (chart örnekleri
+    // yaşamaya devam eder), ✕ / Esc / boşluğa tıklama geri koyar. Kenar
+    // boşlukları ve stiller mevduat_panel.css'in chart-fs-* sınıflarından.
     document.querySelectorAll('.accordion-header').forEach(function (h) {
       if (h.dataset.accBound) return;
       h.dataset.accBound = '1';
       h.addEventListener('click', function () {
-        var acc = h.closest('.accordion');
-        if (!acc) return;
-        acc.classList.toggle('plot-max');
-        window.requestAnimationFrame(function () {
-          window.dispatchEvent(new Event('resize'));
-        });
+        var body = h.nextElementSibling;
+        if (body) openFullscreen(body);
       });
     });
   }
 
+  // ── R7: tam-ekran overlay (SPA _open aynası) ─────────────────────────────
+
+  var _fs = null;   // {overlay, el, ph, prevCss} — aynı anda tek overlay
+
+  function _fsResize() {
+    window.requestAnimationFrame(function () {
+      window.dispatchEvent(new Event('resize'));
+    });
+  }
+
+  function closeFullscreen() {
+    if (!_fs) return;
+    var f = _fs; _fs = null;
+    f.ph.parentNode.insertBefore(f.el, f.ph);
+    f.ph.remove();
+    f.el.style.cssText = f.prevCss;
+    f.overlay.remove();
+    _fsResize();
+  }
+
+  function openFullscreen(el) {
+    if (_fs || !el) return;
+    var ph = document.createElement('div');
+    ph.style.display = 'none';
+    el.parentNode.insertBefore(ph, el);
+    var prevCss = el.style.cssText;
+
+    var overlay = document.createElement('div');
+    overlay.className = 'chart-fs-overlay';
+    var topbar = document.createElement('div');
+    topbar.className = 'chart-fs-topbar';
+    var btn = document.createElement('button');
+    btn.className = 'chart-fs-close';
+    btn.type = 'button';
+    btn.innerHTML = '&#10005;';
+    btn.title = 'Kapat (Esc)';
+    btn.addEventListener('click', closeFullscreen);
+    topbar.appendChild(btn);
+    overlay.appendChild(topbar);
+
+    var body = document.createElement('div');
+    body.className = 'chart-fs-body';
+    body.appendChild(el);
+    overlay.appendChild(body);
+    // Boşluğa (grafik dışına) tıklama da kapatır — eski davranış.
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay || ev.target === body) closeFullscreen();
+    });
+    document.body.appendChild(overlay);
+
+    _fs = { overlay: overlay, el: el, ph: ph, prevCss: prevCss };
+    _fsResize();
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') closeFullscreen();
+  });
+
   MVP.initCarousels = initCarousels;
   MVP.carouselGo = go;
+  MVP.openFullscreen = openFullscreen;
+  MVP.closeFullscreen = closeFullscreen;
 })();

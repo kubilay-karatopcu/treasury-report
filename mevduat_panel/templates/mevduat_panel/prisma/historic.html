@@ -13,17 +13,14 @@
 {% block title %}Tarihsel Görünüm — PRISMA{% endblock %}
 
 {% block mvp_controls %}
-  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
-    Dönem
-    <input type="date" id="fFrom"
-           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-    <input type="date" id="fTo"
-           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+  <label>Başlangıç
+    <input type="date" id="fFrom">
   </label>
-  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
-    Para Birimi
-    <select id="fCcy"
-            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+  <label>Bitiş
+    <input type="date" id="fTo">
+  </label>
+  <label>Para Birimi
+    <select id="fCcy">
       <option value="TRY">TRY</option><option value="USD">USD</option>
       <option value="EUR">EUR</option><option value="GBP">GBP</option>
       <option value="CAD">CAD</option><option value="JPY">JPY</option>
