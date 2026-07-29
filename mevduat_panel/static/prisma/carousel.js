@@ -102,14 +102,17 @@
       });
     });
 
-    // Accordion başlıkları (SPA deseni): tıklayınca gövde açılır/kapanır.
+    // R6 — accordion başlığı AÇ/KAPA DEĞİL, plot BÜYÜTME toggle'ı (eski
+    // sitedeki davranış: başlığa basınca plot büyür). .plot-max kabı 72vh'ye
+    // çeker (_page.html CSS'i); chart'lar height:100% olduğundan resize ile
+    // kabı doldurur. İkinci tıklama normale döndürür.
     document.querySelectorAll('.accordion-header').forEach(function (h) {
       if (h.dataset.accBound) return;
       h.dataset.accBound = '1';
       h.addEventListener('click', function () {
-        h.classList.toggle('open');
-        var body = h.nextElementSibling;
-        if (body) body.classList.toggle('hidden');
+        var acc = h.closest('.accordion');
+        if (!acc) return;
+        acc.classList.toggle('plot-max');
         window.requestAnimationFrame(function () {
           window.dispatchEvent(new Event('resize'));
         });

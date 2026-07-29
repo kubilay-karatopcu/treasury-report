@@ -17,12 +17,11 @@
 {% set crumb = "Sektör · Rakip Faiz Analizi" %}
 {% block title %}Rakip Faiz Analizi — PRISMA{% endblock %}
 
-{% block mvp_filters %}
-  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+{% block mvp_controls %}
+  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
     Dönem
     <input type="date" id="fFrom"
            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-    <span style="color:var(--text-muted);">→</span>
     <input type="date" id="fTo"
            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
   </label>
@@ -35,8 +34,8 @@
     <span id="snapshot-date" style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:400;"></span>
   </button>
   <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
-    <div class="card"><div id="chart-snapshot-bars" class="plot-container" style="min-height:300px;"></div></div>
-    <div class="card" style="margin-top:16px;"><div id="chart-snapshot-change" class="plot-container" style="min-height:200px;"></div></div>
+    <div class="card"><div id="chart-snapshot-bars" class="plot-container" style="height:300px;"></div></div>
+    <div class="card" style="margin-top:16px;"><div id="chart-snapshot-change" class="plot-container" style="height:200px;"></div></div>
     <div class="card" id="summary-panel" hidden
          style="margin-top:16px;padding:14px 18px;border-left:2px solid var(--accent);">
       <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;">Piyasa Özeti</div>
@@ -50,7 +49,7 @@
     <span class="acc-icon">&#9654;</span> Tarihsel Faiz Trendi (Maks. Oran)
   </button>
   <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
-    <div class="card"><div id="chart-trend" class="plot-container" style="min-height:400px;"></div></div>
+    <div class="card"><div id="chart-trend" class="plot-container" style="height:400px;"></div></div>
   </div>
 </div>
 
@@ -59,7 +58,7 @@
     <span class="acc-icon">&#9654;</span> Detay Tablosu
   </button>
   <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
-    <div id="competitor-grid" class="ag-theme-alpine" style="width:100%;height:520px;"></div>
+    <div id="competitor-grid" class="ag-theme-alpine plot-container" style="width:100%;height:520px;"></div>
   </div>
 </div>
 
@@ -71,11 +70,30 @@
     <div id="source-links" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
   </div>
 </div>
+
+{# R6 — Veri kaynağı uyarı popup'ı: eski sourceDisclaimerModal'ın PRISMA
+   karşılığı. 3 sn geri sayım bitmeden kapatılamaz; kaynak linkleri veri
+   yüklenince competitor.js tarafından doldurulur. #}
+<div id="source-disclaimer" style="position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);">
+  <div class="card" style="max-width:480px;width:92%;padding:22px 26px;">
+    <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">
+      Veri Kaynağı Bilgilendirmesi
+    </div>
+    <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0 0 12px;">
+      Tüm veriler aşağıda belirtilen linklerdeki açık kaynaklardan elde edilmiştir.
+    </p>
+    <div id="popup-source-links" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;"></div>
+    <div style="text-align:right;">
+      <button type="button" class="wf-nav-btn" id="btn-close-disclaimer" disabled
+              style="width:auto;padding:6px 16px;font-size:13px;">
+        Anladım (<span id="countdown-val">3</span>)
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block page_scripts %}
-<link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid.css') }}">
-<link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-theme-alpine.css') }}">
 {# Enterprise build: satır gruplama (banka > vade) Community'de yok. #}
 <script src="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid-enterprise.min.noStyle.js') }}"></script>
 <script src="{{ url_for('mevduat_panel.static', filename='prisma/competitor.js') }}?v={{ mevduat_version }}"></script>

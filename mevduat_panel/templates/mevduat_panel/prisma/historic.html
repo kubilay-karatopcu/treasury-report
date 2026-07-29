@@ -12,16 +12,15 @@
 {% set crumb = "Mevduat · Tarihsel Görünüm" %}
 {% block title %}Tarihsel Görünüm — PRISMA{% endblock %}
 
-{% block mvp_filters %}
-  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+{% block mvp_controls %}
+  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
     Dönem
     <input type="date" id="fFrom"
            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-    <span style="color:var(--text-muted);">→</span>
     <input type="date" id="fTo"
            style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
   </label>
-  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:8px;">
+  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
     Para Birimi
     <select id="fCcy"
             style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
@@ -40,7 +39,7 @@
       <span class="acc-icon">&#9654;</span> {{ title }}
     </button>
     <div class="accordion-body" style="max-height:none;overflow:visible;padding:0 16px 16px;">
-      <div class="card"><div id="{{ pid }}" class="plot-container"></div></div>
+      <div class="card"><div id="{{ pid }}" class="plot-container" style="height:400px;"></div></div>
     </div>
   </div>
 {%- endmacro %}

@@ -13,15 +13,17 @@
 {% set crumb = "Mevduat · Rezervasyon Miktarları" %}
 {% block title %}Rezervasyon Miktarları — PRISMA{% endblock %}
 
-{% block mvp_filters %}
-  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+{% block mvp_controls %}
+  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
     Tarih
-    <button type="button" class="wf-nav-btn" id="fDatePrev" title="Önceki gün">&#9664;</button>
-    <input type="date" id="fDate"
-           style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
-    <button type="button" class="wf-nav-btn" id="fDateNext" title="Sonraki gün">&#9654;</button>
+    <span style="display:flex;gap:6px;align-items:center;">
+      <button type="button" class="wf-nav-btn" id="fDatePrev" title="Önceki gün">&#9664;</button>
+      <input type="date" id="fDate"
+             style="flex:1;min-width:0;font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
+      <button type="button" class="wf-nav-btn" id="fDateNext" title="Sonraki gün">&#9654;</button>
+    </span>
   </label>
-  <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-left:8px;">
+  <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">
     Para Birimi
     <select id="fCcy"
             style="font-size:13px;padding:5px 8px;border:1px solid var(--border-mid);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">
@@ -52,15 +54,15 @@
       <div class="mv-carousel" id="{{ cid }}">
         <div class="mvc-slide">
           {{ cap("Hacim Bazlı Dağılım") }}
-          <div class="card"><div id="chart-{{ prefix }}-pie-vol" class="plot-container"></div></div>
+          <div class="card"><div id="chart-{{ prefix }}-pie-vol" class="plot-container" style="height:500px;"></div></div>
         </div>
         <div class="mvc-slide hidden">
           {{ cap("Adet Bazlı Dağılım") }}
-          <div class="card"><div id="chart-{{ prefix }}-pie-count" class="plot-container"></div></div>
+          <div class="card"><div id="chart-{{ prefix }}-pie-count" class="plot-container" style="height:500px;"></div></div>
         </div>
         <div class="mvc-slide hidden">
           {{ cap("Tutar Dağılım Grafiği (Frekans)") }}
-          <div class="card"><div id="chart-{{ prefix }}-hist" class="plot-container"></div></div>
+          <div class="card"><div id="chart-{{ prefix }}-hist" class="plot-container" style="height:350px;"></div></div>
         </div>
       </div>
     </div>
@@ -80,11 +82,11 @@
     <div class="mv-carousel" id="carousel-time-series">
       <div class="mvc-slide">
         {{ cap("Kümülatif") }}
-        <div class="card"><div id="chart-time-cumulative" class="plot-container"></div></div>
+        <div class="card"><div id="chart-time-cumulative" class="plot-container" style="height:400px;"></div></div>
       </div>
       <div class="mvc-slide hidden">
         {{ cap("Saatlik (O Saatteki Hacim)") }}
-        <div class="card"><div id="chart-time-hourly" class="plot-container"></div></div>
+        <div class="card"><div id="chart-time-hourly" class="plot-container" style="height:400px;"></div></div>
       </div>
     </div>
   </div>

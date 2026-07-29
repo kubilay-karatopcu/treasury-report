@@ -1,16 +1,22 @@
 {# ═══════════════════════════════════════════════════════════════════════════
    _page.html — Rezervasyon/rakip sayfalarının ortak kabuğu.
 
-   HOMOJENLİK REVİZYONU (kullanıcı kararı 2026-07-29): kabuk artık Outstanding
-   SPA'sının (index.html) BİREBİR aynasıdır — aynı stylesheet'ler
-   (mevduat_panel.css + mevduat_prisma.css), aynı layout (.mevduat-mount >
-   .sidebar + .main), aynı başlık (.dashboard-title), aynı filtre satırı
-   (.mv-page-filters + .bub-filter-panel). Ayrı bir kit görünümü YOK; sayfalar
-   Outstanding'den yalnız İÇERİKLE ayrılır.
+   HOMOJENLİK (2026-07-29): kabuk Outstanding SPA'sının (index.html) BİREBİR
+   aynasıdır — aynı stylesheet'ler, aynı layout (.mevduat-mount > .sidebar +
+   .main), aynı başlık ve filtre dili. Sayfalar Outstanding'den yalnız
+   İÇERİKLE ayrılır. Kurallar: docs/CUSTOM_PAGE_DESIGN.md.
 
-   Alt şablon sözleşmesi: `page_heading` + `mvp_filters` (filtre satırının
-   içine girer; tarih/para birimi de dahil HEPSİ oradadır) ve `mvp_body`
-   blokları; sayfaya özel JS `page_scripts` bloğunda.
+   R6 kararları:
+   - Tarih/para birimi kontrolleri SOL ALTTA, menünün parçası (mvp_controls
+     bloğu, aside içinde altta). .mv-page-filters satırında yalnız boyut
+     dropdown'ları (#fDims) + durum metni kalır.
+   - AG-Grid CSS'leri HEAD'de, mevduat_panel.css'ten ÖNCE yüklenir — dark
+     override'ları (.ag-theme-alpine {--ag-*}) ancak böyle kazanır. Sonda
+     yüklenirse vendor teması ezer, grid beyaz kalır.
+   - Accordion başlığı AÇ/KAPA DEĞİL, plot BÜYÜT toggle'ıdır (.plot-max).
+
+   Alt şablon sözleşmesi: `page_heading` + `mvp_controls` (sol-alt kontrol
+   paneli) + `mvp_body`; sayfaya özel JS `page_scripts` bloğunda.
    ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "home/_base_prisma.html" %}
 {% set mode = "consumer" %}
@@ -19,12 +25,17 @@
 
 {% block head %}
   <script src="{{ url_for('mevduat_panel.static', filename='vendor/apexcharts.min.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-grid.css') }}">
+  <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='vendor/ag-theme-alpine.css') }}">
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_panel.css') }}?v={{ mevduat_version }}">
   {# PRISMA token köprüsü; mevduat_panel.css'ten SONRA (index.html deseni). #}
   <link rel="stylesheet" href="{{ url_for('mevduat_panel.static', filename='mevduat_prisma.css') }}?v={{ mevduat_version }}">
   <style>
     .dev-banner { display: none !important; }
     html, body { margin: 0 !important; overflow: hidden !important; }
+    /* R6 — accordion başlığı plot BÜYÜTME toggle'ı: charts height:100% ile
+       kabı doldurur; .plot-max kabı ekran yüksekliğine çeker. */
+    .accordion.plot-max .plot-container { height: 72vh !important; }
     /* Embed modu (blok izolasyonu): kabuk parçaları gizlenir, kart tek kalır. */
     body.pk-embed .sidebar,
     body.pk-embed .dashboard-title,
@@ -34,21 +45,29 @@
 
 {% block content %}
 <div class="mevduat-mount" lang="en">
-  {# R3 — klasör bazlı sol menü: SPA ile aynı .sidebar bileşeni. #}
-  {% include "mevduat_panel/_folder_nav.html" with context %}
+  <aside class="sidebar" style="display:flex;flex-direction:column;">
+    {# R3 — klasör bazlı menü (SPA ile aynı bileşen, iç partial). #}
+    {% set _items = folder_menu['items'] if folder_menu else none %}
+    {% if _items %}
+    {% include "mevduat_panel/_folder_nav_inner.html" with context %}
+    {% endif %}
+
+    {# R6 — sol-alt kontrol paneli: tarih/para birimi menünün parçası. #}
+    <div class="sidebar-controls"
+         style="margin-top:auto;padding:16px 14px 8px;border-top:1px solid var(--mv-border);display:flex;flex-direction:column;gap:12px;">
+      {% block mvp_controls %}{% endblock %}
+      <span id="mvpStatus" style="font-size:11px;color:var(--text-muted);"></span>
+    </div>
+  </aside>
 
   <main class="main">
     <div id="err" class="error-msg hidden"></div>
 
     <h2 class="dashboard-title">{{ page_heading }}</h2>
 
-    {# Tek filtre satırı — tarih/para birimi/boyut dropdown'ları HEPSİ burada
-       (Outstanding .mv-page-filters deseni). Sayfa kendi kontrollerini
-       `mvp_filters` ile ekler; boyutlar #fDims'e bubfilter.js ile çizilir. #}
+    {# Boyut filtreleri — Outstanding .mv-page-filters + .bub-filter-panel. #}
     <div class="mv-page-filters"
          style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
-      {% block mvp_filters %}{% endblock %}
-      <span id="mvpStatus" style="font-size:11px;color:var(--text-muted);margin-left:auto;"></span>
       <div style="flex-basis:100%;"><div id="fDims" class="bub-filter-panel"></div></div>
     </div>
 

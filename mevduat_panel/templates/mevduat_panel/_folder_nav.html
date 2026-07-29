@@ -22,23 +22,6 @@
 {% set _items = folder_menu['items'] if folder_menu else none %}
 {% if _items %}
 <aside class="sidebar">
-  <div class="sidebar-group" id="grp-folder">
-    <div class="sidebar-group-header" data-group="folder">
-      {{ folder_menu['title'] }}
-      <span class="sidebar-group-icon">&#9660;</span>
-    </div>
-    <div class="sidebar-group-body">
-      <ul class="sidebar-nav" id="deposit-nav">
-        {% for it in _items %}
-        <li>
-          <a href="{{ it['url'] }}"
-             {% if spa_endpoint and it['page'] and it['endpoint'] == spa_endpoint %}
-             data-page="{{ it['page'] }}"{% endif %}
-             {% if it['active'] %}class="active"{% endif %}>{{ it['label'] }}</a>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
+  {% include "mevduat_panel/_folder_nav_inner.html" with context %}
 </aside>
 {% endif %}

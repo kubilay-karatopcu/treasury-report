@@ -1,0 +1,28 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   _folder_nav_inner.html — klasör menüsünün İÇERİĞİ (aside sarmalayıcısız).
+
+   İki tüketici var:
+   - SPA (index.html) → _folder_nav.html sarmalayıcısı (salt menü aside'ı)
+   - Rezervasyon kabuğu (_page.html) → kendi aside'ını kurar; menünün ALTINA
+     sol-alt kontrol panelini (tarih/para birimi) ekler (R6 kararı).
+
+   Sözleşme ve DİKKAT notları _folder_nav.html'dedir (dict.items tuzağı dahil).
+   ═══════════════════════════════════════════════════════════════════════════ #}
+  <div class="sidebar-group" id="grp-folder">
+    <div class="sidebar-group-header" data-group="folder">
+      {{ folder_menu['title'] }}
+      <span class="sidebar-group-icon">&#9660;</span>
+    </div>
+    <div class="sidebar-group-body">
+      <ul class="sidebar-nav" id="deposit-nav">
+        {% for it in _items %}
+        <li>
+          <a href="{{ it['url'] }}"
+             {% if spa_endpoint and it['page'] and it['endpoint'] == spa_endpoint %}
+             data-page="{{ it['page'] }}"{% endif %}
+             {% if it['active'] %}class="active"{% endif %}>{{ it['label'] }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>

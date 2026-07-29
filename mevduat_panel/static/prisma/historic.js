@@ -344,7 +344,7 @@
     var pal = MVP.palette();
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'line', height: 400 },
+        chart: { type: 'line', height: '100%' },
         colors: pal,
         stroke: { width: 2.5, curve: 'smooth',
                   dashArray: dashed || series.map(function () { return 0; }) },
@@ -368,7 +368,7 @@
     var pal = MVP.palette();
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'line', height: 400, stacked: true },
+        chart: { type: 'line', height: '100%', stacked: true },
         colors: [pal[0], pal[1], pal[5]],
         stroke: { width: [0, 0, 3], curve: 'smooth' },
         plotOptions: { bar: { columnWidth: '70%' } },

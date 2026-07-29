@@ -121,6 +121,9 @@
     gap: 14px;
     margin-top: 4px;
   }
+  /* R6 — masa içeriği daha geniş: kabuğun 1280px sınırı bu sayfada gevşetilir
+     (kartlar geniş görünsün; kullanıcı kararı 2026-07-29). */
+  body.prisma .canvas { max-width: min(96vw, 1600px); }
   .process-cell {
     display: flex;
     flex-direction: column;
@@ -128,6 +131,8 @@
     border: 1px solid var(--border-soft);
     border-radius: 8px;
     background: var(--bg-1);
+    /* R6 — kartın tamamı tıklanabilir (aşağıdaki delegasyon script'i). */
+    cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
     min-height: 150px;
   }
@@ -742,6 +747,17 @@
 
   <script>
   (function () {
+    // R6 — kartın herhangi bir yerine tıklama panoyu açar. İç etkileşimler
+    // (Özeti gör, linkin kendisi, metin seçimi) delege dışı bırakılır.
+    document.addEventListener('click', function (ev) {
+      var cell = ev.target.closest && ev.target.closest('.process-cell');
+      if (!cell) return;
+      if (ev.target.closest('a, button, .proc-toggle')) return;
+      if (String(window.getSelection && window.getSelection())) return;
+      var cta = cell.querySelector('.proc-cta');
+      if (cta && cta.href) window.location.href = cta.href;
+    });
+
     // FB2 — "Özeti gör" toggle: kartı tüm satıra genişletir, özeti açar.
     document.addEventListener('click', function (ev) {
       var btn = ev.target.closest && ev.target.closest('.proc-toggle');

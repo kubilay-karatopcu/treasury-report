@@ -299,7 +299,7 @@
 
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'line', height: 400, stacked: true },
+        chart: { type: 'line', height: '100%', stacked: true },
         colors: [pal[0], pal[1], pal[5]],
         stroke: { width: [0, 0, 4], curve: 'smooth' },
         plotOptions: { bar: { columnWidth: '70%' } },
@@ -330,7 +330,7 @@
     var pal = MVP.palette();
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'pie', height: 500 },
+        chart: { type: 'pie', height: '100%' },
         colors: pal,
         labels: labels,
         series: series,
@@ -359,7 +359,7 @@
     var pal = MVP.palette();
     MVP.renderChart(el, function () {
       return {
-        chart: { type: 'bar', height: 350 },
+        chart: { type: 'bar', height: '100%' },
         colors: [pal[3]],
         plotOptions: { bar: { columnWidth: '90%' } },
         dataLabels: { enabled: false },
