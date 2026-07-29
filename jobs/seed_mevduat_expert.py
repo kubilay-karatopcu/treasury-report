@@ -34,6 +34,8 @@ from DataClient import DataClient
 EXPERT_ID = "dep"
 EXPERT_KEY = f"prisma-treasury/experts/{EXPERT_ID}.yaml"
 
+# Süreç bağları dev_data/experts/dep.yaml ile birebir tutulur — kaynak orası,
+# bu job onu production S3'e taşır. dep.yaml'a süreç eklenince buraya da ekle.
 PROCESS_IDS = (
     "mevduat.maliyet",
     "mevduat.bakiye",
@@ -42,6 +44,16 @@ PROCESS_IDS = (
     "mevduat.yeni_uretim",
     "mevduat.sektor",
     "mevduat.bsc",
+    # Faz S2 — legacy statik dashboard'ların PRISMA-native karşılıkları
+    # (docs/STATIK_DASHBOARD_ADAPTASYON.md).
+    "mevduat.oranlar",
+    "mevduat.miktarlar",
+    "mevduat.tarihsel",
+    "mevduat.rakip",
+    # Faz S4 — Uygulamalar: analiz panosu değil, etkileşimli araçlar.
+    "uygulamalar.panel_parametreler",
+    "uygulamalar.panel_rezervasyon",
+    "uygulamalar.asistan",
 )
 
 
@@ -49,7 +61,7 @@ def build_expert(*, read_departments: Sequence[str], edit_departments: Sequence[
     """Build the S3ExpertStore-compatible DEP document."""
     return {
         "id": EXPERT_ID,
-        "version": 1,
+        "version": 3,
         "code": "DEP",
         "name": "Mevduat Uzmanı",
         "domain_label": "Mevduat & Fonlama",
