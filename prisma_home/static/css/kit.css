@@ -166,6 +166,8 @@ body.prisma.pk-embed .pk-fnav { display: none; }
 .pk-plot { min-height: 350px; }
 /* Pie slaytları kaynakta 500px yüksekti (legend altta) — parite için. */
 .pk-plot--tall { min-height: 500px; }
+/* Tarihsel trend grafikleri kaynakta 400px. */
+.pk-plot--wide { min-height: 400px; }
 
 /* Karosel slaytı içindeki metrik kutuları (eski "Ekstrem / Ekstrem+Yetki"). */
 .pk-metrics {

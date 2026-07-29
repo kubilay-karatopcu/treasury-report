@@ -249,3 +249,69 @@ def test_amounts_uses_kit_and_shared_renderer():
     assert "renderBubFilters" in new
     assert "MVP.renderChart(" in new
     assert "new ApexCharts(" not in new
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tarihsel Görünüm — eski templates/historic.html + static/js/historic.js
+# ═══════════════════════════════════════════════════════════════════════════
+
+HIS_HTML = REPO / "mevduat_panel/templates/mevduat_panel/prisma/historic.html"
+HIS_JS = REPO / "mevduat_panel/static/prisma/historic.js"
+HIS_OLD_JS = REPO / "static/js/historic.js"
+
+
+def test_historic_has_three_cards_and_no_carousel():
+    """Kaynakta karosel YOKTU — üç düz kart, her biri tek grafik."""
+    html = HIS_HTML.read_text(encoding="utf-8")
+    assert html.count('class="pk-card"') == 3
+    assert "pk-carousel" not in html
+    for pid in ("chart-trend-rates", "chart-trend-volume", "chart-trend-auth"):
+        assert f'id="{pid}"' in html, pid
+
+
+def test_historic_uses_date_range_not_single_day():
+    """Kaynakta Litepicker range vardı — tek gün değil aralık."""
+    html = HIS_HTML.read_text(encoding="utf-8")
+    assert 'id="fFrom"' in html and 'id="fTo"' in html
+    assert 'id="fDate"' not in html
+
+
+def test_historic_computation_functions_ported():
+    old, new = HIS_OLD_JS.read_text(encoding="utf-8"), HIS_JS.read_text(encoding="utf-8")
+    for fn in ("groupRowsByDay", "groupRowsByHourFull", "generateWeightedAvg",
+               "generateIntradayCumulativeWeightedAvg",
+               "generateSimpleCumulativePercentile", "getDailyFixedValue",
+               "generateDailySum", "generateHourlyCount"):
+        assert fn in old, f"kaynak değişmiş: {fn}"
+        assert fn in new, f"portlanmamış: {fn}"
+
+
+def test_historic_percentiles_and_threshold():
+    """P90/P75/P50 ve 3. grafiğin ≥10 işlem eşiği kaynakla aynı."""
+    new = HIS_JS.read_text(encoding="utf-8")
+    for p in ("0.90", "0.75", "0.50"):
+        assert p in new, p
+    assert "MIN_HOURLY_COUNT = 10" in new
+
+
+def test_historic_series_names_match_original():
+    new = HIS_JS.read_text(encoding="utf-8")
+    for name in ("Market Max", "Ekstrem Yetki", "Offered (W.Avg)",
+                 "Competitor (W.Avg)", "Demanded (W.Avg)",
+                 "Current Amount", "Incoming Amount",
+                 "P90 (Rate)", "P75 (Rate)", "P50 (Median)"):
+        assert name in new, name
+
+
+def test_historic_daily_mode_carries_last_known():
+    """Modu olmayan günde son bilinen değer taşınır (çizgi kopmasın)."""
+    new = HIS_JS.read_text(encoding="utf-8")
+    assert "lastKnown" in new
+
+
+def test_historic_uses_kit_and_shared_renderer():
+    html, new = HIS_HTML.read_text(encoding="utf-8"), HIS_JS.read_text(encoding="utf-8")
+    assert 'id="fDims"' in html
+    assert "renderBubFilters" in new
+    assert "MVP.renderChart(" in new
+    assert "new ApexCharts(" not in new
