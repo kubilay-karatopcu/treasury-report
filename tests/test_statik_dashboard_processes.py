@@ -141,12 +141,71 @@ def test_department_view_topics_expose_new_processes(expert, app_ctx):
     for pid in NEW_PROCESSES:
         assert pid in view["process_ids"], pid
     titles = [t["title"] for t in view["topics"]]
-    assert "Rezervasyon & Fiyatlama" in titles
-    assert "Sektör & Rakip" in titles
+    assert "Daily View" in titles
+    assert "Sektör" in titles
     by_title = {t["title"]: t["process_ids"] for t in view["topics"]}
-    assert by_title["Rezervasyon & Fiyatlama"] == [
+    assert by_title["Daily View"] == [
         "mevduat.oranlar", "mevduat.miktarlar", "mevduat.tarihsel"]
-    assert "mevduat.rakip" in by_title["Sektör & Rakip"]
+    assert by_title["Sektör"] == ["mevduat.rakip"]
+
+
+def test_macro_deposit_view_topic(expert, app_ctx):
+    """Faz R1 — Outstandingler (maliyet/bakiye/vade) + haftalık, yeni üretim, sektör."""
+    view = resolve_view(expert, DEPT)["view"]
+    by_title = {t["title"]: t["process_ids"] for t in view["topics"]}
+    assert by_title["Macro Deposit View"] == [
+        "mevduat.maliyet", "mevduat.bakiye", "mevduat.vade",
+        "mevduat.donusler", "mevduat.yeni_uretim", "mevduat.sektor",
+    ]
+
+
+def test_bsc_bound_but_hidden_from_masa(expert, app_ctx):
+    """BSC bağlı kalır ama hiçbir klasörde yer almaz → masada görünmez."""
+    assert "mevduat.bsc" in expert.bound_content["processes"]
+    view = resolve_view(expert, DEPT)["view"]
+    assert "mevduat.bsc" not in view["process_ids"]
+
+
+def test_seed_job_matches_dev_expert(expert):
+    """Sürüklenme kapısı: seed job (PROD/S3) ile dep.yaml (DEV) aynı ağacı üretmeli.
+
+    İki kaynak ayrışırsa ofiste klasörler/süreçler sessizce farklı çıkar — bu
+    testin kırılması "seed job'ı da güncelle" demektir.
+    """
+    seed = _load_seed_job()
+    built = seed.build_expert(
+        read_departments=[DEPT], edit_departments=[DEPT], view_departments=[DEPT],
+    )
+    assert list(seed.PROCESS_IDS) == list(expert.bound_content["processes"])
+    assert built["version"] == expert.version
+
+    def tree(views):
+        return [(t["title"], list(t["processes"]))
+                for v in views for t in v["topics"]]
+
+    assert tree(built["department_views"]) == tree(expert.department_views)
+
+
+def _load_seed_job():
+    """jobs/seed_mevduat_expert.py'yi DataClient/boto3 olmadan yükler.
+
+    Job import anında repo kökündeki DataClient'ı çeker (S3 istemcisi); test
+    ortamında bu bağımlılık gereksiz, yalnız saf `build_expert` sınanıyor.
+    """
+    import importlib.util
+    import types
+
+    for name, attrs in (("boto3", {}), ("DataClient", {"DataClient": object})):
+        if name not in sys.modules:
+            mod = types.ModuleType(name)
+            for k, v in attrs.items():
+                setattr(mod, k, v)
+            sys.modules[name] = mod
+    spec = importlib.util.spec_from_file_location(
+        "_seed_mevduat_expert", REPO / "jobs/seed_mevduat_expert.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def test_topic_processes_all_registered(expert):

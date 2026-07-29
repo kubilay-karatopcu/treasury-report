@@ -1,5 +1,5 @@
 id: dep
-version: 3
+version: 4
 code: DEP
 name: Mevduat Uzmanı
 domain_label: Mevduat & Fonlama
@@ -48,28 +48,28 @@ department_views:
       Yapay zekâ / analitik ekip bakışı: fiyatlama ve maliyet sinyallerini,
       yeni üretim davranışını ve vade/likidite risklerini modellenebilir,
       aksiyon-odaklı biçimde özetle. Anomali ve yapısal kaymaları öne çıkar.
+    # Faz R1 — masa klasör ağacı. Bir süreç hangi topic'te yer alıyorsa masada o
+    # başlık altında çıkar; HİÇBİR topic'te yoksa masada GÖRÜNMEZ. mevduat.bsc
+    # bilinçli olarak dışarıda (bound_content'te durur, masada gizli).
     topics:
-      - title: Stok Analizi (Outstanding)
+      - title: Macro Deposit View
         processes:
           - mevduat.maliyet
           - mevduat.bakiye
           - mevduat.vade
-      - title: Dönüşler & Yeni Üretim
-        processes:
           - mevduat.donusler
           - mevduat.yeni_uretim
-      # Faz S2 — rezervasyon/fiyatlama hattı (gün içi teklif, hacim, tarihsel).
-      - title: Rezervasyon & Fiyatlama
+          - mevduat.sektor
+      - title: Daily View
         processes:
           - mevduat.oranlar
           - mevduat.miktarlar
           - mevduat.tarihsel
-      - title: Sektör & Rakip
+      - title: Sektör
         processes:
-          - mevduat.sektor
           - mevduat.rakip
       # Faz S4 — panoların yanındaki araçlar (parametre yazma, tekil kayıt,
-      # sohbet). Analiz süreçlerinden sonra, ayrı başlık altında.
+      # sohbet). R2'de kendi "Uygulamalar" bölümüne taşınacak.
       - title: Uygulamalar
         processes:
           - uygulamalar.panel_parametreler
