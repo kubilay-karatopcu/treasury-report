@@ -69,6 +69,75 @@
 /* Embed modunda (blok izolasyonu) menü çizilmez — kart tek başına gömülür. */
 body.prisma.pk-embed .pk-fnav { display: none; }
 
+/* ── R4: Outstanding filtre kiti (bubfilter.js) ──────────────────────────────
+   mevduat_panel.css `.bub-filter-*` bileşeninin PRISMA token'larına çevrilmiş
+   hali. Sınıf adları bilinçli ayrı (`pkf-*`): SPA aynı sayfada iki stylesheet
+   birden yüklüyor, ad paylaşımı yükleme sırasına bağlı çakışma üretirdi. */
+.pkf-panel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pkf-dd { position: relative; display: inline-block; }
+.pkf-dd-btn {
+  padding: 5px 10px; min-width: 160px; gap: 8px;
+  display: inline-flex; align-items: center; justify-content: space-between;
+  background: var(--bg-0); color: var(--ink-soft);
+  border: 1px solid var(--border); border-radius: 0;
+  font-family: var(--mono); font-size: 10.5px; cursor: pointer;
+}
+.pkf-dd-btn:hover { color: var(--gold); border-color: var(--gold); }
+.pkf-dd-btn .caret { color: var(--ink-faint); font-size: 10px; }
+.pkf-dd-popup {
+  position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 100;
+  min-width: 210px; max-height: 300px; overflow-y: auto;
+  background: var(--bg-1); border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); padding: 6px 0;
+}
+.pkf-dd-popup.hidden { display: none; }
+.pkf-dd-actions {
+  padding: 4px 12px 6px; font-family: var(--mono); font-size: 10.5px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.pkf-dd-actions a { color: var(--gold); text-decoration: none; cursor: pointer; }
+.pkf-dd-actions a:hover { text-decoration: underline; }
+.pkf-dd-opt {
+  display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+  font-size: 12px; color: var(--ink-soft); cursor: pointer;
+}
+.pkf-dd-opt:hover { background: var(--bg-0); }
+.pkf-dd-opt input { margin: 0; cursor: pointer; }
+.pkf-dd-sep { border-top: 1px solid var(--border); margin: 6px 0; }
+.pkf-dd-grp-hdr {
+  padding: 4px 12px; font-family: var(--mono); font-size: 9.5px;
+  color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.12em;
+}
+.pkf-dd-merged {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 12px; font-size: 12px; color: var(--ink-soft);
+  border-left: 2px solid var(--gold);
+}
+.pkf-dd-merged:hover { background: var(--bg-0); }
+.pkf-dd-merged-name {
+  display: flex; align-items: center; gap: 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pkf-dd-merged-name input { margin: 0; cursor: pointer; }
+.pkf-dd-merged-x {
+  flex-shrink: 0; padding: 0 4px; cursor: pointer;
+  color: var(--ink-faint); font-weight: 700;
+}
+.pkf-dd-merged-x:hover { color: var(--gold); }
+.pkf-dd-groupbtn {
+  display: block; width: calc(100% - 24px); margin: 6px 12px 4px;
+  padding: 5px 8px; cursor: pointer;
+  background: transparent; color: var(--gold);
+  border: 1px solid var(--gold); border-radius: 0;
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.pkf-dd-groupbtn:hover:not(:disabled) { background: var(--gold); color: var(--bg-0); }
+.pkf-dd-groupbtn:disabled {
+  color: var(--ink-faint); border-color: var(--border);
+  cursor: not-allowed; background: transparent;
+}
+
 .pk-head {
   display: flex; align-items: flex-end; justify-content: space-between;
   margin-bottom: 22px; gap: 32px; flex-wrap: wrap;
@@ -139,6 +208,16 @@ body.prisma .pk-input:disabled, body.prisma .pk-select:disabled { opacity: 0.5; 
 }
 
 /* ── 4. Filtre barı ──────────────────────────────────────────────────────── */
+/* R4 — başlık + filtre bandı tek sabit blok. İçteki .pk-filterbar kendi
+   sticky'sini korur (tek başına kullanıldığı yerler için); sarmalayıcı sabitken
+   ek etkisi olmaz. Arka plan opak olmalı — altından içerik geçiyor. */
+.pk-sticky {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--bg-0);
+  padding-top: 6px;
+}
+.pk-sticky .pk-head { margin-bottom: 10px; }
+
 .pk-filterbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; gap: 14px; align-items: flex-end; justify-content: space-between;
