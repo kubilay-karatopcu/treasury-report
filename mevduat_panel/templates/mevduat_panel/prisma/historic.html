@@ -1,3 +1,16 @@
+{# ═══════════════════════════════════════════════════════════════════════════
+   Tarihsel Görünüm — eski templates/historic.html'in BİREBİR karşılığı.
+
+   Yapı kaynağı: templates/historic.html + static/js/historic.js.
+     3 kart, KAROSEL YOK (kaynakta da yoktu) — her kart tek grafik:
+       1) Genel Oran Trendleri (Ağırlıklı Ortalama) → çoklu çizgi
+       2) Hacim ve Market Max İlişkisi              → yığılmış kolon + çizgi
+       3) Ekstrem Yetki vs Talep Edilen Oran        → çoklu çizgi (saatlik, ≥10 işlem)
+   Ekstra kart/blok EKLENMEZ.
+
+   Tarih TEK GÜN değil ARALIK'tır (kaynakta Litepicker range, varsayılan son 7
+   gün). Filtreler Outstanding kitinde (R4).
+   ═══════════════════════════════════════════════════════════════════════════ #}
 {% extends "mevduat_panel/prisma/_page.html" %}
 {% set crumb = "Mevduat · Tarihsel Görünüm" %}
 {% block title %}Tarihsel Görünüm — PRISMA{% endblock %}
@@ -11,59 +24,53 @@
       <input type="date" class="pk-input" id="fTo">
     </div>
   </div>
-  <div class="pk-field">
-    <span class="pk-label">Kaynak</span>
-    <div class="pk-field__body"><div class="pk-chips" id="fSrc"></div></div>
-  </div>
+
   <div class="pk-field">
     <span class="pk-label">Para Birimi</span>
-    <div class="pk-field__body"><select id="fCcy" class="pk-select"></select></div>
-  </div>
-  <div class="pk-field">
-    <span class="pk-label">Müşteri Tipi</span>
-    <div class="pk-field__body"><select id="fCust" class="pk-select"></select></div>
-  </div>
-  <div class="pk-field">
-    <span class="pk-label">Revizyon</span>
     <div class="pk-field__body">
-      <div class="pk-chips" id="fRev">
-        <button type="button" class="pk-chip" id="fRevMax">Yalnız son revizyon</button>
-      </div>
+      <select class="pk-input" id="fCcy">
+        <option value="TRY">TRY</option>
+        <option value="USD">USD</option>
+        <option value="EUR">EUR</option>
+        <option value="GBP">GBP</option>
+        <option value="CAD">CAD</option>
+        <option value="JPY">JPY</option>
+        <option value="XAU">XAU</option>
+      </select>
     </div>
+  </div>
+
+  <div class="pk-field">
+    <span class="pk-label">Boyutlar</span>
+    <div class="pkf-panel" id="fDims"></div>
   </div>
 {% endblock %}
 
 {% block mvp_body %}
-  <div class="pk-kpis" id="kpis"></div>
-  <div class="pk-grid">
-    <div class="pk-card" id="card-combo">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Günlük Hacim ve Ağırlıklı Teklif Oranı</span>
-        <span class="pk-card__note">bar = tutar (sol) · çizgi = oran (sağ)</span>
-      </div>
-      <div class="pk-chart" id="chCombo"></div>
+<div class="pk-grid">
+
+  <div class="pk-card" id="card-trend-rates">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Genel Oran Trendleri (Ağırlıklı Ortalama)</span>
     </div>
-    <div class="pk-card pk-card--half" id="card-bands">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Oran Bandı</span>
-        <span class="pk-card__note">teklif · talep · piyasa üst sınırı</span>
-      </div>
-      <div class="pk-chart" id="chBands"></div>
-    </div>
-    <div class="pk-card pk-card--half" id="card-source">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Kaynak Bazında Günlük Adet</span>
-      </div>
-      <div class="pk-chart" id="chBySource"></div>
-    </div>
-    <div class="pk-card" id="card-daily-table">
-      <div class="pk-card__head">
-        <span class="pk-card__title">Günlük Özet</span>
-        <span class="pk-card__note">oranlar Σ(tutar×oran)/Σtutar</span>
-      </div>
-      <div id="tblDaily"></div>
-    </div>
+    <div id="chart-trend-rates" class="pk-plot pk-plot--wide"></div>
   </div>
+
+  <div class="pk-card" id="card-trend-volume">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Hacim ve Market Max İlişkisi</span>
+    </div>
+    <div id="chart-trend-volume" class="pk-plot pk-plot--wide"></div>
+  </div>
+
+  <div class="pk-card" id="card-trend-auth">
+    <div class="pk-card__head">
+      <span class="pk-card__title">Ekstrem Yetki vs Talep Edilen Oran</span>
+    </div>
+    <div id="chart-trend-auth" class="pk-plot pk-plot--wide"></div>
+  </div>
+
+</div>
 {% endblock %}
 
 {% block page_scripts %}
