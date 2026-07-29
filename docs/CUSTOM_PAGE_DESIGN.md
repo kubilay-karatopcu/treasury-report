@@ -33,6 +33,13 @@
   görünümü ve tarih overlay'i DOCK'TAN gelir — sayfada yeniden yazılmaz.
 - Kabuk `mevduat_dock.js`'i script olarak yükler (carousel.js'ten sonra).
 - Durum metni (`#mvpStatus`) üst şeritte sağda durur.
+- **Dock'ta yatay scrollbar ASLA (R10.1):** `overflow-y: auto` tek başına
+  overflow-x'i de `auto` yapar (CSS hesaplama kuralı) ve Windows'ta klasik
+  scrollbar 1-2px taşmada bile görünür. `.mv-dock-body`'de `overflow-x:
+  hidden` ZORUNLU; ayrıca `.mv-dock-row label`'a `min-width: 0` — flex
+  item'ın otomatik minimumu (min-width:auto) içindeki native date input'un
+  intrinsic genişliğine kilitlenip daralmayı engelliyordu. Dock'a satır tipi
+  eklerken bu iki kuralı koru.
 
 ## 2b. Tarih formatı — İSTİSNASIZ KURAL
 
@@ -167,13 +174,17 @@
   (`uygulamalar.panel_parametreler` / `uygulamalar.panel_rezervasyon`) çağırıp
   `masa_back_url`'i render context'inde geçirir — prisma_home İMPORT EDİLMEZ,
   sağlayıcı yoksa landing'e düşülür.
-- **Uygulama sayfaları TAM GENİŞLİKTİR (R10):** `body.prisma .canvas
-  { max-width: none !important; padding: 40px clamp(20px,2.5vw,48px) 80px }`
-  (şablonun kendi <style> bloğunda). Önceki `min(97vw,1800px)` kuralı tipik
-  ofis ekranında 1280'den hissedilir fark yaratmadığı için KALDIRILDI —
-  rezervasyon sayfalarının (canvas_bleed) genişlik hissiyle eşleşir.
-  Masa (expert.html) `min(97vw, 1800px)`'de KALIR (kart ızgarası aşırı
-  genişlikte dağılıyor).
+- **Uygulama sayfaları TAM GENİŞLİKTİR (R10.1) — FLEX AUTO-MARGIN TUZAĞI:**
+  `.app` column-flex konteynerdir ve prisma.css'in `.canvas { margin: 0 auto }`
+  kuralı flex'te CROSS-AXIS AUTO MARGIN'dır → stretch'i iptal edip canvas'ı
+  içerik genişliğine (shrink-to-fit) büzerek ortalar. Bu yüzden
+  `max-width: none` TEK BAŞINA SAYFAYI GENİŞLETMEZ (R10'da yaşandı: kural
+  eklendi, sayfa yine ~700px kaldı). Doğru kural (şablonun <style> bloğunda):
+  `body.prisma .canvas { max-width: none !important; margin: 0 !important;
+  width: 100%; padding: 40px clamp(20px,2.5vw,48px) 80px }`.
+  Headless Chromium ölçümüyle doğrulandı (1909px viewport → canvas 1909).
+  Masa (expert.html) `min(97vw, 1800px)`'de KALIR (içeriği zaten geniş; kart
+  ızgarası aşırı genişlikte dağılıyor).
 - Süreç kartının TAMAMI tıklanabilir (delegasyon `.proc-cta` href'ine gider;
   iç buton/link/metin seçimi hariç) + `cursor:pointer`.
 - Süreçler klasörlere (`department_views[].topics[]`) gruplanır; klasörsüz

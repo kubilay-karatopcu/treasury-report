@@ -648,13 +648,16 @@ def test_masa_back_targets_current_expert():
 
 
 def test_app_pages_share_wide_canvas():
-    """R10 — uygulama sayfaları TAM genişlik: min(97vw,1800px) tipik ekranda
-    1280'den hissedilir fark yaratmadı → max-width tamamen kalkar (kullanıcı
-    kararı 2026-07-29 4. tur)."""
+    """R10.1 — uygulama sayfaları TAM genişlik. max-width:none TEK BAŞINA
+    YETMEZ: .app column-flex'te `.canvas { margin: 0 auto }` cross-axis auto
+    margin'dir → stretch iptal, canvas shrink-to-fit büzülür (yaşandı).
+    margin:0 + width:100% ZORUNLU (Chromium ölçümüyle doğrulandı)."""
     for tpl in ("deposit_panel/templates/deposit_panel/params.html",
                 "deposit_panel/templates/deposit_panel/reservations.html"):
         src = (REPO / tpl).read_text(encoding="utf-8")
         assert "max-width: none !important" in src, tpl
+        assert "margin: 0 !important" in src, tpl
+        assert "width: 100%" in src, tpl
         assert "min(97vw" not in src, tpl
 
 
@@ -755,3 +758,14 @@ def test_mevduat_yetkiler_rule_join_wired():
     assert "AUM_LIMIT_ALTI_ESIK = 100_000_000" in py
     assert "_apply_mevduat_yetkileri(final_df)" in py
     assert "derive_ekstrem_columns" in py
+
+
+def test_dock_never_scrolls_horizontally():
+    """R10.1 — dock gövdesinde yatay scrollbar asla: overflow-y:auto
+    overflow-x'i de auto'ya çevirir → açıkça hidden; label min-width:0
+    (native date input intrinsic genişliği daralmayı kilitliyordu)."""
+    css = (REPO / "mevduat_panel/static/mevduat_prisma.css").read_text(encoding="utf-8")
+    body_seg = css.split(".mv-dock-body {")[1].split("}")[0]
+    assert "overflow-x: hidden" in body_seg
+    label_seg = css.split(".mv-dock-row label {")[1].split("}")[0]
+    assert "min-width: 0" in label_seg

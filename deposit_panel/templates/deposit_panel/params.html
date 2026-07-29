@@ -17,12 +17,16 @@
    '@'li CDN URL'i kurumsal proxy'de mangle olduğu için kaldırıldı — JS
    static/vendor'dan yükleniyor (bkz. scripts bloğu). #}
 <style>
-/* R10 — uygulama sayfaları TAM genişlik: min() kuralı tipik ofis ekranında
-   1280'den hissedilir fark yaratmıyordu ("dar kalıyor"). Rezervasyon
-   sayfalarıyla aynı hissi vermek için sınır tamamen kalkar, kenar boşluğu
-   kompakt tutulur (docs/CUSTOM_PAGE_DESIGN.md §Genişlik). */
+/* R10 — uygulama sayfaları TAM genişlik. GERÇEK kısıt max-width değildi:
+   .app column-flex konteyner ve prisma.css'in `.canvas { margin: 0 auto }`
+   kuralı flex'te CROSS-AXIS AUTO MARGIN'dır — stretch'i iptal edip canvas'ı
+   içerik genişliğine (shrink-to-fit) büzerek ortalar. max-width:none tek
+   başına bu yüzden İŞE YARAMAZ; margin sıfırlanıp width verilmeli
+   (docs/CUSTOM_PAGE_DESIGN.md §7). */
 body.prisma .canvas {
   max-width: none !important;
+  margin: 0 !important;
+  width: 100%;
   padding: 40px clamp(20px, 2.5vw, 48px) 80px;
 }
 
