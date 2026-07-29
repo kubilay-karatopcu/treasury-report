@@ -537,6 +537,11 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
   gap: 8px;
   max-height: 46vh;
   overflow-y: auto;
+  /* R10.1 — YATAY SCROLLBAR ASLA: overflow-y:auto tek başına overflow-x'i de
+     'auto' yapar (CSS kuralı) → Windows'ta 1-2px taşma bile klasik scrollbar
+     çıkarıyordu. Yatay eksen daima kırpılır; taşmayı aşağıdaki min-width:0
+     kuralları zaten önler. */
+  overflow-x: hidden;
 }
 .mv-dock.is-collapsed .mv-dock-body { display: none; }
 .mv-dock-label {
@@ -559,6 +564,10 @@ body.light-mode .mevduat-mount select { color-scheme: light; }
   justify-content: space-between;
   gap: 8px;
   flex: 1;
+  /* R10.1 — flex item'ın otomatik minimumu (min-width:auto) içindeki native
+     date input'un intrinsic genişliğine kilitleniyordu → dar dock'ta label
+     küçülemeyip yatay taşıyordu (Windows Chrome). Sıfırla ki daralabilsin. */
+  min-width: 0;
   font-size: 11px !important;
   color: var(--ink-soft) !important;
   margin: 0 !important;
