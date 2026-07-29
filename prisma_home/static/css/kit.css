@@ -138,6 +138,48 @@ body.prisma.pk-embed .pk-fnav { display: none; }
   cursor: not-allowed; background: transparent;
 }
 
+/* ── R5: karosel (carousel.js) ───────────────────────────────────────────────
+   Eski sayfaların Bootstrap karoselinin bağımlılıksız karşılığı. Yalnız aktif
+   slayt görünür; ApexCharts gizli kapta 0 genişlikle çizildiği için slayt
+   değişiminde carousel.js `resize` yayınlar. */
+.pk-carousel__slide { display: none; }
+.pk-carousel__slide.is-active { display: block; }
+.pk-carousel__cap {
+  text-align: center; margin-bottom: 8px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.pk-carousel__nav { display: flex; align-items: center; gap: 4px; }
+.pk-carousel__nav button {
+  background: transparent; border: 1px solid var(--border); border-radius: 0;
+  color: var(--ink-mute); cursor: pointer;
+  width: 22px; height: 22px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; padding: 0;
+}
+.pk-carousel__nav button:hover { color: var(--gold); border-color: var(--gold); }
+.pk-carousel__ind {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint);
+  min-width: 30px; text-align: center;
+}
+/* Grafik kabı: karosel slaytları arası yükseklik zıplamasını önler. */
+.pk-plot { min-height: 350px; }
+
+/* Karosel slaytı içindeki metrik kutuları (eski "Ekstrem / Ekstrem+Yetki"). */
+.pk-metrics {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.pk-metric { border: 1px solid var(--border); padding: 8px 10px; }
+.pk-metric__label {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.pk-metric__value {
+  font-size: 22px; font-weight: 300; color: var(--ink); margin-top: 4px;
+}
+.pk-metric--warn .pk-metric__value { color: var(--gold); }
+
 .pk-head {
   display: flex; align-items: flex-end; justify-content: space-between;
   margin-bottom: 22px; gap: 32px; flex-wrap: wrap;

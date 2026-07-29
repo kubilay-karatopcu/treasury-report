@@ -352,7 +352,8 @@ def test_embed_mode_implemented_for_prisma_pages():
     assert "pk-embed" in css
     for js in ("rates.js", "amounts.js", "historic.js", "competitor.js"):
         src = (REPO / "mevduat_panel/static/prisma" / js).read_text(encoding="utf-8")
-        assert "M.initEmbed(" in src, js
+        # MVP takma adı sayfadan sayfaya değişebilir (M / MVP) — çağrıyı ara.
+        assert "initEmbed(" in src, js
 
 
 # ── Faz S5: UI uniformluğu (paylaşılan kit) ─────────────────────────────────
