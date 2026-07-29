@@ -17,9 +17,14 @@
    '@'li CDN URL'i kurumsal proxy'de mangle olduğu için kaldırıldı — JS
    static/vendor'dan yükleniyor (bkz. scripts bloğu). #}
 <style>
-/* R9 — uygulama sayfaları geniş ve sabit genişlikte (masa ile aynı değer;
-   kabuğun 1280px sınırı gevşetilir — tablo/plotlar dar kalıyordu). */
-body.prisma .canvas { max-width: min(97vw, 1800px); }
+/* R10 — uygulama sayfaları TAM genişlik: min() kuralı tipik ofis ekranında
+   1280'den hissedilir fark yaratmıyordu ("dar kalıyor"). Rezervasyon
+   sayfalarıyla aynı hissi vermek için sınır tamamen kalkar, kenar boşluğu
+   kompakt tutulur (docs/CUSTOM_PAGE_DESIGN.md §Genişlik). */
+body.prisma .canvas {
+  max-width: none !important;
+  padding: 40px clamp(20px, 2.5vw, 48px) 80px;
+}
 
 /* Strateji kaydırıcısı — sayfaya özgü tek bileşen (kitte karşılığı yok).
    Renkler PRISMA token'larından: yeni token TANIMLANMAZ, tema otomatik izler. */
@@ -116,6 +121,16 @@ input.strategy-range.state-2::-moz-range-thumb     { background: var(--red); }
           <input type="number" step="0.01" class="pk-input" id="inp-new-funding"
                  placeholder="Ör: 48.00" {% if not can_edit_hp %}disabled{% endif %}>
         </div>
+        {# R10 — salt-okunur referans: MEVDUAT_YETKILER son tarihli TRY/32
+           satırlarının MAX(EKSTREM+YETKİ, EKSTREM_LİMİT_ALTI+YETKİ) değeri.
+           Her F5'te /api/get-ekstrem-yetki ile taze çekilir (deposit_panel.js);
+           tarih etiketi GG.AA.YYYY. #}
+        <div class="pk-field">
+          <span class="pk-label">Ekstrem + Yetki
+            <span class="pk-card__note" id="lbl-ekstrem-yetki-date"></span></span>
+          <input type="text" class="pk-input" id="inp-ekstrem-yetki"
+                 value="—" readonly disabled>
+        </div>
       </div>
     </div>
 
@@ -203,5 +218,5 @@ input.strategy-range.state-2::-moz-range-thumb     { background: var(--red); }
     const DEPOSIT_PANEL_BASE = "{{ url_for('deposit_panel.index') }}".replace(/\/$/, '');
     const CAN_EDIT_HP = {{ can_edit_hp | tojson }};
 </script>
-<script src="{{ url_for('deposit_panel.static', filename='deposit_panel.js') }}?v=3"></script>
+<script src="{{ url_for('deposit_panel.static', filename='deposit_panel.js') }}?v=4"></script>
 {% endblock %}

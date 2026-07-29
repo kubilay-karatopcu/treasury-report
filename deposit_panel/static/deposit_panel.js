@@ -158,6 +158,32 @@
         } catch (e) { console.error("loadParams:", e); }
     }
 
+    // R10 — "Ekstrem + Yetki" salt-okunur alanı: MEVDUAT_YETKILER'in son
+    // tarihli TRY/32 MAX değeri. Her sayfa yüklemesinde taze çekilir
+    // (ana df'e bağlı DEĞİL); tarih GG.AA.YYYY (backend öyle üretir).
+    async function loadEkstremYetki() {
+        const $inp = document.getElementById("inp-ekstrem-yetki");
+        const $lbl = document.getElementById("lbl-ekstrem-yetki-date");
+        if (!$inp) return;
+        try {
+            const res = await fetch(BASE + "/api/get-ekstrem-yetki", {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            });
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "fail");
+            if (json.data && json.data.value != null) {
+                $inp.value = Number(json.data.value).toFixed(2);
+                if ($lbl) $lbl.textContent = json.data.date ? "(" + json.data.date + ")" : "";
+            } else {
+                $inp.value = "—";
+                if ($lbl) $lbl.textContent = "";
+            }
+        } catch (e) {
+            console.error("loadEkstremYetki:", e);
+            $inp.value = "—";
+        }
+    }
+
     async function loadHyperparams() {
         try {
             const res = await fetch(BASE + "/api/get-hyperparams", {
@@ -239,6 +265,7 @@
         }
         if ($btnUpdate) $btnUpdate.addEventListener("click", saveAll);
         loadParams();
+        loadEkstremYetki();
         loadHyperparams();
     });
 })();

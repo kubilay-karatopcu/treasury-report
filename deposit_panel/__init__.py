@@ -56,6 +56,26 @@ def _execute_dml(statements):
         _dc.drop_connection(conn)
 
 
+def _masa_back_url(process_id):
+    """R10 — 'Masaya dön' hedefi: uygulamayı içeren uzmanın masa sayfası.
+
+    İzolasyon gereği prisma_home İMPORT EDİLMEZ; app.py'nin config'e koyduğu
+    FOLDER_MENU_PROVIDER kullanılır (mevduat_panel ile aynı sözleşme).
+    Sağlayıcı yoksa/patlarsa None döner → topbar landing'e düşer.
+    """
+    from flask import current_app
+    provider = current_app.config.get("FOLDER_MENU_PROVIDER")
+    if provider is None:
+        return None
+    try:
+        department = getattr(current_user, "department", None) or ""
+        menu = provider(process_id, department)
+        return (menu or {}).get("expert_url")
+    except Exception:
+        log.warning("masa_back_url çözülemedi: %r", process_id, exc_info=True)
+        return None
+
+
 def _user_can_edit_hyperparams():
     """Check if the current user's department allows hyperparameter editing."""
     try:
@@ -83,13 +103,17 @@ def index():
 @login_required
 def params():
     can_edit_hp = _user_can_edit_hyperparams()
-    return render_template("deposit_panel/params.html", can_edit_hp=can_edit_hp)
+    return render_template(
+        "deposit_panel/params.html", can_edit_hp=can_edit_hp,
+        masa_back_url=_masa_back_url("uygulamalar.panel_parametreler"))
 
 
 @deposit_panel_bp.route("/reservations")
 @login_required
 def reservations():
-    return render_template("deposit_panel/reservations.html")
+    return render_template(
+        "deposit_panel/reservations.html",
+        masa_back_url=_masa_back_url("uygulamalar.panel_rezervasyon"))
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -144,6 +168,35 @@ def api_set_params():
         return jsonify({"ok": True})
     except Exception as e:
         log.exception("api_set_params failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@deposit_panel_bp.route("/api/get-ekstrem-yetki", methods=["GET"])
+@login_required
+def api_get_ekstrem_yetki():
+    """R10 — 'Ekstrem + Yetki' salt-okunur alanı (New Funding Rate altı).
+
+    A16438.MEVDUAT_YETKILER'in EN SON tarihli TRY / VADE_BASLANGIC=32
+    satırlarından MAX(EKSTREM + ZARAR_YETKISI/100, EKSTREM_LIMIT_ALTI +
+    ZARAR_YETKISI/100). Ana df'ten GELMEZ; her sayfa yüklemesinde bu endpoint
+    üzerinden taze sorgulanır (PROD'da get_data her çağrıda Oracle'a gider).
+    """
+    try:
+        df = _dc.get_data(
+            base_prefix="bsp",
+            dataset="raw/input_data/dep_ekstrem_yetki",
+            query="./queries/dep_ekstrem_yetki.sql",
+        )
+        if df is None or df.empty:
+            return jsonify({"ok": True, "data": None})
+        row = df.iloc[0]
+        dat = row["DAT"]
+        dat_str = pd.to_datetime(dat).strftime("%d.%m.%Y") if pd.notnull(dat) else None
+        value = row["EKSTREM_YETKI"]
+        value = float(value) if pd.notnull(value) else None
+        return jsonify({"ok": True, "data": {"date": dat_str, "value": value}})
+    except Exception as e:
+        log.exception("api_get_ekstrem_yetki failed")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
