@@ -20,16 +20,22 @@ başlamış olmalı. Ne yapar:
      Filtreler: ürün, reporting status, para birimi, lender — hepsi
      enum_multi, blok değişkenlerine semantic_tag ile bağlanır.
 
-Yalnız ONAYLI son durum raporlanır (V_FI_OFFER_CURRENT sözleşmesi);
-bekleyen event'ler dashboard'a girmez. Statik: veri tazelemek = uygulamada
-onay akışının işlemesi; manifest yeniden üretim gerektirmez (SQL'ler her
-apply-filters'ta yeniden koşar). deposits_dashboards.py ile aynı manifest
-yapı taşları kullanılır; blok SQL lehçesi Oracle'dır ve duck_cache açık
+Yalnız ONAYLI son durum raporlanır; bekleyen event'ler dashboard'a girmez.
+"Current" ilişkisi VIEW'A BAĞLANMAZ: EDW kişisel şemasında CREATE VIEW
+yetkisi olmayabiliyor (ORA-01031) — bloklar jobs/fi_desk_schema.py::
+CURRENT_SELECT'i INLINE alt-sorgu olarak taşır, basket base tabloları
+(FI_DEALS + FI_OFFER_EVENTS + FI_OFFER_SCHEDULE) içerir. View mevcutsa
+yalnız dokümanı yayınlanır (ad-hoc SQL kolaylığı). Statik: veri tazelemek =
+uygulamada onay akışının işlemesi; manifest yeniden üretim gerektirmez
+(SQL'ler her apply-filters'ta yeniden koşar). deposits_dashboards.py ile
+aynı manifest yapı taşları; blok SQL lehçesi Oracle'dır ve duck_cache açık
 olduğundan üretimde oracle_duck çevirisiyle oturum DuckDB'sinde koşar —
-yalnız çevirmenin desteklediği yapılar kullanılır (NVL/TO_CHAR/ROWNUM).
+yalnız çevirmenin desteklediği yapılar kullanılır (NVL/TO_CHAR/ROWNUM/
+TRUNC(SYSDATE)).
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import sys
@@ -57,6 +63,15 @@ S3_MANIFEST_KEY = "prisma-treasury/presentations/{sicil}/{pid}/manifest.json"
 PID = "p_fi_desk"
 
 REPORTING_STATUSES = ["BIDDING", "PENDING", "REALIZED", "UNREALIZED"]
+
+
+def _load_schema_defs():
+    """jobs/fi_desk_schema.py sabitleri (CURRENT_SELECT tek kaynak orada)."""
+    spec = importlib.util.spec_from_file_location(
+        "fi_desk_schema_defs", Path(__file__).resolve().parent / "fi_desk_schema.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -169,8 +184,7 @@ def load_product_types() -> list[str]:
     return list(matrix["products"].keys())
 
 
-def discover_domains(runner: Runner, sch: str) -> dict:
-    V = f"{sch}.V_FI_OFFER_CURRENT"
+def discover_domains(runner: Runner, sch: str, V: str) -> dict:
     ccy = runner.distinct(V, "CURRENCY")
     if not ccy:
         df = runner.query(
@@ -203,9 +217,12 @@ W = ("(PRODUCT_TYPE IN (:urun) OR PRODUCT_TYPE IS NULL) AND "
 
 
 def build_dashboard(runner: Runner, sch: str) -> tuple[dict, list[str]]:
-    V = f"{sch}.V_FI_OFFER_CURRENT"
+    # Current ilişkisi INLINE (view yetkisinden bağımsız — modül docstring'i).
+    defs = _load_schema_defs()
+    V = "(" + defs.CURRENT_SELECT.format(s=f"{sch}.") + ")"
     S = f"{sch}.FI_OFFER_SCHEDULE"
-    dom = discover_domains(runner, sch)
+    base_tables = [f"{sch}.FI_DEALS", f"{sch}.FI_OFFER_EVENTS", S]
+    dom = discover_domains(runner, sch, V)
 
     bindings: dict[str, str] = {}
     filters, variables = [], []
@@ -222,7 +239,8 @@ def build_dashboard(runner: Runner, sch: str) -> tuple[dict, list[str]]:
 
     def blk(bid, btype, title, query, source=(), width="1/2", config=None):
         return _block(bid, btype, title, query, [dict(v) for v in variables],
-                      bindings, source or [V], width=width, config=config)
+                      bindings, source or base_tables[:2], width=width,
+                      config=config)
 
     # ── Sayfa 1: Özet ───────────────────────────────────────────────────
     b_funnel = blk("b_fi_funnel", "combo_chart", "İşlem Hunisi",
@@ -325,7 +343,7 @@ GROUP BY TO_CHAR(MATURITY_DT, 'YYYY') ORDER BY 1""")
 FROM {S} s
 JOIN (SELECT EVENT_ID FROM {V} WHERE {W}) c ON c.EVENT_ID = s.EVENT_ID
 GROUP BY TO_CHAR(s.PAY_DT, 'YYYY') ORDER BY 1""",
-        source=[S, V])
+        source=base_tables)
 
     b_esg = blk("b_fi_esg", "pie_chart", "ESG Payı (USD)",
         f"""SELECT NVL(SUSTAINABILITY_FLG, 'Bilinmiyor') AS ESG,
@@ -355,8 +373,8 @@ GROUP BY ESG_TYPE ORDER BY 2 DESC""")
         PID, "FI Masası — İşlem Panosu",
         "FI masası veri girişinin (onaylı kayıtlar) raporlama panosu: huni, "
         "hacim kırılımları, fiyatlama karşılaştırmaları, vade ve ESG.",
-        filters, sections, [V, S], pages)
-    return manifest, [V, S]
+        filters, sections, base_tables, pages)
+    return manifest, base_tables
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -374,7 +392,11 @@ def _col(type_, desc, tag=None, role=None, filterable=None, aggregatable=False):
     return d
 
 
-def build_table_docs(runner: Runner, sch: str) -> list[dict]:
+def build_table_docs(runner: Runner, sch: str,
+                     include_view: bool = True) -> list[dict]:
+    """include_view: V_FI_OFFER_CURRENT şemada gerçekten varsa True —
+    CREATE VIEW yetkisi olmayan kurulumlarda view yoktur, dokümanı da
+    yayınlanmaz (current mantığı FI_OFFER_EVENTS dokümanında tariflidir)."""
     docs = []
 
     def _core(name, desc, partition, cols):
@@ -391,48 +413,63 @@ def build_table_docs(runner: Runner, sch: str) -> list[dict]:
                      "partition_column": partition,
                      "estimated_total_rows": n, "columns": cols})
 
-    _core("V_FI_OFFER_CURRENT",
-          "FI masası (Muhabir Bankacılık ve Yapılandırılmış Fonlama) işlem "
-          "kayıtlarının RAPORLAMA görünümü: teklif başına EN SON ONAYLI "
-          "snapshot + türetilen kolonlar. Onay bekleyen değişiklikler burada "
-          "GÖRÜNMEZ. Satır greni = teklif (deal × lender); aynı DEAL_ID "
-          "birden fazla lender teklifi taşıyabilir. Kaynak: fi_desk veri "
-          "giriş uygulaması (docs/FI_DESK_SPEC.md).",
-          "EVENT_TS", {
-              "DEAL_ID": _col("VARCHAR2(24)", "Üst işlem kimliği (borçlanma ihtiyacı)", tag="deal_id"),
-              "OFFER_ID": _col("VARCHAR2(24)", "Teklif kimliği (deal × lender)", filterable=False),
-              "EVENT_SEQ": _col("NUMBER", "Onaylı snapshot'ın sıra no'su", filterable=False),
-              "EVENT_TS": _col("DATE", "Onaylı son işlemin zamanı", tag="as_of_time", role="time_axis"),
+    _core("FI_DEALS",
+          "FI masası üst işlem kimliği: borçlanma ihtiyacı (borrower + ürün). "
+          "Aynı DEAL_ID'ye birden fazla lender teklifi (FI_OFFER_EVENTS "
+          "satırları) bağlanır. Küçük başlık tablosudur; hacim/fiyat ölçüleri "
+          "event tablosundadır.",
+          "CREATED_TS", {
+              "DEAL_ID": _col("VARCHAR2(24)", "Üst işlem kimliği", tag="deal_id"),
+              "BORROWER_BANK": _col("VARCHAR2(128)", "Borçlanan banka (varsayılan biz; piyasa istihbaratında rakip)", tag="counterparty"),
               "PRODUCT_TYPE": _col("VARCHAR2(32)", "Ürün (TRADE_LOAN, EUROBOND, ...)", tag="product_group"),
-              "BORROWER_BANK": _col("VARCHAR2(128)", "Borçlanan banka (varsayılan biz; piyasa istihbaratı girişlerinde rakip)", tag="counterparty"),
-              "LENDER_BANK": _col("VARCHAR2(128)", "Fonlayan banka / yatırımcı", tag="counterparty"),
-              "LENDER_COUNTRY": _col("VARCHAR2(64)", "Lender ülkesi", tag="region"),
-              "LENDER_REGION": _col("VARCHAR2(64)", "Lender bölgesi (ülkeden türetilir)", tag="region"),
-              "GROUP_COMPANY": _col("VARCHAR2(128)", "Lender grup şirketi", tag="counterparty"),
-              "DEAL_STATUS": _col("VARCHAR2(16)", "BIDDING / WON / LOST (statüsüz ürünlerde NULL)", tag="other"),
-              "REPORTING_STATUS": _col("VARCHAR2(16)", "Türetilmiş: BIDDING / PENDING / REALIZED / UNREALIZED (WON + value date geçmişse REALIZED)", tag="other"),
-              "OFFER_DT": _col("DATE", "Teklif tarihi", tag="trade_time"),
-              "CURRENCY": _col("VARCHAR2(8)", "İşlem para birimi", tag="currency"),
-              "FUNDING_AMT": _col("NUMBER", "Tutar (işlem ccy)", aggregatable=True),
-              "USD_EQV": _col("NUMBER", "USD karşılığı — hacim toplamları bundan", aggregatable=True),
-              "VALUE_DT": _col("DATE", "Valör", tag="value_time"),
-              "MATURITY_DT": _col("DATE", "Final maturity", tag="maturity"),
-              "TENOR_DAYS": _col("NUMBER", "Türetilmiş vade (gün) = MATURITY - VALUE; Amortized'da WAL için FI_OFFER_SCHEDULE kullan", aggregatable=True),
-              "REPAYMENT_SCHEDULE": _col("VARCHAR2(16)", "BULLET / AMORTIZED", tag="other"),
-              "COVERAGE_FLG": _col("VARCHAR2(4)", "Coverage var mı (YES/NO)", tag="other"),
-              "COVERAGE_PROVIDER": _col("VARCHAR2(64)", "QNB/EBRD/IFC/ADB/ECA/OTHER", tag="other"),
-              "RATE_TYPE": _col("VARCHAR2(16)", "FIXED / FLOATING", tag="other"),
-              "FIXED_RATE_BPS": _col("NUMBER", "Sabit faiz (bps)", aggregatable=True),
-              "FLOAT_BASE_RATE": _col("VARCHAR2(32)", "Değişken baz oran (SOFR_3M, ...)", tag="other"),
-              "FLOAT_SPREAD_BPS": _col("NUMBER", "Lender spread'i (bps)", aggregatable=True),
-              "COVERAGE_RATE_BPS": _col("NUMBER", "Coverage maliyeti (bps)", aggregatable=True),
-              "ALL_IN_RATE_BPS": _col("NUMBER", "Toplam maliyet (bps) — karşılaştırmalar hacim ağırlıklı olmalı (Σr·USD/ΣUSD)", aggregatable=True),
-              "ALL_IN_FIXED_USD_RATE": _col("NUMBER", "USD sabit eşdeğer toplam maliyet", aggregatable=True),
-              "BUSINESS_SEGMENT": _col("VARCHAR2(32)", "Underlying işin segmenti", tag="segment"),
-              "SUSTAINABILITY_FLG": _col("VARCHAR2(4)", "ESG işlemi mi (YES/NO)", tag="other"),
-              "ESG_TYPE": _col("VARCHAR2(16)", "UOP / SLL / TRANSITION", tag="other"),
-              "ESG_ELIGIBILITY": _col("VARCHAR2(32)", "UoP alt sınıfı (GREEN/SOCIAL/BLUE/...)", tag="other"),
+              "DEAL_LABEL": _col("VARCHAR2(256)", "Serbest açıklama", filterable=False),
+              "CREATED_TS": _col("DATE", "Kayıt zamanı", tag="as_of_time", role="time_axis"),
+              "CREATED_BY": _col("VARCHAR2(16)", "Kaydı açan sicil", tag="user_id"),
           })
+
+    if include_view:
+        _core("V_FI_OFFER_CURRENT",
+              "FI masası (Muhabir Bankacılık ve Yapılandırılmış Fonlama) işlem "
+              "kayıtlarının RAPORLAMA görünümü: teklif başına EN SON ONAYLI "
+              "snapshot + türetilen kolonlar. Onay bekleyen değişiklikler burada "
+              "GÖRÜNMEZ. Satır greni = teklif (deal × lender); aynı DEAL_ID "
+              "birden fazla lender teklifi taşıyabilir. Kaynak: fi_desk veri "
+              "giriş uygulaması (docs/FI_DESK_SPEC.md).",
+              "EVENT_TS", {
+                  "DEAL_ID": _col("VARCHAR2(24)", "Üst işlem kimliği (borçlanma ihtiyacı)", tag="deal_id"),
+                  "OFFER_ID": _col("VARCHAR2(24)", "Teklif kimliği (deal × lender)", filterable=False),
+                  "EVENT_SEQ": _col("NUMBER", "Onaylı snapshot'ın sıra no'su", filterable=False),
+                  "EVENT_TS": _col("DATE", "Onaylı son işlemin zamanı", tag="as_of_time", role="time_axis"),
+                  "PRODUCT_TYPE": _col("VARCHAR2(32)", "Ürün (TRADE_LOAN, EUROBOND, ...)", tag="product_group"),
+                  "BORROWER_BANK": _col("VARCHAR2(128)", "Borçlanan banka (varsayılan biz; piyasa istihbaratı girişlerinde rakip)", tag="counterparty"),
+                  "LENDER_BANK": _col("VARCHAR2(128)", "Fonlayan banka / yatırımcı", tag="counterparty"),
+                  "LENDER_COUNTRY": _col("VARCHAR2(64)", "Lender ülkesi", tag="region"),
+                  "LENDER_REGION": _col("VARCHAR2(64)", "Lender bölgesi (ülkeden türetilir)", tag="region"),
+                  "GROUP_COMPANY": _col("VARCHAR2(128)", "Lender grup şirketi", tag="counterparty"),
+                  "DEAL_STATUS": _col("VARCHAR2(16)", "BIDDING / WON / LOST (statüsüz ürünlerde NULL)", tag="other"),
+                  "REPORTING_STATUS": _col("VARCHAR2(16)", "Türetilmiş: BIDDING / PENDING / REALIZED / UNREALIZED (WON + value date geçmişse REALIZED)", tag="other"),
+                  "OFFER_DT": _col("DATE", "Teklif tarihi", tag="trade_time"),
+                  "CURRENCY": _col("VARCHAR2(8)", "İşlem para birimi", tag="currency"),
+                  "FUNDING_AMT": _col("NUMBER", "Tutar (işlem ccy)", aggregatable=True),
+                  "USD_EQV": _col("NUMBER", "USD karşılığı — hacim toplamları bundan", aggregatable=True),
+                  "VALUE_DT": _col("DATE", "Valör", tag="value_time"),
+                  "MATURITY_DT": _col("DATE", "Final maturity", tag="maturity"),
+                  "TENOR_DAYS": _col("NUMBER", "Türetilmiş vade (gün) = MATURITY - VALUE; Amortized'da WAL için FI_OFFER_SCHEDULE kullan", aggregatable=True),
+                  "REPAYMENT_SCHEDULE": _col("VARCHAR2(16)", "BULLET / AMORTIZED", tag="other"),
+                  "COVERAGE_FLG": _col("VARCHAR2(4)", "Coverage var mı (YES/NO)", tag="other"),
+                  "COVERAGE_PROVIDER": _col("VARCHAR2(64)", "QNB/EBRD/IFC/ADB/ECA/OTHER", tag="other"),
+                  "RATE_TYPE": _col("VARCHAR2(16)", "FIXED / FLOATING", tag="other"),
+                  "FIXED_RATE_BPS": _col("NUMBER", "Sabit faiz (bps)", aggregatable=True),
+                  "FLOAT_BASE_RATE": _col("VARCHAR2(32)", "Değişken baz oran (SOFR_3M, ...)", tag="other"),
+                  "FLOAT_SPREAD_BPS": _col("NUMBER", "Lender spread'i (bps)", aggregatable=True),
+                  "COVERAGE_RATE_BPS": _col("NUMBER", "Coverage maliyeti (bps)", aggregatable=True),
+                  "ALL_IN_RATE_BPS": _col("NUMBER", "Toplam maliyet (bps) — karşılaştırmalar hacim ağırlıklı olmalı (Σr·USD/ΣUSD)", aggregatable=True),
+                  "ALL_IN_FIXED_USD_RATE": _col("NUMBER", "USD sabit eşdeğer toplam maliyet", aggregatable=True),
+                  "BUSINESS_SEGMENT": _col("VARCHAR2(32)", "Underlying işin segmenti", tag="segment"),
+                  "SUSTAINABILITY_FLG": _col("VARCHAR2(4)", "ESG işlemi mi (YES/NO)", tag="other"),
+                  "ESG_TYPE": _col("VARCHAR2(16)", "UOP / SLL / TRANSITION", tag="other"),
+                  "ESG_ELIGIBILITY": _col("VARCHAR2(32)", "UoP alt sınıfı (GREEN/SOCIAL/BLUE/...)", tag="other"),
+              })
 
     _core("FI_OFFER_EVENTS",
           "FI masası APPEND-ONLY event geçmişi: her giriş / düzenleme / statü "
@@ -610,7 +647,17 @@ def main() -> int:
 
         if PUBLISH_DOCS:
             print("── Tablo dokümanları")
-            publish_docs(dc, build_table_docs(runner, sch))
+            # View, CREATE VIEW yetkisi olmayan kurulumda hiç yaratılmamıştır
+            # → dokümanı da yayınlanmaz (varlığı sorguyla saptanır).
+            try:
+                runner.rowcount(f"{sch}.V_FI_OFFER_CURRENT")
+                include_view = True
+            except Exception:
+                include_view = False
+                print("   ! V_FI_OFFER_CURRENT yok — view dokümanı atlandı "
+                      "(current mantığı FI_OFFER_EVENTS dokümanında tarifli)")
+            publish_docs(dc, build_table_docs(runner, sch,
+                                              include_view=include_view))
 
         if PUBLISH_DASHBOARD:
             print("── p_fi_desk dashboard'u")

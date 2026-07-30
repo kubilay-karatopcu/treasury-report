@@ -49,9 +49,16 @@ FI_DEALS (üst kimlik)          1 ── n  FI_OFFERS (deal × lender thread'i)
   onay alanlarıdır (`APPROVAL_STATUS`, `APPROVED_BY/TS`, `REJECT_REASON`).
   Edit = önceki snapshot'ın kopyası + değişiklik, `EVENT_SEQ+1`, PENDING.
   Zaman damgalı tam geçmiş ("kim ne zaman neyi değiştirdi") bedavaya gelir.
-- **`V_FI_OFFER_CURRENT`** view'ı: teklif başına en son ONAYLI event + deal
-  başlığı + türetilenler. Dashboard'lar ve liste ekranı bunu okur; geçmiş
-  analizi (bidding→won süresi vb.) doğrudan events tablosundan.
+- **Current ilişkisi — view OPSİYONEL (2026-07-30 ofis koşusu):** EDW
+  kişisel şemasında CREATE VIEW yetkisi yok (ORA-01031). Tek kaynak
+  `jobs/fi_desk_schema.py::CURRENT_SELECT`tir (teklif başına en son ONAYLI
+  event + deal başlığı + türetilenler): şema script'i view'ı yaratmayı
+  DENER, yetki yoksa uyarıp geçer; uygulama (`db.current_relation()`) ve
+  dashboard blokları aynı SQL'i HER ZAMAN inline alt-sorgu olarak koşar —
+  davranış view'lı/view'sız birebir (test: `test_current_relation_matches_
+  view`). Yetki alınırsa script yeniden koşularak view ad-hoc SQL kolaylığı
+  için yaratılabilir; hiçbir bileşen buna bağımlı değildir. Geçmiş analizi
+  (bidding→won süresi vb.) doğrudan events tablosundan.
 - **Türetilen kolonlar (girilmez):**
   - `REPORTING_STATUS`: WON → value date geçtiyse REALIZED değilse PENDING;
     LOST → UNREALIZED; BIDDING → BIDDING; Deal Status taşımayan ürünler

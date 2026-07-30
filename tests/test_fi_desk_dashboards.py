@@ -207,11 +207,15 @@ def test_table_docs_shapes(dev_db):
     mod = _load_job()
     docs = mod.build_table_docs(DevRunner(), "MAIN")  # TableDoc şeması büyük harf ister
     assert [d["table"] for d in docs] == \
-        ["V_FI_OFFER_CURRENT", "FI_OFFER_EVENTS", "FI_OFFER_SCHEDULE"]
+        ["FI_DEALS", "V_FI_OFFER_CURRENT", "FI_OFFER_EVENTS",
+         "FI_OFFER_SCHEDULE"]
+    # View yetkisi olmayan kurulum: view dokümanı yayınlanmaz
+    no_view = mod.build_table_docs(DevRunner(), "MAIN", include_view=False)
+    assert "V_FI_OFFER_CURRENT" not in [d["table"] for d in no_view]
     for raw in docs:
         doc = TableDoc.model_validate(raw)   # şema uyumu (pydantic)
         assert doc.description
-    view_cols = docs[0]["columns"]
+    view_cols = docs[1]["columns"]
     assert view_cols["USD_EQV"]["aggregatable"] is True
     assert view_cols["PRODUCT_TYPE"]["suggested_semantic_tag"] == "product_group"
     assert view_cols["PRODUCT_TYPE"]["suggested_variable"] == "product_type"

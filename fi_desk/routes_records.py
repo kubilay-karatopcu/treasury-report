@@ -2,7 +2,8 @@
 """FI masası — kayıt listesi / detay / edit / onay uçları (Faz 2).
 
 Sayfa: /fi-desk/records (AG-Grid liste + satır detayı + onay aksiyonları).
-Liste satırı = teklif: onaylı current snapshot'ı (V_FI_OFFER_CURRENT) ya da
+Liste satırı = teklif: onaylı current snapshot'ı (db.current_relation —
+CURRENT_SELECT inline; view yetkisinden bağımsız) ya da
 henüz hiç onaylanmamışsa en son PENDING event ("ONAY BEKLİYOR"). Edit,
 entry formunun ?offer=... moduyla yapılır → yeni PENDING event (EDIT ya da
 yalnız statü değiştiyse STATUS_CHANGE). Onay/red APPROVER rolüyle event'in
@@ -68,7 +69,7 @@ def api_records():
         matrix = load_field_matrix()
         labels = {k: v["label"] for k, v in matrix["products"].items()}
         current = {r["OFFER_ID"]: r for r in db.query(
-            f"SELECT * FROM {db.qualified('V_FI_OFFER_CURRENT')}")}
+            f"SELECT * FROM {db.current_relation()}")}
         pending = db.query(
             f"SELECT e.*, d.BORROWER_BANK, d.PRODUCT_TYPE, d.DEAL_LABEL "
             f"FROM {db.qualified('FI_OFFER_EVENTS')} e "
@@ -129,7 +130,7 @@ def api_offer_detail(offer_id: str):
                 {"o": offer_id}):
             schedules.setdefault(int(row["EVENT_ID"]), []).append(_ser_row(row))
         current = db.query(
-            f"SELECT * FROM {db.qualified('V_FI_OFFER_CURRENT')} "
+            f"SELECT * FROM {db.current_relation()} "
             "WHERE OFFER_ID = :o", {"o": offer_id})
         matrix = load_field_matrix()
         return jsonify({

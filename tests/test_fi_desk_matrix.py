@@ -112,8 +112,9 @@ def test_esg_cascade_and_lists_seeded():
 
 
 def test_view_reporting_status_rules_present():
-    """Statü makinesi view'da: LOST→UNREALIZED, BIDDING→BIDDING, value date kuralı."""
-    view = re.search(r'VIEW_SQL = """(.*?)"""', SCHEMA_SRC, re.S).group(1)
+    """Statü makinesi CURRENT_SELECT'te (view + inline tek kaynak):
+    LOST→UNREALIZED, BIDDING→BIDDING, value date kuralı."""
+    view = re.search(r'CURRENT_SELECT = """(.*?)"""', SCHEMA_SRC, re.S).group(1)
     assert "'LOST' THEN 'UNREALIZED'" in view
     assert "'BIDDING' THEN 'BIDDING'" in view
     assert "REPORTING_STATUS" in view

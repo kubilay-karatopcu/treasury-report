@@ -166,6 +166,19 @@ def test_view_shows_latest_approved_only(dev_db):
     assert cur["REPORTING_STATUS"] == "REALIZED"
 
 
+def test_current_relation_matches_view(dev_db):
+    """İnline current (db.current_relation — view yetkisi olmayan prod yolu)
+    view ile satır satır aynı sonucu verir."""
+    ids = _submit_entry(datetime.now() - timedelta(days=10))
+    _approve(ids["event_id"])
+    inline = db.query(f"SELECT * FROM {db.current_relation()} "
+                      "ORDER BY OFFER_ID")
+    via_view = db.query("SELECT * FROM V_FI_OFFER_CURRENT ORDER BY OFFER_ID")
+    assert len(inline) == 1
+    assert inline[0].keys() == via_view[0].keys()
+    assert inline == via_view
+
+
 def test_won_future_value_date_is_pending(dev_db):
     ids = _submit_entry(datetime.now() + timedelta(days=30), deal_status="WON")
     _approve(ids["event_id"])

@@ -53,17 +53,41 @@ def qualified(table: str) -> str:
     return f"{_schema}.{table}"
 
 
+def current_relation() -> str:
+    """Teklif başına en-son-onaylı snapshot ilişkisi — INLINE alt-sorgu.
+
+    V_FI_OFFER_CURRENT view'ına bilerek bağlanılmaz: EDW kişisel şemasında
+    CREATE VIEW yetkisi olmayabiliyor (ORA-01031). Tek kaynak
+    jobs/fi_desk_schema.py::CURRENT_SELECT; view varsa da yoksa da uygulama
+    aynı SQL'i koşar. FROM {current_relation()} biçiminde kullanılır."""
+    defs = _get_schema_defs()
+    prefix = "" if is_dev() or not _schema else f"{_schema}."
+    if is_dev():
+        return "(" + _oracle_view_to_duckdb(defs.CURRENT_SELECT) + ")"
+    return "(" + defs.CURRENT_SELECT.format(s=prefix) + ")"
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # jobs/fi_desk_schema.py sabitlerini yükle (DDL tek otorite orada; jobs
 # paketi değil → importlib ile dosyadan). oracledb import'u main() içinde
 # olduğundan modül yüklemesi güvenlidir.
 # ─────────────────────────────────────────────────────────────────────────
+_schema_defs = None
+
+
 def _load_schema_module():
     path = _REPO_ROOT / "jobs" / "fi_desk_schema.py"
     spec = importlib.util.spec_from_file_location("fi_desk_schema_defs", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _get_schema_defs():
+    global _schema_defs
+    if _schema_defs is None:
+        _schema_defs = _load_schema_module()
+    return _schema_defs
 
 
 def _oracle_ddl_to_duckdb(sql: str) -> str:
@@ -76,12 +100,12 @@ def _oracle_ddl_to_duckdb(sql: str) -> str:
 
 
 def _oracle_view_to_duckdb(sql: str) -> str:
-    s = sql.replace("{s}.", "")
-    s = re.sub(r"TRUNC\s*\(\s*SYSDATE\s*\)", "CURRENT_TIMESTAMP", s, flags=re.I)
+    """CURRENT_SELECT/VIEW_SQL zaten taşınabilir yazılır (CAST'li tarih
+    farkı); DuckDB için yalnız SYSDATE çevirisi kalır (oracle_duck ile aynı
+    kurallar — prod duck_cache yolu da aynı çeviriyi yapar)."""
+    s = sql.format(s="")
+    s = re.sub(r"\bTRUNC\s*\(\s*SYSDATE\s*\)", "CURRENT_DATE", s, flags=re.I)
     s = re.sub(r"\bSYSDATE\b", "CURRENT_TIMESTAMP", s, flags=re.I)
-    # Oracle DATE farkı gün sayısı döner; DuckDB timestamp farkı interval.
-    s = s.replace("e.MATURITY_DT - e.VALUE_DT AS TENOR_DAYS",
-                  "DATE_DIFF('day', e.VALUE_DT, e.MATURITY_DT) AS TENOR_DAYS")
     return s
 
 
@@ -98,7 +122,7 @@ def _get_duck():
         import duckdb
 
         conn = duckdb.connect(str(_dev_db_path()))
-        defs = _load_schema_module()
+        defs = _get_schema_defs()
         existing = {r[0].upper() for r in conn.execute(
             "SELECT table_name FROM information_schema.tables").fetchall()}
         for name, ddl in defs.DDL.items():

@@ -143,8 +143,16 @@ INDEXES = [
 #   LOST → UNREALIZED   BIDDING → BIDDING
 #   Deal Status taşımayan ürünler (Fiduciary, Eurobond, Sub Bonds) →
 #   value date'e göre REALIZED/PENDING.
-VIEW_SQL = """CREATE OR REPLACE VIEW {s}.V_FI_OFFER_CURRENT AS
-SELECT d.BORROWER_BANK, d.PRODUCT_TYPE, d.DEAL_LABEL,
+#
+# CURRENT_SELECT tek kaynaktır: view yaratılabilirse gövdesi olur; CREATE
+# VIEW yetkisi yoksa (ORA-01031 — EDW kişisel şemalarında görüldü) uygulama
+# (fi_desk/db.current_relation) ve dashboard blokları AYNI SQL'i inline
+# alt-sorgu olarak kullanır — davranış iki durumda da birebir. {s} ŞEMA
+# ÖNEKİDİR ve nokta İÇERİR ("A63837PY." gibi; dev DuckDB'de boş string).
+# Taşınabilirlik: tarih farkı CAST(... AS DATE) ile alınır (Oracle'da no-op,
+# DuckDB'de TIMESTAMP→DATE; iki motorda da sonuç gün sayısıdır) ve
+# TRUNC(SYSDATE) oracle_duck çevirmeninin kapsamındadır.
+CURRENT_SELECT = """SELECT d.BORROWER_BANK, d.PRODUCT_TYPE, d.DEAL_LABEL,
        e.*,
        CASE
          WHEN e.DEAL_STATUS = 'LOST' THEN 'UNREALIZED'
@@ -153,17 +161,20 @@ SELECT d.BORROWER_BANK, d.PRODUCT_TYPE, d.DEAL_LABEL,
          WHEN e.VALUE_DT <= TRUNC(SYSDATE) THEN 'REALIZED'
          ELSE 'PENDING'
        END AS REPORTING_STATUS,
-       e.MATURITY_DT - e.VALUE_DT AS TENOR_DAYS
+       CAST(e.MATURITY_DT AS DATE) - CAST(e.VALUE_DT AS DATE) AS TENOR_DAYS
 FROM (
     SELECT ev.*
-    FROM {s}.FI_OFFER_EVENTS ev
+    FROM {s}FI_OFFER_EVENTS ev
     WHERE ev.APPROVAL_STATUS = 'APPROVED'
       AND ev.EVENT_SEQ = (
-          SELECT MAX(e2.EVENT_SEQ) FROM {s}.FI_OFFER_EVENTS e2
+          SELECT MAX(e2.EVENT_SEQ) FROM {s}FI_OFFER_EVENTS e2
           WHERE e2.OFFER_ID = ev.OFFER_ID
             AND e2.APPROVAL_STATUS = 'APPROVED')
 ) e
-JOIN {s}.FI_DEALS d ON d.DEAL_ID = e.DEAL_ID"""
+JOIN {s}FI_DEALS d ON d.DEAL_ID = e.DEAL_ID"""
+
+VIEW_SQL = ("CREATE OR REPLACE VIEW {s}V_FI_OFFER_CURRENT AS\n"
+            + CURRENT_SELECT)
 
 # ─────────────────────────────────────────────────────────────────────────
 # SEED — lookup örnek seti (YER TUTUCU: gerçek mapping excelleri gelince
@@ -304,8 +315,17 @@ def create_tables(con, schema: str) -> None:
     for _, idx_sql in INDEXES:
         # ORA-00955: ad zaten var (idempotent), ORA-01408: kolon listesi indeksli
         _exec(con, idx_sql.format(s=schema), ok_codes=("ORA-00955", "ORA-01408"))
-    _exec(con, VIEW_SQL.format(s=schema))
-    print(f"   ✓ V_FI_OFFER_CURRENT (CREATE OR REPLACE)")
+    # View OPSİYONELDİR: EDW kişisel şemalarında CREATE VIEW yetkisi
+    # olmayabiliyor (ORA-01031 — 2026-07-30'da yaşandı). Yetki yoksa uyarıp
+    # devam ederiz; uygulama ve dashboard aynı CURRENT_SELECT'i inline
+    # kullanır, davranış değişmez. Yetki alınırsa script yeniden koşulur.
+    if _exec(con, VIEW_SQL.format(s=f"{schema}."), ok_codes=("ORA-01031",)):
+        print("   ✓ V_FI_OFFER_CURRENT (CREATE OR REPLACE)")
+    else:
+        print("   ! V_FI_OFFER_CURRENT ATLANDI — CREATE VIEW yetkisi yok "
+              "(ORA-01031). Sorun değil: uygulama ve dashboard current "
+              "sorgusunu inline koşar. İstersen DBA'dan CREATE VIEW yetkisi "
+              "alıp script'i yeniden koşabilirsin (ad-hoc SQL için kolaylık).")
     con.commit()
 
 
