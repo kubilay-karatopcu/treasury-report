@@ -465,9 +465,105 @@
     if (fire) el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // ── Gün dönümü + periyodik tazeleme (R11) ────────────────────────────────
+  // Sunucu verisi 10 dakikada bir tazelenir (ODH cronjob → /admin/refresh).
+  // Sayfa ise tarih listesini YALNIZ açılışta çekiyordu: gece yarısını devralan
+  // açık bir sekme dünkü tarihte takılı kalıyor, yeni günün işlemleri hiç
+  // görünmüyordu (ekran/wallboard senaryosu). Bu yardımcı listeyi aynı ritimde
+  // tazeler ve kararı tek yerde verir:
+  //   - en yeni gün değiştiyse → o güne geç (kullanıcı en yeni günü izliyorsa)
+  //   - en yeni gün aynıysa    → o günün verisini yeniden çek (10 dk'lık tazeleme)
+  //   - kullanıcı elle geçmiş bir güne gittiyse → yalnız liste tazelenir, seçim
+  //     korunur; kullanıcı en yeni güne dönerse izleme kendiliğinden geri gelir.
+  var DATE_REFRESH_MS = 10 * 60 * 1000;   // sunucu cron'uyla aynı ritim
+  var DAY_WATCH_MS = 60 * 1000;           // yerel gün dönümü nöbeti
+  var BUSY_RETRY_MS = 30 * 1000;          // kullanıcı etkileşimdeyse ertele
+
+  /** Kullanıcı o an bir şeyle uğraşıyor mu? — açık filtre kutusu ya da odakta
+      bir kontrol varken tazeleme (DOM'u yeniden kuran draw) ertelenir. */
+  function userBusy() {
+    // Açık filtre kutusu = popup'ın .hidden'ı YOK (bub-filter-dd sarmalayıcı
+    // daima görünür; kapanan eleman .bub-filter-dd-popup'tır — bkz. bubfilter.js).
+    if (document.querySelector('.bub-filter-dd-popup:not(.hidden)')) return true;
+    var a = document.activeElement;
+    return !!(a && (a.tagName === 'INPUT' || a.tagName === 'SELECT'));
+  }
+
+  function localDay() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+           '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  /**
+   * cfg: { el, url, latest, onDates(dates), onReload(iso), intervalMs? }
+   *   el       — sayfanın tarih input'u (ISO değer taşır)
+   *   url      — tarih listesi endpoint'i ({dates, latest})
+   *   latest   — açılışta yüklenen en yeni gün (izleme buradan başlar)
+   *   onDates  — liste her tazelendiğinde çağrılır (◀ ▶ sınırları için)
+   *   onReload — seçili günü yeniden yükle (sayfa cache'ini de boşaltmalı)
+   */
+  function initDateAutoRefresh(cfg) {
+    if (!cfg || !cfg.el || !cfg.url || typeof cfg.onReload !== 'function') return;
+    var el = cfg.el;
+    var every = cfg.intervalMs || DATE_REFRESH_MS;
+    var latest = cfg.latest || el.value;
+    var pinned = false;      // kullanıcı elle geçmiş bir güne mi gitti?
+    var selfSet = false;     // aşağıdaki push()'un yaydığı change'i ayırt eder
+    var day = localDay();
+    var busyTimer = null;
+
+    // Kullanıcı kaynaklı her değişim izlemeyi yeniden değerlendirir: en yeni
+    // günde duruyorsa izlemeye devam, değilse sabitlenir.
+    el.addEventListener('change', function () {
+      if (selfSet) return;
+      pinned = el.value !== latest;
+    });
+
+    function push(iso) {
+      selfSet = true;
+      try { cfg.onReload(iso); } finally { selfSet = false; }
+    }
+
+    function tick() {
+      if (busyTimer) { clearTimeout(busyTimer); busyTimer = null; }
+      fetchJson(cfg.url)
+        .then(function (res) {
+          var dates = (res && res.dates) || [];
+          var newest = (res && res.latest) || dates[dates.length - 1];
+          if (!newest) return;
+          if (cfg.onDates) cfg.onDates(dates);
+          latest = newest;
+          if (pinned) return;
+          if (userBusy()) { busyTimer = setTimeout(tick, BUSY_RETRY_MS); return; }
+          push(newest);
+        })
+        .catch(function () { /* geçici ağ hatası — sonraki tur dener */ });
+    }
+
+    setInterval(tick, every);
+
+    // Yerel gün dönümünü beklemeden yakala: 00:00'ı geçen sekme 10 dk'lık turu
+    // beklemesin (sunucu yeni günü ilk cron'da yayınlar; tur boşa çıkarsa
+    // yalnız aynı günün verisi tazelenir — zararsız).
+    setInterval(function () {
+      var now = localDay();
+      if (now !== day) { day = now; tick(); }
+    }, DAY_WATCH_MS);
+
+    // Arka plan sekmesinde setInterval kısılır / dizüstü uyanır: sekme geri
+    // görünür olduğunda gün değiştiyse hemen tazele.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      var now = localDay();
+      if (now !== day) { day = now; tick(); }
+    });
+  }
+
   window.MVP = {
     initEmbed: initEmbed,
     initDatePicker: initDatePicker, setDateVal: setDateVal,
+    initDateAutoRefresh: initDateAutoRefresh,
     token: token, isDark: isDark, palette: palette,
     formatNumber: formatNumber, formatRate: formatRate, formatAmt: formatAmt,
     ratePct: ratePct, wavg: wavg, sum: sum, distinct: distinct, groupBy: groupBy,

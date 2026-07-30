@@ -60,6 +60,33 @@
   (focus/blur/input) ZORUNLUDUR — yoksa yazarken metin üst üste biner.
 - Dock'suz bağlamlar (mevduat kabuğu dışı) için `MVP.initDatePicker`
   (flatpickr, altInput d.m.Y) yedek olarak durur.
+- **İKON ŞERİDİ (R11):** overlay metni ile native takvim ikonu ASLA çakışmaz.
+  272px'lik dock'ta "anahtar ◀ [input] ▶" satırı dardır; ölçüler buna göre
+  ayarlıdır: anahtar kolonu 58px (en uzun etiket "Başlangıç" ≈ 49px), input
+  yatay padding 6px, `::-webkit-calendar-picker-indicator` 12px, overlay'in
+  sağında 16px yasak şerit (`right:16px` + `overflow:hidden`). Bu satıra yeni
+  kontrol eklerken ikonun yılın üstüne binmediği DOĞRULANIR (yaşandı: yıl
+  okunamıyordu).
+
+## 2c. Gün dönümü + periyodik tazeleme — ZORUNLU (R11)
+
+- Sunucu verisi 10 dakikada bir tazelenir (ODH cronjob → `/admin/refresh`).
+  Sayfalar ekranda/wallboard'da GÜNLERCE açık kalır; tarih listesini yalnız
+  açılışta çekmek YETMEZ (yaşandı: gece yarısını devralan sekme dünkü tarihte
+  takılı kaldı, yeni günün işlemleri hiç görünmedi).
+- Tek tarihli sayfalar (`oranlar`, `miktarlar`) `MVP.initDateAutoRefresh`
+  KULLANIR: `{el, url, latest, onDates, onReload}`. Sözleşme:
+  - en yeni gün değişti + kullanıcı en yeni günü izliyor → o güne geçilir,
+  - en yeni gün aynı + kullanıcı ondaysa → o günün verisi yeniden çekilir,
+  - kullanıcı elle geçmiş bir güne gittiyse → SEÇİM KUTSALDIR (yalnız liste
+    tazelenir); ▶ ile en yeni güne dönerse izleme kendiliğinden geri gelir.
+- `onReload` sayfa cache'ini o gün için BOŞALTMALIDIR (`delete cache[iso]`),
+  yoksa `loadDate` eski satırları geri koyar.
+- Tazeleme `draw()` → `renderFilters()` zincirini yeniden kurar; bu yüzden
+  açık filtre kutusu ya da odakta kontrol varken 30 sn ertelenir. Filtre
+  seçimleri `state`'te yaşadığı için tazeleme sonrası KORUNUR — yeni bir sayfa
+  bu yardımcıyı bağlarken varsayılanların yalnız ilk kurulumda yazıldığını
+  (bkz. §3) doğrular.
 
 ## 3. Filtreler
 

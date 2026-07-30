@@ -475,8 +475,16 @@
     .then(function (res) {
       availableDates = (res && res.dates) || [];
       var latest = (res && res.latest) || availableDates[availableDates.length - 1];
-      if (latest) { MVP.setDateVal(elDate, latest, true); }
-      else if (elStatus) {
+      if (latest) {
+        MVP.setDateVal(elDate, latest, true);
+        // R11 — gün dönümü + 10 dk'lık tazeleme (bkz. common.js
+        // initDateAutoRefresh; rates.js ile aynı sözleşme).
+        MVP.initDateAutoRefresh({
+          el: elDate, url: EP.dates, latest: latest,
+          onDates: function (dates) { availableDates = dates; },
+          onReload: function (iso) { delete cache[iso]; MVP.setDateVal(elDate, iso, true); }
+        });
+      } else if (elStatus) {
         elStatus.textContent =
           'Veri yok — açılış ısınması (prewarm) sürüyor olabilir; birazdan yenileyin.';
       }

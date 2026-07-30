@@ -710,7 +710,11 @@ body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250
 /* 9c. Dock — tarih hizalama + boyut satırı yeni düzeni. */
 .mv-dock-row--date label { justify-content: flex-start; }
 .mv-dock-row--date .mv-dock-key {
-  flex: 0 0 72px;
+  /* R11 — 72px'ti: 272px'lik dock'ta "Tarih ◀ [input] ▶" satırında input'a
+     yalnız 91px kalıyordu (metin 72px + takvim ikonu 16px sığmıyor, ikon yılın
+     üstüne biniyordu). 58px en uzun anahtarı ("Başlangıç" ≈ 49px) hâlâ tek
+     satırda taşır ve input'a 14px kazandırır. */
+  flex: 0 0 58px;
   color: var(--ink-faint);
   font-size: 11px;
 }
@@ -728,9 +732,23 @@ body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250
   width: 100%;
   flex: none;
   color: transparent;
+  /* R11 — yatay padding 8px'ten 6px'e: GG.AA.YYYY + takvim ikonu dar dock'ta
+     ancak böyle yan yana sığıyor (overlay'in left'i de 7px'e iner). */
+  padding-left: 6px;
+  padding-right: 6px;
 }
 .mv-dock-row--date .mv-dock-datewrap input[type="date"]::-webkit-datetime-edit {
   color: transparent;
+}
+/* R11 — takvim ikonu küçültülür (varsayılan 16px + iç padding'i overlay'in
+   son hanelerinin üstüne biniyordu; "yıl okunmuyor" bug'ı). Küçük ikon
+   picker'ı açmaya devam eder — tıklama alanı input'un sağ kenarı. */
+.mv-dock-row--date .mv-dock-datewrap input[type="date"]::-webkit-calendar-picker-indicator {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  margin: 0 0 0 2px;
+  cursor: pointer;
 }
 /* R10 — EDİT MODU: input odaktayken overlay gizlenir, gerçek input metni
    görünür olur — yazarken "ne yazdığım gözükmüyor / üst üste biniyor"
@@ -746,7 +764,11 @@ body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250
 }
 .mv-dock-datetext {
   position: absolute;
-  left: 9px;                 /* input border(1) + padding-left(8) */
+  left: 7px;                 /* input border(1) + padding-left(6) */
+  /* R11 — ikon şeridi overlay'e yasak: yer daralsa bile metin ikonun ALTINA
+     akmaz, kırpılır (yılın üstüne binen ikon bug'ının kalıcı güvencesi). */
+  right: 16px;
+  overflow: hidden;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;      /* tıklama input'a/picker'a geçsin */

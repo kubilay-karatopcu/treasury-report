@@ -181,3 +181,42 @@ def test_module_defines_no_own_component_css():
     assert not (REPO / "mevduat_panel/static/prisma/pages.css").exists()
     page = (REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html").read_text(encoding="utf-8")
     assert "pages.css" not in page
+
+
+# ── R11 — gün dönümü + takvim ikonu (bkz. docs/CUSTOM_PAGE_DESIGN.md §2b/§2c) ─
+
+def test_date_auto_refresh_wired_on_single_date_pages():
+    """Tek tarihli sayfalar gün dönümünü izler.
+
+    Tarih listesi yalnız açılışta çekilirse ekranda günlerce açık kalan sekme
+    dünkü tarihte takılı kalır (yaşandı). `MVP.initDateAutoRefresh` sözleşmesi:
+    her sayfa listeyi tazeler VE yeniden yüklerken o günün client cache'ini
+    boşaltır — yoksa loadDate eski satırları geri koyar.
+    """
+    common = (REPO / "mevduat_panel/static/prisma/common.js").read_text(encoding="utf-8")
+    assert "function initDateAutoRefresh(" in common
+    assert "initDateAutoRefresh: initDateAutoRefresh" in common       # MVP'de dışa açık
+    # Açık filtre kutusu popup'tır; sarmalayıcı (.bub-filter-dd) daima görünür —
+    # yanlış seçici tazelemeyi sonsuza erteler (yaşandı).
+    assert ".bub-filter-dd-popup:not(.hidden)" in common
+
+    for page in ("rates.js", "amounts.js"):
+        js = (REPO / "mevduat_panel/static/prisma" / page).read_text(encoding="utf-8")
+        assert "MVP.initDateAutoRefresh({" in js, page
+        assert "delete cache[iso]" in js, page
+
+
+def test_dock_date_row_reserves_a_lane_for_the_calendar_icon():
+    """Takvim ikonu GG.AA.YYYY overlay'inin (özellikle yılın) üstüne binmez.
+
+    272px'lik dock'ta satır dardır; ölçüler birlikte çalışır — biri geri alınırsa
+    ikon yılı yeniden kapatır.
+    """
+    css = (REPO / "mevduat_panel/static/mevduat_prisma.css").read_text(encoding="utf-8")
+    assert "flex: 0 0 58px;" in css                       # anahtar kolonu ("Başlangıç" ≈ 49px)
+    assert "::-webkit-calendar-picker-indicator {" in css  # ikon küçültülür
+    # Overlay'in sağındaki yasak şerit: yer daralsa bile metin ikonun altına akmaz.
+    start = css.index("\n.mv-dock-datetext {")   # is-editing bloğu değil, kuralın kendisi
+    block = css[start:css.index("}", start)]
+    assert "right: 16px;" in block
+    assert "overflow: hidden;" in block
