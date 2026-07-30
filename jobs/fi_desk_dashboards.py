@@ -51,13 +51,21 @@ log = logging.getLogger("fi_desk_dashboards")
 # ─────────────────────────────────────────────────────────────────────────
 # KONFİG — Spyder'da args çalışmadığı için buradan düzenle (argparse yok).
 # ─────────────────────────────────────────────────────────────────────────
-SICIL = "A16438"        # SİTEYE GİRİŞ sicili — sunum bu kullanıcının
-                        # klasörüne yazılır (DB bağlantı kullanıcısı DEĞİL)
+SICIL = "A16438"        # SİTEYE GİRİŞ sicili — sunumun SAHİBİ (düzenlenebilir
+                        # kopya "Rapor Şablonları"nda bu kullanıcıda durur;
+                        # DB bağlantı kullanıcısı DEĞİL). Masaya yayın sahiplik
+                        # üzerinden DEĞİL, aşağıdaki snapshot+uzman bağıyla olur.
 SCHEMA: str | None = None   # FI_* tablolarının şeması (None → bağlantı kullanıcısı)
-EXPERTS: list[str] | str = []  # bound_experts uzman id'leri (boş → bağlama yok)
+EXPERTS: list[str] | str = ["fi"]  # bağlanacak uzman id'leri (seed_fi_expert.py
+                                   # önce koşulmuş olmalı; boş → bağlama yok)
 SKIP_FILL = False       # True → blok SQL'leri koşulmaz, config'ler boş kalır
 PUBLISH_DOCS = True     # TableDoc'ları S3'e yaz
 PUBLISH_DASHBOARD = True  # p_fi_desk manifest'ini S3'e yaz
+PUBLISH_SNAPSHOT = True   # manifest'i dondurup EXPERTS uzman(lar)ına bağlı
+                          # snapshot yaz — MASA YAYINI budur: uzmanı görebilen
+                          # herkes (access_scope.read departmanları) panoyu
+                          # uzman sayfasındaki ızgaradan açar. Önceki otomatik
+                          # snapshot silinir (birikme olmaz).
 
 S3_MANIFEST_KEY = "prisma-treasury/presentations/{sicil}/{pid}/manifest.json"
 PID = "p_fi_desk"
@@ -606,6 +614,32 @@ def build_scope(runner: Runner, dc, manifest, sicil, tables) -> None:
     print(f"   ✓ scope v{version} kaydedildi ({len(items)} tablo, lazy)")
 
 
+SNAPSHOT_DESC = "fi_desk_dashboards otomatik yayını"
+
+
+def publish_snapshot(dc, manifest, sicil, experts: list[str]) -> None:
+    """Masa yayını: manifest'i dondurup uzman(lar)a bağlı snapshot olarak yaz.
+
+    Uzman sayfası bound snapshot'ları cross-owner listeler
+    (prisma_home.routes → find_snapshots_bound_to) — erişim uzmanın
+    access_scope.read departmanlarından gelir. Aynı job'un önceki otomatik
+    snapshot'ları (aynı pid + owner + açıklama) silinir; elle alınmış
+    snapshot'lara dokunulmaz."""
+    from presentations.store import S3SnapshotStore
+
+    store = S3SnapshotStore(dc)
+    for meta in store.list_all_meta():
+        if (meta.get("presentation_id") == manifest["id"]
+                and meta.get("owner_id") == sicil
+                and meta.get("description") == SNAPSHOT_DESC):
+            store.delete(meta["snapshot_id"])
+            print(f"   - eski snapshot silindi: {meta['snapshot_id']}")
+    meta = store.save(manifest, owner_id=sicil,
+                      description=SNAPSHOT_DESC, bound_experts=experts)
+    print(f"   ✓ snapshot yazıldı: {meta['snapshot_id']} → uzman(lar): "
+          f"{', '.join(experts)}")
+
+
 def persist_manifest(dc, sicil, manifest) -> None:
     from presentations.manifest import validate_manifest
 
@@ -663,7 +697,8 @@ def main() -> int:
             print("── p_fi_desk dashboard'u")
             manifest, tables = build_dashboard(runner, sch)
             manifest["owner_id"] = SICIL
-            manifest["bound_experts"] = _as_list(EXPERTS)
+            experts = _as_list(EXPERTS)
+            manifest["bound_experts"] = experts
             if not SKIP_FILL:
                 all_errors += fill_block_configs(runner, manifest)
             try:
@@ -672,6 +707,12 @@ def main() -> int:
                 print(f"   ✗ scope kaydedilemedi: {exc} — manifest scope'suz yazılıyor")
                 all_errors.append(f"scope: {exc}")
             persist_manifest(dc, SICIL, manifest)
+            if PUBLISH_SNAPSHOT and experts:
+                try:
+                    publish_snapshot(dc, manifest, SICIL, experts)
+                except Exception as exc:
+                    print(f"   ✗ snapshot yazılamadı: {exc}")
+                    all_errors.append(f"snapshot: {exc}")
     finally:
         dc.drop_connection(con)
 

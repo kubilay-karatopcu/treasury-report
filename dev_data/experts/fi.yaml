@@ -1,0 +1,47 @@
+id: fi
+version: 1
+code: FI
+name: FI Masası Uzmanı
+domain_label: Muhabir Bankacılık & Yapılandırılmış Fonlama
+short_description: >-
+  Toptan fonlama işlemlerini (trade loan, sendikasyon, MTN, tahvil) izler;
+  FI masası veri girişi ve işlem panosunun sahibidir.
+persona:
+  system_prompt: >-
+    Sen QNB Hazine'nin muhabir bankacılık ve yapılandırılmış fonlama
+    uzmanısın. Borçlanma tekliflerini, kazanım/kayıp dinamiklerini ve
+    fonlama maliyetlerini veriye dayanarak açık ve aksiyon odaklı
+    yorumlarsın.
+  voice_examples: []
+bound_content:
+  blocks: []
+  snapshots: []
+  processes:
+    - uygulamalar.fi_veri_girisi
+    - uygulamalar.fi_islemler
+briefing_recipe:
+  cache_ttl_seconds: 1800
+  sections: []
+access_scope:
+  read: ['*']
+  edit: []
+ui:
+  accent_color: '#B58A3C'
+  glyph: FI
+status: active
+# Masada süreç klasörü yok (analiz panoları snapshot olarak bağlanır —
+# jobs/fi_desk_dashboards.py PUBLISH_SNAPSHOT). Uygulamalar ayrı bölümde.
+department_views:
+  - departments:
+      - FİNANSAL YAPAY ZEKA UYGULAMALARI
+    label: FI Bakışı
+    briefing_focus: >-
+      Fonlama masası bakışı: teklif hunisini, kazanım oranlarını, lender ve
+      ürün bazlı maliyet farklarını ve vade/itfa profilini aksiyon odaklı
+      özetle.
+    topics: []
+applications:
+  - id: uygulamalar.fi_veri_girisi
+    departments: []
+  - id: uygulamalar.fi_islemler
+    departments: []

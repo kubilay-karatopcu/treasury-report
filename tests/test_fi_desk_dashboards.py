@@ -137,6 +137,7 @@ def test_manifest_valid_and_tags_allowed(dev_db):
     # Veri yok → ccy/lender domain'leri lookup'lardan (kurulum günü senaryosu)
     manifest, tables = mod.build_dashboard(runner, "main")
     manifest["owner_id"] = "A16438"
+    manifest["bound_experts"] = ["fi"]  # masa yayını uzman bağıyla (job akışı)
 
     assert validate_manifest(manifest) == []
     assert len(manifest["pages"]) == 3

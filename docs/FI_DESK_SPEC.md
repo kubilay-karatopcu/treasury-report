@@ -170,6 +170,30 @@ hacmi düşük, advisory yeterli).
   SQL'leri oracle_duck çevirmeni kapsamında tutulur (test bunu üretim
   resolver/binder + çevirmeniyle dev DuckDB'de koşarak sabitler).
 
+## 7b. Masa yayını ve yetki modeli (deposits ile aynı)
+
+Sicil klasörü (`prisma-treasury/presentations/{sicil}/{pid}/`) YETKİ değil
+DEPOLAMA modelidir: canlı/düzenlenebilir manifest daima sahibinin "Rapor
+Şablonları" klasöründe durur (deposits importer'ı da `p_dep_*`'ı böyle
+yazar). Ekibe/masaya açılım UZMAN katmanından geçer:
+
+1. **`jobs/seed_fi_expert.py`** FI uzmanını (id `fi`, kaynak kopya
+   `dev_data/experts/fi.yaml`) S3'e yazar. **Erişim buradadır:**
+   `access_scope.read` departmanları uzmanı görür; uygulama başına ek
+   kısıt `applications[].departments`. FI masasının LDAP departman adı
+   netleşince KONFİG'e eklenir.
+2. Uygulamalar (veri girişi + işlemler) uzmanın **Uygulamalar** bölümünde
+   çıkar (süreç kaydı `processes.py`'da, bağ YAML'da).
+3. **Pano = snapshot bağı:** `fi_desk_dashboards.py` (`PUBLISH_SNAPSHOT`)
+   p_fi_desk'i dondurup `bound_experts=["fi"]` snapshot'ı yazar → uzmanı
+   görebilen herkes panoyu uzman sayfasındaki ızgaradan açar (cross-owner;
+   Phase 10B mekanizması). Job önceki otomatik snapshot'ını silip yenisini
+   yazar (birikme yok). Canlı/filtreli sürüm sahibinin şablon listesinde
+   kalır; masadaki görünüm donmuş okuma kopyasıdır.
+
+Ofis koşu sırası: `fi_desk_schema.py` → `seed_fi_expert.py` →
+`fi_desk_dashboards.py`.
+
 ## 8. Açık konular
 
 - **USD eqv. kur kaynağı ve tarihi** (offer date mi value date mi; EDW kur
