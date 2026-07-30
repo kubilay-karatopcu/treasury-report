@@ -151,8 +151,17 @@ hacmi düşük, advisory yeterli).
   yalnız statü değiştiyse `STATUS_CHANGE`), onay/red uçları
   (`/api/events/<id>/approval`, APPROVER rolü, PENDING-koşullu UPDATE).
   Kayıt: `uygulamalar.fi_islemler` + nav "İşlemler".
-- **Faz 3:** PRISMA entegrasyonu — tablo dokümanları (S3TableDocStore) +
-  custom dashboard / sunum blokları `V_FI_OFFER_CURRENT` üzerinden.
+- **Faz 3 (tamam):** `jobs/fi_desk_dashboards.py` (ofiste tek koşu,
+  KONFİG sabitleri) — (1) V_FI_OFFER_CURRENT / FI_OFFER_EVENTS /
+  FI_OFFER_SCHEDULE tablo dokümanlarını S3'e upsert eder (tablolar sunum
+  editörünün katalog/LLM akışında görünür olur); (2) `p_fi_desk`
+  dashboard'unu (3 sayfa: Özet — huni/hacim/lender/region/son kayıtlar;
+  Fiyatlama — vade×all-in haritası, ağırlıklı all-in, WON vs LOST;
+  Vade & ESG — maturity profili, itfa takvimi, ESG payı) ürün/statü/
+  ccy/lender enum_multi filtreleriyle üretip S3 manifest'ine yazar.
+  Yalnız onaylı kayıtlar raporlanır; duck_cache açık olduğundan blok
+  SQL'leri oracle_duck çevirmeni kapsamında tutulur (test bunu üretim
+  resolver/binder + çevirmeniyle dev DuckDB'de koşarak sabitler).
 
 ## 8. Açık konular
 
