@@ -689,7 +689,18 @@ body.mv-embed .dev-banner { display: none !important; }
   /* R10 — kompakt tek satır: yatay scroll ASLA yok, sığmazsa sarar. */
   padding: 8px 12px;
   margin-bottom: 6px !important;
-  overflow-x: hidden;
+  /* R11 — ŞERİT EZİLMESİ (yaşandı: şerit 18px'e inip kendi içinde dikey
+     scrollbar çıkardı; filtre butonları yarım, açılan kutular hiç görünmedi).
+     İki kural BİRLİKTE tutar, biri kalkarsa bug geri gelir:
+       flex: 0 0 auto  → .main dikey flex kabı ve içeriği taşıyor; şerit
+         flex-shrink ile ezilmesin. Otomatik minimum yükseklik koruması
+         (min-height:auto) overflow ayarlı flex item'da devre dışı kalır.
+       overflow-x: clip → yatay scroll YASAĞI (R10) korunur ama şerit SCROLL
+         KABI OLMAZ: 'hidden' overflow-y'yi auto'ya çevirip hem o korumayı
+         siliyor hem aşağı açılan bub-filter kutularını kırpıyordu. 'clip'
+         ile dikey eksen visible kalır → kutular şeridin dışına taşabilir. */
+  flex: 0 0 auto;
+  overflow-x: clip;
 }
 body.light-mode .mevduat-mount .mv-page-filters { background: rgba(247, 248, 250, 0.94); }
 .mevduat-mount .mv-page-filters .bub-filter-panel {

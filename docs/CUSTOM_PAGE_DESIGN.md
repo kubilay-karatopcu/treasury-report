@@ -100,9 +100,22 @@
   (`#mvpStatus`, "X işlem listeleniyor") AYNI satırda sıralanır — panel önce,
   status `margin-left:auto` ile en sağda. `flex-basis:100%` sarmalayıcı YASAK
   (paneli ikinci satıra atıyordu). **Yatay scroll ASLA çıkmaz:**
-  `overflow-x:hidden` + kompakt padding + şeritteki dd butonlarında
+  `overflow-x:clip` + kompakt padding + şeritteki dd butonlarında
   `min-width:0` (SPA'nın 160px sabiti şeridi taşırıyordu); yer kalmazsa
   sarma (wrap) kabul, kaydırma değil.
+- **ŞERİT EZİLMESİ — İKİ KURAL BİRLİKTE (R11, yaşandı):** şerit 18px'e inip
+  kendi içinde dikey scrollbar çıkardı; butonlar yarım, açılan kutular hiç
+  görünmedi. `.mevduat-mount .mv-page-filters` bloğunda:
+  - `flex: 0 0 auto` — `.main` dikey flex kabıdır ve içeriğiyle taşar; şerit
+    flex-shrink ile ezilmemeli. `min-height:auto` otomatik koruması, overflow
+    ayarlı bir flex item'da DEVRE DIŞI kalır — o yüzden şart.
+  - `overflow-x: clip` (asla `hidden`) — `hidden` diğer ekseni `auto`'ya
+    çevirir: şerit scroll kabı olur, hem yukarıdaki korumayı siler hem aşağı
+    açılan bub-filter kutularını kırpar. `clip` ile dikey eksen `visible`
+    kalır, kutular şeridin dışına taşabilir.
+  Şerit stilini yalnız bu blokta yaz: `_page.html`'in inline `style`'ı ve
+  `<style>` bloğu (tek sınıf, 0-1-0) daha spesifik CSS'i sessizce ezip bug'ı
+  geri getirir — yaşandı.
 - **`body.prisma button` RESET TUZAĞI:** prisma.css'in global buton reset'i
   (`background:none;border:none` — 0,1,1 özgüllük) tek sınıflı
   `.bub-filter-dd-btn`'i (0,1,0) ezer → butonlar çıplak metin görünür.

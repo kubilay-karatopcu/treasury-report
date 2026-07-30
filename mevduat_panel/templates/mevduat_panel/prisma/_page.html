@@ -44,7 +44,11 @@
       background: var(--bg-surface); color: var(--text-primary);
     }
     /* R9 — filtre bölgesine çıtır çerçeve (koyu temada iç içe görünüyordu).
-       R10 — kompakt: tek satıra sığsın diye padding daraltıldı. */
+       R10 — kompakt: tek satıra sığsın diye padding daraltıldı.
+       R11 — taşma/ezilme kuralları (flex, overflow-x) BURADA DEĞİL:
+       mevduat_prisma.css'teki `.mevduat-mount .mv-page-filters` bloğu daha
+       spesifik olduğu için tek yetkili orası (buraya yazılan overflow sessizce
+       eziliyordu — yaşandı). */
     .mv-page-filters {
       border: 1px solid var(--border-mid); border-radius: 6px;
       background: var(--bg-panel);
@@ -84,10 +88,13 @@
 
     {# Üst şerit: sayfa kontrolleri (dock sol-alta taşır) + boyut filtreleri.
        R10 — TEK SATIR: filtre butonları ve durum yazısı aynı satırda sıralı
-       (status en sağda); yatay scroll ASLA çıkmaz (overflow-x hidden +
-       kompakt butonlar; yer kalmazsa alt satıra sarar, kaydırmaz). #}
+       (status en sağda); yatay scroll ASLA çıkmaz (yer kalmazsa alt satıra
+       sarar, kaydırmaz).
+       R11 — taşma/ezilme kuralları (overflow-x, flex) YUKARIDAKİ .mv-page-filters
+       bloğunda; inline yazılırsa stylesheet'i ezip şerit ezilmesini geri
+       getirir (yaşandı — inline overflow-x:hidden). #}
     <div class="mv-page-filters"
-         style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;overflow-x:hidden;">
+         style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
       {% block mvp_controls %}{% endblock %}
       <div id="fDims" class="bub-filter-panel"></div>
       <span id="mvpStatus" style="font-size:11px;color:var(--text-muted);margin-left:auto;white-space:nowrap;"></span>

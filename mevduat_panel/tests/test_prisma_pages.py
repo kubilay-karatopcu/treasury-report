@@ -220,3 +220,27 @@ def test_dock_date_row_reserves_a_lane_for_the_calendar_icon():
     block = css[start:css.index("}", start)]
     assert "right: 16px;" in block
     assert "overflow: hidden;" in block
+
+
+def test_filter_strip_cannot_be_squashed_or_become_a_scroll_container():
+    """Filtre şeridi ezilmez ve kendi scroll kabına dönüşmez.
+
+    Yaşandı: `.main` dikey flex kabı içeriğiyle taşarken şerit 18px'e inip
+    kendi içinde dikey scrollbar çıkardı — butonlar yarım, açılan bub-filter
+    kutuları hiç görünmedi. İki kural birlikte tutar (bkz. CUSTOM_PAGE_DESIGN §3):
+    flex-shrink kapalı + overflow-x 'clip' ('hidden' overflow-y'yi auto'ya
+    çevirip hem otomatik minimum yüksekliği siler hem kutuları kırpar).
+    """
+    css = (REPO / "mevduat_panel/static/mevduat_prisma.css").read_text(encoding="utf-8")
+    start = css.index(".mevduat-mount .mv-page-filters {")
+    block = css[start:css.index("}", start)]
+    assert "flex: 0 0 auto;" in block
+    assert "overflow-x: clip;" in block
+    assert "overflow-x: hidden;" not in block
+
+    # Inline stil overflow/flex yazmaz — stylesheet'i ezip bug'ı geri getirir.
+    page = (REPO / "mevduat_panel/templates/mevduat_panel/prisma/_page.html").read_text(encoding="utf-8")
+    tag_start = page.index('<div class="mv-page-filters"')
+    inline = page[tag_start:page.index(">", tag_start)]
+    assert "overflow" not in inline
+    assert "flex:" not in inline.replace("flex-wrap:", "")
