@@ -210,7 +210,8 @@ def test_build_statements_shape():
     assert ids["event_id"] == 7
     ev_sql, ev_params = stmts[2]
     assert "S.FI_OFFER_EVENTS" in ev_sql
-    assert "'ENTRY'" in ev_sql and "'PENDING'" in ev_sql
+    assert "'PENDING'" in ev_sql
+    assert ev_params["etype"] == "ENTRY" and ev_params["seq"] == 1
     # Tüm veri kolonları bind'lenmiş
     for col in service.EVENT_DATA_COLS:
         assert col.lower() in ev_params

@@ -260,6 +260,35 @@ def validate_entry(matrix: dict, lookups: dict, payload: dict) -> dict:
             "warnings": warnings}
 
 
+def _event_insert(qualify, event_id: int, offer_id: str, deal_id: str,
+                  seq: int, event_type: str, now: datetime, user_id: str,
+                  fields: dict) -> tuple:
+    data_binds = ", ".join(f":{c.lower()}" for c in EVENT_DATA_COLS)
+    params = {"event_id": event_id, "offer_id": offer_id, "deal_id": deal_id,
+              "seq": seq, "etype": event_type, "now": now, "user_id": user_id}
+    params.update({c.lower(): fields.get(c) for c in EVENT_DATA_COLS})
+    return (
+        f"INSERT INTO {qualify('FI_OFFER_EVENTS')} "
+        f"(EVENT_ID, OFFER_ID, DEAL_ID, EVENT_SEQ, EVENT_TYPE, EVENT_TS, "
+        f"EVENT_USER, APPROVAL_STATUS, {', '.join(EVENT_DATA_COLS)}) "
+        f"VALUES (:event_id, :offer_id, :deal_id, :seq, :etype, :now, "
+        f":user_id, 'PENDING', {data_binds})",
+        params,
+    )
+
+
+def _schedule_inserts(qualify, event_id: int, offer_id: str,
+                      schedule: list[dict]) -> list[tuple]:
+    return [(
+        f"INSERT INTO {qualify('FI_OFFER_SCHEDULE')} "
+        "(EVENT_ID, OFFER_ID, SORT_NO, PAY_DT, PRINCIPAL_AMT, INTEREST_AMT) "
+        "VALUES (:event_id, :offer_id, :sort_no, :pay_dt, :principal, :interest)",
+        {"event_id": event_id, "offer_id": offer_id, "sort_no": i,
+         "pay_dt": row["pay_dt"], "principal": row["principal_amt"],
+         "interest": row["interest_amt"]},
+    ) for i, row in enumerate(schedule, start=1)]
+
+
 def build_entry_statements(clean: dict, user_id: str, qualify,
                            next_event_id: int, now: datetime | None = None,
                            deal_exists: bool = False) -> tuple[list[tuple], dict]:
@@ -291,29 +320,68 @@ def build_entry_statements(clean: dict, user_id: str, qualify,
         {"offer_id": offer_id, "deal_id": deal_id, "now": now,
          "user_id": user_id},
     ))
-
-    data = {c: clean["fields"].get(c) for c in EVENT_DATA_COLS}
-    meta = {"event_id": next_event_id, "offer_id": offer_id,
-            "deal_id": deal_id, "now": now, "user_id": user_id}
-    data_binds = ", ".join(f":{c.lower()}" for c in EVENT_DATA_COLS)
-    statements.append((
-        f"INSERT INTO {qualify('FI_OFFER_EVENTS')} "
-        f"(EVENT_ID, OFFER_ID, DEAL_ID, EVENT_SEQ, EVENT_TYPE, EVENT_TS, "
-        f"EVENT_USER, APPROVAL_STATUS, {', '.join(EVENT_DATA_COLS)}) "
-        f"VALUES (:event_id, :offer_id, :deal_id, 1, 'ENTRY', :now, "
-        f":user_id, 'PENDING', {data_binds})",
-        dict(meta, **{c.lower(): v for c, v in data.items()}),
-    ))
-
-    for i, row in enumerate(clean["schedule"], start=1):
-        statements.append((
-            f"INSERT INTO {qualify('FI_OFFER_SCHEDULE')} "
-            "(EVENT_ID, OFFER_ID, SORT_NO, PAY_DT, PRINCIPAL_AMT, INTEREST_AMT) "
-            "VALUES (:event_id, :offer_id, :sort_no, :pay_dt, :principal, :interest)",
-            {"event_id": next_event_id, "offer_id": offer_id, "sort_no": i,
-             "pay_dt": row["pay_dt"], "principal": row["principal_amt"],
-             "interest": row["interest_amt"]},
-        ))
+    statements.append(_event_insert(
+        qualify, next_event_id, offer_id, deal_id, 1, "ENTRY", now, user_id,
+        {c: clean["fields"].get(c) for c in EVENT_DATA_COLS}))
+    statements.extend(_schedule_inserts(qualify, next_event_id, offer_id,
+                                        clean["schedule"]))
 
     return statements, {"deal_id": deal_id, "offer_id": offer_id,
                         "event_id": next_event_id}
+
+
+def classify_edit(prev_fields: dict, new_fields: dict) -> str:
+    """Önceki event snapshot'ına göre event tipi: yalnız DEAL_STATUS
+    değiştiyse STATUS_CHANGE, başka alan da değiştiyse EDIT."""
+    changed = [c for c in EVENT_DATA_COLS
+               if _norm_cmp(prev_fields.get(c)) != _norm_cmp(new_fields.get(c))]
+    if changed and set(changed) <= {"DEAL_STATUS"}:
+        return "STATUS_CHANGE"
+    return "EDIT"
+
+
+def _norm_cmp(v: Any):
+    """Karşılaştırma normalizasyonu: DB'den dönen tarih/sayı tipleri ile
+    yeni parse edilmiş değerler aynı düzleme iner."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, date):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, (int, float)):
+        return round(float(v), 6)
+    s = str(v).strip()
+    return s or None
+
+
+def build_edit_statements(clean: dict, offer_id: str, deal_id: str,
+                          user_id: str, qualify, next_event_id: int,
+                          next_seq: int, event_type: str,
+                          now: datetime | None = None) -> list[tuple]:
+    """Mevcut teklife yeni snapshot event'i (EDIT / STATUS_CHANGE) —
+    PENDING doğar, onaylanana dek current'ı değiştirmez."""
+    now = now or datetime.now()
+    statements = [_event_insert(
+        qualify, next_event_id, offer_id, deal_id, next_seq, event_type,
+        now, user_id, {c: clean["fields"].get(c) for c in EVENT_DATA_COLS})]
+    statements.extend(_schedule_inserts(qualify, next_event_id, offer_id,
+                                        clean["schedule"]))
+    return statements
+
+
+def build_approval_statement(event_id: int, action: str, user_id: str,
+                             qualify, reason: str | None = None,
+                             now: datetime | None = None) -> tuple:
+    """Onay/red — event satırındaki TEK izinli mutasyon (append-only istisnası).
+    WHERE PENDING koşulu ikinci kez onaylamayı sessizce etkisiz kılar."""
+    if action not in ("APPROVED", "REJECTED"):
+        raise ValueError(f"Geçersiz onay aksiyonu: {action!r}")
+    now = now or datetime.now()
+    return (
+        f"UPDATE {qualify('FI_OFFER_EVENTS')} SET APPROVAL_STATUS = :status, "
+        "APPROVED_BY = :user_id, APPROVED_TS = :now, REJECT_REASON = :reason "
+        "WHERE EVENT_ID = :event_id AND APPROVAL_STATUS = 'PENDING'",
+        {"status": action, "user_id": user_id, "now": now,
+         "reason": (reason or "").strip() or None, "event_id": event_id},
+    )

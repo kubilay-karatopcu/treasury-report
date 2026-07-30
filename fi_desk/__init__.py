@@ -81,7 +81,7 @@ def _user_roles() -> set[str]:
         return set()
 
 
-def _masa_back_url():
+def _masa_back_url(process_id: str = PROCESS_ID):
     """R10 — 'Masaya dön' hedefi (deposit_panel deseni; prisma_home import edilmez)."""
     from flask import current_app
     provider = current_app.config.get("FOLDER_MENU_PROVIDER")
@@ -89,7 +89,7 @@ def _masa_back_url():
         return None
     try:
         department = getattr(current_user, "department", None) or ""
-        menu = provider(PROCESS_ID, department)
+        menu = provider(process_id, department)
         return (menu or {}).get("expert_url")
     except Exception:
         log.warning("fi_desk masa_back_url çözülemedi", exc_info=True)
@@ -132,6 +132,12 @@ def entry():
         endpoints={
             "bootstrap": url_for("fi_desk.api_bootstrap"),
             "entries": url_for("fi_desk.api_create_entry"),
+            "records_page": url_for("fi_desk.records"),
+            # Edit modu (?offer=FIO-...): __OID__ JS'te teklif id'siyle değişir
+            "offer_detail": url_for("fi_desk.api_offer_detail",
+                                    offer_id="__OID__"),
+            "offer_events": url_for("fi_desk.api_offer_events",
+                                    offer_id="__OID__"),
         },
     )
 
@@ -211,3 +217,7 @@ def api_create_entry():
     except Exception as e:
         log.exception("fi_desk giriş başarısız")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# Faz 2 route'ları aynı blueprint'e kaydolur (import yan etkisi).
+from . import routes_records  # noqa: E402,F401

@@ -629,8 +629,30 @@ PROCESS_REGISTRY: dict[str, dict] = {
                        "beslenir.",
             "known_limitations": "Yazma FI_LU_USER rol tablosuna bağlıdır "
                        "(ENTRY girer, APPROVER onaylar); lookup listeleri "
-                       "uygulamadan düzenlenemez, dış süreçle güncellenir. "
-                       "Liste/onay ekranı Faz 2'dedir.",
+                       "uygulamadan düzenlenemez, dış süreçle güncellenir.",
+        },
+        "blocks": [],
+    },
+    "uygulamalar.fi_islemler": {
+        "label": "FI Masası — İşlemler",
+        "desc": "Kayıt listesi · event geçmişi · düzenleme · onay akışı",
+        "endpoint": "fi_desk.records", "config_flag": "FI_DESK_ENABLED",
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "FI masası kayıtlarını teklif bazında listeler (onaylı "
+                       "son durum + bekleyen değişiklikler), satır detayında "
+                       "zaman damgalı event geçmişini gösterir; düzenleme ve "
+                       "onay/red aksiyonları buradan yürür.",
+            "business_context": "Veri girişi ekranının operasyonel karşılığı: "
+                       "girilen her kayıt burada izlenir, statü akışı "
+                       "(BIDDING→WON/LOST→REALIZED) buradan yönetilir.",
+            "decision_support": "Teklif→kazanım hunisi ve bekleyen onaylar tek "
+                       "ekranda; agregat dashboard'larda görülen anomalinin "
+                       "tekil kaydına inilir.",
+            "known_limitations": "Düzenleme yeni PENDING event üretir — onay "
+                       "gelene dek raporlamadaki güncel durum değişmez. Onay "
+                       "APPROVER rolü ister; kendi kaydını onaylama kısıtı "
+                       "v1'de yoktur (docs/FI_DESK_SPEC.md §5).",
         },
         "blocks": [],
     },

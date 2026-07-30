@@ -18,6 +18,10 @@
   const els = {};               // alan kodu → input/select elementi
   const wraps = {};             // alan kodu → .pk-field sarmalayıcı
 
+  // Edit modu: /fi-desk/entry?offer=FIO-... → form son gönderimle dolu
+  // açılır, kimlik alanları kilitlenir, gönderim yeni PENDING event olur.
+  const EDIT_OFFER = new URLSearchParams(window.location.search).get("offer");
+
   /* ── yardımcılar ──────────────────────────────────────────────────── */
   function toast(msg, isErr) {
     const t = $("toast-msg");
@@ -261,7 +265,7 @@
   }
 
   /* ── ödeme planı satırları ────────────────────────────────────────── */
-  function addSchedRow() {
+  function addSchedRow(values) {
     const tr = document.createElement("tr");
     tr.innerHTML =
       '<td><input type="date" class="pk-input fi-sched-dt"></td>' +
@@ -270,8 +274,14 @@
       '<td><button type="button" class="fi-sched-remove" title="Satırı sil">✕</button></td>';
     tr.querySelector(".fi-sched-remove").addEventListener("click", () => tr.remove());
     tr.querySelectorAll("input").forEach((i) => { i.disabled = !FI_CAN_ENTER; });
+    if (values) {
+      tr.querySelector(".fi-sched-dt").value = String(values.PAY_DT || "").slice(0, 10);
+      if (values.PRINCIPAL_AMT != null) tr.querySelector(".fi-sched-pr").value = values.PRINCIPAL_AMT;
+      if (values.INTEREST_AMT != null) tr.querySelector(".fi-sched-in").value = values.INTEREST_AMT;
+    }
     wrapDate(tr.querySelector(".fi-sched-dt"));
     $("fi-sched-body").appendChild(tr);
+    return tr;
   }
 
   function collectSchedule() {
@@ -307,11 +317,14 @@
       fields: fields,
       schedule: collectSchedule(),
     };
+    const url = EDIT_OFFER
+      ? ENDPOINTS.offer_events.replace("__OID__", encodeURIComponent(EDIT_OFFER))
+      : ENDPOINTS.entries;
     const btn = $("btn-submit");
     btn.disabled = true;
     $("fi-status").textContent = "Gönderiliyor…";
     try {
-      const res = await fetch(ENDPOINTS.entries, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -328,10 +341,19 @@
         }
         return;
       }
+      (body.warnings || []).forEach((w) => console.info("fi_desk uyarı:", w));
+      if (EDIT_OFFER) {
+        $("fi-status").textContent =
+          `Değişiklik onaya gönderildi (${body.event_type})`;
+        toast("Değişiklik onaya gönderildi.");
+        if (ENDPOINTS.records_page) {
+          setTimeout(() => { window.location.href = ENDPOINTS.records_page; }, 900);
+        }
+        return;
+      }
       $("fi-status").textContent =
         `Onaya gönderildi — ${body.deal_id} / ${body.offer_id}`;
       toast("Kayıt onaya gönderildi.");
-      (body.warnings || []).forEach((w) => console.info("fi_desk uyarı:", w));
       renderSections(); // aynı ürünle temiz form (arka arkaya giriş akışı)
     } catch (e) {
       $("fi-status").textContent = "Hata";
@@ -339,6 +361,47 @@
     } finally {
       btn.disabled = !FI_CAN_ENTER;
     }
+  }
+
+  /* ── edit modu ────────────────────────────────────────────────────── */
+  async function enterEditMode() {
+    const url = ENDPOINTS.offer_detail.replace("__OID__", encodeURIComponent(EDIT_OFFER));
+    const res = await fetch(url);
+    const body = await res.json();
+    if (!body.ok) {
+      $("fi-status").textContent = "Teklif yüklenemedi: " + (body.error || "");
+      return;
+    }
+    $("f-borrower").value = body.deal.BORROWER_BANK;
+    $("f-product").value = body.deal.PRODUCT_TYPE;
+    $("f-label").value = body.deal.DEAL_LABEL || "";
+    // Kimlik alanları edit'te değişmez (deal başlığı DB otoritesidir)
+    ["f-borrower", "f-product", "f-label"].forEach((id) => { $(id).disabled = true; });
+    PRODUCT = body.deal.PRODUCT_TYPE;
+    renderSections();
+
+    const ev = body.events[0]; // son gönderim (onay durumundan bağımsız)
+    Object.keys(els).forEach((k) => {
+      const meta = MATRIX.fields[k];
+      const v = ev[k];
+      if (v == null || v === "") return;
+      if (meta.input === "date") {
+        els[k].value = String(v).slice(0, 10);
+        els[k].dispatchEvent(new Event("input")); // GG.AA.YYYY overlay senkronu
+      } else {
+        els[k].value = String(v);
+      }
+      // Kayıtlı değerler otomatiklerce ezilmesin
+      if (autoRules().some((r) => r.field === k)) els[k].dataset.userEdited = "1";
+    });
+    applyConditionals();
+    applyAutos();
+    ($("fi-sched-body")).innerHTML = "";
+    (body.schedules[String(ev.EVENT_ID)] || []).forEach((r) => addSchedRow(r));
+
+    $("btn-submit").textContent = "Değişikliği Onaya Gönder";
+    $("fi-status").textContent =
+      `Düzenleme: ${EDIT_OFFER} (v${ev.EVENT_SEQ}, ${ev.APPROVAL_STATUS})`;
   }
 
   /* ── açılış ───────────────────────────────────────────────────────── */
@@ -372,10 +435,12 @@
     ["f-borrower", "f-product", "f-label"].forEach((id) => {
       $(id).disabled = !FI_CAN_ENTER;
     });
-    $("btn-sched-add").addEventListener("click", addSchedRow);
+    $("btn-sched-add").addEventListener("click", () => addSchedRow());
     $("btn-sched-add").disabled = !FI_CAN_ENTER;
     $("btn-submit").addEventListener("click", submit);
     $("fi-status").textContent = FI_CAN_ENTER ? "" : "ENTRY rolü yok — form kilitli";
+
+    if (EDIT_OFFER) await enterEditMode();
   }
 
   document.addEventListener("DOMContentLoaded", boot);

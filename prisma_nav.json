@@ -83,7 +83,8 @@
       {
         "title": "FI Masası",
         "items": [
-          { "label": "Veri Girişi", "url": "/fi-desk/entry", "icon": "doc" }
+          { "label": "Veri Girişi", "url": "/fi-desk/entry", "icon": "doc" },
+          { "label": "İşlemler", "url": "/fi-desk/records", "icon": "stack" }
         ]
       }
     ]

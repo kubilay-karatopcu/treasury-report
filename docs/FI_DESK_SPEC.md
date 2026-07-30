@@ -144,7 +144,13 @@ hacmi düşük, advisory yeterli).
   (`FI_DESK_ENABLED`). DEV_MODE'da `fi_desk/db.py` yerel DuckDB'ye düşer
   (şema `jobs/fi_desk_schema.py` sabitlerinden çevrilir) — form lokalde
   uçtan uca çalışır, testler bu yolu kullanır.
-- **Faz 2:** liste/detay/timeline + edit + onay ekranı + statü akışı.
+- **Faz 2 (tamam):** `/fi-desk/records` — AG-Grid liste (teklif başına
+  onaylı current ya da "ONAY BEKLİYOR" satırı + bekleyen-güncelleme
+  sayacı), satır detayı overlay'i (güncel durum, ödeme planı, event
+  timeline), edit (`/fi-desk/entry?offer=...` → yeni PENDING event;
+  yalnız statü değiştiyse `STATUS_CHANGE`), onay/red uçları
+  (`/api/events/<id>/approval`, APPROVER rolü, PENDING-koşullu UPDATE).
+  Kayıt: `uygulamalar.fi_islemler` + nav "İşlemler".
 - **Faz 3:** PRISMA entegrasyonu — tablo dokümanları (S3TableDocStore) +
   custom dashboard / sunum blokları `V_FI_OFFER_CURRENT` üzerinden.
 
