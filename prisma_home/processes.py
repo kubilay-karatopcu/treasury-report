@@ -609,6 +609,31 @@ PROCESS_REGISTRY: dict[str, dict] = {
         },
         "blocks": [],
     },
+    "uygulamalar.fi_veri_girisi": {
+        "label": "FI Masası — Veri Girişi",
+        "desc": "Borçlanma / teklif kaydı · onay akışı · ürün bazlı form",
+        "endpoint": "fi_desk.entry", "config_flag": "FI_DESK_ENABLED",
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "FI masasının (Muhabir Bankacılık ve Yapılandırılmış "
+                       "Fonlama) borçlanma işlemlerini — teklif, kazanım/kayıp, "
+                       "revizyon — ürün bazlı dinamik formla kayıt altına alır; "
+                       "kayıtlar onaycıya düşer.",
+            "business_context": "Masa bünyesindeki işler bugüne dek ekipte "
+                       "Excel'de tutuluyordu; bu araç aynı matrisin (ürün × "
+                       "alan) doğrulanmış, zaman damgalı ve onaylı veri "
+                       "tabanı karşılığıdır (docs/FI_DESK_SPEC.md).",
+            "decision_support": "Onaylanan kayıtlar V_FI_OFFER_CURRENT "
+                       "üzerinden dashboard'lara akar; teklif→kazanım hunisi, "
+                       "maliyet karşılaştırması ve lender kırılımı buradan "
+                       "beslenir.",
+            "known_limitations": "Yazma FI_LU_USER rol tablosuna bağlıdır "
+                       "(ENTRY girer, APPROVER onaylar); lookup listeleri "
+                       "uygulamadan düzenlenemez, dış süreçle güncellenir. "
+                       "Liste/onay ekranı Faz 2'dedir.",
+        },
+        "blocks": [],
+    },
     "mevduat.bsc": {
         "label": "BSC Presentation",
         "desc": "Full-screen presentation mode · deposit & sector slide set",

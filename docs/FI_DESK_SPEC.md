@@ -136,8 +136,14 @@ hacmi düşük, advisory yeterli).
 
 ## 7. Fazlar
 
-- **Faz 0 (bu PR):** şema + matris + seed script + testler.
-- **Faz 1:** blueprint + veri giriş formu + lookup API'leri + ENTRY event.
+- **Faz 0 (tamam):** şema + matris + seed script + testler.
+- **Faz 1 (tamam):** `fi_desk` blueprint + veri giriş formu
+  (`/fi-desk/entry`) + bootstrap/entries API'leri + ENTRY event yazımı.
+  Kayıt zinciri: `processes.py` `uygulamalar.fi_veri_girisi`,
+  `prisma_nav.json` FI Masası bölümü, `app.py` korumalı blueprint kaydı
+  (`FI_DESK_ENABLED`). DEV_MODE'da `fi_desk/db.py` yerel DuckDB'ye düşer
+  (şema `jobs/fi_desk_schema.py` sabitlerinden çevrilir) — form lokalde
+  uçtan uca çalışır, testler bu yolu kullanır.
 - **Faz 2:** liste/detay/timeline + edit + onay ekranı + statü akışı.
 - **Faz 3:** PRISMA entegrasyonu — tablo dokümanları (S3TableDocStore) +
   custom dashboard / sunum blokları `V_FI_OFFER_CURRENT` üzerinden.
