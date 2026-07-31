@@ -1,7 +1,9 @@
 id: fi
 version: 1
 code: FI
-name: FI Masası Uzmanı
+# masa_name() "Uzmanı"→"Masası" çevirir; ad "FI Uzmanı" olmalı ki masada
+# "FI Masası" görünsün ("FI Masası Uzmanı" → "FI Masası Masası" oluyordu).
+name: FI Uzmanı
 domain_label: Muhabir Bankacılık & Yapılandırılmış Fonlama
 short_description: >-
   Toptan fonlama işlemlerini (trade loan, sendikasyon, MTN, tahvil) izler;

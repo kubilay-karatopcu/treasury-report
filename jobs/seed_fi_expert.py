@@ -97,7 +97,8 @@ def build_expert(*, read_departments: str | Sequence[str],
         "id": EXPERT_ID,
         "version": 1,
         "code": "FI",
-        "name": "FI Masası Uzmanı",
+        # masa_name() "Uzmanı"→"Masası" çevirir → masada "FI Masası" görünür
+        "name": "FI Uzmanı",
         "domain_label": "Muhabir Bankacılık & Yapılandırılmış Fonlama",
         "short_description": (
             "Toptan fonlama işlemlerini (trade loan, sendikasyon, MTN, "

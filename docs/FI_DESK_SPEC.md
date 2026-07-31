@@ -191,8 +191,14 @@ yazar). Ekibe/masaya açılım UZMAN katmanından geçer:
    yazar (birikme yok). Canlı/filtreli sürüm sahibinin şablon listesinde
    kalır; masadaki görünüm donmuş okuma kopyasıdır.
 
-Ofis koşu sırası: `fi_desk_schema.py` → `seed_fi_expert.py` →
-`fi_desk_dashboards.py`.
+**Rol yönetimi (ENTRY / APPROVER):** `jobs/fi_desk_users.py` — KONFİG'teki
+`USERS` sözlüğü (sicil → roller) FI_LU_USER'ı TAM YENİLEME ile yazar;
+uygulamadan rol verilemez (lookup kararı). Ekran erişimi (uzman departman
+yetkisi) ile rol ayrıdır: rolü olmayan kullanıcı ekranı görür ama form
+salt-okunur kalır, onay butonları çıkmaz.
+
+Ofis koşu sırası: `fi_desk_schema.py` → `fi_desk_users.py` →
+`seed_fi_expert.py` → `fi_desk_dashboards.py`.
 
 ## 8. Açık konular
 

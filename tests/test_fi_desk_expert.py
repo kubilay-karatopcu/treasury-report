@@ -86,6 +86,11 @@ class TestMasaLandingFlatList:
         assert ">Masalar<" in body
         assert 'data-domain="dep"' in body
         assert 'data-domain="fi"' in body
+        # Geniş kart ızgarası (5'li sabit ızgara az masada dikine daralıyordu)
+        assert "experts-grid--masa" in body
+        # masa_name çifte çeviri regresyonu: ad "FI Uzmanı" → "FI Masası"
+        assert "FI Masası Masası" not in body
+        assert "FI Masası" in body
 
     def test_uzman_mode_keeps_featured_layout(self, auth_client, flask_app):
         flask_app.config["PRISMA_MASA_MODE"] = False

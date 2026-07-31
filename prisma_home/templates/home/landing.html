@@ -3,6 +3,16 @@
 
 {% block head %}
 <style>
+  /* ── Masa modu düz listesi (2026-07-31): 5'li sabit ızgara 6-uzman
+     tasarımıdır — az masa varken kartlar dikine daralıyordu. Masa
+     ızgarası genişliğe göre akar: kart en az 340px, satır dolmayınca
+     kalan alanı paylaşır (2 masa → yarı-yarıya). ─────────────────────── */
+  .experts-grid--masa {
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  }
+  .experts-grid--masa .expert-cell { min-height: 200px; border-right: 1px solid var(--border-soft); }
+  .experts-grid--masa .expert-cell:last-child { border-right: none; }
+
   /* ── Öne çıkan uzman kartı — Tasarım C ("uzmanın sesi önde"), 2026-07-22.
      Aksan rengi uzmanın alanından (--efc-accent, ör. dep=yeşil). ─────────── */
   .expert-featured-c {
@@ -81,7 +91,7 @@
     <span class="section-title">Masalar</span>
     <span class="section-tail"></span>
   </div>
-  <div class="experts-grid">
+  <div class="experts-grid experts-grid--masa">
     {% for expert in all_experts %}
       {% include "home/partials/expert_card.html" %}
     {% endfor %}
