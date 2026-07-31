@@ -72,6 +72,23 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
 }
 .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay { color: var(--ink-faint); }
 
+/* Aranabilir dropdown (combobox) — 8+ seçenekli select'lerde yazarak
+   filtreleme; select DOM'da gizli durur ve tek otorite kalır. */
+.fi-combo { position: relative; }
+.fi-combo-list {
+  position: absolute; z-index: 60; top: 100%; left: 0; right: 0;
+  max-height: 240px; overflow: auto; display: none;
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  box-shadow: 0 8px 20px rgba(0,0,0,.4);
+}
+.fi-combo.is-open .fi-combo-list { display: block; }
+.fi-combo-item {
+  padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--ink-soft);
+}
+.fi-combo-item:hover, .fi-combo-item.is-active {
+  background: var(--bg-1); color: var(--ink);
+}
+
 /* Ödeme planı tablosu — kit pk-table üstüne yalnız giriş hücresi ayarı. */
 .fi-sched-table input { width: 100%; min-width: 110px; }
 .fi-sched-remove { cursor: pointer; color: var(--red); background: none; border: none; }
@@ -167,5 +184,5 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
   const FI_CAN_ENTER = {{ can_enter | tojson }};
 </script>
 <script src="{{ url_for('fi_desk.static', filename='vendor/flatpickr.min.js') }}"></script>
-<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=2"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=3"></script>
 {% endblock %}

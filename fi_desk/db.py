@@ -149,6 +149,12 @@ def _get_duck():
             if name.upper() in existing:
                 continue
             conn.execute(_oracle_ddl_to_duckdb(ddl.format(t=name)))
+        # Sonradan eklenen kolonlar — var olan dev db dosyaları için
+        # (Oracle tarafındaki add_columns'ın karşılığı).
+        for table, col, typ in getattr(defs, "COLUMN_ADDITIONS", []):
+            duck_typ = _oracle_ddl_to_duckdb(typ)
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "
+                         f"{col} {duck_typ}")
         conn.execute(_oracle_view_to_duckdb(defs.VIEW_SQL))
         if not conn.execute("SELECT COUNT(*) FROM FI_LU_LIST").fetchone()[0]:
             _dev_seed_lookups(conn, defs)

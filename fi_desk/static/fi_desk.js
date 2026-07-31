@@ -31,12 +31,62 @@
     setTimeout(() => t.classList.remove("is-open"), 3500);
   }
 
+  // Tutar alanları: binlik ayraçlı gösterim + 5e6 gibi bilimsel girişleri
+  // sayıya açma. Gerçek değer daima düz sayı olarak gönderilir.
+  const AMOUNT_FIELDS = new Set(["FUNDING_AMT", "USD_EQV", "TRADE_TXN_AMT",
+                                 "FEE", "ADDITIONAL_FEE_COST"]);
+
+  function parseAmountText(t) {
+    const s = String(t || "").trim().replace(/,/g, "");
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function fmtAmount(n) {
+    return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  }
+
+  function attachAmount(input) {
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.addEventListener("blur", () => {
+      const n = parseAmountText(input.value);
+      if (n !== null && !Number.isNaN(n)) input.value = fmtAmount(n);
+    });
+    input.addEventListener("focus", () => {
+      const n = parseAmountText(input.value);
+      if (n !== null && !Number.isNaN(n)) input.value = String(n);
+    });
+  }
+
   function fieldValue(key) {
     const el = els[key];
     if (!el) return null;
     const wrap = wraps[key];
     if (wrap && wrap.style.display === "none") return null;
-    return (el.value || "").trim() || null;
+    const raw = (el.value || "").trim();
+    if (!raw) return null;
+    if (AMOUNT_FIELDS.has(key)) {
+      const n = parseAmountText(raw);
+      return n === null || Number.isNaN(n) ? raw : String(n);
+    }
+    return raw;
+  }
+
+  /* tarih yardımcıları (Tenor + fixing date otomatiği) */
+  function dayDiff(fromIso, toIso) {
+    if (!fromIso || !toIso) return null;
+    const ms = new Date(toIso) - new Date(fromIso);
+    return Number.isFinite(ms) ? Math.round(ms / 86400000) : null;
+  }
+
+  function isoAddDays(iso, days) {
+    if (!iso) return null;
+    const d = new Date(iso + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    const p = (x) => String(x).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
 
   function condRules() {
@@ -72,6 +122,98 @@
     input.value = iso || "";
   }
 
+  /* ── aranabilir dropdown (combobox) ───────────────────────────────────
+     8+ seçenekli select'lerin üstüne yazarak-filtrelenen liste koyar.
+     Select DOM'da kalır ve TEK OTORİTEDİR (fieldValue/submit oradan okur);
+     seçim select.value + change event'i üretir. Programatik set sonrası
+     el._combo.sync() çağrılır. */
+  const COMBO_MIN_OPTIONS = 8;
+
+  function enhanceSelect(sel) {
+    const optCount = Array.from(sel.options).filter((o) => o.value).length;
+    if (optCount < COMBO_MIN_OPTIONS || sel._combo) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "fi-combo";
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    sel.style.display = "none";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "pk-input";
+    input.autocomplete = "off";
+    input.placeholder = "ara / seç…";
+    wrap.appendChild(input);
+    const list = document.createElement("div");
+    list.className = "fi-combo-list";
+    wrap.appendChild(list);
+
+    const options = () => Array.from(sel.options).filter((o) => o.value);
+
+    function render(filter) {
+      const f = (filter || "").toLocaleLowerCase("tr");
+      list.innerHTML = "";
+      options()
+        .filter((o) => !f || o.textContent.toLocaleLowerCase("tr").includes(f))
+        .slice(0, 200)
+        .forEach((o) => {
+          const item = document.createElement("div");
+          item.className = "fi-combo-item";
+          item.textContent = o.textContent;
+          if (o.value === sel.value) item.classList.add("is-active");
+          item.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            choose(o.value, o.textContent);
+          });
+          list.appendChild(item);
+        });
+    }
+
+    function choose(value, label) {
+      sel.value = value;
+      input.value = label;
+      wrap.classList.remove("is-open");
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function sync() {
+      const cur = options().find((o) => o.value === sel.value);
+      input.value = cur ? cur.textContent : "";
+      input.disabled = sel.disabled;
+    }
+
+    input.addEventListener("focus", () => {
+      input.select();
+      render("");
+      wrap.classList.add("is-open");
+    });
+    input.addEventListener("input", () => {
+      render(input.value);
+      wrap.classList.add("is-open");
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const first = list.querySelector(".fi-combo-item");
+        if (first) first.dispatchEvent(new Event("mousedown"));
+      } else if (e.key === "Escape") {
+        wrap.classList.remove("is-open");
+        sync();
+      }
+    });
+    input.addEventListener("blur", () => {
+      setTimeout(() => { wrap.classList.remove("is-open"); sync(); }, 120);
+    });
+
+    sel._combo = { sync: sync };
+    sync();
+  }
+
+  function syncCombo(sel) {
+    if (sel && sel._combo) sel._combo.sync();
+  }
+
   /* ── alan üretimi ─────────────────────────────────────────────────── */
   function makeOption(value, label) {
     const o = document.createElement("option");
@@ -103,13 +245,16 @@
     const label = document.createElement("span");
     label.className = "pk-label";
     label.textContent = meta.label;
+    // Etiketler İngilizce — CSS uppercase'i sayfa dili (tr) ile 'i'yi 'İ'
+    // yapıyordu (FUNDİNG); lang=en doğru büyük harf eşlemesini seçer.
+    label.lang = "en";
     if (req === "R") {
       const star = document.createElement("span");
       star.className = "fi-req";
       star.textContent = "*";
       label.appendChild(star);
     }
-    if (meta.input === "auto") {
+    if (meta.input === "auto" || meta.input === "readonly") {
       const note = document.createElement("span");
       note.className = "fi-auto-note";
       note.textContent = " (otomatik)";
@@ -132,9 +277,13 @@
       el.type = "date";
     } else if (meta.input === "number") {
       el = document.createElement("input");
-      el.type = "number";
-      el.step = "any";
-    } else if (meta.input === "auto") {
+      if (AMOUNT_FIELDS.has(key)) {
+        attachAmount(el);
+      } else {
+        el.type = "number";
+        el.step = "any";
+      }
+    } else if (meta.input === "auto" || meta.input === "readonly") {
       el = document.createElement("input");
       el.type = "text";
       el.readOnly = true;
@@ -150,6 +299,7 @@
     els[key] = el;
     wraps[key] = wrap;
     if (meta.input === "date") initDate(el);
+    if (el.tagName === "SELECT") enhanceSelect(el);
     el.addEventListener("change", onFieldChange);
     return wrap;
   }
@@ -173,8 +323,12 @@
       // atlanınca form Deal Status'suz kalıyordu (2026-07-31 saha hatası).
       const keys = Object.keys(MATRIX.fields).filter((k) => {
         const m = MATRIX.fields[k];
-        return m.section === sec.id && m.storage === "event" &&
-               (pf[k] === "R" || pf[k] === "O");
+        if (m.section !== sec.id) return false;
+        if (m.storage === "event") return pf[k] === "R" || pf[k] === "O";
+        // Türetilen görünüm alanları (TENOR): formda salt-okunur gösterilir,
+        // gönderilmez (deal bölümündeki REPORTING_STATUS girişte çizilmez).
+        return m.storage === "derived" && m.input === "readonly" &&
+               sec.id !== "deal";
       });
       if (!keys.length) return;
       const card = document.createElement("div");
@@ -218,12 +372,22 @@
       const cur = els.ESG_ELIGIBILITY.value;
       fillSelect(els.ESG_ELIGIBILITY, listRows("ESG_ELIGIBILITY", fieldValue("ESG_TYPE")));
       els.ESG_ELIGIBILITY.value = cur;
+      syncCombo(els.ESG_ELIGIBILITY);
     }
   }
 
   function applyAutos() {
     if (!PRODUCT) return;
     const bank = LOOKUPS.banks.find((b) => b.BANK_NM === fieldValue("LENDER_BANK"));
+    // ÖNCE bankadan ülke — region kuralı (list_attr) bu değeri okur; eski
+    // sırada ülke kurallardan SONRA dolduğundan region hep bir tur geride
+    // kalıyordu (2026-07-31 saha bulgusu: JP Morgan → USA dolup region boş).
+    if (bank && els.LENDER_COUNTRY && els.LENDER_COUNTRY.dataset.userEdited !== "1") {
+      if (els.LENDER_COUNTRY.value !== (bank.COUNTRY || "")) {
+        els.LENDER_COUNTRY.value = bank.COUNTRY || "";
+        syncCombo(els.LENDER_COUNTRY);
+      }
+    }
     autoRules().forEach((r) => {
       const el = els[r.field];
       if (!el || el.dataset.userEdited === "1") return;
@@ -236,6 +400,13 @@
         el.value = row ? (row[a.attr] || "") : "";
       } else if (a.kind === "zero_if") {
         if (fieldValue(a.field) === a.equals && !el.value) el.value = "0";
+      } else if (a.kind === "date_offset") {
+        const src = fieldValue(a.source_field);
+        const iso = isoAddDays(src, a.days || 0);
+        if (iso && el.value !== iso) setDateVal(el, iso);
+      } else if (a.kind === "date_diff") {
+        const d = dayDiff(fieldValue(a.from), fieldValue(a.to));
+        el.value = d === null ? "" : String(d);
       } else if (a.kind === "all_in_sum") {
         const rt = fieldValue("RATE_TYPE");
         const base = parseFloat(rt === "FIXED" ? fieldValue("FIXED_RATE_BPS")
@@ -246,11 +417,6 @@
         }
       }
     });
-    // LENDER_COUNTRY dropdown'ı da bankadan önerilir (kullanıcı değiştirebilir)
-    if (bank && els.LENDER_COUNTRY && !els.LENDER_COUNTRY.dataset.userEdited &&
-        !els.LENDER_COUNTRY.value) {
-      els.LENDER_COUNTRY.value = bank.COUNTRY || "";
-    }
   }
 
   function onFieldChange(ev) {
@@ -274,9 +440,11 @@
       '<td><button type="button" class="fi-sched-remove" title="Satırı sil">✕</button></td>';
     tr.querySelector(".fi-sched-remove").addEventListener("click", () => tr.remove());
     tr.querySelectorAll("input").forEach((i) => { i.disabled = !FI_CAN_ENTER; });
+    attachAmount(tr.querySelector(".fi-sched-pr"));
+    attachAmount(tr.querySelector(".fi-sched-in"));
     if (values) {
-      if (values.PRINCIPAL_AMT != null) tr.querySelector(".fi-sched-pr").value = values.PRINCIPAL_AMT;
-      if (values.INTEREST_AMT != null) tr.querySelector(".fi-sched-in").value = values.INTEREST_AMT;
+      if (values.PRINCIPAL_AMT != null) tr.querySelector(".fi-sched-pr").value = fmtAmount(Number(values.PRINCIPAL_AMT));
+      if (values.INTEREST_AMT != null) tr.querySelector(".fi-sched-in").value = fmtAmount(Number(values.INTEREST_AMT));
     }
     $("fi-sched-body").appendChild(tr);
     initDate(tr.querySelector(".fi-sched-dt"),
@@ -285,10 +453,14 @@
   }
 
   function collectSchedule() {
+    const num = (el) => {
+      const n = parseAmountText(el.value);
+      return n === null ? null : (Number.isNaN(n) ? el.value : String(n));
+    };
     return Array.from($("fi-sched-body").children).map((tr) => ({
       pay_dt: tr.querySelector(".fi-sched-dt").value || null,
-      principal_amt: tr.querySelector(".fi-sched-pr").value || null,
-      interest_amt: tr.querySelector(".fi-sched-in").value || null,
+      principal_amt: num(tr.querySelector(".fi-sched-pr")),
+      interest_amt: num(tr.querySelector(".fi-sched-in")),
     })).filter((r) => r.pay_dt || r.principal_amt || r.interest_amt);
   }
 
@@ -377,6 +549,8 @@
     $("f-label").value = body.deal.DEAL_LABEL || "";
     // Kimlik alanları edit'te değişmez (deal başlığı DB otoritesidir)
     ["f-borrower", "f-product", "f-label"].forEach((id) => { $(id).disabled = true; });
+    syncCombo($("f-borrower"));
+    syncCombo($("f-product"));
     PRODUCT = body.deal.PRODUCT_TYPE;
     renderSections();
 
@@ -387,6 +561,9 @@
       if (v == null || v === "") return;
       if (meta.input === "date") {
         setDateVal(els[k], String(v).slice(0, 10));
+      } else if (AMOUNT_FIELDS.has(k)) {
+        const n = Number(v);
+        els[k].value = Number.isFinite(n) ? fmtAmount(n) : String(v);
       } else {
         els[k].value = String(v);
       }
@@ -395,6 +572,7 @@
     });
     applyConditionals();
     applyAutos();
+    Object.values(els).forEach((el) => syncCombo(el));
     ($("fi-sched-body")).innerHTML = "";
     (body.schedules[String(ev.EVENT_ID)] || []).forEach((r) => addSchedRow(r));
 
@@ -434,6 +612,8 @@
     ["f-borrower", "f-product", "f-label"].forEach((id) => {
       $(id).disabled = !FI_CAN_ENTER;
     });
+    enhanceSelect(borrower);
+    enhanceSelect(product);
     $("btn-sched-add").addEventListener("click", () => addSchedRow());
     $("btn-sched-add").disabled = !FI_CAN_ENTER;
     $("btn-submit").addEventListener("click", submit);

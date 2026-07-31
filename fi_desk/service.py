@@ -14,7 +14,7 @@ Event PENDING doğar (onay akışı, docs/FI_DESK_SPEC.md §5).
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 # FI_OFFER_EVENTS'in veri kolonları — jobs/fi_desk_schema.py DDL'i ile ve
@@ -24,7 +24,8 @@ EVENT_DATA_COLS = [
     "GROUP_COMPANY", "GROUP_COMPANY_COUNTRY", "GROUP_COMPANY_REGION",
     "OFFER_DT", "CURRENCY", "FUNDING_AMT", "USD_EQV", "VALUE_DT",
     "MATURITY_DT", "REPAYMENT_SCHEDULE", "COVERAGE_FLG", "COVERAGE_PROVIDER",
-    "RATE_TYPE", "FIXED_RATE_BPS", "FLOAT_BASE_RATE", "FLOAT_SPREAD_BPS",
+    "RATE_TYPE", "FIXED_RATE_BPS", "FLOAT_BASE_RATE", "FIXING_DT",
+    "FLOAT_SPREAD_BPS",
     "COVERAGE_RATE_BPS", "FEE", "ADDITIONAL_FEE_COST", "ALL_IN_RATE_BPS",
     "ALL_IN_FIXED_USD_RATE", "TRADE_TXN_AMT", "SHIPMENT_DT",
     "TRADE_PAYMENT_DT", "IMPORTER", "EXPORTER", "BUSINESS_SEGMENT",
@@ -33,7 +34,7 @@ EVENT_DATA_COLS = [
 ]
 
 DATE_FIELDS = {"OFFER_DT", "VALUE_DT", "MATURITY_DT", "SHIPMENT_DT",
-               "TRADE_PAYMENT_DT"}
+               "TRADE_PAYMENT_DT", "FIXING_DT"}
 NUMBER_FIELDS = {"FUNDING_AMT", "USD_EQV", "FIXED_RATE_BPS",
                  "FLOAT_SPREAD_BPS", "COVERAGE_RATE_BPS", "FEE",
                  "ADDITIONAL_FEE_COST", "ALL_IN_RATE_BPS",
@@ -69,8 +70,15 @@ def _parse_date(value: Any, field: str, errors: list[dict]) -> datetime | None:
 
 
 def _parse_number(value: Any, field: str, errors: list[dict]) -> float | None:
+    """Esnek sayı: '1,5' ondalık virgül; '50,000,000' binlik ayraç;
+    '5e6' bilimsel gösterim — hepsi kabul (2026-07-31 saha isteği)."""
+    s = str(value).strip()
+    if s.count(",") > 1 or ("," in s and "." in s):
+        s = s.replace(",", "")     # binlik ayraç
+    else:
+        s = s.replace(",", ".")    # ondalık virgül
     try:
-        return float(str(value).replace(",", "."))
+        return float(s)
     except (TypeError, ValueError):
         errors.append({"field": field, "message": f"Sayı bekleniyor: {value!r}"})
         return None
@@ -206,6 +214,11 @@ def validate_entry(matrix: dict, lookups: dict, payload: dict) -> dict:
     if values.get("COVERAGE_FLG") == "NO" and _blank(values.get("COVERAGE_RATE_BPS")) \
             and prod_fields.get("COVERAGE_RATE_BPS") != "-":
         values["COVERAGE_RATE_BPS"] = 0.0
+    # Fixing date varsayılanı: value date - 2 takvim günü (elle ezilebilir)
+    if _blank(values.get("FIXING_DT")) and cond_met("FIXING_DT") \
+            and prod_fields.get("FIXING_DT") in ("R", "O") \
+            and values.get("VALUE_DT") is not None:
+        values["FIXING_DT"] = values["VALUE_DT"] - timedelta(days=2)
     if _blank(values.get("ALL_IN_RATE_BPS")) and prod_fields.get("ALL_IN_RATE_BPS") == "R":
         base = values.get("FIXED_RATE_BPS") if values.get("RATE_TYPE") == "FIXED" \
             else values.get("FLOAT_SPREAD_BPS")

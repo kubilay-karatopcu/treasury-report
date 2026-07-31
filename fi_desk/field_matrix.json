@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "source": "Dashboard_Data_Tools.xlsx / Input (2026-07-30)",
   "requirement_codes": {
     "R": "zorunlu",
@@ -135,12 +135,6 @@
       "input": "date",
       "storage": "event"
     },
-    "TENOR": {
-      "label": "Tenor",
-      "section": "offer",
-      "input": "readonly",
-      "storage": "derived"
-    },
     "REPAYMENT_SCHEDULE": {
       "label": "Repayment Schedule",
       "section": "offer",
@@ -153,6 +147,12 @@
       "section": "offer",
       "input": "schedule",
       "storage": "subtable"
+    },
+    "TENOR": {
+      "label": "Tenor (gün)",
+      "section": "offer",
+      "input": "readonly",
+      "storage": "derived"
     },
     "COVERAGE_FLG": {
       "label": "Coverage",
@@ -193,6 +193,12 @@
       "input": "list",
       "storage": "event",
       "list": "BASE_RATE"
+    },
+    "FIXING_DT": {
+      "label": "Floating Base Rate — Fixing Date",
+      "section": "offer",
+      "input": "date",
+      "storage": "event"
     },
     "FLOAT_SPREAD_BPS": {
       "label": "Floating Lender Bank Rate (bps)",
@@ -339,6 +345,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "R",
         "COVERAGE_RATE_BPS": "R",
         "FEE": "O",
@@ -384,6 +391,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "R",
         "COVERAGE_RATE_BPS": "R",
         "FEE": "O",
@@ -429,6 +437,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "R",
         "COVERAGE_RATE_BPS": "R",
         "FEE": "O",
@@ -474,6 +483,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "R",
         "COVERAGE_RATE_BPS": "R",
         "FEE": "O",
@@ -519,6 +529,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "R",
         "COVERAGE_RATE_BPS": "R",
         "FEE": "O",
@@ -564,6 +575,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "R",
         "COVERAGE_RATE_BPS": "R",
         "FEE": "O",
@@ -609,6 +621,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "R",
         "COVERAGE_RATE_BPS": "R",
         "FEE": "O",
@@ -654,6 +667,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "-",
         "COVERAGE_RATE_BPS": "-",
         "FEE": "O",
@@ -699,6 +713,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "-",
         "COVERAGE_RATE_BPS": "-",
         "FEE": "O",
@@ -744,6 +759,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "-",
         "COVERAGE_RATE_BPS": "-",
         "FEE": "O",
@@ -789,6 +805,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "-",
         "COVERAGE_RATE_BPS": "-",
         "FEE": "O",
@@ -834,6 +851,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "-",
         "COVERAGE_RATE_BPS": "-",
         "FEE": "O",
@@ -879,6 +897,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
         "FLOAT_SPREAD_BPS": "-",
         "COVERAGE_RATE_BPS": "-",
         "FEE": "O",
@@ -924,6 +943,7 @@
         "RATE_TYPE": "R",
         "FIXED_RATE_BPS": "R",
         "FLOAT_BASE_RATE": "-",
+        "FIXING_DT": "-",
         "FLOAT_SPREAD_BPS": "-",
         "COVERAGE_RATE_BPS": "-",
         "FEE": "O",
@@ -973,6 +993,22 @@
       "required_if": {
         "field": "RATE_TYPE",
         "equals": "FLOATING"
+      }
+    },
+    {
+      "field": "FIXING_DT",
+      "required_if": {
+        "field": "RATE_TYPE",
+        "equals": "FLOATING"
+      }
+    },
+    {
+      "field": "FIXING_DT",
+      "auto": {
+        "kind": "date_offset",
+        "source_field": "VALUE_DT",
+        "days": -2,
+        "note": "varsayılan value date - 2 takvim günü; elle değiştirilebilir"
       }
     },
     {

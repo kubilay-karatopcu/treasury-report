@@ -104,7 +104,7 @@ DDL = {
         REPAYMENT_SCHEDULE VARCHAR2(16),
         COVERAGE_FLG VARCHAR2(4), COVERAGE_PROVIDER VARCHAR2(64),
         RATE_TYPE VARCHAR2(16), FIXED_RATE_BPS NUMBER,
-        FLOAT_BASE_RATE VARCHAR2(32), FLOAT_SPREAD_BPS NUMBER,
+        FLOAT_BASE_RATE VARCHAR2(32), FIXING_DT DATE, FLOAT_SPREAD_BPS NUMBER,
         COVERAGE_RATE_BPS NUMBER, FEE NUMBER, ADDITIONAL_FEE_COST NUMBER,
         ALL_IN_RATE_BPS NUMBER, ALL_IN_FIXED_USD_RATE NUMBER,
         TRADE_TXN_AMT NUMBER, SHIPMENT_DT DATE, TRADE_PAYMENT_DT DATE,
@@ -162,6 +162,24 @@ def widen_columns(con, schema: str) -> None:
             print(f"   ✓ {table}: kolonlar genişletildi/teyit edildi")
         except Exception as exc:
             print(f"   ✗ {table} genişletme başarısız: {exc}")
+    con.commit()
+
+
+# Var olan kurulumlara SONRADAN eklenen kolonlar (yeni kurulum DDL'de zaten
+# taşır; ORA-01430 'zaten var' yutulur). (tablo, kolon, Oracle tipi) —
+# fi_desk/db.py dev DuckDB'ye de aynı listeden uygular.
+COLUMN_ADDITIONS = [
+    ("FI_OFFER_EVENTS", "FIXING_DT", "DATE"),   # 2026-07-31: floating fixing tarihi
+]
+
+
+def add_columns(con, schema: str) -> None:
+    for table, col, typ in COLUMN_ADDITIONS:
+        if not _table_exists(con, schema, table):
+            continue
+        if _exec(con, f"ALTER TABLE {schema}.{table} ADD ({col} {typ})",
+                 ok_codes=("ORA-01430",)):
+            print(f"   ✓ {table}.{col} eklendi")
     con.commit()
 
 
@@ -235,11 +253,16 @@ SEED_LISTS: list[tuple[str, str, str, str | None, str | None]] = [
     ("COVERAGE_PROVIDER", "ADB", "ADB", None, None),
     ("COVERAGE_PROVIDER", "ECA", "ECA", None, None),
     ("COVERAGE_PROVIDER", "OTHER", "Other", None, None),
+    ("BASE_RATE", "SOFR_ON", "SOFR O/N", None, None),
+    ("BASE_RATE", "SOFR_1M", "1M SOFR", None, None),
     ("BASE_RATE", "SOFR_3M", "3M SOFR", None, None),
     ("BASE_RATE", "SOFR_6M", "6M SOFR", None, None),
     ("BASE_RATE", "SOFR_12M", "12M SOFR", None, None),
+    ("BASE_RATE", "EURIBOR_1M", "1M EURIBOR", None, None),
     ("BASE_RATE", "EURIBOR_3M", "3M EURIBOR", None, None),
     ("BASE_RATE", "EURIBOR_6M", "6M EURIBOR", None, None),
+    ("BASE_RATE", "EURIBOR_12M", "12M EURIBOR", None, None),
+    ("BASE_RATE", "TLREF", "TLREF", None, None),
     ("BUSINESS_SEGMENT", "COMMERCIAL", "Commercial", None, None),
     ("BUSINESS_SEGMENT", "CORPORATE", "Corporate", None, None),
     ("BUSINESS_SEGMENT", "BIG_COMMERCIAL", "Big Commercial", None, None),
@@ -353,6 +376,7 @@ def create_tables(con, schema: str) -> None:
         print(f"   CREATE TABLE {qualified}")
         _exec(con, ddl.format(t=qualified))
     widen_columns(con, schema)
+    add_columns(con, schema)
     for _, idx_sql in INDEXES:
         # ORA-00955: ad zaten var (idempotent), ORA-01408: kolon listesi indeksli
         _exec(con, idx_sql.format(s=schema), ok_codes=("ORA-00955", "ORA-01408"))
@@ -402,35 +426,67 @@ def grant_all(con, schema: str, grantees: list[str],
         cur.close()
 
 
+#: Bu listelerin/tabloların SAHİBİ kardeş job'lardır — seed onlara yalnız
+#: BOŞLARSA dokunur (fi_desk_lookup_import.py: COUNTRY/IMPORTER/EXPORTER +
+#: FI_LU_BANK; fi_desk_users.py: FI_LU_USER). Aksi halde schema job'unun
+#: yeniden koşusu excel'den yüklenen gerçek listeleri yer tutucuyla ezerdi
+#: (2026-07-31 dersi).
+EXCEL_OWNED_LISTS = {"COUNTRY", "IMPORTER", "EXPORTER"}
+
+
 def seed_lookups(con, schema: str) -> None:
     now = datetime.now()
     cur = con.cursor()
+
+    def _count(sql: str, params: dict | None = None) -> int:
+        cur.execute(sql, params or {})
+        return cur.fetchone()[0]
+
     try:
-        cur.execute(f"DELETE FROM {schema}.FI_LU_LIST")
-        cur.executemany(
-            f"INSERT INTO {schema}.FI_LU_LIST "
-            "(LIST_NAME, VALUE_CD, LABEL, PARENT_CD, ATTR1, SORT_NO, ACTIVE_FLG, LOADED_AT) "
-            "VALUES (:1, :2, :3, :4, :5, :6, 1, :7)",
-            [(ln, cd, lbl, par, at1, i, now)
-             for i, (ln, cd, lbl, par, at1) in enumerate(SEED_LISTS)],
-        )
-        cur.execute(f"DELETE FROM {schema}.FI_LU_BANK")
-        cur.executemany(
-            f"INSERT INTO {schema}.FI_LU_BANK "
-            "(BANK_NM, COUNTRY, REGION, GROUP_COMPANY, GROUP_COMPANY_COUNTRY, "
-            "GROUP_COMPANY_REGION, IS_SELF, ACTIVE_FLG, LOADED_AT) "
-            "VALUES (:1, :2, :3, :4, :5, :6, :7, 1, :8)",
-            [(b, c, r, g, gc, gr, s, now) for b, c, r, g, gc, gr, s in SEED_BANKS],
-        )
-        cur.execute(f"DELETE FROM {schema}.FI_LU_USER")
-        cur.executemany(
-            f"INSERT INTO {schema}.FI_LU_USER (SICIL, USER_ROLE, ACTIVE_FLG, LOADED_AT) "
-            "VALUES (:1, :2, 1, :3)",
-            [(s, r, now) for s, r in SEED_USERS],
-        )
+        by_list: dict[str, list] = {}
+        for i, (ln, cd, lbl, par, at1) in enumerate(SEED_LISTS):
+            by_list.setdefault(ln, []).append((ln, cd, lbl, par, at1, i, now))
+        ins_list = (f"INSERT INTO {schema}.FI_LU_LIST "
+                    "(LIST_NAME, VALUE_CD, LABEL, PARENT_CD, ATTR1, SORT_NO, "
+                    "ACTIVE_FLG, LOADED_AT) VALUES (:1, :2, :3, :4, :5, :6, 1, :7)")
+        for ln, rows in by_list.items():
+            if ln in EXCEL_OWNED_LISTS:
+                if _count(f"SELECT COUNT(*) FROM {schema}.FI_LU_LIST "
+                          "WHERE LIST_NAME = :ln", {"ln": ln}):
+                    print(f"   = {ln}: dolu (excel/işletim sahipli), dokunulmadı")
+                    continue
+                cur.executemany(ins_list, rows)
+                print(f"   ✓ {ln}: boştu, {len(rows)} yer tutucu satır")
+            else:
+                # Baseline listeler (CURRENCY/BASE_RATE/ESG/...) her koşuda
+                # tazelenir — BASE_RATE genişletmeleri böyle dağıtılır.
+                cur.execute(f"DELETE FROM {schema}.FI_LU_LIST "
+                            "WHERE LIST_NAME = :ln", {"ln": ln})
+                cur.executemany(ins_list, rows)
+                print(f"   ✓ {ln}: {len(rows)} satır (yenilendi)")
+
+        if _count(f"SELECT COUNT(*) FROM {schema}.FI_LU_BANK"):
+            print("   = FI_LU_BANK dolu (lookup_import sahipli), dokunulmadı")
+        else:
+            cur.executemany(
+                f"INSERT INTO {schema}.FI_LU_BANK "
+                "(BANK_NM, COUNTRY, REGION, GROUP_COMPANY, GROUP_COMPANY_COUNTRY, "
+                "GROUP_COMPANY_REGION, IS_SELF, ACTIVE_FLG, LOADED_AT) "
+                "VALUES (:1, :2, :3, :4, :5, :6, :7, 1, :8)",
+                [(b, c, r, g, gc, gr, s, now)
+                 for b, c, r, g, gc, gr, s in SEED_BANKS])
+            print(f"   ✓ FI_LU_BANK: boştu, {len(SEED_BANKS)} yer tutucu banka")
+
+        if _count(f"SELECT COUNT(*) FROM {schema}.FI_LU_USER"):
+            print("   = FI_LU_USER dolu (fi_desk_users sahipli), dokunulmadı")
+        else:
+            cur.executemany(
+                f"INSERT INTO {schema}.FI_LU_USER (SICIL, USER_ROLE, ACTIVE_FLG, LOADED_AT) "
+                "VALUES (:1, :2, 1, :3)",
+                [(s, r, now) for s, r in SEED_USERS])
+            print(f"   ✓ FI_LU_USER: boştu, {len(SEED_USERS)} kullanıcı-rol")
+
         con.commit()
-        print(f"   ✓ lookup seed: {len(SEED_LISTS)} liste satırı, "
-              f"{len(SEED_BANKS)} banka, {len(SEED_USERS)} kullanıcı-rol")
     except Exception:
         con.rollback()
         raise
@@ -445,7 +501,8 @@ def _event_defaults() -> dict:
             "OFFER_DT", "CURRENCY", "FUNDING_AMT", "USD_EQV", "VALUE_DT",
             "MATURITY_DT", "REPAYMENT_SCHEDULE", "COVERAGE_FLG",
             "COVERAGE_PROVIDER", "RATE_TYPE", "FIXED_RATE_BPS",
-            "FLOAT_BASE_RATE", "FLOAT_SPREAD_BPS", "COVERAGE_RATE_BPS", "FEE",
+            "FLOAT_BASE_RATE", "FIXING_DT", "FLOAT_SPREAD_BPS",
+            "COVERAGE_RATE_BPS", "FEE",
             "ADDITIONAL_FEE_COST", "ALL_IN_RATE_BPS", "ALL_IN_FIXED_USD_RATE",
             "TRADE_TXN_AMT", "SHIPMENT_DT", "TRADE_PAYMENT_DT", "IMPORTER",
             "EXPORTER", "BUSINESS_SEGMENT", "REFERENCE_NO", "GOODS_DESC",

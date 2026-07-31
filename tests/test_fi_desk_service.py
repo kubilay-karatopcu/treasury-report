@@ -181,6 +181,32 @@ def test_esg_conditional():
     assert {"ESG_TYPE", "ESG_ELIGIBILITY"} <= errfields(exc)
 
 
+def test_fixing_date_auto_default_and_override():
+    """FIXING_DT: floating'de varsayılan value date - 2 takvim günü;
+    elle girilirse korunur; FIXED'te temizlenir (2026-07-31 kolonu)."""
+    clean = service.validate_entry(MATRIX, LOOKUPS, trade_loan_payload())
+    assert clean["fields"]["FIXING_DT"] == datetime(2026, 7, 18)  # 20 - 2
+
+    p = trade_loan_payload(FIXING_DT="2026-07-15")
+    clean = service.validate_entry(MATRIX, LOOKUPS, p)
+    assert clean["fields"]["FIXING_DT"] == datetime(2026, 7, 15)
+
+    p = trade_loan_payload(RATE_TYPE="FIXED", FIXED_RATE_BPS="300",
+                           FIXING_DT="2026-07-15")
+    clean = service.validate_entry(MATRIX, LOOKUPS, p)
+    assert clean["fields"]["FIXING_DT"] is None
+
+
+def test_number_parsing_flexible():
+    """Binlik virgül, ondalık virgül ve bilimsel gösterim kabul edilir."""
+    p = trade_loan_payload(FUNDING_AMT="50,000,000", USD_EQV="5e7",
+                           FLOAT_SPREAD_BPS="185,5")
+    clean = service.validate_entry(MATRIX, LOOKUPS, p)
+    assert clean["fields"]["FUNDING_AMT"] == pytest.approx(50_000_000)
+    assert clean["fields"]["USD_EQV"] == pytest.approx(50_000_000)
+    assert clean["fields"]["FLOAT_SPREAD_BPS"] == pytest.approx(185.5)
+
+
 def test_statusless_product_minimal_entry():
     """Fiduciary: deal status / coverage / ESG yok — minimal set yeterli."""
     payload = {
