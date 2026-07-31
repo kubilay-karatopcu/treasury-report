@@ -31,6 +31,20 @@
     setTimeout(() => t.classList.remove("is-open"), 3500);
   }
 
+  // Tam-sayfa meşgul kilidi: uzun süren istek boyunca kullanıcı bir şeye
+  // basamaz, ne olduğunu görür (2026-07-31 saha isteği).
+  function busy(on, text) {
+    let el = document.getElementById("fi-busy");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "fi-busy";
+      el.innerHTML = '<div class="fi-busy-box"></div>';
+      document.body.appendChild(el);
+    }
+    el.querySelector(".fi-busy-box").textContent = text || "İşleniyor…";
+    el.style.display = on ? "flex" : "none";
+  }
+
   // Tutar alanları: binlik ayraçlı gösterim + 5e6 gibi bilimsel girişleri
   // sayıya açma. Gerçek değer daima düz sayı olarak gönderilir.
   const AMOUNT_FIELDS = new Set(["FUNDING_AMT", "USD_EQV", "TRADE_TXN_AMT",
@@ -495,6 +509,8 @@
     const btn = $("btn-submit");
     btn.disabled = true;
     $("fi-status").textContent = "Gönderiliyor…";
+    busy(true, EDIT_OFFER ? "Değişiklik onaya gönderiliyor…"
+                          : "Kayıt onaya gönderiliyor…");
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -531,6 +547,7 @@
       $("fi-status").textContent = "Hata";
       toast(String(e), true);
     } finally {
+      busy(false);
       btn.disabled = !FI_CAN_ENTER;
     }
   }
@@ -619,7 +636,14 @@
     $("btn-submit").addEventListener("click", submit);
     $("fi-status").textContent = FI_CAN_ENTER ? "" : "ENTRY rolü yok — form kilitli";
 
-    if (EDIT_OFFER) await enterEditMode();
+    if (EDIT_OFFER) {
+      busy(true, "Kayıt yükleniyor…");
+      try {
+        await enterEditMode();
+      } finally {
+        busy(false);
+      }
+    }
   }
 
   document.addEventListener("DOMContentLoaded", boot);

@@ -20,6 +20,20 @@
     setTimeout(() => t.classList.remove("is-open"), 3500);
   }
 
+  // Tam-sayfa meşgul kilidi (onay/red vb.) — kullanıcı işlemin sürdüğünü
+  // görür, ikinci kez basamaz (2026-07-31 saha isteği).
+  function busy(on, text) {
+    let el = document.getElementById("fi-busy");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "fi-busy";
+      el.innerHTML = '<div class="fi-busy-box"></div>';
+      document.body.appendChild(el);
+    }
+    el.querySelector(".fi-busy-box").textContent = text || "İşleniyor…";
+    el.style.display = on ? "flex" : "none";
+  }
+
   function dt(v) {           // "2026-07-20 00:00:00" → "20.07.2026"
     if (!v) return "";
     const d = String(v).slice(0, 10).split("-");
@@ -37,6 +51,21 @@
 
   /* ── grid ─────────────────────────────────────────────────────────── */
   const COLS = [
+    // Satır aksiyonu: detay/düzenleme modalı butonla açılır (yanlışlıkla
+    // tek tık açılmaz; çift tık da açar — aşağıda onRowDoubleClicked).
+    { headerName: "", colId: "fi_actions", width: 56, pinned: "left",
+      sortable: false, filter: false, resizable: false,
+      cellRenderer: (p) => {
+        const b = document.createElement("button");
+        b.className = "fi-grid-edit-btn";
+        b.textContent = "✎";
+        b.title = "Detay / Düzenle";
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openDetail(p.data.OFFER_ID);
+        });
+        return b;
+      } },
     { headerName: "Durum", field: "ROW_STATE", width: 130, pinned: "left",
       valueGetter: (p) => p.data.ROW_STATE === "PENDING_NEW"
         ? "ONAY BEKLİYOR"
@@ -73,16 +102,25 @@
   function refreshGrid() {
     const rows = visibleRows();
     GRID.setGridOption("rowData", rows);
+    if (rows.length && GRID.autoSizeAllColumns) {
+      // Excel'deki çift-tık genişletme gibi: her kolon içeriğine açılır
+      GRID.autoSizeAllColumns();
+    }
     $("grid-info").textContent =
       `${rows.length} kayıt · ${ROWS.filter((r) => r.ROW_STATE === "PENDING_NEW" || r.PENDING_COUNT > 0).length} onay bekliyor`;
   }
 
   async function load() {
-    const res = await fetch(ENDPOINTS.records);
-    const body = await res.json();
-    if (!body.ok) { toast(body.error || "Liste yüklenemedi", true); return; }
-    ROWS = body.rows;
-    refreshGrid();
+    if (GRID.showLoadingOverlay) GRID.showLoadingOverlay();
+    try {
+      const res = await fetch(ENDPOINTS.records);
+      const body = await res.json();
+      if (!body.ok) { toast(body.error || "Liste yüklenemedi", true); return; }
+      ROWS = body.rows;
+      refreshGrid();
+    } finally {
+      if (!visibleRows().length && GRID.showNoRowsOverlay) GRID.showNoRowsOverlay();
+    }
   }
 
   /* ── detay overlay ────────────────────────────────────────────────── */
@@ -105,31 +143,60 @@
   const DATEISH = new Set(["OFFER_DT", "VALUE_DT", "MATURITY_DT"]);
   const AMTISH = new Set(["FUNDING_AMT", "USD_EQV", "TRADE_TXN_AMT"]);
 
-  function renderCurrent(cur) {
+  function _fmtVal(k, v) {
+    if (v == null || v === "") return null;
+    if (DATEISH.has(k)) return dt(v);
+    if (AMTISH.has(k)) return amt(v);
+    return String(v);
+  }
+
+  function renderCurrent(detail) {
     const dl = $("ov-current");
     dl.innerHTML = "";
-    if (!cur) {
-      dl.innerHTML = "<dt>—</dt><dd>Henüz onaylı sürüm yok</dd>";
-      return;
-    }
-    const push = (k, v) => {
-      if (v == null || v === "") return;
+    const cur = detail.current;
+    // Bekleyen değişiklik varsa onaylı değerle KARŞILAŞTIRMALI gösterilir:
+    // eski üstü çizili, yeni vurgulu (2026-07-31 saha isteği #14).
+    const first = detail.events.length ? detail.events[0] : null;
+    const pend = first && first.APPROVAL_STATUS === "PENDING" && cur ? first : null;
+
+    const push = (label, content) => {
+      if (content == null) return;
       const dtEl = document.createElement("dt");
-      dtEl.textContent = k;
+      dtEl.textContent = label;
       const ddEl = document.createElement("dd");
-      ddEl.textContent = v;
+      if (content instanceof Node) ddEl.appendChild(content);
+      else ddEl.textContent = content;
       dl.appendChild(dtEl); dl.appendChild(ddEl);
     };
+    const diffOrPlain = (k, label) => {
+      const curv = _fmtVal(k, cur[k]);
+      const pendv = pend ? _fmtVal(k, pend[k]) : null;
+      if (pend && pendv !== curv) {
+        const frag = document.createDocumentFragment();
+        const oldS = document.createElement("span");
+        oldS.className = "fi-diff-old";
+        oldS.textContent = curv == null ? "—" : curv;
+        const newS = document.createElement("span");
+        newS.className = "fi-diff-new";
+        newS.textContent = pendv == null ? "—" : pendv;
+        frag.appendChild(oldS); frag.appendChild(newS);
+        push(label, frag);
+      } else if (curv != null) {
+        push(label, curv);
+      }
+    };
+
+    if (!cur) {
+      dl.innerHTML = "<dt>—</dt><dd>Henüz onaylı sürüm yok (ilk giriş onay bekliyor)</dd>";
+      return;
+    }
     push("Reporting Status", cur.REPORTING_STATUS);
-    push("Deal Status", cur.DEAL_STATUS);
-    Object.keys(FIELD_LABELS).forEach((k) => {
-      let v = cur[k];
-      if (v == null || v === "") return;
-      if (DATEISH.has(k)) v = dt(v);
-      else if (AMTISH.has(k)) v = amt(v);
-      push(FIELD_LABELS[k], v);
-    });
+    diffOrPlain("DEAL_STATUS", "Deal Status");
+    Object.keys(FIELD_LABELS).forEach((k) => diffOrPlain(k, FIELD_LABELS[k]));
     push("Tenor (gün)", cur.TENOR_DAYS != null ? String(Math.round(cur.TENOR_DAYS)) : null);
+    if (pend) {
+      push("Bekleyen", `#${pend.EVENT_SEQ} · ${pend.EVENT_TYPE} · ${ts(pend.EVENT_TS)}`);
+    }
   }
 
   function renderSchedule(detail) {
@@ -206,24 +273,48 @@
       reason = prompt("Red gerekçesi (opsiyonel):") || null;
       if (reason === null && !confirm("Gerekçesiz reddedilsin mi?")) return;
     }
-    const url = ENDPOINTS.approval.replace("__EID__", eventId);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: action, reason: reason }),
-    });
-    const body = await res.json();
-    if (!body.ok) { toast(body.error || "İşlem başarısız", true); return; }
-    toast(action === "approve" ? "Onaylandı." : "Reddedildi.");
-    await load();
-    if (CURRENT_OFFER) openDetail(CURRENT_OFFER);
+    busy(true, action === "approve" ? "Onaylanıyor…" : "Reddediliyor…");
+    try {
+      const url = ENDPOINTS.approval.replace("__EID__", eventId);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: action, reason: reason }),
+      });
+      const body = await res.json();
+      if (!body.ok) { toast(body.error || "İşlem başarısız", true); return; }
+      toast(action === "approve" ? "Onaylandı." : "Reddedildi.");
+      await load();
+      if (CURRENT_OFFER) await openDetail(CURRENT_OFFER);
+    } finally {
+      busy(false);
+    }
+  }
+
+  function _ovLoading() {
+    $("ov-eyebrow").textContent = "";
+    $("ov-title").textContent = "Yükleniyor…";
+    $("ov-sub").textContent = "";
+    $("ov-edit").style.display = "none";
+    $("ov-current").innerHTML = '<dt></dt><dd class="fi-ov__loading">Yükleniyor…</dd>';
+    $("ov-sched").innerHTML = "";
+    $("ov-sched-note").textContent = "";
+    $("ov-timeline").innerHTML = '<tbody><tr><td class="fi-ov__loading">Yükleniyor…</td></tr></tbody>';
   }
 
   async function openDetail(offerId) {
     CURRENT_OFFER = offerId;
+    // Modal ÖNCE açılır, içi yüklenirken 'Yükleniyor…' görünür — 2-3 sn'lik
+    // fetch sırasında hiçbir şey olmuyormuş hissi kalmaz (saha isteği #8).
+    _ovLoading();
+    $("fi-ov").classList.add("is-open");
     const res = await fetch(offerUrl(ENDPOINTS.offer_detail, offerId));
     const body = await res.json();
-    if (!body.ok) { toast(body.error || "Detay yüklenemedi", true); return; }
+    if (!body.ok) {
+      toast(body.error || "Detay yüklenemedi", true);
+      closeDetail();
+      return;
+    }
     $("ov-eyebrow").textContent = `${body.deal.DEAL_ID} · ${offerId}`;
     $("ov-title").textContent =
       `${body.product_label} — ${body.deal.BORROWER_BANK}`;
@@ -233,10 +324,9 @@
       edit.style.display = "";
       edit.href = `${ENDPOINTS.entry_page}?offer=${encodeURIComponent(offerId)}`;
     }
-    renderCurrent(body.current);
+    renderCurrent(body);
     renderSchedule(body);
     renderTimeline(body);
-    $("fi-ov").classList.add("is-open");
   }
 
   function closeDetail() {
@@ -254,8 +344,14 @@
       rowData: [],
       defaultColDef: { sortable: true, resizable: true, filter: true },
       animateRows: false,
-      onRowClicked: (ev) => openDetail(ev.data.OFFER_ID),
+      // Tek tık modal AÇMAZ (yanlışlıkla açılıyordu) — ✎ butonu ya da çift tık
+      onRowDoubleClicked: (ev) => openDetail(ev.data.OFFER_ID),
+      overlayLoadingTemplate:
+        '<span class="ag-overlay-loading-center">Yükleniyor…</span>',
+      overlayNoRowsTemplate:
+        '<span style="color: var(--ink-mute); font-size: 12px;">Kayıt yok</span>',
     });
+    if (GRID.showLoadingOverlay) GRID.showLoadingOverlay();
 
     $("btn-refresh").addEventListener("click", load);
     $("chk-pending-only").addEventListener("change", refreshGrid);

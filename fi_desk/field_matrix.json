@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "source": "Dashboard_Data_Tools.xlsx / Input (2026-07-30)",
   "requirement_codes": {
     "R": "zorunlu",
@@ -213,7 +213,7 @@
       "storage": "event"
     },
     "FEE": {
-      "label": "Fee",
+      "label": "Upfront Fee (bps)",
       "section": "offer",
       "input": "number",
       "storage": "event"
@@ -241,6 +241,13 @@
       "section": "underlying",
       "input": "number",
       "storage": "event"
+    },
+    "TRADE_TXN_CCY": {
+      "label": "Trade Transaction Currency",
+      "section": "underlying",
+      "input": "list",
+      "storage": "event",
+      "list": "CURRENCY"
     },
     "SHIPMENT_DT": {
       "label": "Shipment Date",
@@ -353,6 +360,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "O",
         "TRADE_TXN_AMT": "R",
+        "TRADE_TXN_CCY": "R",
         "SHIPMENT_DT": "R",
         "TRADE_PAYMENT_DT": "R",
         "IMPORTER": "R",
@@ -367,7 +375,7 @@
       }
     },
     "POSTFINANCING": {
-      "label": "Postfinancing",
+      "label": "Postshipment",
       "fields": {
         "BORROWER_BANK": "R",
         "PRODUCT_TYPE": "R",
@@ -399,6 +407,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "O",
         "TRADE_TXN_AMT": "R",
+        "TRADE_TXN_CCY": "R",
         "SHIPMENT_DT": "R",
         "TRADE_PAYMENT_DT": "R",
         "IMPORTER": "R",
@@ -445,6 +454,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "O",
         "TRADE_TXN_AMT": "R",
+        "TRADE_TXN_CCY": "R",
         "SHIPMENT_DT": "R",
         "TRADE_PAYMENT_DT": "R",
         "IMPORTER": "R",
@@ -491,6 +501,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "O",
         "TRADE_TXN_AMT": "O",
+        "TRADE_TXN_CCY": "O",
         "SHIPMENT_DT": "O",
         "TRADE_PAYMENT_DT": "O",
         "IMPORTER": "O",
@@ -537,6 +548,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "O",
         "TRADE_TXN_AMT": "O",
+        "TRADE_TXN_CCY": "O",
         "SHIPMENT_DT": "O",
         "TRADE_PAYMENT_DT": "O",
         "IMPORTER": "O",
@@ -583,6 +595,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "O",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -629,6 +642,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "O",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -675,6 +689,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "R",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -721,6 +736,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "R",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -767,6 +783,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "R",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -813,6 +830,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "R",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -859,6 +877,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "R",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -905,6 +924,7 @@
         "ALL_IN_RATE_BPS": "R",
         "ALL_IN_FIXED_USD_RATE": "R",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",
@@ -951,6 +971,7 @@
         "ALL_IN_RATE_BPS": "-",
         "ALL_IN_FIXED_USD_RATE": "-",
         "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
         "SHIPMENT_DT": "-",
         "TRADE_PAYMENT_DT": "-",
         "IMPORTER": "-",

@@ -69,6 +69,7 @@ def _valid_payload(**field_overrides):
         "REPAYMENT_SCHEDULE": "BULLET", "COVERAGE_FLG": "NO",
         "RATE_TYPE": "FLOATING", "FLOAT_BASE_RATE": "SOFR_3M",
         "FLOAT_SPREAD_BPS": "185", "TRADE_TXN_AMT": "52000000",
+        "TRADE_TXN_CCY": "USD",
         "SHIPMENT_DT": "2026-06-15", "TRADE_PAYMENT_DT": "2026-07-15",
         "IMPORTER": "IMP_SAMPLE_1", "EXPORTER": "EXP_SAMPLE_1",
         "BUSINESS_SEGMENT": "CORPORATE", "REFERENCE_NO": "TL-RT",

@@ -70,6 +70,7 @@ def trade_loan_payload(**overrides):
         "FLOAT_SPREAD_BPS": "185",
         "COVERAGE_RATE_BPS": "40",
         "TRADE_TXN_AMT": "52000000",
+        "TRADE_TXN_CCY": "USD",
         "SHIPMENT_DT": "2026-06-15",
         "TRADE_PAYMENT_DT": "2026-07-15",
         "IMPORTER": "IMP1",

@@ -63,7 +63,7 @@ def _submit_entry(value_dt: datetime, deal_status: str = "BIDDING") -> dict:
             "REPAYMENT_SCHEDULE": "AMORTIZED", "COVERAGE_FLG": "NO",
             "RATE_TYPE": "FLOATING", "FLOAT_BASE_RATE": "SOFR_3M",
             "FLOAT_SPREAD_BPS": "185",
-            "TRADE_TXN_AMT": "52000000",
+            "TRADE_TXN_AMT": "52000000", "TRADE_TXN_CCY": "USD",
             "SHIPMENT_DT": value_dt - timedelta(days=30),
             "TRADE_PAYMENT_DT": value_dt - timedelta(days=5),
             "IMPORTER": "IMP_SAMPLE_1", "EXPORTER": "EXP_SAMPLE_1",

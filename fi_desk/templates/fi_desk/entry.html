@@ -89,6 +89,19 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
   background: var(--bg-1); color: var(--ink);
 }
 
+/* Meşgul overlay'i — gönderim / edit yüklemesi sırasında tüm sayfayı
+   kilitler (çift tıklama / yarım kayıt önlenir). JS #fi-busy'yi üretir. */
+#fi-busy {
+  position: fixed; inset: 0; z-index: 2000; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .55);
+}
+#fi-busy .fi-busy-box {
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  padding: 18px 28px; font-size: 13px; color: var(--ink);
+  letter-spacing: .04em;
+}
+
 /* Ödeme planı tablosu — kit pk-table üstüne yalnız giriş hücresi ayarı. */
 .fi-sched-table input { width: 100%; min-width: 110px; }
 .fi-sched-remove { cursor: pointer; color: var(--red); background: none; border: none; }
@@ -105,12 +118,10 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
     <div>
       <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
       <h2>Veri Girişi</h2>
-      <div class="pk-sub">Borçlanma / teklif kaydı — girilen kayıt onaycıya
-        düşer, onaylanınca raporlamada görünür.</div>
     </div>
-    <div class="pk-meta">
-      {% if can_enter %}veri girişi açık{% else %}salt okunur — ENTRY rolü gerekli{% endif %}
-    </div>
+    {% if not can_enter %}
+    <div class="pk-meta">salt okunur — ENTRY rolü gerekli</div>
+    {% endif %}
   </div>
 
   <div class="pk-grid">
@@ -118,7 +129,6 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
     <div class="pk-card">
       <div class="pk-card__head">
         <span class="pk-card__title">İşlem Kimliği</span>
-        <span class="pk-card__note">borrower · ürün seçilince form açılır</span>
       </div>
       <div class="fi-fields">
         <div class="pk-field">
@@ -132,7 +142,7 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
           </select>
         </div>
         <div class="pk-field is-wide">
-          <span class="pk-label">Deal Açıklaması <span class="fi-auto-note">(opsiyonel — listede görünür)</span></span>
+          <span class="pk-label">Deal Açıklaması</span>
           <input type="text" class="pk-input" id="f-label" maxlength="256" disabled>
         </div>
       </div>

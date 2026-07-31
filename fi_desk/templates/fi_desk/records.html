@@ -76,6 +76,28 @@ body.prisma .canvas {
 .fi-tl .is-pending { color: var(--gold); }
 .fi-tl .is-rejected { color: var(--red); }
 .fi-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Bekleyen değişiklik karşılaştırması: eski değer üstü çizili, yenisi vurgulu */
+.fi-diff-old { text-decoration: line-through; color: var(--ink-faint); margin-right: 6px; }
+.fi-diff-new { color: var(--gold); }
+.fi-ov__loading { padding: 40px 0; text-align: center; color: var(--ink-mute); font-size: 13px; }
+
+/* Meşgul overlay'i (onay/red vb. — JS #fi-busy'yi üretir) */
+#fi-busy {
+  position: fixed; inset: 0; z-index: 2000; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .55);
+}
+#fi-busy .fi-busy-box {
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  padding: 18px 28px; font-size: 13px; color: var(--ink);
+  letter-spacing: .04em;
+}
+.fi-grid-edit-btn {
+  cursor: pointer; background: none; border: 1px solid var(--border-soft);
+  color: var(--ink-soft); padding: 2px 9px; font-size: 12px; border-radius: 3px;
+}
+.fi-grid-edit-btn:hover { color: var(--gold); border-color: var(--gold); }
 </style>
 {% endblock %}
 
@@ -85,8 +107,6 @@ body.prisma .canvas {
     <div>
       <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
       <h2>İşlemler</h2>
-      <div class="pk-sub">Teklif bazlı kayıtlar — onaylı son durum ve bekleyen
-        değişiklikler; satıra tıklayınca geçmiş ve aksiyonlar.</div>
     </div>
     <div class="pk-meta" id="grid-info">—</div>
   </div>
@@ -137,8 +157,7 @@ body.prisma .canvas {
         <div class="pk-table-wrap"><table class="pk-table" id="ov-sched"></table></div>
       </div>
       <div class="pk-card">
-        <div class="pk-card__head"><span class="pk-card__title">Geçmiş</span>
-          <span class="pk-card__note">event timeline — kim, ne zaman, ne</span></div>
+        <div class="pk-card__head"><span class="pk-card__title">Geçmiş</span></div>
         <div class="pk-table-wrap">
           <table class="fi-tl" id="ov-timeline"></table>
         </div>
@@ -157,5 +176,5 @@ body.prisma .canvas {
   const FI_CAN_ENTER = {{ can_enter | tojson }};
   const FI_CAN_APPROVE = {{ can_approve | tojson }};
 </script>
-<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=1"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=2"></script>
 {% endblock %}
