@@ -187,9 +187,25 @@
     };
 
     if (!cur) {
-      dl.innerHTML = "<dt>—</dt><dd>Henüz onaylı sürüm yok (ilk giriş onay bekliyor)</dd>";
+      // Henüz onaylı sürüm yok → ONAY BEKLEYEN girişin değerleri gösterilir
+      // (onaycı görmeden onaylayamaz — 2026-07-31 saha isteği #3).
+      if (!first) {
+        dl.innerHTML = "<dt>—</dt><dd>Kayıt bulunamadı</dd>";
+        return;
+      }
+      $("ov-current-title").textContent =
+        `Onay Bekleyen Giriş (#${first.EVENT_SEQ} · ${first.EVENT_TYPE} · ${ts(first.EVENT_TS)})`;
+      push("Deal Status", _fmtVal("DEAL_STATUS", first.DEAL_STATUS));
+      Object.keys(FIELD_LABELS).forEach((k) => {
+        push(FIELD_LABELS[k], _fmtVal(k, first[k]));
+      });
+      const tn = dayDiffRow(first);
+      push("Tenor (gün)", tn != null ? String(tn) : null);
       return;
     }
+    $("ov-current-title").textContent = pend
+      ? "Güncel Durum (onaylı) — bekleyen değişiklik karşılaştırması"
+      : "Güncel Durum (onaylı)";
     push("Reporting Status", cur.REPORTING_STATUS);
     diffOrPlain("DEAL_STATUS", "Deal Status");
     Object.keys(FIELD_LABELS).forEach((k) => diffOrPlain(k, FIELD_LABELS[k]));
@@ -199,18 +215,24 @@
     }
   }
 
+  function dayDiffRow(ev) {
+    if (!ev.VALUE_DT || !ev.MATURITY_DT) return null;
+    const ms = new Date(String(ev.MATURITY_DT).slice(0, 10)) -
+               new Date(String(ev.VALUE_DT).slice(0, 10));
+    return Number.isFinite(ms) ? Math.round(ms / 86400000) : null;
+  }
+
   function renderSchedule(detail) {
     const table = $("ov-sched");
     table.innerHTML = "";
     const evId = detail.current ? detail.current.EVENT_ID
       : (detail.events.length ? detail.events[0].EVENT_ID : null);
     const rows = evId != null ? (detail.schedules[String(evId)] || []) : [];
+    // Plan yoksa kart HİÇ görünmez (boş yer kaplamasın — saha isteği #6)
+    $("ov-sched-card").style.display = rows.length ? "" : "none";
     $("ov-sched-note").textContent = rows.length
       ? (detail.current ? "onaylı sürümün planı" : "son gönderimin planı") : "";
-    if (!rows.length) {
-      table.innerHTML = "<tbody><tr><td style='text-align:left;'>Plan yok (Bullet)</td></tr></tbody>";
-      return;
-    }
+    if (!rows.length) return;
     table.innerHTML =
       "<thead><tr><th style='text-align:left;'>Tarih</th><th>Anapara</th><th>Faiz</th></tr></thead>";
     const tb = document.createElement("tbody");
@@ -296,7 +318,9 @@
     $("ov-title").textContent = "Yükleniyor…";
     $("ov-sub").textContent = "";
     $("ov-edit").style.display = "none";
+    $("ov-current-title").textContent = "Güncel Durum";
     $("ov-current").innerHTML = '<dt></dt><dd class="fi-ov__loading">Yükleniyor…</dd>';
+    $("ov-sched-card").style.display = "none";
     $("ov-sched").innerHTML = "";
     $("ov-sched-note").textContent = "";
     $("ov-timeline").innerHTML = '<tbody><tr><td class="fi-ov__loading">Yükleniyor…</td></tr></tbody>';

@@ -542,7 +542,13 @@
       $("fi-status").textContent =
         `Onaya gönderildi — ${body.deal_id} / ${body.offer_id}`;
       toast("Kayıt onaya gönderildi.");
-      renderSections(); // aynı ürünle temiz form (arka arkaya giriş akışı)
+      // Form SIFIRDAN başlar: ürün seçimi de temizlenir (2026-07-31 isteği)
+      $("f-product").value = "";
+      PRODUCT = null;
+      syncCombo($("f-product"));
+      $("f-label").value = "";
+      if (SELF_BANK) { $("f-borrower").value = SELF_BANK; syncCombo($("f-borrower")); }
+      renderSections();
     } catch (e) {
       $("fi-status").textContent = "Hata";
       toast(String(e), true);

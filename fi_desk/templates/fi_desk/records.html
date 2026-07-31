@@ -77,6 +77,9 @@ body.prisma .canvas {
 .fi-tl .is-rejected { color: var(--red); }
 .fi-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
+/* Güncel durum künyesi: iki kolonlu (etiket-değer × 2) — modal kısalır */
+.fi-dl-2col { grid-template-columns: auto 1fr auto 1fr; column-gap: 22px; }
+
 /* Bekleyen değişiklik karşılaştırması: eski değer üstü çizili, yenisi vurgulu */
 .fi-diff-old { text-decoration: line-through; color: var(--ink-faint); margin-right: 6px; }
 .fi-diff-new { color: var(--gold); }
@@ -147,11 +150,13 @@ body.prisma .canvas {
     </div>
     <hr class="pk-rule">
     <div class="pk-grid">
-      <div class="pk-card pk-card--half">
-        <div class="pk-card__head"><span class="pk-card__title">Güncel Durum (onaylı)</span></div>
-        <dl class="pk-dl" id="ov-current" style="margin-top:10px;"></dl>
+      {# Güncel durum DAİMA EN ÜSTTE, tam genişlik, iki kolonlu künye #}
+      <div class="pk-card">
+        <div class="pk-card__head"><span class="pk-card__title" id="ov-current-title">Güncel Durum (onaylı)</span></div>
+        <dl class="pk-dl fi-dl-2col" id="ov-current" style="margin-top:10px;"></dl>
       </div>
-      <div class="pk-card pk-card--half">
+      {# Ödeme planı yalnız plan VARSA görünür (boşken yer kaplamaz) #}
+      <div class="pk-card" id="ov-sched-card" style="display:none;">
         <div class="pk-card__head"><span class="pk-card__title">Ödeme Planı</span>
           <span class="pk-card__note" id="ov-sched-note"></span></div>
         <div class="pk-table-wrap"><table class="pk-table" id="ov-sched"></table></div>
@@ -176,5 +181,5 @@ body.prisma .canvas {
   const FI_CAN_ENTER = {{ can_enter | tojson }};
   const FI_CAN_APPROVE = {{ can_approve | tojson }};
 </script>
-<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=2"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=3"></script>
 {% endblock %}

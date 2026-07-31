@@ -57,11 +57,11 @@ def _prod_schema() -> str:
     if _schema:
         return _schema
     if _resolved_schema is None:
-        con = _dc.get_connection()
+        con, pooled = _acquire()
         try:
             _resolved_schema = (con.username or "").upper()
         finally:
-            _dc.drop_connection(con)
+            _release(con, pooled)
         log.info("fi_desk şeması bağlantı kullanıcısından çözüldü: %s",
                  _resolved_schema)
     return _resolved_schema
@@ -205,6 +205,28 @@ def _to_duck_binds(sql: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 # Tek arayüz
 # ─────────────────────────────────────────────────────────────────────────
+def _acquire():
+    """Oracle bağlantısı al — HAVUZDAN. get_connection() her çağrıda sıfırdan
+    TCP+auth turu yapar (~1-2 sn); istek başına 3-5 sorgu = 7-8 sn'lik onay/
+    giriş süreleri (2026-07-31 saha bulgusu). DataClient.get_connection_from_pool
+    kendi kendini kurar ve thread-safe'tir; havuz yoksa/patlarsa düz bağlantıya
+    düşülür (davranış aynı, yalnız yavaş)."""
+    if hasattr(_dc, "get_connection_from_pool"):
+        try:
+            return _dc.get_connection_from_pool(), True
+        except Exception:
+            log.warning("fi_desk: bağlantı havuzu kullanılamadı, düz bağlantı",
+                        exc_info=True)
+    return _dc.get_connection(), False
+
+
+def _release(con, pooled: bool) -> None:
+    if pooled:
+        _dc.drop_connection_from_pool(con)
+    else:
+        _dc.drop_connection(con)
+
+
 def query(sql: str, params: dict | None = None) -> list[dict]:
     """SELECT — satırlar dict listesi olarak (kolon adları büyük harf)."""
     if is_dev():
@@ -213,7 +235,7 @@ def query(sql: str, params: dict | None = None) -> list[dict]:
             cols = [d[0].upper() for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
-    con = _dc.get_connection()
+    con, pooled = _acquire()
     try:
         cur = con.cursor()
         try:
@@ -223,7 +245,7 @@ def query(sql: str, params: dict | None = None) -> list[dict]:
         finally:
             cur.close()
     finally:
-        _dc.drop_connection(con)
+        _release(con, pooled)
 
 
 def execute(statements: list[tuple[str, dict | None]]) -> None:
@@ -241,7 +263,7 @@ def execute(statements: list[tuple[str, dict | None]]) -> None:
                 raise
         return
 
-    con = _dc.get_connection()
+    con, pooled = _acquire()
     try:
         cur = con.cursor()
         try:
@@ -254,4 +276,4 @@ def execute(statements: list[tuple[str, dict | None]]) -> None:
         finally:
             cur.close()
     finally:
-        _dc.drop_connection(con)
+        _release(con, pooled)

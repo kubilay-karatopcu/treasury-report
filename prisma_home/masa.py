@@ -35,7 +35,10 @@ def masa_name(name: str | None) -> str:
         return name or ""
     for a, b in (("Uzmanlığı", "Masası"), ("Uzmanı", "Masası"), ("Uzman", "Masa")):
         if a in name:
-            return name.replace(a, b)
+            # Ad zaten 'Masası' içeriyorsa çeviri ikilememeli:
+            # 'FI Masası Uzmanı' → 'FI Masası Masası' olmasın (2026-07-31).
+            out = name.replace(a, b)
+            return out.replace("Masası Masası", "Masası").replace("Masa Masa", "Masa")
     return name
 
 

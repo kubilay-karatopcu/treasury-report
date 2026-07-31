@@ -22,6 +22,10 @@ class TestMasaName:
     def test_bare_uzman(self):
         assert masa_name("Uzman") == "Masa"
 
+    def test_name_already_contains_masa(self):
+        # 'FI Masası Uzmanı' → 'FI Masası Masası' ikilenmesi (2026-07-31)
+        assert masa_name("FI Masası Uzmanı") == "FI Masası"
+
     def test_no_uzman_untouched(self):
         assert masa_name("Hazine Masası") == "Hazine Masası"
         assert masa_name("Fonlama") == "Fonlama"
