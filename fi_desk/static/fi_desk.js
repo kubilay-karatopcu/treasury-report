@@ -31,12 +31,6 @@
     setTimeout(() => t.classList.remove("is-open"), 3500);
   }
 
-  function ddmmyyyy(iso) {
-    if (!iso) return "";
-    const [y, m, d] = iso.split("-");
-    return `${d}.${m}.${y}`;
-  }
-
   function fieldValue(key) {
     const el = els[key];
     if (!el) return null;
@@ -55,26 +49,27 @@
     return MATRIX.products[PRODUCT].fields;
   }
 
-  /* ── tarih overlay'i (GG.AA.YYYY) ─────────────────────────────────── */
-  function wrapDate(input) {
-    const wrap = document.createElement("span");
-    wrap.className = "fi-datewrap is-empty";
-    input.parentNode.insertBefore(wrap, input);
-    wrap.appendChild(input);
-    const ov = document.createElement("span");
-    ov.className = "fi-dateoverlay";
-    wrap.appendChild(ov);
-    const sync = () => {
-      // Boşken de overlay durur ("gg.aa.yyyy" iskeleti) — native input'un
-      // tarayıcı diline göre bastığı mm/dd/yyyy iskeleti HİÇ görünmez
-      // (CUSTOM_PAGE_DESIGN §2b: GG.AA.YYYY istisnasız; 2026-07-31 bulgusu).
-      ov.textContent = input.value ? ddmmyyyy(input.value) : "gg.aa.yyyy";
-      wrap.classList.toggle("is-empty", !input.value);
-    };
-    input.addEventListener("focus", () => wrap.classList.add("is-editing"));
-    input.addEventListener("blur", () => { wrap.classList.remove("is-editing"); sync(); });
-    input.addEventListener("input", sync);
-    sync();
+  /* ── tarih: flatpickr — görünen input DAİMA GG.AA.YYYY ─────────────
+     (CUSTOM_PAGE_DESIGN §2b dock'suz tarif, MVP.initDatePicker ile aynı:
+     altInput d.m.Y kullanıcıya, gerçek input ISO Y-m-d bize. Native date
+     input'un tarayıcı-diline-bağlı mm/dd/yyyy segmentleri devre dışı.
+     flatpickr yüklenemezse native'e düşer — form yine çalışır.) */
+  function initDate(input, defaultValue) {
+    if (defaultValue) input.value = String(defaultValue).slice(0, 10);
+    if (typeof window.flatpickr !== "function") return;
+    input._fp = window.flatpickr(input, {
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "d.m.Y",
+      allowInput: true,
+      disableMobile: true,
+    });
+    if (input.disabled && input._fp.altInput) input._fp.altInput.disabled = true;
+  }
+
+  function setDateVal(input, iso) {
+    if (input._fp) input._fp.setDate(iso || "", false);
+    input.value = iso || "";
   }
 
   /* ── alan üretimi ─────────────────────────────────────────────────── */
@@ -154,7 +149,7 @@
 
     els[key] = el;
     wraps[key] = wrap;
-    if (meta.input === "date") wrapDate(el);
+    if (meta.input === "date") initDate(el);
     el.addEventListener("change", onFieldChange);
     return wrap;
   }
@@ -280,12 +275,12 @@
     tr.querySelector(".fi-sched-remove").addEventListener("click", () => tr.remove());
     tr.querySelectorAll("input").forEach((i) => { i.disabled = !FI_CAN_ENTER; });
     if (values) {
-      tr.querySelector(".fi-sched-dt").value = String(values.PAY_DT || "").slice(0, 10);
       if (values.PRINCIPAL_AMT != null) tr.querySelector(".fi-sched-pr").value = values.PRINCIPAL_AMT;
       if (values.INTEREST_AMT != null) tr.querySelector(".fi-sched-in").value = values.INTEREST_AMT;
     }
-    wrapDate(tr.querySelector(".fi-sched-dt"));
     $("fi-sched-body").appendChild(tr);
+    initDate(tr.querySelector(".fi-sched-dt"),
+             values ? values.PAY_DT : null);
     return tr;
   }
 
@@ -391,8 +386,7 @@
       const v = ev[k];
       if (v == null || v === "") return;
       if (meta.input === "date") {
-        els[k].value = String(v).slice(0, 10);
-        els[k].dispatchEvent(new Event("input")); // GG.AA.YYYY overlay senkronu
+        setDateVal(els[k], String(v).slice(0, 10));
       } else {
         els[k].value = String(v);
       }

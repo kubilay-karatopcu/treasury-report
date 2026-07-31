@@ -14,6 +14,7 @@
 {% block title %}FI Masası – Veri Girişi{% endblock %}
 
 {% block head %}
+<link rel="stylesheet" href="{{ url_for('fi_desk.static', filename='vendor/flatpickr.min.css') }}">
 <style>
 /* R10 — uygulama sayfaları TAM genişlik (flex auto-margin tuzağı:
    max-width:none tek başına yetmez, margin sıfırlanıp width verilmeli —
@@ -46,19 +47,30 @@ body.prisma .canvas {
 .fi-req { color: var(--red); margin-left: 2px; }
 .fi-auto-note { font-size: 10px; color: var(--ink-faint); }
 
-/* GG.AA.YYYY overlay'i (CUSTOM_PAGE_DESIGN §2b — dock'suz bağlam).
-   Odakta .is-editing ile overlay gizlenir, gerçek input metni görünür.
-   BOŞKEN DE overlay durur ("gg.aa.yyyy" iskeleti, soluk) — native input'un
-   tarayıcı diline göre bastığı mm/dd/yyyy asla görünmez. */
-.fi-datewrap { position: relative; display: block; }
-.fi-datewrap .fi-dateoverlay {
-  position: absolute; inset: 1px 28px 1px 1px;
-  display: flex; align-items: center; padding-left: 9px;
-  pointer-events: none; font-size: 12px; color: var(--ink);
-  background: var(--bg-1); border-radius: 3px;
+/* Tarihler: flatpickr (CUSTOM_PAGE_DESIGN §2b — dock'suz bağlamın resmi
+   çözümü, MVP.initDatePicker ile aynı tarif). Görünen input DAİMA GG.AA.YYYY
+   yazar/gösterir (altInput d.m.Y), gerçek değer ISO kalır. Native date
+   input'un tarayıcı diline bağlı mm/dd/yyyy iskeleti tamamen devre dışı.
+   Takvim koyu tema: kit token'larına bağlandı (mevduat deseni). */
+.flatpickr-calendar {
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
 }
-.fi-datewrap.is-empty .fi-dateoverlay { color: var(--ink-faint); }
-.fi-datewrap.is-editing .fi-dateoverlay { display: none; }
+.flatpickr-calendar.arrowTop:before, .flatpickr-calendar.arrowTop:after,
+.flatpickr-calendar.arrowBottom:before, .flatpickr-calendar.arrowBottom:after { display: none; }
+.flatpickr-months, .flatpickr-weekdays { background: var(--bg-2); }
+.flatpickr-month, .flatpickr-current-month,
+.flatpickr-current-month .numInputWrapper input,
+span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
+.flatpickr-monthDropdown-months { background: var(--bg-2); color: var(--ink); }
+.flatpickr-prev-month svg, .flatpickr-next-month svg { fill: var(--ink-mute); }
+.flatpickr-day { color: var(--ink-soft); border-color: transparent; border-radius: 4px; }
+.flatpickr-day:hover { background: var(--bg-1); border-color: transparent; }
+.flatpickr-day.today { border-color: var(--gold); }
+.flatpickr-day.selected, .flatpickr-day.selected:hover {
+  background: var(--gold); border-color: var(--gold); color: var(--bg-1);
+}
+.flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay { color: var(--ink-faint); }
 
 /* Ödeme planı tablosu — kit pk-table üstüne yalnız giriş hücresi ayarı. */
 .fi-sched-table input { width: 100%; min-width: 110px; }
@@ -154,5 +166,6 @@ body.prisma .canvas {
 <script>
   const FI_CAN_ENTER = {{ can_enter | tojson }};
 </script>
-<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=1"></script>
+<script src="{{ url_for('fi_desk.static', filename='vendor/flatpickr.min.js') }}"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=2"></script>
 {% endblock %}
