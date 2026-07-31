@@ -1,0 +1,185 @@
+{# FI Masası — İşlemler (Faz 2, docs/FI_DESK_SPEC.md §6).
+   Kabuk + AG Grid teması deposit_panel/reservations.html'in birebir deseni
+   (PRISMA token köprüsü; vendor asset'ler deposit_panel.static'ten gelir —
+   iki modül de app.py'de birlikte kayıtlıdır, CLAUDE.md CDN kuralı gereği
+   vendor yolu kullanılır). Satır tıklaması detay overlay'i açar: event
+   timeline + ödeme planı + Düzenle / Onayla / Reddet aksiyonları. Overlay
+   document.body'de yaşar; ✕ / Esc / dış tık üçlüsüyle kapanır
+   (CUSTOM_PAGE_DESIGN modal spec'i). #}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set hide_mode_switch = True %}
+{% set crumb = "Uygulamalar · FI Masası · İşlemler" %}
+
+{% block title %}FI Masası – İşlemler{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-grid.css') }}">
+<link rel="stylesheet" href="{{ url_for('deposit_panel.static', filename='vendor/ag-theme-alpine.css') }}">
+<style>
+/* R10 — uygulama sayfaları TAM genişlik (flex auto-margin tuzağı —
+   docs/CUSTOM_PAGE_DESIGN.md §7). */
+body.prisma .canvas {
+  max-width: none !important;
+  margin: 0 !important;
+  width: 100%;
+  /* entry.html ile aynı ferah yatay padding (2026-07-31; !important —
+     kabuk css'i head bloğundan sonra yüklenip padding'i ezebiliyor) */
+  padding: 40px clamp(48px, 7vw, 170px) 80px !important;
+}
+
+/* AG Grid → PRISMA token köprüsü (reservations.html ile aynı blok). */
+.ag-theme-alpine {
+    --ag-header-height: 38px;
+    --ag-row-height: 34px;
+    --ag-font-size: 12px;
+    --ag-font-family: var(--mono);
+    --ag-background-color: var(--bg-1);
+    --ag-odd-row-background-color: var(--bg-1);
+    --ag-header-background-color: var(--bg-2);
+    --ag-header-foreground-color: var(--ink-faint);
+    --ag-foreground-color: var(--ink-soft);
+    --ag-border-color: var(--border-soft);
+    --ag-row-border-color: var(--border-soft);
+    --ag-row-hover-color: var(--bg-2);
+    --ag-control-panel-background-color: var(--bg-1);
+    --ag-side-button-selected-background-color: var(--bg-2);
+    --ag-selected-row-background-color: var(--bg-2);
+    --ag-input-focus-border-color: var(--gold);
+    --ag-alpine-active-color: var(--gold);
+    --ag-borders: 1px solid;
+    --ag-border-radius: 0;
+    --ag-wrapper-border-radius: 0;
+}
+.ag-theme-alpine .ag-row { cursor: pointer; }
+
+/* Detay overlay'i — body'ye portallanır (dış tık / Esc / ✕ kapatır). */
+.fi-ov {
+  position: fixed; inset: 0; z-index: 1000; display: none;
+  background: rgba(0,0,0,.55); padding: 4vh 5vw; overflow: auto;
+}
+.fi-ov.is-open { display: flex; }
+.fi-ov__inner {
+  margin: auto; width: min(1100px, 100%);
+  background: var(--bg-1); border: 1px solid var(--border-soft);
+  padding: 20px 22px 26px; max-height: calc(100vh - 8vh); overflow: auto;
+}
+.fi-ov__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.fi-ov__close { cursor: pointer; background: none; border: 1px solid var(--border-soft);
+  color: var(--ink-soft); padding: 4px 10px; font-size: 13px; }
+.fi-tl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.fi-tl th { text-align: left; font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-faint); padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft); }
+.fi-tl td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft);
+  color: var(--ink-soft); vertical-align: top; }
+.fi-tl .is-pending { color: var(--gold); }
+.fi-tl .is-rejected { color: var(--red); }
+.fi-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Güncel durum künyesi: iki kolonlu (etiket-değer × 2) — modal kısalır */
+.fi-dl-2col { grid-template-columns: auto 1fr auto 1fr; column-gap: 22px; }
+
+/* Bekleyen değişiklik karşılaştırması: eski değer üstü çizili, yenisi vurgulu */
+.fi-diff-old { text-decoration: line-through; color: var(--ink-faint); margin-right: 6px; }
+.fi-diff-new { color: var(--gold); }
+.fi-ov__loading { padding: 40px 0; text-align: center; color: var(--ink-mute); font-size: 13px; }
+
+/* Meşgul overlay'i (onay/red vb. — JS #fi-busy'yi üretir) */
+#fi-busy {
+  position: fixed; inset: 0; z-index: 2000; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .55);
+}
+#fi-busy .fi-busy-box {
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  padding: 18px 28px; font-size: 13px; color: var(--ink);
+  letter-spacing: .04em;
+}
+.fi-grid-edit-btn {
+  cursor: pointer; background: none; border: 1px solid var(--border-soft);
+  color: var(--ink-soft); padding: 2px 9px; font-size: 12px; border-radius: 3px;
+}
+.fi-grid-edit-btn:hover { color: var(--gold); border-color: var(--gold); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pk-page">
+  <div class="pk-head">
+    <div>
+      <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
+      <h2>İşlemler</h2>
+    </div>
+    <div class="pk-meta" id="grid-info">—</div>
+  </div>
+
+  <div class="pk-grid">
+    <div class="pk-card">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Kayıtlar</span>
+        <span style="display:flex; gap:8px; align-items:center;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);">
+            <input type="checkbox" id="chk-pending-only"> Yalnız onay bekleyenler
+          </label>
+          {% if can_enter %}
+          <a class="pk-btn pk-btn--sm pk-btn--primary" href="{{ url_for('fi_desk.entry') }}">+ Yeni Giriş</a>
+          {% endif %}
+          <button class="pk-btn pk-btn--sm" id="btn-refresh">Yenile</button>
+        </span>
+      </div>
+      <div id="fi-grid" class="ag-theme-alpine" style="height: 640px; width: 100%; margin-top: 10px;"></div>
+    </div>
+  </div>
+</div>
+
+{# Detay overlay'i script'te document.body'ye taşınır (portal — mount
+   atalarının position'ı fixed'i şaşırtmasın, CUSTOM_PAGE_DESIGN §6). #}
+<div class="fi-ov" id="fi-ov">
+  <div class="fi-ov__inner">
+    <div class="fi-ov__top">
+      <div>
+        <div class="pk-eyebrow" id="ov-eyebrow">—</div>
+        <h3 style="margin:2px 0 0;" id="ov-title">—</h3>
+        <div class="pk-sub" id="ov-sub"></div>
+      </div>
+      <div class="fi-actions">
+        <a class="pk-btn pk-btn--sm" id="ov-edit" style="display:none;">Düzenle</a>
+        <button class="fi-ov__close" id="ov-close" title="Kapat">✕</button>
+      </div>
+    </div>
+    <hr class="pk-rule">
+    <div class="pk-grid">
+      {# Güncel durum DAİMA EN ÜSTTE, tam genişlik, iki kolonlu künye #}
+      <div class="pk-card">
+        <div class="pk-card__head"><span class="pk-card__title" id="ov-current-title">Güncel Durum (onaylı)</span></div>
+        <dl class="pk-dl fi-dl-2col" id="ov-current" style="margin-top:10px;"></dl>
+      </div>
+      {# Ödeme planı yalnız plan VARSA görünür (boşken yer kaplamaz) #}
+      <div class="pk-card" id="ov-sched-card" style="display:none;">
+        <div class="pk-card__head"><span class="pk-card__title">Ödeme Planı</span>
+          <span class="pk-card__note" id="ov-sched-note"></span></div>
+        <div class="pk-table-wrap"><table class="pk-table" id="ov-sched"></table></div>
+      </div>
+      <div class="pk-card">
+        <div class="pk-card__head"><span class="pk-card__title">Geçmiş</span></div>
+        <div class="pk-table-wrap">
+          <table class="fi-tl" id="ov-timeline"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-msg" class="pk-toast" role="alert"><span id="toast-body"></span></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('deposit_panel.static', filename='vendor/ag-grid-enterprise.min.noStyle.js') }}"></script>
+<script id="fi-endpoints" type="application/json">{{ endpoints|tojson }}</script>
+<script>
+  const FI_CAN_ENTER = {{ can_enter | tojson }};
+  const FI_CAN_APPROVE = {{ can_approve | tojson }};
+</script>
+<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=3"></script>
+{% endblock %}

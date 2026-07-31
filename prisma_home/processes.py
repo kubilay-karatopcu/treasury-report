@@ -609,6 +609,53 @@ PROCESS_REGISTRY: dict[str, dict] = {
         },
         "blocks": [],
     },
+    "uygulamalar.fi_veri_girisi": {
+        "label": "FI Masası — Veri Girişi",
+        "desc": "Borçlanma / teklif kaydı · onay akışı · ürün bazlı form",
+        "endpoint": "fi_desk.entry", "config_flag": "FI_DESK_ENABLED",
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "FI masasının (Muhabir Bankacılık ve Yapılandırılmış "
+                       "Fonlama) borçlanma işlemlerini — teklif, kazanım/kayıp, "
+                       "revizyon — ürün bazlı dinamik formla kayıt altına alır; "
+                       "kayıtlar onaycıya düşer.",
+            "business_context": "Masa bünyesindeki işler bugüne dek ekipte "
+                       "Excel'de tutuluyordu; bu araç aynı matrisin (ürün × "
+                       "alan) doğrulanmış, zaman damgalı ve onaylı veri "
+                       "tabanı karşılığıdır (docs/FI_DESK_SPEC.md).",
+            "decision_support": "Onaylanan kayıtlar V_FI_OFFER_CURRENT "
+                       "üzerinden dashboard'lara akar; teklif→kazanım hunisi, "
+                       "maliyet karşılaştırması ve lender kırılımı buradan "
+                       "beslenir.",
+            "known_limitations": "Yazma FI_LU_USER rol tablosuna bağlıdır "
+                       "(ENTRY girer, APPROVER onaylar); lookup listeleri "
+                       "uygulamadan düzenlenemez, dış süreçle güncellenir.",
+        },
+        "blocks": [],
+    },
+    "uygulamalar.fi_islemler": {
+        "label": "FI Masası — İşlemler",
+        "desc": "Kayıt listesi · event geçmişi · düzenleme · onay akışı",
+        "endpoint": "fi_desk.records", "config_flag": "FI_DESK_ENABLED",
+        "source_kind": "custom", "owner": "A16438",
+        "documentation": {
+            "purpose": "FI masası kayıtlarını teklif bazında listeler (onaylı "
+                       "son durum + bekleyen değişiklikler), satır detayında "
+                       "zaman damgalı event geçmişini gösterir; düzenleme ve "
+                       "onay/red aksiyonları buradan yürür.",
+            "business_context": "Veri girişi ekranının operasyonel karşılığı: "
+                       "girilen her kayıt burada izlenir, statü akışı "
+                       "(BIDDING→WON/LOST→REALIZED) buradan yönetilir.",
+            "decision_support": "Teklif→kazanım hunisi ve bekleyen onaylar tek "
+                       "ekranda; agregat dashboard'larda görülen anomalinin "
+                       "tekil kaydına inilir.",
+            "known_limitations": "Düzenleme yeni PENDING event üretir — onay "
+                       "gelene dek raporlamadaki güncel durum değişmez. Onay "
+                       "APPROVER rolü ister; kendi kaydını onaylama kısıtı "
+                       "v1'de yoktur (docs/FI_DESK_SPEC.md §5).",
+        },
+        "blocks": [],
+    },
     "mevduat.bsc": {
         "label": "BSC Presentation",
         "desc": "Full-screen presentation mode · deposit & sector slide set",

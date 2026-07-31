@@ -1,0 +1,198 @@
+{# FI Masası — Veri Girişi (Faz 1, docs/FI_DESK_SPEC.md §6).
+   Kabuk deseni deposit_panel/params.html ile aynı: PRISMA _base + kit.css
+   pk-* bileşenleri; sayfa kendi kart/buton/alan stilini TANIMLAMAZ.
+   Form alanları fi_desk.js tarafından field_matrix.json'dan (bootstrap
+   API) dinamik çizilir — ürün seçilince o ürünün bölümleri açılır
+   (drill-down), koşullu alanlar cevaba göre belirir, otomatik alanlar
+   lookup'tan dolar. Tarihler GG.AA.YYYY overlay'i ile gösterilir
+   (CUSTOM_PAGE_DESIGN §2b — odakta overlay gizlenir, blur'da döner). #}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set hide_mode_switch = True %}
+{% set crumb = "Uygulamalar · FI Masası · Veri Girişi" %}
+
+{% block title %}FI Masası – Veri Girişi{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('fi_desk.static', filename='vendor/flatpickr.min.css') }}">
+<style>
+/* R10 — uygulama sayfaları TAM genişlik (flex auto-margin tuzağı:
+   max-width:none tek başına yetmez, margin sıfırlanıp width verilmeli —
+   docs/CUSTOM_PAGE_DESIGN.md §7). */
+body.prisma .canvas {
+  max-width: none !important;
+  margin: 0 !important;
+  width: 100%;
+  /* 2026-07-31 saha isteği: form kenarlara yapışmasın — yatay padding geniş.
+     !important: kabuk css'leri head bloğundan sonra yükleniyor, padding'i
+     eziyordu (ilk turda boşluklar ekrana yansımadı). */
+  padding: 40px clamp(48px, 7vw, 170px) 80px !important;
+}
+
+/* Bölüm kartları arası nefes (dip dibe duruyordu) */
+.pk-page .pk-grid { row-gap: 34px !important; }
+
+/* Form ızgarası: alanlar kart içinde responsive kolonlara akar.
+   align-items:end → etiket 1-2 satır fark etse de INPUT'lar aynı alt
+   hizada durur (alt üst görünümü bitirir); kolonlar geniş, aralar ferah. */
+.fi-fields {
+  display: grid; gap: 18px 26px; margin-top: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-items: end;
+}
+.fi-fields .pk-field { min-width: 0; }
+.fi-fields .pk-field.is-wide { grid-column: 1 / -1; }
+/* Etiketler kit varsayılanından daha okunur (soluk kalıyordu) */
+.pk-page .pk-label { color: var(--ink-soft); }
+.fi-req { color: var(--red); margin-left: 2px; }
+.fi-auto-note { font-size: 10px; color: var(--ink-faint); }
+
+/* Tarihler: flatpickr (CUSTOM_PAGE_DESIGN §2b — dock'suz bağlamın resmi
+   çözümü, MVP.initDatePicker ile aynı tarif). Görünen input DAİMA GG.AA.YYYY
+   yazar/gösterir (altInput d.m.Y), gerçek değer ISO kalır. Native date
+   input'un tarayıcı diline bağlı mm/dd/yyyy iskeleti tamamen devre dışı.
+   Takvim koyu tema: kit token'larına bağlandı (mevduat deseni). */
+.flatpickr-calendar {
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.flatpickr-calendar.arrowTop:before, .flatpickr-calendar.arrowTop:after,
+.flatpickr-calendar.arrowBottom:before, .flatpickr-calendar.arrowBottom:after { display: none; }
+.flatpickr-months, .flatpickr-weekdays { background: var(--bg-2); }
+.flatpickr-month, .flatpickr-current-month,
+.flatpickr-current-month .numInputWrapper input,
+span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
+.flatpickr-monthDropdown-months { background: var(--bg-2); color: var(--ink); }
+.flatpickr-prev-month svg, .flatpickr-next-month svg { fill: var(--ink-mute); }
+.flatpickr-day { color: var(--ink-soft); border-color: transparent; border-radius: 4px; }
+.flatpickr-day:hover { background: var(--bg-1); border-color: transparent; }
+.flatpickr-day.today { border-color: var(--gold); }
+.flatpickr-day.selected, .flatpickr-day.selected:hover {
+  background: var(--gold); border-color: var(--gold); color: var(--bg-1);
+}
+.flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay { color: var(--ink-faint); }
+
+/* Aranabilir dropdown (combobox) — 8+ seçenekli select'lerde yazarak
+   filtreleme; select DOM'da gizli durur ve tek otorite kalır. */
+.fi-combo { position: relative; }
+.fi-combo-list {
+  position: absolute; z-index: 60; top: 100%; left: 0; right: 0;
+  max-height: 240px; overflow: auto; display: none;
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  box-shadow: 0 8px 20px rgba(0,0,0,.4);
+}
+.fi-combo.is-open .fi-combo-list { display: block; }
+.fi-combo-item {
+  padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--ink-soft);
+}
+.fi-combo-item:hover, .fi-combo-item.is-active {
+  background: var(--bg-1); color: var(--ink);
+}
+
+/* Meşgul overlay'i — gönderim / edit yüklemesi sırasında tüm sayfayı
+   kilitler (çift tıklama / yarım kayıt önlenir). JS #fi-busy'yi üretir. */
+#fi-busy {
+  position: fixed; inset: 0; z-index: 2000; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .55);
+}
+#fi-busy .fi-busy-box {
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  padding: 18px 28px; font-size: 13px; color: var(--ink);
+  letter-spacing: .04em;
+}
+
+/* Ödeme planı tablosu — kit pk-table üstüne yalnız giriş hücresi ayarı. */
+.fi-sched-table input { width: 100%; min-width: 110px; }
+.fi-sched-remove { cursor: pointer; color: var(--red); background: none; border: none; }
+
+/* Hata listesi */
+.fi-errors { margin: 10px 0 0; padding: 0; list-style: none; }
+.fi-errors li { font-size: 12px; color: var(--red); padding: 2px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pk-page">
+  <div class="pk-head">
+    <div>
+      <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
+      <h2>Veri Girişi</h2>
+    </div>
+    {% if not can_enter %}
+    <div class="pk-meta">salt okunur — ENTRY rolü gerekli</div>
+    {% endif %}
+  </div>
+
+  <div class="pk-grid">
+    <!-- Adım 1: işlem kimliği (drill-down başlangıcı) -->
+    <div class="pk-card">
+      <div class="pk-card__head">
+        <span class="pk-card__title">İşlem Kimliği</span>
+      </div>
+      <div class="fi-fields">
+        <div class="pk-field">
+          <span class="pk-label">Borrower Bank<span class="fi-req">*</span></span>
+          <select class="pk-input" id="f-borrower" disabled></select>
+        </div>
+        <div class="pk-field">
+          <span class="pk-label">Product Type<span class="fi-req">*</span></span>
+          <select class="pk-input" id="f-product" disabled>
+            <option value="">— seçin —</option>
+          </select>
+        </div>
+        <div class="pk-field is-wide">
+          <span class="pk-label">Deal Açıklaması</span>
+          <input type="text" class="pk-input" id="f-label" maxlength="256" disabled>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Adım 2+: ürün matrisine göre dinamik bölümler (fi_desk.js çizer) -->
+  <div class="pk-grid" id="fi-sections" style="margin-top:34px;"></div>
+
+  <!-- Ödeme planı (yalnız Amortized'da görünür) -->
+  <div class="pk-grid" id="fi-schedule-wrap" style="margin-top:34px; display:none;">
+    <div class="pk-card">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Ödeme Planı</span>
+        <span class="pk-card__note">Amortized — tarih · anapara · faiz</span>
+      </div>
+      <div class="pk-table-wrap">
+        <table class="pk-table fi-sched-table">
+          <thead>
+            <tr><th style="text-align:left;">Tarih</th><th>Anapara</th><th>Faiz</th><th></th></tr>
+          </thead>
+          <tbody id="fi-sched-body"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;">
+        <button type="button" class="pk-btn" id="btn-sched-add">+ Satır Ekle</button>
+      </div>
+    </div>
+  </div>
+
+  <ul class="fi-errors" id="fi-errors"></ul>
+
+  <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:16px;">
+    <span class="pk-status" id="fi-status"></span>
+    <button class="pk-btn pk-btn--primary" id="btn-submit" disabled>
+      Onaya Gönder
+    </button>
+  </div>
+
+  <div id="toast-msg" class="pk-toast" role="alert">
+    <span id="toast-body">Kaydedildi.</span>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="fi-endpoints" type="application/json">{{ endpoints|tojson }}</script>
+<script>
+  const FI_CAN_ENTER = {{ can_enter | tojson }};
+</script>
+<script src="{{ url_for('fi_desk.static', filename='vendor/flatpickr.min.js') }}"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=4"></script>
+{% endblock %}

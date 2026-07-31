@@ -1,0 +1,1128 @@
+{
+  "version": 3,
+  "source": "Dashboard_Data_Tools.xlsx / Input (2026-07-30)",
+  "requirement_codes": {
+    "R": "zorunlu",
+    "O": "opsiyonel",
+    "-": "üründe yok"
+  },
+  "sections": [
+    {
+      "id": "deal",
+      "title": "Deal"
+    },
+    {
+      "id": "lender",
+      "title": "Lender Details"
+    },
+    {
+      "id": "offer",
+      "title": "Offer Details"
+    },
+    {
+      "id": "underlying",
+      "title": "Underlying Transaction"
+    },
+    {
+      "id": "esg",
+      "title": "ESG Metrics"
+    }
+  ],
+  "fields": {
+    "BORROWER_BANK": {
+      "label": "Borrower Bank",
+      "section": "deal",
+      "input": "lookup_bank",
+      "storage": "deal",
+      "default": "self_bank",
+      "bank_role": "borrower"
+    },
+    "PRODUCT_TYPE": {
+      "label": "Product Type",
+      "section": "deal",
+      "input": "product_type",
+      "storage": "deal"
+    },
+    "DEAL_STATUS": {
+      "label": "Deal Status",
+      "section": "deal",
+      "input": "enum",
+      "storage": "event",
+      "options": [
+        "BIDDING",
+        "WON",
+        "LOST"
+      ]
+    },
+    "REPORTING_STATUS": {
+      "label": "Reporting Status",
+      "section": "deal",
+      "input": "readonly",
+      "storage": "derived"
+    },
+    "LENDER_BANK": {
+      "label": "Lender Bank (Investor)",
+      "section": "lender",
+      "input": "lookup_bank",
+      "storage": "event",
+      "bank_role": "lender"
+    },
+    "LENDER_COUNTRY": {
+      "label": "Lender Country",
+      "section": "lender",
+      "input": "list",
+      "storage": "event",
+      "list": "COUNTRY"
+    },
+    "LENDER_REGION": {
+      "label": "Lender Region",
+      "section": "lender",
+      "input": "auto",
+      "storage": "event"
+    },
+    "GROUP_COMPANY": {
+      "label": "Group Company",
+      "section": "lender",
+      "input": "auto",
+      "storage": "event"
+    },
+    "GROUP_COMPANY_COUNTRY": {
+      "label": "Group Company Country",
+      "section": "lender",
+      "input": "auto",
+      "storage": "event"
+    },
+    "GROUP_COMPANY_REGION": {
+      "label": "Group Company Region",
+      "section": "lender",
+      "input": "auto",
+      "storage": "event"
+    },
+    "OFFER_DT": {
+      "label": "Offer Date",
+      "section": "offer",
+      "input": "date",
+      "storage": "event"
+    },
+    "CURRENCY": {
+      "label": "Currency",
+      "section": "offer",
+      "input": "list",
+      "storage": "event",
+      "list": "CURRENCY"
+    },
+    "FUNDING_AMT": {
+      "label": "Funding Amount",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "USD_EQV": {
+      "label": "USD eqv.",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "VALUE_DT": {
+      "label": "Value Date",
+      "section": "offer",
+      "input": "date",
+      "storage": "event"
+    },
+    "MATURITY_DT": {
+      "label": "Final Maturity Date",
+      "section": "offer",
+      "input": "date",
+      "storage": "event"
+    },
+    "REPAYMENT_SCHEDULE": {
+      "label": "Repayment Schedule",
+      "section": "offer",
+      "input": "list",
+      "storage": "event",
+      "list": "REPAYMENT"
+    },
+    "PAYMENT_PLAN": {
+      "label": "Ödeme Planı (Amortized)",
+      "section": "offer",
+      "input": "schedule",
+      "storage": "subtable"
+    },
+    "TENOR": {
+      "label": "Tenor (gün)",
+      "section": "offer",
+      "input": "readonly",
+      "storage": "derived"
+    },
+    "COVERAGE_FLG": {
+      "label": "Coverage",
+      "section": "offer",
+      "input": "enum",
+      "storage": "event",
+      "options": [
+        "YES",
+        "NO"
+      ]
+    },
+    "COVERAGE_PROVIDER": {
+      "label": "Coverage Provider",
+      "section": "offer",
+      "input": "list",
+      "storage": "event",
+      "list": "COVERAGE_PROVIDER"
+    },
+    "RATE_TYPE": {
+      "label": "Fixed or Floating",
+      "section": "offer",
+      "input": "enum",
+      "storage": "event",
+      "options": [
+        "FIXED",
+        "FLOATING"
+      ]
+    },
+    "FIXED_RATE_BPS": {
+      "label": "Fixed Rate (bps)",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "FLOAT_BASE_RATE": {
+      "label": "Floating Base Rate",
+      "section": "offer",
+      "input": "list",
+      "storage": "event",
+      "list": "BASE_RATE"
+    },
+    "FIXING_DT": {
+      "label": "Floating Base Rate — Fixing Date",
+      "section": "offer",
+      "input": "date",
+      "storage": "event"
+    },
+    "FLOAT_SPREAD_BPS": {
+      "label": "Floating Lender Bank Rate (bps)",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "COVERAGE_RATE_BPS": {
+      "label": "Coverage Rate (bps)",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "FEE": {
+      "label": "Upfront Fee (bps)",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "ADDITIONAL_FEE_COST": {
+      "label": "Additional Fee & Cost",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "ALL_IN_RATE_BPS": {
+      "label": "All-in Rate (bps)",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "ALL_IN_FIXED_USD_RATE": {
+      "label": "All-in Fixed USD Rate",
+      "section": "offer",
+      "input": "number",
+      "storage": "event"
+    },
+    "TRADE_TXN_AMT": {
+      "label": "Trade Transaction Amount",
+      "section": "underlying",
+      "input": "number",
+      "storage": "event"
+    },
+    "TRADE_TXN_CCY": {
+      "label": "Trade Transaction Currency",
+      "section": "underlying",
+      "input": "list",
+      "storage": "event",
+      "list": "CURRENCY"
+    },
+    "SHIPMENT_DT": {
+      "label": "Shipment Date",
+      "section": "underlying",
+      "input": "date",
+      "storage": "event"
+    },
+    "TRADE_PAYMENT_DT": {
+      "label": "Trade Payment Date",
+      "section": "underlying",
+      "input": "date",
+      "storage": "event"
+    },
+    "IMPORTER": {
+      "label": "Importer",
+      "section": "underlying",
+      "input": "list",
+      "storage": "event",
+      "list": "IMPORTER"
+    },
+    "EXPORTER": {
+      "label": "Exporter",
+      "section": "underlying",
+      "input": "list",
+      "storage": "event",
+      "list": "EXPORTER"
+    },
+    "BUSINESS_SEGMENT": {
+      "label": "Business Segment",
+      "section": "underlying",
+      "input": "list",
+      "storage": "event",
+      "list": "BUSINESS_SEGMENT"
+    },
+    "REFERENCE_NO": {
+      "label": "Reference No",
+      "section": "underlying",
+      "input": "text",
+      "storage": "event"
+    },
+    "GOODS_DESC": {
+      "label": "Goods / Underlying Trade",
+      "section": "underlying",
+      "input": "text",
+      "storage": "event"
+    },
+    "SUSTAINABILITY_FLG": {
+      "label": "Sustainability",
+      "section": "esg",
+      "input": "enum",
+      "storage": "event",
+      "options": [
+        "YES",
+        "NO"
+      ]
+    },
+    "ESG_TYPE": {
+      "label": "Type",
+      "section": "esg",
+      "input": "list",
+      "storage": "event",
+      "list": "ESG_TYPE"
+    },
+    "ESG_ELIGIBILITY": {
+      "label": "Eligibility",
+      "section": "esg",
+      "input": "list",
+      "storage": "event",
+      "list": "ESG_ELIGIBILITY",
+      "parent_field": "ESG_TYPE"
+    },
+    "NOTES": {
+      "label": "Notes",
+      "section": "esg",
+      "input": "text",
+      "storage": "event"
+    }
+  },
+  "products": {
+    "TRADE_LOAN": {
+      "label": "Trade Loan",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "R",
+        "GROUP_COMPANY_COUNTRY": "R",
+        "GROUP_COMPANY_REGION": "R",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "R",
+        "COVERAGE_PROVIDER": "R",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "R",
+        "COVERAGE_RATE_BPS": "R",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "O",
+        "TRADE_TXN_AMT": "R",
+        "TRADE_TXN_CCY": "R",
+        "SHIPMENT_DT": "R",
+        "TRADE_PAYMENT_DT": "R",
+        "IMPORTER": "R",
+        "EXPORTER": "R",
+        "BUSINESS_SEGMENT": "R",
+        "REFERENCE_NO": "R",
+        "GOODS_DESC": "R",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "POSTFINANCING": {
+      "label": "Postshipment",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "R",
+        "GROUP_COMPANY_COUNTRY": "R",
+        "GROUP_COMPANY_REGION": "R",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "R",
+        "COVERAGE_PROVIDER": "R",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "R",
+        "COVERAGE_RATE_BPS": "R",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "O",
+        "TRADE_TXN_AMT": "R",
+        "TRADE_TXN_CCY": "R",
+        "SHIPMENT_DT": "R",
+        "TRADE_PAYMENT_DT": "R",
+        "IMPORTER": "R",
+        "EXPORTER": "R",
+        "BUSINESS_SEGMENT": "R",
+        "REFERENCE_NO": "R",
+        "GOODS_DESC": "R",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "STRUCTURED_LC": {
+      "label": "Structured LC",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "R",
+        "GROUP_COMPANY_COUNTRY": "R",
+        "GROUP_COMPANY_REGION": "R",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "R",
+        "COVERAGE_PROVIDER": "R",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "R",
+        "COVERAGE_RATE_BPS": "R",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "O",
+        "TRADE_TXN_AMT": "R",
+        "TRADE_TXN_CCY": "R",
+        "SHIPMENT_DT": "R",
+        "TRADE_PAYMENT_DT": "R",
+        "IMPORTER": "R",
+        "EXPORTER": "R",
+        "BUSINESS_SEGMENT": "R",
+        "REFERENCE_NO": "R",
+        "GOODS_DESC": "R",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "BILATERAL_LOAN": {
+      "label": "Bilateral Loan",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "R",
+        "GROUP_COMPANY_COUNTRY": "R",
+        "GROUP_COMPANY_REGION": "R",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "R",
+        "COVERAGE_PROVIDER": "R",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "R",
+        "COVERAGE_RATE_BPS": "R",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "O",
+        "TRADE_TXN_AMT": "O",
+        "TRADE_TXN_CCY": "O",
+        "SHIPMENT_DT": "O",
+        "TRADE_PAYMENT_DT": "O",
+        "IMPORTER": "O",
+        "EXPORTER": "O",
+        "BUSINESS_SEGMENT": "O",
+        "REFERENCE_NO": "O",
+        "GOODS_DESC": "O",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "MURABAHA": {
+      "label": "Murabaha",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "R",
+        "GROUP_COMPANY_COUNTRY": "R",
+        "GROUP_COMPANY_REGION": "R",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "R",
+        "COVERAGE_PROVIDER": "R",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "R",
+        "COVERAGE_RATE_BPS": "R",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "O",
+        "TRADE_TXN_AMT": "O",
+        "TRADE_TXN_CCY": "O",
+        "SHIPMENT_DT": "O",
+        "TRADE_PAYMENT_DT": "O",
+        "IMPORTER": "O",
+        "EXPORTER": "O",
+        "BUSINESS_SEGMENT": "O",
+        "REFERENCE_NO": "O",
+        "GOODS_DESC": "O",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "SYNDICATED_LOAN": {
+      "label": "Syndicated Loan",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "R",
+        "GROUP_COMPANY_COUNTRY": "R",
+        "GROUP_COMPANY_REGION": "R",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "R",
+        "COVERAGE_PROVIDER": "R",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "R",
+        "COVERAGE_RATE_BPS": "R",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "O",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "CLUB_LOAN": {
+      "label": "Club Loan",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "R",
+        "GROUP_COMPANY_COUNTRY": "R",
+        "GROUP_COMPANY_REGION": "R",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "R",
+        "COVERAGE_PROVIDER": "R",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "R",
+        "COVERAGE_RATE_BPS": "R",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "O",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "MTN_PPS": {
+      "label": "MTN PPs",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "-",
+        "GROUP_COMPANY_COUNTRY": "-",
+        "GROUP_COMPANY_REGION": "-",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "-",
+        "COVERAGE_PROVIDER": "-",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "-",
+        "COVERAGE_RATE_BPS": "-",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "R",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "MTN_DFIS": {
+      "label": "MTN DFIs",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "-",
+        "GROUP_COMPANY_COUNTRY": "-",
+        "GROUP_COMPANY_REGION": "-",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "-",
+        "COVERAGE_PROVIDER": "-",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "-",
+        "COVERAGE_RATE_BPS": "-",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "R",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "DPR": {
+      "label": "DPR",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "-",
+        "GROUP_COMPANY_COUNTRY": "-",
+        "GROUP_COMPANY_REGION": "-",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "-",
+        "COVERAGE_PROVIDER": "-",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "-",
+        "COVERAGE_RATE_BPS": "-",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "R",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "MULTILATERAL": {
+      "label": "Multilateral",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "R",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "R",
+        "LENDER_REGION": "R",
+        "GROUP_COMPANY": "-",
+        "GROUP_COMPANY_COUNTRY": "-",
+        "GROUP_COMPANY_REGION": "-",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "-",
+        "COVERAGE_PROVIDER": "-",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "-",
+        "COVERAGE_RATE_BPS": "-",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "R",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "EUROBOND": {
+      "label": "Eurobond",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "-",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "-",
+        "LENDER_REGION": "-",
+        "GROUP_COMPANY": "-",
+        "GROUP_COMPANY_COUNTRY": "-",
+        "GROUP_COMPANY_REGION": "-",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "-",
+        "COVERAGE_PROVIDER": "-",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "-",
+        "COVERAGE_RATE_BPS": "-",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "R",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "SUBORDINATED_BONDS": {
+      "label": "Subordinated Bonds",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "-",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "-",
+        "LENDER_REGION": "-",
+        "GROUP_COMPANY": "-",
+        "GROUP_COMPANY_COUNTRY": "-",
+        "GROUP_COMPANY_REGION": "-",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "-",
+        "COVERAGE_PROVIDER": "-",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "R",
+        "FIXING_DT": "R",
+        "FLOAT_SPREAD_BPS": "-",
+        "COVERAGE_RATE_BPS": "-",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "R",
+        "ALL_IN_FIXED_USD_RATE": "R",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "R",
+        "ESG_TYPE": "R",
+        "ESG_ELIGIBILITY": "R",
+        "NOTES": "O"
+      }
+    },
+    "FIDUCIARY": {
+      "label": "Fiduciary",
+      "fields": {
+        "BORROWER_BANK": "R",
+        "PRODUCT_TYPE": "R",
+        "DEAL_STATUS": "-",
+        "LENDER_BANK": "R",
+        "LENDER_COUNTRY": "-",
+        "LENDER_REGION": "-",
+        "GROUP_COMPANY": "-",
+        "GROUP_COMPANY_COUNTRY": "-",
+        "GROUP_COMPANY_REGION": "-",
+        "OFFER_DT": "R",
+        "CURRENCY": "R",
+        "FUNDING_AMT": "R",
+        "USD_EQV": "R",
+        "VALUE_DT": "R",
+        "MATURITY_DT": "R",
+        "REPAYMENT_SCHEDULE": "R",
+        "PAYMENT_PLAN": "R",
+        "COVERAGE_FLG": "-",
+        "COVERAGE_PROVIDER": "-",
+        "RATE_TYPE": "R",
+        "FIXED_RATE_BPS": "R",
+        "FLOAT_BASE_RATE": "-",
+        "FIXING_DT": "-",
+        "FLOAT_SPREAD_BPS": "-",
+        "COVERAGE_RATE_BPS": "-",
+        "FEE": "O",
+        "ADDITIONAL_FEE_COST": "O",
+        "ALL_IN_RATE_BPS": "-",
+        "ALL_IN_FIXED_USD_RATE": "-",
+        "TRADE_TXN_AMT": "-",
+        "TRADE_TXN_CCY": "-",
+        "SHIPMENT_DT": "-",
+        "TRADE_PAYMENT_DT": "-",
+        "IMPORTER": "-",
+        "EXPORTER": "-",
+        "BUSINESS_SEGMENT": "-",
+        "REFERENCE_NO": "-",
+        "GOODS_DESC": "-",
+        "SUSTAINABILITY_FLG": "-",
+        "ESG_TYPE": "-",
+        "ESG_ELIGIBILITY": "-",
+        "NOTES": "O"
+      }
+    }
+  },
+  "rules": [
+    {
+      "field": "COVERAGE_PROVIDER",
+      "required_if": {
+        "field": "COVERAGE_FLG",
+        "equals": "YES"
+      }
+    },
+    {
+      "field": "COVERAGE_RATE_BPS",
+      "auto": {
+        "kind": "zero_if",
+        "field": "COVERAGE_FLG",
+        "equals": "NO"
+      }
+    },
+    {
+      "field": "FIXED_RATE_BPS",
+      "required_if": {
+        "field": "RATE_TYPE",
+        "equals": "FIXED"
+      }
+    },
+    {
+      "field": "FLOAT_BASE_RATE",
+      "required_if": {
+        "field": "RATE_TYPE",
+        "equals": "FLOATING"
+      }
+    },
+    {
+      "field": "FIXING_DT",
+      "required_if": {
+        "field": "RATE_TYPE",
+        "equals": "FLOATING"
+      }
+    },
+    {
+      "field": "FIXING_DT",
+      "auto": {
+        "kind": "date_offset",
+        "source_field": "VALUE_DT",
+        "days": -2,
+        "note": "varsayılan value date - 2 takvim günü; elle değiştirilebilir"
+      }
+    },
+    {
+      "field": "FLOAT_SPREAD_BPS",
+      "required_if": {
+        "field": "RATE_TYPE",
+        "equals": "FLOATING"
+      }
+    },
+    {
+      "field": "PAYMENT_PLAN",
+      "required_if": {
+        "field": "REPAYMENT_SCHEDULE",
+        "equals": "AMORTIZED"
+      }
+    },
+    {
+      "field": "ESG_TYPE",
+      "required_if": {
+        "field": "SUSTAINABILITY_FLG",
+        "equals": "YES"
+      }
+    },
+    {
+      "field": "ESG_ELIGIBILITY",
+      "required_if": {
+        "field": "SUSTAINABILITY_FLG",
+        "equals": "YES"
+      }
+    },
+    {
+      "field": "LENDER_REGION",
+      "auto": {
+        "kind": "list_attr",
+        "list": "COUNTRY",
+        "source_field": "LENDER_COUNTRY",
+        "attr": "ATTR1"
+      }
+    },
+    {
+      "field": "GROUP_COMPANY",
+      "auto": {
+        "kind": "bank_attr",
+        "source_field": "LENDER_BANK",
+        "attr": "GROUP_COMPANY"
+      }
+    },
+    {
+      "field": "GROUP_COMPANY_COUNTRY",
+      "auto": {
+        "kind": "bank_attr",
+        "source_field": "LENDER_BANK",
+        "attr": "GROUP_COMPANY_COUNTRY"
+      }
+    },
+    {
+      "field": "GROUP_COMPANY_REGION",
+      "auto": {
+        "kind": "bank_attr",
+        "source_field": "LENDER_BANK",
+        "attr": "GROUP_COMPANY_REGION"
+      }
+    },
+    {
+      "field": "LENDER_COUNTRY",
+      "auto": {
+        "kind": "bank_attr",
+        "source_field": "LENDER_BANK",
+        "attr": "COUNTRY"
+      }
+    },
+    {
+      "field": "ALL_IN_RATE_BPS",
+      "auto": {
+        "kind": "all_in_sum",
+        "note": "FIXED ise FIXED_RATE_BPS, FLOATING ise FLOAT_SPREAD_BPS + COVERAGE_RATE_BPS; kullanıcı üzerine yazabilir"
+      }
+    },
+    {
+      "field": "TENOR",
+      "auto": {
+        "kind": "date_diff",
+        "from": "VALUE_DT",
+        "to": "MATURITY_DT",
+        "note": "Amortized'da WAL raporlama katmanında ödeme planından"
+      }
+    },
+    {
+      "field": "REPORTING_STATUS",
+      "auto": {
+        "kind": "derived_view",
+        "note": "V_FI_OFFER_CURRENT: WON→REALIZED/PENDING (value date), LOST→UNREALIZED, BIDDING→BIDDING, statüsüz ürünler→value date'e göre REALIZED/PENDING"
+      }
+    }
+  ]
+}

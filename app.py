@@ -605,6 +605,22 @@ except Exception:
     app.config["DEPOSIT_PANEL_ENABLED"] = False
     app.logger.exception("deposit_panel blueprint yuklenemedi — modul atlandi")
 
+# Uygulamalar / FI Masasi: veri giris ekrani (docs/FI_DESK_SPEC.md Faz 1).
+# Sema jobs/fi_desk_schema.py ile kurulur; DEV_MODE'da db katmani yerel
+# DuckDB'ye duser (stub DataClient'ta get_connection yok) — form lokalde
+# uctan uca calisir. FI_DESK_SCHEMA bos birakilirsa tablolar BAGLANTI
+# KULLANICISININ semasinda aranir (schema job'u varsayilanda oraya yaratir);
+# tablolar baska semadaysa env ile ver (GRANT'ler de gerekir).
+try:
+    from fi_desk import fi_desk_bp, init_app as fi_desk_init
+
+    fi_desk_init(dc, schema=os.environ.get("FI_DESK_SCHEMA", ""))
+    app.register_blueprint(fi_desk_bp, url_prefix="/fi-desk")
+    app.config["FI_DESK_ENABLED"] = True
+except Exception:
+    app.config["FI_DESK_ENABLED"] = False
+    app.logger.exception("fi_desk blueprint yuklenemedi — modul atlandi")
+
 # Masa modu: tek anahtar. Acikken PRISMA "LLM kullanmiyormus gibi" durur —
 # brifing/blok/surec aciklamalari hesaplanmaz, Atolye gizli/erisilemez,
 # "Uzman" -> "Masa" adlandirilir (prisma_home/masa.py). Varsayilan KAPALI:

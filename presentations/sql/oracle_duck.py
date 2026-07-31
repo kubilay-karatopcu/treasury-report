@@ -120,6 +120,11 @@ def _rewrite_calls(sql: str, fname: str, transform) -> str:
 _ROWNUM_RE = re.compile(r"\)\s*WHERE\s+ROWNUM\s*<=\s*(\d+)", re.IGNORECASE)
 _NVL_RE = re.compile(r"\bNVL\b", re.IGNORECASE)
 _FROM_DUAL_RE = re.compile(r"\s+FROM\s+DUAL\b", re.IGNORECASE)
+# SYSDATE: TRUNC(SYSDATE) → CURRENT_DATE (gün hassasiyeti), çıplak SYSDATE →
+# CURRENT_TIMESTAMP. TRUNC hali ÖNCE koşmalı (fi_desk current sorgusu —
+# REPORTING_STATUS'un value-date kıyası — bu yapıyı kullanır).
+_TRUNC_SYSDATE_RE = re.compile(r"\bTRUNC\s*\(\s*SYSDATE\s*\)", re.IGNORECASE)
+_SYSDATE_RE = re.compile(r"\bSYSDATE\b", re.IGNORECASE)
 
 # Oracle tarih format maskesi → strftime (yalnız kullandığımız parçalar).
 _TOCHAR_FMT = [("YYYY", "%Y"), ("MM", "%m"), ("DD", "%d"),
@@ -192,6 +197,8 @@ def oracle_sql_to_duckdb(sql: str) -> str:
     """Importer SQL'lerinin kullandığı Oracle yapılarını DuckDB'ye çevir."""
     out = _NVL_RE.sub("COALESCE", sql or "")
     out = _FROM_DUAL_RE.sub("", out)
+    out = _TRUNC_SYSDATE_RE.sub("CURRENT_DATE", out)
+    out = _SYSDATE_RE.sub("CURRENT_TIMESTAMP", out)
     out = _ROWNUM_RE.sub(r") LIMIT \1", out)
     out = _rewrite_calls(out, "RATIO_TO_REPORT", _ratio_to_report)
     out = _rewrite_calls(out, "TO_CHAR", _tochar)

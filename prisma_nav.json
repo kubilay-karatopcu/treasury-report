@@ -79,6 +79,13 @@
           { "label": "Mevduat Paneli", "url": "/deposit-panel/params", "icon": "building_bank" },
           { "label": "Rezervasyon Takibi", "url": "/deposit-panel/reservations", "icon": "calendar_check" }
         ]
+      },
+      {
+        "title": "FI Masası",
+        "items": [
+          { "label": "Veri Girişi", "url": "/fi-desk/entry", "icon": "doc" },
+          { "label": "İşlemler", "url": "/fi-desk/records", "icon": "stack" }
+        ]
       }
     ]
   },
