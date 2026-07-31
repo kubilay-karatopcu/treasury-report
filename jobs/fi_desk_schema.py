@@ -66,6 +66,11 @@ sys.path.insert(0, str(REPO_ROOT))
 # ─────────────────────────────────────────────────────────────────────────
 SCHEMA: str | None = None          # None → bağlantı kullanıcısının şeması
 GRANT_TO = "A63837"                # SELECT verilecek kullanıcı(lar); "" → yok
+GRANT_WRITE_TO = ""                # Uygulama (Flask) tablolara BAŞKA bir DB
+                                   # kullanıcısıyla bağlanacaksa o kullanıcı(lar):
+                                   # işlem tablolarına SELECT+INSERT+UPDATE+DELETE,
+                                   # lookup'lara SELECT verilir. Uygulama tabloların
+                                   # sahibiyle bağlanıyorsa (varsayılan senaryo) boş bırak.
 DROP_EXISTING = False              # True → tabloları DROP edip yeniden kurar
 SEED_LOOKUPS = True                # lookup tablolarını örnek setle doldur
 SEED_TEST_DATA = True              # işlem tabloları boşsa örnek işlemler ekle
@@ -329,19 +334,33 @@ def create_tables(con, schema: str) -> None:
     con.commit()
 
 
-def grant_all(con, schema: str, grantees: list[str]) -> None:
-    if not grantees:
+#: Uygulamanın yazdığı tablolar (GRANT_WRITE_TO bunlara tam DML alır).
+WRITE_TABLES = ("FI_DEALS", "FI_OFFERS", "FI_OFFER_EVENTS", "FI_OFFER_SCHEDULE")
+
+
+def grant_all(con, schema: str, grantees: list[str],
+              write_grantees: list[str]) -> None:
+    if not grantees and not write_grantees:
         return
     objects = list(DDL) + ["V_FI_OFFER_CURRENT"]
     cur = con.cursor()
+
+    def _grant(privs: str, obj: str, grantee: str) -> None:
+        try:
+            cur.execute(f"GRANT {privs} ON {schema}.{obj} TO {grantee}")
+            print(f"   ✓ GRANT {privs} ON {schema}.{obj} TO {grantee}")
+        except Exception as exc:
+            print(f"   ✗ grant başarısız ({schema}.{obj} → {grantee}): {exc}")
+
     try:
         for obj in objects:
             for grantee in grantees:
-                try:
-                    cur.execute(f"GRANT SELECT ON {schema}.{obj} TO {grantee}")
-                    print(f"   ✓ GRANT SELECT ON {schema}.{obj} TO {grantee}")
-                except Exception as exc:
-                    print(f"   ✗ grant başarısız ({schema}.{obj} → {grantee}): {exc}")
+                _grant("SELECT", obj, grantee)
+        for grantee in write_grantees:
+            for obj in objects:
+                privs = ("SELECT, INSERT, UPDATE, DELETE"
+                         if obj in WRITE_TABLES else "SELECT")
+                _grant(privs, obj, grantee)
         con.commit()
     finally:
         cur.close()
@@ -545,9 +564,10 @@ def main() -> int:
         create_tables(con, schema)
 
         grantees = _as_list(GRANT_TO)
-        if grantees:
+        write_grantees = _as_list(GRANT_WRITE_TO)
+        if grantees or write_grantees:
             print("── Grant")
-            grant_all(con, schema, grantees)
+            grant_all(con, schema, grantees, write_grantees)
 
         if SEED_LOOKUPS:
             print("── Lookup seed (YER TUTUCU — mapping excelleri gelince yenilenir)")

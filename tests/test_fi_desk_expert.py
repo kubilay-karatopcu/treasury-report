@@ -69,6 +69,31 @@ def test_process_ids_registered():
         assert PROCESS_REGISTRY[pid]["config_flag"] == "FI_DESK_ENABLED"
 
 
+class TestMasaLandingFlatList:
+    """Masa modunda landing TEK DÜZ 'Masalar' listesi (kullanıcı kararı
+    2026-07-31): hero + 'Diğer Masalar' ayrımı yok, yetkili olunan tüm
+    masalar (dep + fi) aynı ızgarada. Uzman (Atölye) modu eski tasarımda."""
+
+    def test_masa_mode_single_flat_section(self, auth_client, flask_app):
+        flask_app.config["PRISMA_MASA_MODE"] = True
+        try:
+            body = auth_client.get("/").data.decode("utf-8")
+        finally:
+            flask_app.config["PRISMA_MASA_MODE"] = False
+        assert "Diğer Masalar" not in body
+        # CSS tanımı style bloğunda durur; hero ELEMENTİ çizilmemeli
+        assert '<a class="expert-featured-c"' not in body
+        assert ">Masalar<" in body
+        assert 'data-domain="dep"' in body
+        assert 'data-domain="fi"' in body
+
+    def test_uzman_mode_keeps_featured_layout(self, auth_client, flask_app):
+        flask_app.config["PRISMA_MASA_MODE"] = False
+        body = auth_client.get("/").data.decode("utf-8")
+        assert "expert-featured" in body
+        assert "Uzmanların" in body
+
+
 def test_dashboards_job_binds_fi_expert():
     src = (REPO / "jobs" / "fi_desk_dashboards.py").read_text("utf-8")
     assert 'EXPERTS: list[str] | str = ["fi"]' in src

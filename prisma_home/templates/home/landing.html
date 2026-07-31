@@ -70,11 +70,30 @@
     <span class="gold-rule"></span>
   </div>
 
+  {% if masa_mode %}
+  {# ── Masa modu: TEK DÜZ LİSTE (kullanıcı kararı 2026-07-31) — hero +
+     "Diğer Masalar" ayrımı yok; yetkili olunan TÜM masalar aynı ızgarada
+     eşit kartlarla sıralanır (erişim zaten list_for_user'dan süzülür). #}
+  {% set all_experts = ([featured_expert] if featured_expert else []) + (other_experts or []) %}
+  {% if all_experts %}
+  <div class="section-head">
+    <span class="section-num">01</span>
+    <span class="section-title">Masalar</span>
+    <span class="section-tail"></span>
+  </div>
+  <div class="experts-grid">
+    {% for expert in all_experts %}
+      {% include "home/partials/expert_card.html" %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% else %}
+
   {% if featured_expert %}
   {# ── Featured expert ────────────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">01</span>
-    <span class="section-title">{% if masa_mode %}Masaların{% else %}Uzmanların{% endif %}</span>
+    <span class="section-title">Uzmanların</span>
     <span class="section-tail"></span>
   </div>
 
@@ -115,7 +134,7 @@
   {# ── Other experts (5 cells) ──────────────────────────────────────────── #}
   <div class="section-head">
     <span class="section-num">02</span>
-    <span class="section-title">{% if masa_mode %}Diğer Masalar{% else %}Diğer Uzmanlar{% endif %}</span>
+    <span class="section-title">Diğer Uzmanlar</span>
     <span class="section-tail"></span>
   </div>
 
@@ -125,6 +144,7 @@
     {% endfor %}
   </div>
   {% endif %}
+  {% endif %}{# masa_mode düz liste / uzman modu hero+diğerleri #}
 
   {# Panolar bölümü Faz P0'da kaldırıldı — manuel panolar artık ilgili
      uzmanın "Süreçler" bölümünde listelenir (bound_content.processes). #}

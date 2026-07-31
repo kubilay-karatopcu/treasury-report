@@ -29,6 +29,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 # init_app() doldurur (deposit_panel deseni).
 _dc = None
 _schema: str = ""
+_resolved_schema: str | None = None  # boş şema → bağlantı kullanıcısından çözülür
 
 # DEV backend durumu
 _duck = None
@@ -36,9 +37,10 @@ _duck_lock = threading.RLock()
 
 
 def init(dc, schema: str) -> None:
-    global _dc, _schema
+    global _dc, _schema, _resolved_schema
     _dc = dc
     _schema = (schema or "").strip().rstrip(".")
+    _resolved_schema = None
 
 
 def is_dev() -> bool:
@@ -46,11 +48,30 @@ def is_dev() -> bool:
     return not hasattr(_dc, "get_connection")
 
 
+def _prod_schema() -> str:
+    """Hedef Oracle şeması. FI_DESK_SCHEMA boşsa BAĞLANTI KULLANICISININ
+    şeması kullanılır — jobs/fi_desk_schema.py tabloları varsayılanda oraya
+    yarattığı için doğru adres budur (2026-07-31: sabit 'A16438' varsayılanı
+    farklı kullanıcıda ORA-00942 üretti). İlk kullanımda bir kez çözülür."""
+    global _resolved_schema
+    if _schema:
+        return _schema
+    if _resolved_schema is None:
+        con = _dc.get_connection()
+        try:
+            _resolved_schema = (con.username or "").upper()
+        finally:
+            _dc.drop_connection(con)
+        log.info("fi_desk şeması bağlantı kullanıcısından çözüldü: %s",
+                 _resolved_schema)
+    return _resolved_schema
+
+
 def qualified(table: str) -> str:
     """Tablo adını şema ile niteler; dev DuckDB'de şema yok, ad çıplak kalır."""
-    if is_dev() or not _schema:
+    if is_dev():
         return table
-    return f"{_schema}.{table}"
+    return f"{_prod_schema()}.{table}"
 
 
 def current_relation() -> str:
@@ -61,10 +82,9 @@ def current_relation() -> str:
     jobs/fi_desk_schema.py::CURRENT_SELECT; view varsa da yoksa da uygulama
     aynı SQL'i koşar. FROM {current_relation()} biçiminde kullanılır."""
     defs = _get_schema_defs()
-    prefix = "" if is_dev() or not _schema else f"{_schema}."
     if is_dev():
         return "(" + _oracle_view_to_duckdb(defs.CURRENT_SELECT) + ")"
-    return "(" + defs.CURRENT_SELECT.format(s=prefix) + ")"
+    return "(" + defs.CURRENT_SELECT.format(s=f"{_prod_schema()}.") + ")"
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -608,11 +608,13 @@ except Exception:
 # Uygulamalar / FI Masasi: veri giris ekrani (docs/FI_DESK_SPEC.md Faz 1).
 # Sema jobs/fi_desk_schema.py ile kurulur; DEV_MODE'da db katmani yerel
 # DuckDB'ye duser (stub DataClient'ta get_connection yok) — form lokalde
-# uctan uca calisir. FI_DESK_SCHEMA env'i tablolarin sahibini secer.
+# uctan uca calisir. FI_DESK_SCHEMA bos birakilirsa tablolar BAGLANTI
+# KULLANICISININ semasinda aranir (schema job'u varsayilanda oraya yaratir);
+# tablolar baska semadaysa env ile ver (GRANT'ler de gerekir).
 try:
     from fi_desk import fi_desk_bp, init_app as fi_desk_init
 
-    fi_desk_init(dc, schema=os.environ.get("FI_DESK_SCHEMA", "A16438"))
+    fi_desk_init(dc, schema=os.environ.get("FI_DESK_SCHEMA", ""))
     app.register_blueprint(fi_desk_bp, url_prefix="/fi-desk")
     app.config["FI_DESK_ENABLED"] = True
 except Exception:

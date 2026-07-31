@@ -95,6 +95,29 @@ def _approve(event_id: int) -> None:
     )])
 
 
+def test_prod_schema_resolved_from_connection():
+    """FI_DESK_SCHEMA boşsa şema bağlantı kullanıcısından çözülür
+    (2026-07-31: sabit A16438 varsayılanı farklı kullanıcıda ORA-00942
+    üretmişti); doluysa verilen değer kazanır."""
+    class _FakeCon:
+        username = "a63837py"
+
+    class _FakeProdDC:  # get_connection VAR → prod yolu
+        def get_connection(self):
+            return _FakeCon()
+
+        def drop_connection(self, con):
+            pass
+
+    db.init(_FakeProdDC(), "")
+    assert not db.is_dev()
+    assert db.qualified("FI_LU_LIST") == "A63837PY.FI_LU_LIST"
+    assert "A63837PY.FI_OFFER_EVENTS" in db.current_relation()
+
+    db.init(_FakeProdDC(), "BASKA_SEMA")
+    assert db.qualified("FI_LU_LIST") == "BASKA_SEMA.FI_LU_LIST"
+
+
 def test_schema_and_lookup_seed(dev_db):
     assert db.is_dev()
     lists = db.query("SELECT COUNT(*) AS N FROM FI_LU_LIST")[0]["N"]
