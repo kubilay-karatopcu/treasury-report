@@ -102,6 +102,20 @@ def test_bootstrap_payload(client):
     assert any(b["BANK_NM"] == "HSBC" for b in body["lookups"]["banks"])
 
 
+def test_bootstrap_preserves_field_order(client):
+    """Form drill-down akışı matris SIRASINA dayanır — jsonify alfabetik
+    sıralayıp bozuyordu (2026-07-31 saha: form alfabetik akıyor, koşullu
+    alanlar tetikleyicinin ÖNÜNE düşüyordu)."""
+    body = client.get("/fi-desk/api/bootstrap").get_json()
+    keys = list(body["matrix"]["fields"])
+    assert keys[:5] == ["BORROWER_BANK", "PRODUCT_TYPE", "DEAL_STATUS",
+                        "REPORTING_STATUS", "LENDER_BANK"]
+    # Koşullu alanlar tetikleyicilerinden SONRA gelmeli
+    assert keys.index("RATE_TYPE") < keys.index("FIXED_RATE_BPS")
+    assert keys.index("COVERAGE_FLG") < keys.index("COVERAGE_PROVIDER")
+    assert keys.index("REPAYMENT_SCHEDULE") < keys.index("COVERAGE_FLG")
+
+
 def test_create_entry_validation_error(client):
     r = client.post("/fi-desk/api/entries",
                     json=_valid_payload(CURRENCY="", LENDER_BANK=""))

@@ -17,7 +17,8 @@ import json
 import logging
 from pathlib import Path
 
-from flask import Blueprint, jsonify, redirect, render_template, request, url_for
+from flask import (Blueprint, Response, jsonify, redirect, render_template,
+                   request, url_for)
 from flask_login import current_user, login_required
 
 from . import db, service
@@ -153,13 +154,19 @@ def api_bootstrap():
         lookups = _load_lookups()
         self_bank = next((b["BANK_NM"] for b in lookups["banks"]
                           if b.get("IS_SELF")), None)
-        return jsonify({
+        payload = {
             "ok": True,
             "matrix": load_field_matrix(),
             "lookups": lookups,
             "roles": sorted(_user_roles()),
             "self_bank": self_bank,
-        })
+        }
+        # jsonify DEĞİL: Flask jsonify key'leri alfabetik sıralar ve matristeki
+        # alan SIRASI kaybolur — form alanları drill-down akış sırasında
+        # (lender → offer → koşullu alanlar tetikleyicinin ARKASINDA) çizilmeli
+        # (2026-07-31 saha bulgusu: form alfabetik akıyordu).
+        return Response(json.dumps(payload, ensure_ascii=False, default=str),
+                        mimetype="application/json")
     except Exception as e:
         log.exception("fi_desk bootstrap başarısız")
         return jsonify({"ok": False, "error": str(e)}), 500

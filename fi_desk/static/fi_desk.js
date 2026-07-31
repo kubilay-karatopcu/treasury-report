@@ -65,7 +65,10 @@
     ov.className = "fi-dateoverlay";
     wrap.appendChild(ov);
     const sync = () => {
-      ov.textContent = ddmmyyyy(input.value);
+      // Boşken de overlay durur ("gg.aa.yyyy" iskeleti) — native input'un
+      // tarayıcı diline göre bastığı mm/dd/yyyy iskeleti HİÇ görünmez
+      // (CUSTOM_PAGE_DESIGN §2b: GG.AA.YYYY istisnasız; 2026-07-31 bulgusu).
+      ov.textContent = input.value ? ddmmyyyy(input.value) : "gg.aa.yyyy";
       wrap.classList.toggle("is-empty", !input.value);
     };
     input.addEventListener("focus", () => wrap.classList.add("is-editing"));
@@ -170,7 +173,9 @@
     }
     const pf = prodFields();
     MATRIX.sections.forEach((sec) => {
-      if (sec.id === "deal") return;
+      // "deal" bölümünün storage=deal alanları (borrower/ürün/açıklama)
+      // statik kartta; storage=event olanlar (DEAL_STATUS) BURADA çizilir —
+      // atlanınca form Deal Status'suz kalıyordu (2026-07-31 saha hatası).
       const keys = Object.keys(MATRIX.fields).filter((k) => {
         const m = MATRIX.fields[k];
         return m.section === sec.id && m.storage === "event" &&

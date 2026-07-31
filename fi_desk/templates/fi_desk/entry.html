@@ -22,21 +22,32 @@ body.prisma .canvas {
   max-width: none !important;
   margin: 0 !important;
   width: 100%;
-  padding: 40px clamp(20px, 2.5vw, 48px) 80px;
+  /* 2026-07-31 saha isteği: form kenarlara yapışmasın — yatay padding geniş */
+  padding: 40px clamp(36px, 5vw, 120px) 80px;
 }
 
-/* Form ızgarası: alanlar kart içinde responsive kolonlara akar. */
+/* Bölüm kartları arası nefes (dip dibe duruyordu) */
+.pk-page .pk-grid { row-gap: 26px; }
+
+/* Form ızgarası: alanlar kart içinde responsive kolonlara akar.
+   align-items:end → etiket 1-2 satır fark etse de INPUT'lar aynı alt
+   hizada durur (alt üst görünümü bitirir); kolonlar geniş, aralar ferah. */
 .fi-fields {
-  display: grid; gap: 12px 14px; margin-top: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  display: grid; gap: 18px 26px; margin-top: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-items: end;
 }
 .fi-fields .pk-field { min-width: 0; }
 .fi-fields .pk-field.is-wide { grid-column: 1 / -1; }
+/* Etiketler kit varsayılanından daha okunur (soluk kalıyordu) */
+.pk-page .pk-label { color: var(--ink-soft); }
 .fi-req { color: var(--red); margin-left: 2px; }
 .fi-auto-note { font-size: 10px; color: var(--ink-faint); }
 
 /* GG.AA.YYYY overlay'i (CUSTOM_PAGE_DESIGN §2b — dock'suz bağlam).
-   Odakta .is-editing ile overlay gizlenir, gerçek input metni görünür. */
+   Odakta .is-editing ile overlay gizlenir, gerçek input metni görünür.
+   BOŞKEN DE overlay durur ("gg.aa.yyyy" iskeleti, soluk) — native input'un
+   tarayıcı diline göre bastığı mm/dd/yyyy asla görünmez. */
 .fi-datewrap { position: relative; display: block; }
 .fi-datewrap .fi-dateoverlay {
   position: absolute; inset: 1px 28px 1px 1px;
@@ -44,8 +55,8 @@ body.prisma .canvas {
   pointer-events: none; font-size: 12px; color: var(--ink);
   background: var(--bg-1); border-radius: 3px;
 }
-.fi-datewrap.is-editing .fi-dateoverlay,
-.fi-datewrap.is-empty .fi-dateoverlay { display: none; }
+.fi-datewrap.is-empty .fi-dateoverlay { color: var(--ink-faint); }
+.fi-datewrap.is-editing .fi-dateoverlay { display: none; }
 
 /* Ödeme planı tablosu — kit pk-table üstüne yalnız giriş hücresi ayarı. */
 .fi-sched-table input { width: 100%; min-width: 110px; }

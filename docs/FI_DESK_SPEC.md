@@ -197,8 +197,18 @@ uygulamadan rol verilemez (lookup kararı). Ekran erişimi (uzman departman
 yetkisi) ile rol ayrıdır: rolü olmayan kullanıcı ekranı görür ama form
 salt-okunur kalır, onay butonları çıkmaz.
 
+**Lookup yüklemesi:** `jobs/fi_desk_lookup_import.py` — "Dropdown
+Listeler.xlsx"i okur: "Group, Country, Region" sheet'i → `FI_LU_BANK`
+tam yenileme (grup şirketinin ülke/bölgesi, grup adı Bank kolonunda ayrı
+satırsa oradan taşınır) + uniq ülke→region çiftleri `COUNTRY` listesine;
+"Lehtar" sheet'i → `EXPORTER`+`IMPORTER` listeleri (KONFİG ile
+daraltılabilir). Tam yenileme, schema seed'inin yer tutucu kayıtlarını
+otomatik temizler; CURRENCY/BASE_RATE gibi excelde olmayan listeler
+korunur. Form dropdown'ları bootstrap API'siyle bu tablolardan okunduğu
+için koşu sonrası sayfa yenilemek yeterlidir.
+
 Ofis koşu sırası: `fi_desk_schema.py` → `fi_desk_users.py` →
-`seed_fi_expert.py` → `fi_desk_dashboards.py`.
+`fi_desk_lookup_import.py` → `seed_fi_expert.py` → `fi_desk_dashboards.py`.
 
 ## 8. Açık konular
 
