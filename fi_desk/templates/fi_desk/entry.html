@@ -22,12 +22,14 @@ body.prisma .canvas {
   max-width: none !important;
   margin: 0 !important;
   width: 100%;
-  /* 2026-07-31 saha isteği: form kenarlara yapışmasın — yatay padding geniş */
-  padding: 40px clamp(36px, 5vw, 120px) 80px;
+  /* 2026-07-31 saha isteği: form kenarlara yapışmasın — yatay padding geniş.
+     !important: kabuk css'leri head bloğundan sonra yükleniyor, padding'i
+     eziyordu (ilk turda boşluklar ekrana yansımadı). */
+  padding: 40px clamp(48px, 7vw, 170px) 80px !important;
 }
 
 /* Bölüm kartları arası nefes (dip dibe duruyordu) */
-.pk-page .pk-grid { row-gap: 26px; }
+.pk-page .pk-grid { row-gap: 34px !important; }
 
 /* Form ızgarası: alanlar kart içinde responsive kolonlara akar.
    align-items:end → etiket 1-2 satır fark etse de INPUT'lar aynı alt
@@ -109,10 +111,10 @@ body.prisma .canvas {
   </div>
 
   <!-- Adım 2+: ürün matrisine göre dinamik bölümler (fi_desk.js çizer) -->
-  <div class="pk-grid" id="fi-sections" style="margin-top:14px;"></div>
+  <div class="pk-grid" id="fi-sections" style="margin-top:34px;"></div>
 
   <!-- Ödeme planı (yalnız Amortized'da görünür) -->
-  <div class="pk-grid" id="fi-schedule-wrap" style="margin-top:14px; display:none;">
+  <div class="pk-grid" id="fi-schedule-wrap" style="margin-top:34px; display:none;">
     <div class="pk-card">
       <div class="pk-card__head">
         <span class="pk-card__title">Ödeme Planı</span>

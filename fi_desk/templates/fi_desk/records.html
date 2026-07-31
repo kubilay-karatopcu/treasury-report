@@ -23,8 +23,9 @@ body.prisma .canvas {
   max-width: none !important;
   margin: 0 !important;
   width: 100%;
-  /* entry.html ile aynı ferah yatay padding (2026-07-31) */
-  padding: 40px clamp(36px, 5vw, 120px) 80px;
+  /* entry.html ile aynı ferah yatay padding (2026-07-31; !important —
+     kabuk css'i head bloğundan sonra yüklenip padding'i ezebiliyor) */
+  padding: 40px clamp(48px, 7vw, 170px) 80px !important;
 }
 
 /* AG Grid → PRISMA token köprüsü (reservations.html ile aynı blok). */
