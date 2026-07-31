@@ -130,6 +130,41 @@ DDL = {
         ACTIVE_FLG NUMBER(1), LOADED_AT DATE)""",
 }
 
+# Var olan kurulumlar için kolon genişletmeleri (ORA-12899: lehtar/banka
+# adları 64'ü aşıyor, 2026-07-31). Her koşuda uygulanır — MODIFY aynı ya da
+# daha geniş boyuta idempotent'tir (yeni kurulumda no-op); hata görünür
+# yazılır ama koşuyu düşürmez. Yeni genişletme gerekirse DDL'i büyütüp
+# buraya da satır ekle.
+COLUMN_WIDENINGS = [
+    ("FI_LU_LIST", "VALUE_CD VARCHAR2(256), LABEL VARCHAR2(256), "
+                   "PARENT_CD VARCHAR2(256), ATTR1 VARCHAR2(128)"),
+    ("FI_LU_BANK", "BANK_NM VARCHAR2(256), COUNTRY VARCHAR2(128), "
+                   "REGION VARCHAR2(128), GROUP_COMPANY VARCHAR2(256), "
+                   "GROUP_COMPANY_COUNTRY VARCHAR2(128), "
+                   "GROUP_COMPANY_REGION VARCHAR2(128)"),
+    ("FI_OFFER_EVENTS", "LENDER_BANK VARCHAR2(256), "
+                        "LENDER_COUNTRY VARCHAR2(128), "
+                        "LENDER_REGION VARCHAR2(128), "
+                        "GROUP_COMPANY VARCHAR2(256), "
+                        "GROUP_COMPANY_COUNTRY VARCHAR2(128), "
+                        "GROUP_COMPANY_REGION VARCHAR2(128), "
+                        "IMPORTER VARCHAR2(256), EXPORTER VARCHAR2(256)"),
+    ("FI_DEALS", "BORROWER_BANK VARCHAR2(256)"),
+]
+
+
+def widen_columns(con, schema: str) -> None:
+    for table, cols in COLUMN_WIDENINGS:
+        if not _table_exists(con, schema, table):
+            continue
+        try:
+            _exec(con, f"ALTER TABLE {schema}.{table} MODIFY ({cols})")
+            print(f"   ✓ {table}: kolonlar genişletildi/teyit edildi")
+        except Exception as exc:
+            print(f"   ✗ {table} genişletme başarısız: {exc}")
+    con.commit()
+
+
 # Bütünlük uygulama tarafında; burada yalnız tekillik indeksleri (idempotent).
 INDEXES = [
     ("FI_DEALS_PK", "CREATE UNIQUE INDEX {s}.FI_DEALS_PK ON {s}.FI_DEALS (DEAL_ID)"),
@@ -317,6 +352,7 @@ def create_tables(con, schema: str) -> None:
             continue
         print(f"   CREATE TABLE {qualified}")
         _exec(con, ddl.format(t=qualified))
+    widen_columns(con, schema)
     for _, idx_sql in INDEXES:
         # ORA-00955: ad zaten var (idempotent), ORA-01408: kolon listesi indeksli
         _exec(con, idx_sql.format(s=schema), ok_codes=("ORA-00955", "ORA-01408"))
