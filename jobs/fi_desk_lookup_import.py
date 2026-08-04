@@ -24,15 +24,18 @@ edilir):
   Sheet "Lehtar"  →  FI_LU_LIST (LEHTAR_TARGET_LISTS listeleri, TAM YENİLEME)
       LİSTEDEKİ İSİM | LEHTAR ADI
       - VALUE_CD = listedeki isim (dropdown'da görünen), LABEL = lehtar adı.
-      - Varsayılan hedef EXPORTER + IMPORTER (aynı firma havuzu iki
-        dropdown'da da seçilebilsin); tek listeye indirmek için KONFİG'i
-        düzenle.
+      - Hedef yalnız EXPORTER (2026-08-04 kararı: Importer bizim müşterimiz —
+        lehtar listesinden DOLDURULMAZ, form EDW müşteri tablosunda typeahead
+        arar; bkz. app.py FI_DESK_CUSTOMER_TABLE ve docs/FI_DESK_SPEC.md §8).
+        Eski koşulardan kalan IMPORTER listesi varsa dokunulmaz; yalnız
+        müşteri tablosu konfigüre edilmemişse arama fallback'i olarak okunur.
 
 Örnek/seed verisi temizliği: FI_LU_BANK ve hedef listeler tam yenilendiği
-için schema job'unun YER TUTUCU kayıtları (örnek bankalar, IMP_SAMPLE_1 /
-EXP_SAMPLE_1, örnek COUNTRY satırları) otomatik silinir. CURRENCY /
-REPAYMENT / BASE_RATE / ESG / BUSINESS_SEGMENT / COVERAGE_PROVIDER
-listeleri excelde olmadığından DOKUNULMAZ (gerçek değerlerdir).
+için schema job'unun YER TUTUCU kayıtları (örnek bankalar, EXP_SAMPLE_1,
+örnek COUNTRY satırları) otomatik silinir. CURRENCY / REPAYMENT /
+BASE_RATE / ESG / BUSINESS_SEGMENT / COVERAGE_PROVIDER /
+ADDITIONAL_COST_TYPE listeleri excelde olmadığından DOKUNULMAZ; IMPORTER
+listesi de artık hedef olmadığından olduğu gibi kalır.
 """
 from __future__ import annotations
 
@@ -53,8 +56,10 @@ SELF_BANK = "QNB"              # Borrower varsayılanı (IS_SELF=1). Excelde bu
                                # adla satır yoksa eklenir.
 BANK_SHEET = "Group, Country, Region"
 LEHTAR_SHEET = "Lehtar"
-#: Lehtar listesi hangi dropdown'lara yazılsın (EXPORTER ve/veya IMPORTER).
-LEHTAR_TARGET_LISTS: tuple[str, ...] = ("EXPORTER", "IMPORTER")
+#: Lehtar listesi hangi dropdown'lara yazılsın. IMPORTER artık hedef DEĞİL
+#: (müşteri tablosu typeahead'i kullanılır) — geçici olarak geri almak
+#: gerekirse ("EXPORTER", "IMPORTER") yap.
+LEHTAR_TARGET_LISTS: tuple[str, ...] = ("EXPORTER",)
 # ─────────────────────────────────────────────────────────────────────────
 
 

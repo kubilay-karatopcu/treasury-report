@@ -36,8 +36,12 @@ LOOKUPS = {
             {"VALUE_CD": "UK", "LABEL": "United Kingdom", "PARENT_CD": None, "ATTR1": "Europe"},
             {"VALUE_CD": "TURKIYE", "LABEL": "Türkiye", "PARENT_CD": None, "ATTR1": "Türkiye"},
         ],
-        "IMPORTER": [{"VALUE_CD": "IMP1", "LABEL": "İthalatçı", "PARENT_CD": None, "ATTR1": None}],
         "EXPORTER": [{"VALUE_CD": "EXP1", "LABEL": "İhracatçı", "PARENT_CD": None, "ATTR1": None}],
+        "ADDITIONAL_COST_TYPE": [
+            {"VALUE_CD": "MUSTERI_PRIMI", "LABEL": "Müşteri Primi", "PARENT_CD": None, "ATTR1": None},
+            {"VALUE_CD": "LEGAL_COST", "LABEL": "Legal Cost", "PARENT_CD": None, "ATTR1": None},
+            {"VALUE_CD": "KONTRGARANTI_PRIMI", "LABEL": "Kontrgaranti Primi", "PARENT_CD": None, "ATTR1": None},
+        ],
     },
     "banks": [
         {"BANK_NM": "QNB", "COUNTRY": "TURKIYE", "REGION": "Türkiye",
@@ -73,7 +77,7 @@ def trade_loan_payload(**overrides):
         "TRADE_TXN_CCY": "USD",
         "SHIPMENT_DT": "2026-06-15",
         "TRADE_PAYMENT_DT": "2026-07-15",
-        "IMPORTER": "IMP1",
+        "IMPORTER": "Örnek İthalatçı A.Ş.",
         "EXPORTER": "EXP1",
         "BUSINESS_SEGMENT": "CORPORATE",
         "REFERENCE_NO": "TL-1",
@@ -98,6 +102,8 @@ def test_valid_trade_loan_with_autos():
     assert f["LENDER_REGION"] == "Europe"
     assert f["GROUP_COMPANY"] == "HSBC Holdings"
     assert f["ALL_IN_RATE_BPS"] == pytest.approx(185 + 40)
+    # All-in string gösterimi: base rate etiketi + toplam spread
+    assert f["ALL_IN_RATE_TXT"] == "3M SOFR + 225 bps"
     assert isinstance(f["OFFER_DT"], datetime)
     assert f["FUNDING_AMT"] == pytest.approx(50_000_000)
 
@@ -255,3 +261,79 @@ def test_event_data_cols_match_matrix():
     event_fields = [k for k, v in MATRIX["fields"].items()
                     if v["storage"] == "event"]
     assert sorted(service.EVENT_DATA_COLS) == sorted(event_fields)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2026-08-04 saha turu: additional cost map'i, all-in string'i, D alanları,
+# silme event'i
+# ─────────────────────────────────────────────────────────────────────────
+def test_additional_costs_join_all_in_sum():
+    """Cost kalemleri {tip: bps} map'i olarak saklanır ve all-in toplamına
+    girer (Base + Lender + Cov + Kontrgaranti + Müşteri Primi)."""
+    p = trade_loan_payload(
+        ADDITIONAL_COSTS='{"MUSTERI_PRIMI": 15, "KONTRGARANTI_PRIMI": 10}')
+    clean = service.validate_entry(MATRIX, LOOKUPS, p)
+    f = clean["fields"]
+    assert json.loads(f["ADDITIONAL_COSTS"]) == {"MUSTERI_PRIMI": 15,
+                                                 "KONTRGARANTI_PRIMI": 10}
+    assert f["ALL_IN_RATE_BPS"] == pytest.approx(185 + 40 + 25)
+    assert f["ALL_IN_RATE_TXT"] == "3M SOFR + 250 bps"
+
+
+def test_additional_costs_list_input_and_fixed_label():
+    """Form list biçimi ([{type, bps}]) de kabul; FIXED'te etiket '(Fixed)'."""
+    p = trade_loan_payload(RATE_TYPE="FIXED", FIXED_RATE_BPS="300",
+                           ADDITIONAL_COSTS=[{"type": "LEGAL_COST", "bps": 5}])
+    clean = service.validate_entry(MATRIX, LOOKUPS, p)
+    f = clean["fields"]
+    assert json.loads(f["ADDITIONAL_COSTS"]) == {"LEGAL_COST": 5}
+    assert f["ALL_IN_RATE_BPS"] == pytest.approx(300 + 40 + 5)
+    assert f["ALL_IN_RATE_TXT"] == "345 bps (Fixed)"
+
+
+def test_additional_costs_unknown_and_duplicate_rejected():
+    p = trade_loan_payload(ADDITIONAL_COSTS='{"OLMAYAN_TIP": 5}')
+    with pytest.raises(service.ValidationError) as exc:
+        service.validate_entry(MATRIX, LOOKUPS, p)
+    assert "ADDITIONAL_COSTS" in errfields(exc)
+
+    p = trade_loan_payload(ADDITIONAL_COSTS=[
+        {"type": "LEGAL_COST", "bps": 5}, {"type": "LEGAL_COST", "bps": 7}])
+    with pytest.raises(service.ValidationError) as exc:
+        service.validate_entry(MATRIX, LOOKUPS, p)
+    assert "ADDITIONAL_COSTS" in errfields(exc)
+
+
+def test_deferred_underlying_fields_optional_at_entry():
+    """Importer/Exporter/Reference/Goods ('D') girişte boş bırakılabilir;
+    missing_deferred eksik etiketleri listeler (işlem listesi sarı boyar)."""
+    p = trade_loan_payload(IMPORTER="", EXPORTER="", REFERENCE_NO="",
+                           GOODS_DESC="")
+    clean = service.validate_entry(MATRIX, LOOKUPS, p)  # hata YOK
+    missing = service.missing_deferred(MATRIX, "TRADE_LOAN", clean["fields"])
+    assert missing == ["Importer", "Exporter", "Reference No",
+                       "Goods / Underlying Trade"]
+
+    full = service.validate_entry(MATRIX, LOOKUPS, trade_loan_payload())
+    assert service.missing_deferred(MATRIX, "TRADE_LOAN", full["fields"]) == []
+
+
+def test_importer_free_text_accepted():
+    """Importer artık lookup listesine karşı DOĞRULANMAZ — müşteri tablosu
+    typeahead'inden gelen serbest metin saklanır."""
+    p = trade_loan_payload(IMPORTER="Yepyeni Müşteri Ltd. Şti.")
+    clean = service.validate_entry(MATRIX, LOOKUPS, p)
+    assert clean["fields"]["IMPORTER"] == "Yepyeni Müşteri Ltd. Şti."
+
+
+def test_build_delete_statements_snapshot():
+    clean = service.validate_entry(MATRIX, LOOKUPS, trade_loan_payload())
+    stmts = service.build_delete_statements(
+        clean["fields"], "FIO-X", "FID-X", "A16438", lambda t: t,
+        next_event_id=9, next_seq=4, now=datetime(2026, 8, 4, 10, 0))
+    assert len(stmts) == 1
+    sql, params = stmts[0]
+    assert "'PENDING'" in sql
+    assert params["etype"] == "DELETE" and params["seq"] == 4
+    # Snapshot kopyalanır — silinen kaydın son hâli geçmişte okunur kalır
+    assert params["lender_bank"] == "HSBC"

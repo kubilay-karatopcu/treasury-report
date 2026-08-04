@@ -67,9 +67,19 @@ FI_DEALS (üst kimlik)          1 ── n  FI_OFFERS (deal × lender thread'i)
     katmanında ödeme planından hesaplanır).
 - **Lookup'lar:** `FI_LU_BANK` (banka → ülke/region/group company; IS_SELF),
   `FI_LU_LIST` (genel kod listeleri; `COUNTRY` satırlarında `ATTR1` = region,
-  `ESG_ELIGIBILITY` satırlarında `PARENT_CD` = ESG_TYPE kaskadı),
+  `ESG_ELIGIBILITY` satırlarında `PARENT_CD` = ESG_TYPE kaskadı,
+  `ADDITIONAL_COST_TYPE` = ek maliyet tipleri — genişletmek için schema
+  job'undaki SEED_LISTS'e satır ekle, uygulamadan editlenmez),
   `FI_LU_USER` (sicil → rol). Seed'teki içerik YER TUTUCUDUR; gerçek
   mapping excelleri gelince tam setle yenilenir.
+- **Additional cost + all-in (2026-08-04):** `ADDITIONAL_COSTS` kolonu
+  `{"TIP": bps}` JSON map'idir (kalemler ayrı ayrı görünür; tipler
+  `ADDITIONAL_COST_TYPE` listesinden, aynı tip iki kez giremez). All-in
+  otomatiği artık `base + coverage + Σ(additional)` toplar;
+  `ALL_IN_RATE_TXT` all-in'in string gösterimidir ve SUNUCUDA derlenir:
+  FLOATING → `"{base rate etiketi} + {all-in} bps"` (ör. `3M SOFR + 245
+  bps`), FIXED → `"{all-in} bps (Fixed)"`. Eski tek-sayı
+  `ADDITIONAL_FEE_COST` kolonu var olan kurulumlarda durur, artık yazılmaz.
 
 ## 3. Alan matrisi — `fi_desk/field_matrix.json`
 
@@ -81,7 +91,9 @@ otorite**. Hem formu dinamik çizer hem sunucu tarafı validasyonu besler.
   `text`, `auto`, `readonly`, `schedule`), depolama
   (`deal`/`event`/`subtable`/`derived`).
 - `products`: 14 ürün × alan → `R` (zorunlu) / `O` (opsiyonel) / `-`
-  (üründe yok). Excel'deki 14 satırın profilleri: trade-finance üçlüsü
+  (üründe yok) / `D` (girişte opsiyonel, sonradan tamamlanması beklenir —
+  2026-08-04: trade-finance üçlüsünde Importer/Exporter/Reference No/Goods;
+  eksikse işlem listesi satırı sarı boyanır). Excel'deki 14 satırın profilleri: trade-finance üçlüsü
   (underlying R), bilateral ikilisi (underlying O), sendikasyon ikilisi
   (underlying yok), sermaye piyasası dörtlüsü (coverage yok, all-in fixed
   USD R), bond ikilisi (ek olarak deal status ve lender country yok),
@@ -113,9 +125,16 @@ zaman türetilir, hiçbir yerde saklanmaz.
 
 ## 5. Onay akışı
 
-- ENTRY rolü: yeni giriş, edit, statü değişikliği → hepsi PENDING event.
+- ENTRY rolü: yeni giriş, edit, statü değişikliği, SİLME TALEBİ → hepsi
+  PENDING event.
 - APPROVER rolü: bekleyen event listesini görür; APPROVED → current'a
   yansır, REJECTED → gerekçeyle geçmişte kalır (satır silinmez).
+- **Silme (2026-08-04):** edit ekranındaki "Kaydı Sil" son snapshot'ın
+  kopyasını `EVENT_TYPE='DELETE'` PENDING event'i olarak yazar (append-only
+  bozulmaz). Onaylanınca teklif current ilişkisinden ve işlem listesinden
+  düşer (CURRENT_SELECT'te onaylı-DELETE `NOT EXISTS` filtresi); tüm geçmiş
+  events tablosunda okunur kalır. Red → hiçbir şey değişmez. Bekleyen ikinci
+  silme talebi 409.
 - Kendi girdiğini onaylama kısıtı v1'de YOK (masa küçük); gerekirse sonra.
 - Rol kontrolü `FI_LU_USER` üzerinden; departman beyaz listesi (deposit
   panelindeki desen) ekran erişimi için ayrıca uygulanır.
@@ -134,7 +153,11 @@ zaman türetilir, hiçbir yerde saklanmaz.
 2. **İşlem listesi / detay / onay:** AG-Grid liste (`V_FI_OFFER_CURRENT` +
    bekleyenler ayrı sekme/rozet), bub-filter'larla ürün/statü/ccy/lender.
    Satır → detay + event timeline. "Düzenle" formu dolu açar → EDIT event.
-   Onaycıya Approve/Reject butonları.
+   Onaycıya Approve/Reject butonları. Satırlar duruma göre boyanır
+   (2026-08-04): MAVİ = onay aşamasında (yeni giriş / bekleyen güncelleme /
+   silme talebi), SARI = onaylı ama `D` alanları eksik (Durum kolonu
+   "EKSİK ALAN VAR" + eksik alan listesi ayrı kolonda), YEŞİL = onaylı ve
+   tam.
 
 Yazma yolu deposit panelindeki `_execute_dml` deseni (bind değişkenli,
 transaction'lı, rollback'li); okuma `dc.get_data`. ID üretimi uygulama
@@ -201,11 +224,27 @@ salt-okunur kalır, onay butonları çıkmaz.
 Listeler.xlsx"i okur: "Group, Country, Region" sheet'i → `FI_LU_BANK`
 tam yenileme (grup şirketinin ülke/bölgesi, grup adı Bank kolonunda ayrı
 satırsa oradan taşınır) + uniq ülke→region çiftleri `COUNTRY` listesine;
-"Lehtar" sheet'i → `EXPORTER`+`IMPORTER` listeleri (KONFİG ile
-daraltılabilir). Tam yenileme, schema seed'inin yer tutucu kayıtlarını
-otomatik temizler; CURRENCY/BASE_RATE gibi excelde olmayan listeler
-korunur. Form dropdown'ları bootstrap API'siyle bu tablolardan okunduğu
-için koşu sonrası sayfa yenilemek yeterlidir.
+"Lehtar" sheet'i → yalnız `EXPORTER` listesi (2026-08-04 kararı: Importer
+bizim müşterimizdir, lehtar listesinden DOLDURULMAZ — aşağıdaki "Importer
+araması"na bak). Tam yenileme, schema seed'inin yer tutucu kayıtlarını
+otomatik temizler; CURRENCY/BASE_RATE/ADDITIONAL_COST_TYPE gibi excelde
+olmayan listeler korunur. Form dropdown'ları bootstrap API'siyle bu
+tablolardan okunduğu için koşu sonrası sayfa yenilemek yeterlidir.
+
+**Importer araması (2026-08-04):** form alanı sunucu destekli typeahead'dir
+(`GET /fi-desk/api/customers?q=`, en az 3 karakter, en çok 30 sonuç,
+250 ms debounce). Kaynak `FI_DESK_CUSTOMER_TABLE` /
+`FI_DESK_CUSTOMER_NAME_COL` env'leriyle verilen EDW müşteri tablosudur;
+konfigüre edilmemişse (ve dev'de) `FI_LU_LIST IMPORTER` fallback'i çalışır.
+32M satırlık tabloda arama **UPPER-önek LIKE + ROWNUM erken kesme** ile
+yapılır (`WHERE UPPER(col) LIKE 'ABC%' AND ROWNUM <= 120`): önek araması
+`UPPER(col)` fonksiyon indeksiyle range-scan'dir, `%q%` (contains) ise
+indeks kullanamayıp full scan olur — bilinçli olarak desteklenmez. Ofiste
+yapılacaklar: tablo/kolon adını env'e yaz + DBA'dan
+`CREATE INDEX ... ON <tablo>(UPPER(<isim kolonu>))` iste; indeks alınamazsa
+alternatif, gece işiyle (id, isim) kolonlarının kişisel şemaya kopyalanıp
+indekslenmesi (kardeş job deseni). Contains/fuzzy arama gerekirse Oracle
+Text (CTXSYS.CONTEXT) ayrı karar konusudur.
 
 Ofis koşu sırası: `fi_desk_schema.py` → `fi_desk_users.py` →
 `fi_desk_lookup_import.py` → `seed_fi_expert.py` → `fi_desk_dashboards.py`.
@@ -214,6 +253,11 @@ Ofis koşu sırası: `fi_desk_schema.py` → `fi_desk_users.py` →
 
 - **USD eqv. kur kaynağı ve tarihi** (offer date mi value date mi; EDW kur
   tablosu hangisi) — kullanıcı öğrenecek; şimdilik elle giriş.
+- **Müşteri tablosu kimliği** (Importer typeahead'i için): EDW'deki 32M
+  satırlık müşteri tablosunun adı + isim kolonu netleşince
+  `FI_DESK_CUSTOMER_TABLE` / `FI_DESK_CUSTOMER_NAME_COL` env'lerine
+  yazılacak ve `UPPER(isim)` fonksiyon indeksi istenecek (§7b "Importer
+  araması"). O güne kadar arama FI_LU_LIST IMPORTER fallback'inde.
 - **Mapping excelleri** (banka/ülke/region/group, importer/exporter, base
   rate tam listesi) — gelince lookup yükleme script'i yazılacak; mevcut
   seed yer tutucu.

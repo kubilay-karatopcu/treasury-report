@@ -611,10 +611,17 @@ except Exception:
 # uctan uca calisir. FI_DESK_SCHEMA bos birakilirsa tablolar BAGLANTI
 # KULLANICISININ semasinda aranir (schema job'u varsayilanda oraya yaratir);
 # tablolar baska semadaysa env ile ver (GRANT'ler de gerekir).
+# FI_DESK_CUSTOMER_TABLE: Importer typeahead'inin arayacagi EDW musteri
+# tablosu (or. "EDW.MUSTERI_DIM"); FI_DESK_CUSTOMER_NAME_COL isim kolonu
+# (varsayilan FULL_NM). Bos birakilirsa arama FI_LU_LIST IMPORTER
+# listesine duser (lokal/dev ve tablo netlesene kadar gecis davranisi).
 try:
     from fi_desk import fi_desk_bp, init_app as fi_desk_init
 
-    fi_desk_init(dc, schema=os.environ.get("FI_DESK_SCHEMA", ""))
+    fi_desk_init(dc, schema=os.environ.get("FI_DESK_SCHEMA", ""),
+                 customer_table=os.environ.get("FI_DESK_CUSTOMER_TABLE", ""),
+                 customer_name_col=os.environ.get(
+                     "FI_DESK_CUSTOMER_NAME_COL", ""))
     app.register_blueprint(fi_desk_bp, url_prefix="/fi-desk")
     app.config["FI_DESK_ENABLED"] = True
 except Exception:

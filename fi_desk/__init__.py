@@ -38,9 +38,14 @@ fi_desk_bp = Blueprint(
 )
 
 
-def init_app(dc, schema: str = "A16438") -> None:
-    """app.py çağırır — DataClient enjeksiyonu + hedef Oracle şeması."""
-    db.init(dc, schema)
+def init_app(dc, schema: str = "A16438", customer_table: str = "",
+             customer_name_col: str = "") -> None:
+    """app.py çağırır — DataClient enjeksiyonu + hedef Oracle şeması.
+
+    ``customer_table``/``customer_name_col``: Importer typeahead'inin
+    arayacağı EDW müşteri tablosu (boşsa FI_LU_LIST IMPORTER fallback'i)."""
+    db.init(dc, schema, customer_table=customer_table,
+            customer_name_col=customer_name_col)
 
 
 def load_field_matrix() -> dict:
@@ -134,10 +139,13 @@ def entry():
             "bootstrap": url_for("fi_desk.api_bootstrap"),
             "entries": url_for("fi_desk.api_create_entry"),
             "records_page": url_for("fi_desk.records"),
+            "customers": url_for("fi_desk.api_customers"),
             # Edit modu (?offer=FIO-...): __OID__ JS'te teklif id'siyle değişir
             "offer_detail": url_for("fi_desk.api_offer_detail",
                                     offer_id="__OID__"),
             "offer_events": url_for("fi_desk.api_offer_events",
+                                    offer_id="__OID__"),
+            "offer_delete": url_for("fi_desk.api_offer_delete",
                                     offer_id="__OID__"),
         },
     )
@@ -169,6 +177,28 @@ def api_bootstrap():
                         mimetype="application/json")
     except Exception as e:
         log.exception("fi_desk bootstrap başarısız")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@fi_desk_bp.route("/api/customers", methods=["GET"])
+@login_required
+def api_customers():
+    """Importer typeahead — ?q= en az 3 karakter, en çok 30 sonuç.
+
+    Kaynak konfigüre edilmiş EDW müşteri tablosudur (init_app customer_table;
+    UPPER-önek LIKE + ROWNUM erken kesme — 32M satırda contains araması
+    yapılmaz, docs/FI_DESK_SPEC.md §8). Konfigürasyon yoksa/dev'de
+    FI_LU_LIST IMPORTER listesine düşülür."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 3:
+        return jsonify({"ok": True, "rows": [],
+                        "note": "en az 3 karakter girin"})
+    try:
+        rows = db.customer_search(q, limit=30)
+        return jsonify({"ok": True, "rows": rows,
+                        "source": db.customer_source()})
+    except Exception as e:
+        log.exception("fi_desk müşteri araması başarısız")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 

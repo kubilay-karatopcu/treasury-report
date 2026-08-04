@@ -53,6 +53,29 @@ body.prisma .canvas {
 }
 .ag-theme-alpine .ag-row { cursor: pointer; }
 
+/* Satır durumu boyaması (2026-08-04): mavi = onay aşamasında, sarı = eksik
+   (sonradan zorunlu) alan var, yeşil = onaylı + tam. Sol şerit + hafif
+   zemin — koyu temada okunurluğu bozmayacak saydamlıkta. */
+.ag-theme-alpine .ag-row.fi-row-approval {
+  background: rgba(90, 150, 255, .10);
+  box-shadow: inset 3px 0 0 rgba(90, 150, 255, .75);
+}
+.ag-theme-alpine .ag-row.fi-row-missing {
+  background: rgba(255, 190, 60, .10);
+  box-shadow: inset 3px 0 0 rgba(255, 190, 60, .8);
+}
+.ag-theme-alpine .ag-row.fi-row-complete {
+  background: rgba(70, 200, 130, .07);
+  box-shadow: inset 3px 0 0 rgba(70, 200, 130, .6);
+}
+.fi-legend { display: flex; gap: 14px; align-items: center;
+  font-size: 11px; color: var(--ink-mute); }
+.fi-legend .dot { display: inline-block; width: 9px; height: 9px;
+  border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.fi-legend .d-blue { background: rgba(90, 150, 255, .8); }
+.fi-legend .d-yellow { background: rgba(255, 190, 60, .85); }
+.fi-legend .d-green { background: rgba(70, 200, 130, .8); }
+
 /* Detay overlay'i — body'ye portallanır (dış tık / Esc / ✕ kapatır). */
 .fi-ov {
   position: fixed; inset: 0; z-index: 1000; display: none;
@@ -118,6 +141,11 @@ body.prisma .canvas {
     <div class="pk-card">
       <div class="pk-card__head">
         <span class="pk-card__title">Kayıtlar</span>
+        <span class="fi-legend">
+          <span><span class="dot d-blue"></span>Onay aşamasında</span>
+          <span><span class="dot d-yellow"></span>Eksik alan var</span>
+          <span><span class="dot d-green"></span>Tam</span>
+        </span>
         <span style="display:flex; gap:8px; align-items:center;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);">
             <input type="checkbox" id="chk-pending-only"> Yalnız onay bekleyenler
@@ -181,5 +209,5 @@ body.prisma .canvas {
   const FI_CAN_ENTER = {{ can_enter | tojson }};
   const FI_CAN_APPROVE = {{ can_approve | tojson }};
 </script>
-<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=3"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=4"></script>
 {% endblock %}

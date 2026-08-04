@@ -265,6 +265,103 @@ def test_reject_keeps_history_and_current(client):
     assert r.status_code == 409
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# 2026-08-04 saha turu: eksik-alan boyaması, silme akışı, müşteri araması
+# ─────────────────────────────────────────────────────────────────────────
+def test_records_missing_deferred_fields_flagged(client):
+    """Importer/Exporter/Reference/Goods boş girilebilir; liste satırı
+    MISSING_FIELDS ile döner (grid sarı boyar)."""
+    ids = _create(client, IMPORTER="", EXPORTER="", REFERENCE_NO="",
+                  GOODS_DESC="")
+    _approve(client, ids["event_id"])
+    rows = client.get("/fi-desk/api/records").get_json()["rows"]
+    assert rows[0]["ROW_STATE"] == "CURRENT"
+    assert set(rows[0]["MISSING_FIELDS"]) == {
+        "Importer", "Exporter", "Reference No", "Goods / Underlying Trade"}
+
+    # Eksikler edit ile tamamlanınca liste temizlenir
+    p = _valid_payload()
+    r = client.post(f"/fi-desk/api/offers/{ids['offer_id']}/events",
+                    json={"fields": p["fields"], "schedule": []})
+    _approve(client, r.get_json()["event_id"])
+    rows = client.get("/fi-desk/api/records").get_json()["rows"]
+    assert rows[0]["MISSING_FIELDS"] == []
+
+
+def test_delete_flow_requires_approval(client):
+    ids = _create(client)
+    _approve(client, ids["event_id"])
+
+    r = client.post(f"/fi-desk/api/offers/{ids['offer_id']}/delete")
+    body = r.get_json()
+    assert r.status_code == 200 and body["ok"], body
+
+    # Onaylanmadan: satır durur, PENDING_DELETE işaretli; ikinci talep 409
+    rows = client.get("/fi-desk/api/records").get_json()["rows"]
+    assert len(rows) == 1 and rows[0]["PENDING_DELETE"] is True
+    assert client.post(
+        f"/fi-desk/api/offers/{ids['offer_id']}/delete").status_code == 409
+
+    # Timeline'da DELETE event'i PENDING görünür
+    detail = client.get(f"/fi-desk/api/offers/{ids['offer_id']}").get_json()
+    assert detail["events"][0]["EVENT_TYPE"] == "DELETE"
+    assert detail["events"][0]["APPROVAL_STATUS"] == "PENDING"
+
+    # Onaylanınca teklif listeden ve current'tan düşer; geçmiş durur
+    _approve(client, body["event_id"])
+    rows = client.get("/fi-desk/api/records").get_json()["rows"]
+    assert rows == []
+    assert client.post(
+        f"/fi-desk/api/offers/{ids['offer_id']}/delete").status_code == 409
+    events = db.query("SELECT COUNT(*) AS N FROM FI_OFFER_EVENTS")[0]["N"]
+    assert events == 2  # append-only: hiçbir satır silinmedi
+
+
+def test_delete_rejected_keeps_offer(client):
+    ids = _create(client)
+    _approve(client, ids["event_id"])
+    body = client.post(
+        f"/fi-desk/api/offers/{ids['offer_id']}/delete").get_json()
+    r = client.post(f"/fi-desk/api/events/{body['event_id']}/approval",
+                    json={"action": "reject", "reason": "yanlış kayıt değil"})
+    assert r.get_json()["ok"]
+    rows = client.get("/fi-desk/api/records").get_json()["rows"]
+    assert len(rows) == 1 and rows[0]["ROW_STATE"] == "CURRENT"
+    assert rows[0]["PENDING_DELETE"] is False
+
+
+def test_delete_requires_entry_role(client, monkeypatch):
+    ids = _create(client)
+    from fi_desk import routes_records
+    monkeypatch.setattr(routes_records, "_user_roles", lambda: {"APPROVER"})
+    r = client.post(f"/fi-desk/api/offers/{ids['offer_id']}/delete")
+    assert r.status_code == 403
+
+
+def test_customer_search_fallback_list(client):
+    """Müşteri tablosu konfigüre değil (dev) → FI_LU_LIST IMPORTER
+    fallback'i; 3 karakter altı arama sonuç döndürmez."""
+    body = client.get("/fi-desk/api/customers?q=Ör").get_json()
+    assert body["ok"] and body["rows"] == []
+
+    body = client.get("/fi-desk/api/customers?q=Örnek").get_json()
+    assert body["ok"] and body["source"] == "lookup"
+    assert body["rows"] == ["Örnek İthalatçı A.Ş."]
+
+    body = client.get("/fi-desk/api/customers?q=Bulunamayan").get_json()
+    assert body["ok"] and body["rows"] == []
+
+
+def test_entry_with_additional_costs_roundtrip(client):
+    """Cost map'i event'e yazılır; all-in string'i sunucuda derlenir."""
+    ids = _create(client, ADDITIONAL_COSTS='{"MUSTERI_PRIMI": 15}')
+    ev = db.query("SELECT * FROM FI_OFFER_EVENTS WHERE EVENT_ID = :e",
+                  {"e": ids["event_id"]})[0]
+    assert json.loads(ev["ADDITIONAL_COSTS"]) == {"MUSTERI_PRIMI": 15}
+    assert float(ev["ALL_IN_RATE_BPS"]) == 200  # 185 + 0 (cov yok) + 15
+    assert ev["ALL_IN_RATE_TXT"] == "3M SOFR + 200 bps"
+
+
 def test_approval_requires_approver_role(client, monkeypatch):
     ids = _create(client)
     from fi_desk import routes_records
