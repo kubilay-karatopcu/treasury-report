@@ -171,6 +171,9 @@ body.prisma .canvas {
           {% if can_enter %}
           <a class="pk-btn pk-btn--sm pk-btn--primary" href="{{ url_for('fi_desk.entry') }}">+ Yeni Giriş</a>
           {% endif %}
+          {% if is_admin %}
+          <a class="pk-btn pk-btn--sm" href="{{ url_for('fi_desk.admin_page') }}">Yönetim</a>
+          {% endif %}
           <button class="pk-btn pk-btn--sm" id="btn-refresh">Yenile</button>
         </span>
       </div>

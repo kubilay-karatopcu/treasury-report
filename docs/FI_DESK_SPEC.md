@@ -15,9 +15,13 @@
 3. **İki rol:** `ENTRY` (veri girici) ve `APPROVER` (onaycı). Her giriş/edit
    PENDING doğar; onaycı APPROVED/REJECTED yapar. Raporlama yalnız onaylı
    son event'i görür.
-4. **Lookup tabloları uygulamadan EDİTLENMEZ** — tek yazar dış süreç
-   (`jobs/fi_desk_schema.py` ve mapping excelleri gelince kardeş yükleme
-   script'leri). Uygulama salt okur.
+4. ~~**Lookup tabloları uygulamadan EDİTLENMEZ**~~ — **KARAR DEĞİŞTİ
+   (2026-08-05):** günlük bakım (banka/exporter/rol düzeltmeleri) için ofis
+   script'i beklemek masayı yavaşlattı. Lookup'lar artık `/fi-desk/admin`
+   YÖNETİM ekranından, yalnız **IS_ADMIN bayraklı** kullanıcılarca
+   düzenlenir (aşağıda §5b). Ofis job'ları İLK KURULUM / excel'den toplu
+   yükleme için durur; TAM YENİLEME yaptıklarından koşarlarsa ekran
+   değişikliklerinin üzerine yazarlar (ekran bunu uyarıyla söyler).
 5. **USD eqv. kur kaynağı AÇIK KONU** — netleşene kadar elle girilir;
    kaynak belli olunca `auto` kuralına çevrilecek.
 6. **LOST tekrar BIDDING olabilir** (edit serbest); **WON → REALIZED geçişi
@@ -139,6 +143,25 @@ zaman türetilir, hiçbir yerde saklanmaz.
 - Rol kontrolü `FI_LU_USER` üzerinden; departman beyaz listesi (deposit
   panelindeki desen) ekran erişimi için ayrıca uygulanır.
 
+## 5b. Yönetim ekranı (admin panel, 2026-08-05)
+
+- **Yetki:** `TRESUARY_LDAP.IS_ADMIN` kolonu (NUMBER(1)) —
+  `jobs/ldap_admins.py` kolonu ekler ve KONFİG'teki sicilleri işaretler
+  (tam yenileme). `User.is_admin` login/load_user'da okunur (kolon yokken
+  herkes 0; 5 dk kullanıcı cache'i vardır). Bu bayrak GENEL masa-admin
+  bayrağıdır: ileride diğer masa admin ekranları da aynı bayrağı kullanır.
+- **Ekran:** `/fi-desk/admin` (İşlemler başlığındaki "Yönetim" butonu;
+  admin olmayana 403). Üç bölüm: Bankalar (`FI_LU_BANK`, IS_SELF tekliği
+  korunur, self banka silinemez), Kullanıcı Rolleri (`FI_LU_USER`, sicil
+  bazında tam yenileme; ENTRY/APPROVER), Listeler (`FI_LU_LIST` — EXPORTER
+  varsayılan, tüm listeler seçilebilir: ADDITIONAL_COST_TYPE, BASE_RATE...).
+- **Silme HARD DELETE'tir:** lookup satırı yalnız seçim listesini besler;
+  geçmiş event'ler değerleri metin taşıdığından tarihçe bozulmaz.
+- **Job etkileşimi:** `fi_desk_lookup_import.py` (BANK+COUNTRY+EXPORTER) ve
+  `fi_desk_users.py` (FI_LU_USER) tam yenilemedir → ekran değişikliklerini
+  ezerler. Bunlar artık ilk kurulum/toplu yükleme aracıdır; günlük bakım
+  Yönetim ekranındadır.
+
 ## 6. Ekranlar (Faz 1–2, PRISMA Uygulamalar altı)
 
 `fi_desk` blueprint'i; kabuk `docs/CUSTOM_PAGE_DESIGN.md`'e birebir uyar
@@ -214,9 +237,10 @@ yazar). Ekibe/masaya açılım UZMAN katmanından geçer:
    yazar (birikme yok). Canlı/filtreli sürüm sahibinin şablon listesinde
    kalır; masadaki görünüm donmuş okuma kopyasıdır.
 
-**Rol yönetimi (ENTRY / APPROVER):** `jobs/fi_desk_users.py` — KONFİG'teki
-`USERS` sözlüğü (sicil → roller) FI_LU_USER'ı TAM YENİLEME ile yazar;
-uygulamadan rol verilemez (lookup kararı). Ekran erişimi (uzman departman
+**Rol yönetimi (ENTRY / APPROVER):** birincil yol artık Yönetim ekranıdır
+(§5b — IS_ADMIN'li kullanıcı FI_LU_USER'ı ekrandan yönetir).
+`jobs/fi_desk_users.py` toplu/ilk kurulum içindir ve TAM YENİLEME yapar
+(koşarsa ekran değişikliklerini ezer). Ekran erişimi (uzman departman
 yetkisi) ile rol ayrıdır: rolü olmayan kullanıcı ekranı görür ama form
 salt-okunur kalır, onay butonları çıkmaz.
 
@@ -246,8 +270,11 @@ alternatif, gece işiyle (id, isim) kolonlarının kişisel şemaya kopyalanıp
 indekslenmesi (kardeş job deseni). Contains/fuzzy arama gerekirse Oracle
 Text (CTXSYS.CONTEXT) ayrı karar konusudur.
 
-Ofis koşu sırası: `fi_desk_schema.py` → `fi_desk_users.py` →
-`fi_desk_lookup_import.py` → `seed_fi_expert.py` → `fi_desk_dashboards.py`.
+Ofis koşu sırası (ilk kurulum): `fi_desk_schema.py` → `fi_desk_users.py` →
+`fi_desk_lookup_import.py` → `ldap_admins.py` (IS_ADMIN bayrağı) →
+`seed_fi_expert.py` → `fi_desk_dashboards.py`. Sonrasında günlük bakım
+Yönetim ekranından (§5b); users/lookup_import yalnız toplu yenileme
+gerektiğinde tekrar koşulur.
 
 ## 8. Açık konular
 

@@ -2,8 +2,10 @@
 """fi_desk_users.py — FI masası kullanıcı rollerini (FI_LU_USER) yükler.
 
 OFİSTE koşulur (Spyder → Run/F5; argparse YOK, davranış KONFİG
-sabitlerinden). FI_LU_USER uygulamadan EDİTLENMEZ (lookup kararı,
-docs/FI_DESK_SPEC.md §1.4) — tek yazar bu script'tir.
+sabitlerinden). 2026-08-05 karar değişikliği: roller artık UYGULAMADAN da
+yönetilir (/fi-desk/admin — IS_ADMIN'li kullanıcılar; spec §5b). Bu script
+İLK KURULUM / toplu yükleme içindir ve TAM YENİLEME yapar — koşarsa
+Yönetim ekranından yapılmış değişikliklerin ÜZERİNE YAZAR.
 
 Roller:
   ENTRY     veri girişi yapabilir (yeni kayıt + düzenleme + statü değişikliği;

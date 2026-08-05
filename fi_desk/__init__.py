@@ -93,6 +93,14 @@ def _user_roles() -> set[str] | None:
         return None
 
 
+def _is_admin() -> bool:
+    """Masa admin yetkisi — TRESUARY_LDAP.IS_ADMIN bayrağı (User.is_admin,
+    jobs/ldap_admins.py işaretler). LOGIN_DISABLED (dev) → admin."""
+    if _login_disabled():
+        return True
+    return bool(getattr(current_user, "is_admin", False))
+
+
 _ROLE_ERROR_MSG = ("Rol bilgisi alınamadı (veritabanı hatası) — lütfen "
                    "sayfayı yenileyip tekrar deneyin")
 
@@ -287,3 +295,5 @@ def api_create_entry():
 
 # Faz 2 route'ları aynı blueprint'e kaydolur (import yan etkisi).
 from . import routes_records  # noqa: E402,F401
+# Admin paneli (lookup yönetimi) — yalnız IS_ADMIN bayraklı kullanıcılar.
+from . import routes_admin  # noqa: E402,F401

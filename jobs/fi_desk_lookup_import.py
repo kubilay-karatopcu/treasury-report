@@ -2,10 +2,12 @@
 """fi_desk_lookup_import.py — "Dropdown Listeler.xlsx" → FI lookup tabloları.
 
 OFİSTE koşulur (Spyder → Run/F5; argparse YOK, davranış KONFİG
-sabitlerinden). Lookup tabloları uygulamadan editlenmez (karar,
-docs/FI_DESK_SPEC.md §1.4) — banka/lehtar listelerinin tek yazarı bu
-script'tir. Form dropdown'ları bootstrap API'siyle bu tablolardan okunur;
-koşu sonrası SAYFAYI YENİLEMEK yeterlidir, başka adım gerekmez.
+sabitlerinden). 2026-08-05 karar değişikliği: lookup'lar artık UYGULAMADAN
+da yönetilir (/fi-desk/admin — IS_ADMIN'li kullanıcılar; spec §5b). Bu
+script İLK KURULUM / excel'den toplu yükleme içindir ve hedef tablolarında
+TAM YENİLEME yapar — koşarsa Yönetim ekranından yapılmış banka/exporter
+değişikliklerinin ÜZERİNE YAZAR. Form dropdown'ları bootstrap API'siyle bu
+tablolardan okunur; koşu sonrası SAYFAYI YENİLEMEK yeterlidir.
 
 Excel beklenen yapı (kolon adları esnek — boşluk/büyük-küçük normalize
 edilir):

@@ -17,8 +17,9 @@ from datetime import date, datetime
 from flask import jsonify, render_template, request, url_for
 from flask_login import login_required
 
-from . import (db, service, fi_desk_bp, load_field_matrix, _load_lookups,
-               _masa_back_url, _role_guard, _user_roles, _user_sicil)
+from . import (db, service, fi_desk_bp, load_field_matrix, _is_admin,
+               _load_lookups, _masa_back_url, _role_guard, _user_roles,
+               _user_sicil)
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ def records():
         can_enter="ENTRY" in roles,
         can_approve="APPROVER" in roles,
         role_error=role_error,
+        is_admin=_is_admin(),
         masa_back_url=_masa_back_url(RECORDS_PROCESS_ID),
         endpoints=_endpoints(),
     )
