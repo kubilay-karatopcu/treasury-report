@@ -237,25 +237,38 @@ def _release(con, pooled: bool) -> None:
         _dc.drop_connection(con)
 
 
-def query(sql: str, params: dict | None = None) -> list[dict]:
-    """SELECT — satırlar dict listesi olarak (kolon adları büyük harf)."""
+def query(sql: str, params: dict | None = None,
+          _retry: bool = True) -> list[dict]:
+    """SELECT — satırlar dict listesi olarak (kolon adları büyük harf).
+
+    Havuzdan gelen bağlantı bayatlamış olabilir (boşta kalan TCP'yi güvenlik
+    duvarı kesince ilk sorgu ORA-03113/03135 ile düşer) — hata TAZE bağlantıyla
+    BİR KEZ yinelenir. 2026-08-05 saha bulgusu: rol sorgusundaki tek seferlik
+    hata sessizce 'rol yok' sayılıp Düzenle/Sil butonlarını gizliyordu."""
     if is_dev():
         with _duck_lock:
             cur = _get_duck().execute(_to_duck_binds(sql), params or {})
             cols = [d[0].upper() for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
-    con, pooled = _acquire()
     try:
-        cur = con.cursor()
+        con, pooled = _acquire()
         try:
-            cur.execute(sql, params or {})
-            cols = [d[0].upper() for d in cur.description]
-            return [dict(zip(cols, row)) for row in cur.fetchall()]
+            cur = con.cursor()
+            try:
+                cur.execute(sql, params or {})
+                cols = [d[0].upper() for d in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+            finally:
+                cur.close()
         finally:
-            cur.close()
-    finally:
-        _release(con, pooled)
+            _release(con, pooled)
+    except Exception:
+        if not _retry:
+            raise
+        log.warning("fi_desk sorgu hatası — taze bağlantıyla yineleniyor",
+                    exc_info=True)
+        return query(sql, params, _retry=False)
 
 
 def customer_source() -> str:

@@ -18,7 +18,7 @@ from flask import jsonify, render_template, request, url_for
 from flask_login import login_required
 
 from . import (db, service, fi_desk_bp, load_field_matrix, _load_lookups,
-               _masa_back_url, _user_roles, _user_sicil)
+               _masa_back_url, _role_guard, _user_roles, _user_sicil)
 
 log = logging.getLogger(__name__)
 
@@ -53,10 +53,13 @@ def _endpoints() -> dict:
 @login_required
 def records():
     roles = _user_roles()
+    role_error = roles is None      # DB hatası — banner'la gösterilir
+    roles = roles or set()
     return render_template(
         "fi_desk/records.html",
         can_enter="ENTRY" in roles,
         can_approve="APPROVER" in roles,
+        role_error=role_error,
         masa_back_url=_masa_back_url(RECORDS_PROCESS_ID),
         endpoints=_endpoints(),
     )
@@ -183,9 +186,9 @@ def api_offer_events(offer_id: str):
     Ürün/borrower deal'dan gelir (değiştirilemez); yalnız DEAL_STATUS
     değiştiyse event tipi STATUS_CHANGE olur (LOST→BIDDING dahil — karar #6).
     """
-    if "ENTRY" not in _user_roles():
-        return jsonify({"ok": False,
-                        "error": "Veri girişi için ENTRY rolü gerekli"}), 403
+    guard = _role_guard("ENTRY", _user_roles)
+    if guard is not None:
+        return guard
     try:
         events = db.query(
             f"SELECT * FROM {db.qualified('FI_OFFER_EVENTS')} "
@@ -235,9 +238,9 @@ def api_offer_delete(offer_id: str):
     Append-only bozulmaz: son snapshot EVENT_TYPE='DELETE' kopyasıyla PENDING
     event olur. Onaylanınca teklif current ilişkisinden ve listeden düşer;
     geçmiş events tablosunda kalır. Red edilirse kayıt aynen durur."""
-    if "ENTRY" not in _user_roles():
-        return jsonify({"ok": False,
-                        "error": "Silme talebi için ENTRY rolü gerekli"}), 403
+    guard = _role_guard("ENTRY", _user_roles)
+    if guard is not None:
+        return guard
     try:
         events = db.query(
             f"SELECT * FROM {db.qualified('FI_OFFER_EVENTS')} "
@@ -273,9 +276,9 @@ def api_offer_delete(offer_id: str):
 @login_required
 def api_event_approval(event_id: int):
     """Onay/red — {action: 'approve'|'reject', reason?}. APPROVER rolü."""
-    if "APPROVER" not in _user_roles():
-        return jsonify({"ok": False,
-                        "error": "Onay için APPROVER rolü gerekli"}), 403
+    guard = _role_guard("APPROVER", _user_roles)
+    if guard is not None:
+        return guard
     try:
         body = request.get_json(force=True) or {}
         action = {"approve": "APPROVED", "reject": "REJECTED"}.get(

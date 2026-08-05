@@ -71,8 +71,14 @@ def _user_sicil() -> str:
     return current_user.sicil
 
 
-def _user_roles() -> set[str]:
-    """FI_LU_USER'dan roller (ENTRY / APPROVER). LOGIN_DISABLED → hepsi."""
+def _user_roles() -> set[str] | None:
+    """FI_LU_USER'dan roller (ENTRY / APPROVER). LOGIN_DISABLED → hepsi.
+
+    ``None`` = rol sorgusu BAŞARISIZ (DB hatası) — bu, 'rolü yok'tan (boş
+    set) FARKLIDIR: sayfalar durumu banner'la gösterir, API'ler 503 döner.
+    2026-08-05 saha bulgusu: tek seferlik Oracle hatası sessizce 'rol yok'
+    sayılınca Düzenle/Sil butonları açıklamasız kayboluyordu (db.query artık
+    taze bağlantıyla bir kez yineliyor; yine de düşerse burası None döner)."""
     if _login_disabled():
         return {"ENTRY", "APPROVER"}
     try:
@@ -84,7 +90,25 @@ def _user_roles() -> set[str]:
         return {r["USER_ROLE"] for r in rows}
     except Exception:
         log.exception("fi_desk rol sorgusu başarısız")
-        return set()
+        return None
+
+
+_ROLE_ERROR_MSG = ("Rol bilgisi alınamadı (veritabanı hatası) — lütfen "
+                   "sayfayı yenileyip tekrar deneyin")
+
+
+def _role_guard(required: str, roles_fn=None):
+    """API rol kapısı: (hata_cevabı | None). None → devam et.
+
+    ``roles_fn``: çağıran modülün ``_user_roles``'u — call-site'tan geçirilir
+    ki testlerin modül bazlı monkeypatch'leri etkisini korusun."""
+    roles = (roles_fn or _user_roles)()
+    if roles is None:
+        return jsonify({"ok": False, "error": _ROLE_ERROR_MSG}), 503
+    if required not in roles:
+        return jsonify({"ok": False,
+                        "error": f"Bu işlem için {required} rolü gerekli"}), 403
+    return None
 
 
 def _masa_back_url(process_id: str = PROCESS_ID):
@@ -131,9 +155,14 @@ def index():
 @login_required
 def entry():
     roles = _user_roles()
+    role_error = roles is None
+    roles = roles or set()
     return render_template(
         "fi_desk/entry.html",
         can_enter="ENTRY" in roles,
+        role_error=role_error,
+        # Silme butonu sunucuda çizilir: yalnız edit modunda (?offer=...)
+        edit_offer=(request.args.get("offer") or "").strip() or None,
         masa_back_url=_masa_back_url(),
         endpoints={
             "bootstrap": url_for("fi_desk.api_bootstrap"),
@@ -209,9 +238,9 @@ def api_create_entry():
 
     Event PENDING doğar; onaycı ekranı (Faz 2) APPROVED/REJECTED yapar.
     """
-    if "ENTRY" not in _user_roles():
-        return jsonify({"ok": False,
-                        "error": "Veri girişi için ENTRY rolü gerekli"}), 403
+    guard = _role_guard("ENTRY", _user_roles)
+    if guard is not None:
+        return guard
     try:
         payload = request.get_json(force=True) or {}
         matrix = load_field_matrix()

@@ -345,6 +345,41 @@ def test_delete_requires_entry_role(client, monkeypatch):
     assert r.status_code == 403
 
 
+def test_records_readonly_without_entry_role(client, monkeypatch):
+    """ENTRY rolü yoksa Düzenle/Sil overlay'de HİÇ ÇİZİLMEZ (sunucu kararı)
+    ve sayfa salt-okunur olduğunu açıkça yazar."""
+    from fi_desk import routes_records
+    monkeypatch.setattr(routes_records, "_user_roles", lambda: {"APPROVER"})
+    html = client.get("/fi-desk/records").get_data(as_text=True)
+    assert 'id="ov-edit"' not in html
+    assert 'id="ov-delete"' not in html
+    assert "salt okunur" in html
+
+
+def test_role_query_failure_visible_not_silent(client, monkeypatch):
+    """Rol sorgusu DÜŞERSE (None) sayfa sessizce salt-okunur olmaz — banner
+    çıkar; yazma API'leri 403 değil 503 döner (2026-08-05 'Düzenle/Sil
+    kayboldu' bulgusunun kökü buydu)."""
+    from fi_desk import routes_records
+    monkeypatch.setattr(routes_records, "_user_roles", lambda: None)
+    html = client.get("/fi-desk/records").get_data(as_text=True)
+    assert "Rol bilgisi alınamadı" in html
+    assert client.post("/fi-desk/api/offers/FIO-X/delete").status_code == 503
+    assert client.post("/fi-desk/api/events/1/approval",
+                       json={"action": "approve"}).status_code == 503
+
+
+def test_entry_edit_mode_renders_delete_button_serverside(client):
+    """'Kaydı Sil' sunucuda çizilir: yalnız ?offer= edit modunda var,
+    yeni giriş modunda yok."""
+    ids = _create(client)
+    html = client.get(f"/fi-desk/entry?offer={ids['offer_id']}") \
+        .get_data(as_text=True)
+    assert 'id="btn-delete"' in html
+    html = client.get("/fi-desk/entry").get_data(as_text=True)
+    assert 'id="btn-delete"' not in html
+
+
 def test_customer_search_fallback_list(client):
     """Müşteri tablosu konfigüre değil (dev) → FI_LU_LIST IMPORTER
     fallback'i; 3 karakter altı arama sonuç döndürmez."""

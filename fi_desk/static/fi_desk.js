@@ -847,10 +847,8 @@
     $("fi-status").textContent = FI_CAN_ENTER ? "" : "ENTRY rolü yok — form kilitli";
 
     if (EDIT_OFFER) {
-      // Silme yalnız edit ekranında (2026-08-04 #3): buton kayıt yüklemesini
-      // BEKLEMEDEN açılır — yükleme aksasa da erişilebilir kalsın (2026-08-05
-      // "butonu göremiyorum" bulgusu). Talep onay akışına girer.
-      if (FI_CAN_ENTER && $("btn-delete")) $("btn-delete").style.display = "";
+      // "Kaydı Sil" SUNUCUDA çizilir (can_enter + edit modu) — JS yalnız
+      // tıklamayı bağlar (yukarıda); görünürlük JS'e bağlı değildir.
       busy(true, "Kayıt yükleniyor…");
       try {
         await enterEditMode();

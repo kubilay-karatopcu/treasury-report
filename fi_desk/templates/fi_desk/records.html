@@ -142,7 +142,17 @@ body.prisma .canvas {
       <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
       <h2>İşlemler</h2>
     </div>
-    <div class="pk-meta" id="grid-info">—</div>
+    <div style="text-align: right;">
+      {# Rol durumu SESSİZCE gizlenmez (2026-08-05: Düzenle/Sil "kayboldu"
+         bulgusunun kökü rol sorgusunun sessiz düşmesiydi) — açıkça yazılır. #}
+      {% if role_error %}
+      <div class="pk-meta" style="color: var(--red);">⚠ Rol bilgisi alınamadı
+        (veritabanı hatası) — sayfayı yenileyin; Düzenle/Sil geçici gizli</div>
+      {% elif not can_enter %}
+      <div class="pk-meta">salt okunur — ENTRY rolü yok</div>
+      {% endif %}
+      <div class="pk-meta" id="grid-info">—</div>
+    </div>
   </div>
 
   <div class="pk-grid">
@@ -180,10 +190,13 @@ body.prisma .canvas {
         <div class="pk-sub" id="ov-sub"></div>
       </div>
       <div class="fi-actions">
-        <a class="pk-btn pk-btn--sm" id="ov-edit" style="display:none;">Düzenle</a>
-        {# Silme talebi — onay akışına gider (PENDING DELETE event'i) #}
-        <button class="pk-btn pk-btn--sm fi-btn-danger" id="ov-delete"
-                style="display:none;">Sil</button>
+        {# Düzenle/Sil SUNUCUDA çizilir (JS'e bağlı değil — 2026-08-05
+           görünürlük bulgusu): ENTRY rolü varsa daima görünür; href/tıklama
+           JS'te bağlanır. Silme talebi onay akışına gider (PENDING DELETE). #}
+        {% if can_enter %}
+        <a class="pk-btn pk-btn--sm" id="ov-edit">Düzenle</a>
+        <button class="pk-btn pk-btn--sm fi-btn-danger" id="ov-delete">Sil</button>
+        {% endif %}
         <button class="fi-ov__close" id="ov-close" title="Kapat">✕</button>
       </div>
     </div>
@@ -220,5 +233,5 @@ body.prisma .canvas {
   const FI_CAN_ENTER = {{ can_enter | tojson }};
   const FI_CAN_APPROVE = {{ can_approve | tojson }};
 </script>
-<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=5"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=6"></script>
 {% endblock %}

@@ -130,7 +130,10 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
       <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
       <h2>Veri Girişi</h2>
     </div>
-    {% if not can_enter %}
+    {% if role_error %}
+    <div class="pk-meta" style="color: var(--red);">⚠ Rol bilgisi alınamadı
+      (veritabanı hatası) — sayfayı yenileyin; butonlar geçici olarak gizli</div>
+    {% elif not can_enter %}
     <div class="pk-meta">salt okunur — ENTRY rolü gerekli</div>
     {% endif %}
   </div>
@@ -188,11 +191,14 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
 
   <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:16px;">
     <span class="pk-status" id="fi-status"></span>
-    {# Yalnız edit modunda görünür (fi_desk.js açar): silme talebi PENDING
-       DELETE event'i olarak onaya gider — geçmiş silinmez. #}
-    <button class="pk-btn fi-btn-danger" id="btn-delete" style="display:none;">
+    {# SUNUCUDA çizilir (JS'e bağlı değil — 2026-08-05 görünürlük bulgusu):
+       yalnız edit modu + ENTRY rolü. Silme talebi PENDING DELETE event'i
+       olarak onaya gider — geçmiş silinmez. #}
+    {% if can_enter and edit_offer %}
+    <button class="pk-btn fi-btn-danger" id="btn-delete">
       Kaydı Sil
     </button>
+    {% endif %}
     <button class="pk-btn pk-btn--primary" id="btn-submit" disabled>
       Onaya Gönder
     </button>
@@ -210,5 +216,5 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
   const FI_CAN_ENTER = {{ can_enter | tojson }};
 </script>
 <script src="{{ url_for('fi_desk.static', filename='vendor/flatpickr.min.js') }}"></script>
-<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=6"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=7"></script>
 {% endblock %}

@@ -359,8 +359,10 @@
     $("ov-eyebrow").textContent = "";
     $("ov-title").textContent = "Yükleniyor…";
     $("ov-sub").textContent = "";
-    $("ov-edit").style.display = "none";
-    if ($("ov-delete")) $("ov-delete").style.display = "none";
+    // Düzenle/Sil butonlarına DOKUNULMAZ: görünürlükleri sunucu kararıdır
+    // (can_enter ile şablonda çizilir/çizilmez) — JS yalnız href/tıklama
+    // bağlar. Eski display-toggle deseni JS aksadığında butonları sessizce
+    // yutuyordu (2026-08-05 saha bulgusu).
     $("ov-current-title").textContent = "Güncel Durum";
     $("ov-current").innerHTML = '<dt></dt><dd class="fi-ov__loading">Yükleniyor…</dd>';
     $("ov-sched-card").style.display = "none";
@@ -391,15 +393,12 @@
     $("ov-sub").textContent = (body.deal.DEAL_LABEL || "") +
       (missing.length ? `${body.deal.DEAL_LABEL ? " · " : ""}` +
         `⚠ Eksik: ${missing.join(", ")}` : "");
+    // Düzenle/Sil sunucuda çizilir (can_enter yoksa element hiç yok) —
+    // burada yalnız hedef bağlanır.
     const edit = $("ov-edit");
-    if (FI_CAN_ENTER) {
-      edit.style.display = "";
+    if (edit) {
       edit.href = `${ENDPOINTS.entry_page}?offer=${encodeURIComponent(offerId)}`;
     }
-    // Sil butonu overlay'de de durur (edit ekranındakiyle aynı akış:
-    // talep PENDING DELETE event'i olarak onaya gider — 2026-08-05 #5).
-    const del = $("ov-delete");
-    if (del && FI_CAN_ENTER) del.style.display = "";
     renderCurrent(body);
     renderSchedule(body);
     renderTimeline(body);
