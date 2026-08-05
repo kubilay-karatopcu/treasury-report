@@ -52,7 +52,9 @@ def test_every_product_covers_every_input_field():
                     if v["storage"] in ("deal", "event", "subtable")}
     for key, prod in MATRIX["products"].items():
         assert set(prod["fields"]) == input_fields, key
-        assert set(prod["fields"].values()) <= {"R", "O", "-"}, key
+        # "D": girişte opsiyonel, sonradan tamamlanması beklenen alan
+        # (işlem listesi eksikse satırı sarı boyar) — 2026-08-04.
+        assert set(prod["fields"].values()) <= {"R", "O", "-", "D"}, key
         # Ürün ve borrower her üründe zorunlu
         assert prod["fields"]["PRODUCT_TYPE"] == "R"
         assert prod["fields"]["BORROWER_BANK"] == "R"
@@ -120,6 +122,9 @@ def test_view_reporting_status_rules_present():
     assert "REPORTING_STATUS" in view
     assert "TENOR_DAYS" in view
     assert "APPROVAL_STATUS = 'APPROVED'" in view
+    # Onaylı DELETE'i olan teklif current'tan düşer (silme akışı, 2026-08-04)
+    assert "EVENT_TYPE = 'DELETE'" in view
+    assert "NOT EXISTS" in view
 
 
 def test_seed_event_defaults_match_ddl():
@@ -133,16 +138,27 @@ def test_seed_event_defaults_match_ddl():
 @pytest.mark.parametrize("product,expect", [
     # Excel matrisinden temsili doğrulamalar
     ("TRADE_LOAN", {"TRADE_TXN_AMT": "R", "COVERAGE_FLG": "R",
-                    "ALL_IN_FIXED_USD_RATE": "O", "DEAL_STATUS": "R"}),
-    ("BILATERAL_LOAN", {"TRADE_TXN_AMT": "O", "COVERAGE_FLG": "R"}),
-    ("SYNDICATED_LOAN", {"TRADE_TXN_AMT": "-", "COVERAGE_FLG": "R"}),
+                    "ALL_IN_FIXED_USD_RATE": "O", "DEAL_STATUS": "R",
+                    # Underlying kimlik alanları girişte zorunlu DEĞİL,
+                    # sonradan tamamlanır (2026-08-04 saha isteği #3)
+                    "IMPORTER": "D", "EXPORTER": "D",
+                    "REFERENCE_NO": "D", "GOODS_DESC": "D",
+                    "ADDITIONAL_COSTS": "O", "ALL_IN_RATE_TXT": "O"}),
+    ("POSTFINANCING", {"IMPORTER": "D", "EXPORTER": "D",
+                       "REFERENCE_NO": "D", "GOODS_DESC": "D"}),
+    ("STRUCTURED_LC", {"IMPORTER": "D", "GOODS_DESC": "D"}),
+    ("BILATERAL_LOAN", {"TRADE_TXN_AMT": "O", "COVERAGE_FLG": "R",
+                        # Bilateral'de zaten opsiyoneldi — D'ye YÜKSELMEZ
+                        "IMPORTER": "O", "EXPORTER": "O"}),
+    ("SYNDICATED_LOAN", {"TRADE_TXN_AMT": "-", "COVERAGE_FLG": "R",
+                         "IMPORTER": "-"}),
     ("MTN_PPS", {"COVERAGE_FLG": "-", "GROUP_COMPANY": "-",
                  "ALL_IN_FIXED_USD_RATE": "R", "DEAL_STATUS": "R"}),
     ("EUROBOND", {"DEAL_STATUS": "-", "LENDER_COUNTRY": "-",
                   "ALL_IN_FIXED_USD_RATE": "R", "SUSTAINABILITY_FLG": "R"}),
     ("FIDUCIARY", {"DEAL_STATUS": "-", "SUSTAINABILITY_FLG": "-",
                    "FLOAT_BASE_RATE": "-", "ALL_IN_RATE_BPS": "-",
-                   "NOTES": "O"}),
+                   "ALL_IN_RATE_TXT": "-", "NOTES": "O"}),
 ])
 def test_matrix_spot_checks(product, expect):
     fields = MATRIX["products"][product]["fields"]

@@ -13,6 +13,7 @@ Event PENDING doğar (onay akışı, docs/FI_DESK_SPEC.md §5).
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -26,7 +27,8 @@ EVENT_DATA_COLS = [
     "MATURITY_DT", "REPAYMENT_SCHEDULE", "COVERAGE_FLG", "COVERAGE_PROVIDER",
     "RATE_TYPE", "FIXED_RATE_BPS", "FLOAT_BASE_RATE", "FIXING_DT",
     "FLOAT_SPREAD_BPS",
-    "COVERAGE_RATE_BPS", "FEE", "ADDITIONAL_FEE_COST", "ALL_IN_RATE_BPS",
+    "COVERAGE_RATE_BPS", "FEE", "ADDITIONAL_COSTS", "ALL_IN_RATE_BPS",
+    "ALL_IN_RATE_TXT",
     "ALL_IN_FIXED_USD_RATE", "TRADE_TXN_AMT", "TRADE_TXN_CCY", "SHIPMENT_DT",
     "TRADE_PAYMENT_DT", "IMPORTER", "EXPORTER", "BUSINESS_SEGMENT",
     "REFERENCE_NO", "GOODS_DESC", "SUSTAINABILITY_FLG", "ESG_TYPE",
@@ -37,8 +39,13 @@ DATE_FIELDS = {"OFFER_DT", "VALUE_DT", "MATURITY_DT", "SHIPMENT_DT",
                "TRADE_PAYMENT_DT", "FIXING_DT"}
 NUMBER_FIELDS = {"FUNDING_AMT", "USD_EQV", "FIXED_RATE_BPS",
                  "FLOAT_SPREAD_BPS", "COVERAGE_RATE_BPS", "FEE",
-                 "ADDITIONAL_FEE_COST", "ALL_IN_RATE_BPS",
+                 "ALL_IN_RATE_BPS",
                  "ALL_IN_FIXED_USD_RATE", "TRADE_TXN_AMT"}
+
+#: Matris kodu "D": girişte opsiyonel, sonradan tamamlanması beklenen alan
+#: (Importer/Exporter/Reference/Goods — 2026-08-04 saha kararı). İşlem
+#: listesi eksik-D satırları sarı boyar (missing_deferred).
+DEFERRED_CODE = "D"
 
 
 class ValidationError(Exception):
@@ -86,6 +93,96 @@ def _parse_number(value: Any, field: str, errors: list[dict]) -> float | None:
 
 def _blank(v: Any) -> bool:
     return v is None or (isinstance(v, str) and not v.strip())
+
+
+def _parse_costs(raw: Any, allowed: dict[str, str],
+                 errors: list[dict]) -> str | None:
+    """Additional cost kalemleri → JSON map string'i ('{"TIP": bps}').
+
+    Girdi esnek: JSON string, {TIP: bps} sözlüğü ya da [{type, bps}] listesi
+    (form hidden input JSON string yollar). Tipler ADDITIONAL_COST_TYPE
+    listesine karşı doğrulanır; aynı tip iki kez giremez. Boş set → None.
+    Kayıt sort_keys ile stabildir (classify_edit karşılaştırması şaşmasın).
+    """
+    field = "ADDITIONAL_COSTS"
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            errors.append({"field": field,
+                           "message": f"Ek maliyet formatı geçersiz: {raw!r}"})
+            return None
+    if isinstance(data, list):
+        pairs = [((d or {}).get("type") or (d or {}).get("code"),
+                  (d or {}).get("bps", (d or {}).get("cost")))
+                 for d in data]
+    elif isinstance(data, dict):
+        pairs = list(data.items())
+    else:
+        errors.append({"field": field,
+                       "message": "Ek maliyetler {tip: bps} yapısında olmalı"})
+        return None
+
+    out: dict[str, float] = {}
+    for cd, bps in pairs:
+        cd = str(cd or "").strip()
+        if not cd and _blank(bps):
+            continue  # tamamen boş satır — yok say
+        if not cd:
+            errors.append({"field": field, "message": "Maliyet tipi seçilmedi"})
+            continue
+        if allowed and cd not in allowed:
+            errors.append({"field": field,
+                           "message": f"Bilinmeyen maliyet tipi: {cd!r}"})
+            continue
+        if cd in out:
+            errors.append({"field": field,
+                           "message": f"Aynı maliyet tipi iki kez girildi: "
+                                      f"{allowed.get(cd, cd)}"})
+            continue
+        if _blank(bps):
+            errors.append({"field": field,
+                           "message": f"{allowed.get(cd, cd)}: bps değeri boş"})
+            continue
+        n = _parse_number(bps, field, errors)
+        if n is not None:
+            out[cd] = n
+    return json.dumps(out, ensure_ascii=False, sort_keys=True) if out else None
+
+
+def costs_total(additional_costs: Any) -> float:
+    """ADDITIONAL_COSTS JSON map'inin bps toplamı (boş/None → 0)."""
+    if _blank(additional_costs):
+        return 0.0
+    data = additional_costs
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except ValueError:
+            return 0.0
+    if not isinstance(data, dict):
+        return 0.0
+    return float(sum(v for v in data.values() if isinstance(v, (int, float))))
+
+
+def missing_deferred_keys(matrix: dict, product: str, row: dict) -> list[str]:
+    """Üründe 'D' (sonradan zorunlu) işaretli olup boş kalan alan ADLARI
+    (event kolon adları). Detay künyesi bu anahtarlarla boş hücreleri '?'
+    olarak çizer (kolon sırası sabit kalsın — 2026-08-05 isteği)."""
+    prod = matrix["products"].get(product)
+    if not prod:
+        return []
+    return [key for key, code in prod["fields"].items()
+            if code == DEFERRED_CODE and key in matrix["fields"]
+            and _blank(row.get(key))]
+
+
+def missing_deferred(matrix: dict, product: str, row: dict) -> list[str]:
+    """missing_deferred_keys'in etiket hâli — işlem listesi satırı sarı
+    boyar ve kullanıcıya eksikleri okunur adlarıyla hatırlatır."""
+    return [matrix["fields"][key]["label"]
+            for key in missing_deferred_keys(matrix, product, row)]
 
 
 def _cond_map(matrix: dict) -> dict[str, tuple[str, str]]:
@@ -170,6 +267,11 @@ def validate_entry(matrix: dict, lookups: dict, payload: dict) -> dict:
             continue
 
         # Tip normalize
+        if meta["input"] == "cost_list":
+            allowed = {r["VALUE_CD"]: r.get("LABEL") or r["VALUE_CD"]
+                       for r in lists.get(meta.get("list") or "", [])}
+            values[key] = _parse_costs(raw, allowed, errors)
+            continue
         if key in DATE_FIELDS:
             values[key] = _parse_date(raw, key, errors)
         elif key in NUMBER_FIELDS:
@@ -223,7 +325,27 @@ def validate_entry(matrix: dict, lookups: dict, payload: dict) -> dict:
         base = values.get("FIXED_RATE_BPS") if values.get("RATE_TYPE") == "FIXED" \
             else values.get("FLOAT_SPREAD_BPS")
         if base is not None:
-            values["ALL_IN_RATE_BPS"] = float(base) + float(values.get("COVERAGE_RATE_BPS") or 0)
+            values["ALL_IN_RATE_BPS"] = (float(base)
+                                         + float(values.get("COVERAGE_RATE_BPS") or 0)
+                                         + costs_total(values.get("ADDITIONAL_COSTS")))
+    # All-in string gösterimi (2026-08-04): FLOATING → "{base etiketi} +
+    # {all-in} bps", FIXED → "{all-in} bps (Fixed)". Sunucu otoritedir —
+    # formdan gelen değer (readonly alan) daima yeniden hesaplanır.
+    if prod_fields.get("ALL_IN_RATE_TXT", "-") != "-":
+        allin = values.get("ALL_IN_RATE_BPS")
+        if allin is None:
+            values["ALL_IN_RATE_TXT"] = None
+        else:
+            allin_s = f"{float(allin):g}"
+            if values.get("RATE_TYPE") == "FLOATING":
+                base = values.get("FLOAT_BASE_RATE")
+                row = next((r for r in lists.get("BASE_RATE", [])
+                            if r["VALUE_CD"] == base), None)
+                base_lbl = (row or {}).get("LABEL") or base
+                values["ALL_IN_RATE_TXT"] = (f"{base_lbl} + {allin_s} bps"
+                                             if base_lbl else f"{allin_s} bps")
+            else:
+                values["ALL_IN_RATE_TXT"] = f"{allin_s} bps (Fixed)"
 
     # Otomatik hesap sonrası hâlâ boş kalan zorunlular (auto dahil)
     for key in required_missing:
@@ -381,6 +503,20 @@ def build_edit_statements(clean: dict, offer_id: str, deal_id: str,
     statements.extend(_schedule_inserts(qualify, next_event_id, offer_id,
                                         clean["schedule"]))
     return statements
+
+
+def build_delete_statements(prev_fields: dict, offer_id: str, deal_id: str,
+                            user_id: str, qualify, next_event_id: int,
+                            next_seq: int,
+                            now: datetime | None = None) -> list[tuple]:
+    """Silme talebi — append-only bozulmaz: son snapshot'ın kopyası
+    EVENT_TYPE='DELETE' ile PENDING event olarak yazılır; onaylanınca teklif
+    current ilişkisinden düşer (CURRENT_SELECT NOT EXISTS filtresi), geçmiş
+    events tablosunda durur. Red edilirse hiçbir şey değişmez."""
+    now = now or datetime.now()
+    return [_event_insert(
+        qualify, next_event_id, offer_id, deal_id, next_seq, "DELETE",
+        now, user_id, {c: prev_fields.get(c) for c in EVENT_DATA_COLS})]
 
 
 def build_approval_statement(event_id: int, action: str, user_id: str,

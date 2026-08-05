@@ -439,8 +439,8 @@ def build_table_docs(runner: Runner, sch: str,
         _core("V_FI_OFFER_CURRENT",
               "FI masası (Muhabir Bankacılık ve Yapılandırılmış Fonlama) işlem "
               "kayıtlarının RAPORLAMA görünümü: teklif başına EN SON ONAYLI "
-              "snapshot + türetilen kolonlar. Onay bekleyen değişiklikler burada "
-              "GÖRÜNMEZ. Satır greni = teklif (deal × lender); aynı DEAL_ID "
+              "snapshot + türetilen kolonlar. Onay bekleyen değişiklikler ve "
+              "silinmiş (onaylı DELETE event'li) teklifler burada GÖRÜNMEZ. Satır greni = teklif (deal × lender); aynı DEAL_ID "
               "birden fazla lender teklifi taşıyabilir. Kaynak: fi_desk veri "
               "giriş uygulaması (docs/FI_DESK_SPEC.md).",
               "EVENT_TS", {
@@ -472,7 +472,9 @@ def build_table_docs(runner: Runner, sch: str,
                   "FIXING_DT": _col("DATE", "Floating fixing tarihi (varsayılan value date - 2 takvim günü)", filterable=False),
                   "FLOAT_SPREAD_BPS": _col("NUMBER", "Lender spread'i (bps)", aggregatable=True),
                   "COVERAGE_RATE_BPS": _col("NUMBER", "Coverage maliyeti (bps)", aggregatable=True),
-                  "ALL_IN_RATE_BPS": _col("NUMBER", "Toplam maliyet (bps) — karşılaştırmalar hacim ağırlıklı olmalı (Σr·USD/ΣUSD)", aggregatable=True),
+                  "ADDITIONAL_COSTS": _col("VARCHAR2(2000)", "Ek maliyet kalemleri JSON map'i ({\"MUSTERI_PRIMI\": 15, ...} bps) — toplamı ALL_IN_RATE_BPS'e dahildir", filterable=False),
+                  "ALL_IN_RATE_BPS": _col("NUMBER", "Toplam maliyet (bps; base/spread + coverage + ek maliyetler) — karşılaştırmalar hacim ağırlıklı olmalı (Σr·USD/ΣUSD)", aggregatable=True),
+                  "ALL_IN_RATE_TXT": _col("VARCHAR2(160)", "All-in'in okunur hâli: FLOATING '3M SOFR + 245 bps', FIXED '345 bps (Fixed)' — hesap için ALL_IN_RATE_BPS kullan", filterable=False),
                   "ALL_IN_FIXED_USD_RATE": _col("NUMBER", "USD sabit eşdeğer toplam maliyet", aggregatable=True),
                   "BUSINESS_SEGMENT": _col("VARCHAR2(32)", "Underlying işin segmenti", tag="segment"),
                   "SUSTAINABILITY_FLG": _col("VARCHAR2(4)", "ESG işlemi mi (YES/NO)", tag="other"),
@@ -491,7 +493,7 @@ def build_table_docs(runner: Runner, sch: str,
               "OFFER_ID": _col("VARCHAR2(24)", "Teklif kimliği", filterable=False),
               "DEAL_ID": _col("VARCHAR2(24)", "Üst işlem kimliği", tag="deal_id"),
               "EVENT_SEQ": _col("NUMBER", "Teklif içi sıra (1 = ilk giriş)", filterable=False),
-              "EVENT_TYPE": _col("VARCHAR2(16)", "ENTRY / EDIT / STATUS_CHANGE", tag="other"),
+              "EVENT_TYPE": _col("VARCHAR2(16)", "ENTRY / EDIT / STATUS_CHANGE / DELETE (onaylı DELETE'i olan teklif current view'da görünmez)", tag="other"),
               "EVENT_TS": _col("DATE", "Event zamanı", tag="as_of_time", role="time_axis"),
               "EVENT_USER": _col("VARCHAR2(16)", "Giren kullanıcı sicili", tag="user_id"),
               "APPROVAL_STATUS": _col("VARCHAR2(16)", "PENDING / APPROVED / REJECTED", tag="other"),

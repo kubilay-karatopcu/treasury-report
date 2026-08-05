@@ -17,8 +17,9 @@ from datetime import date, datetime
 from flask import jsonify, render_template, request, url_for
 from flask_login import login_required
 
-from . import (db, service, fi_desk_bp, load_field_matrix, _load_lookups,
-               _masa_back_url, _user_roles, _user_sicil)
+from . import (db, service, fi_desk_bp, load_field_matrix, _is_admin,
+               _load_lookups, _masa_back_url, _role_guard, _user_roles,
+               _user_sicil)
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ def _endpoints() -> dict:
         "entry_page": url_for("fi_desk.entry"),
         "offer_detail": url_for("fi_desk.api_offer_detail", offer_id="__OID__"),
         "offer_events": url_for("fi_desk.api_offer_events", offer_id="__OID__"),
+        "offer_delete": url_for("fi_desk.api_offer_delete", offer_id="__OID__"),
         "approval": url_for("fi_desk.api_event_approval", event_id=0)
                     .replace("/0/", "/__EID__/"),
     }
@@ -52,10 +54,14 @@ def _endpoints() -> dict:
 @login_required
 def records():
     roles = _user_roles()
+    role_error = roles is None      # DB hatası — banner'la gösterilir
+    roles = roles or set()
     return render_template(
         "fi_desk/records.html",
         can_enter="ENTRY" in roles,
         can_approve="APPROVER" in roles,
+        role_error=role_error,
+        is_admin=_is_admin(),
         masa_back_url=_masa_back_url(RECORDS_PROCESS_ID),
         endpoints=_endpoints(),
     )
@@ -64,7 +70,12 @@ def records():
 @fi_desk_bp.route("/api/records", methods=["GET"])
 @login_required
 def api_records():
-    """Grid satırları: teklif başına current (onaylı) ya da bekleyen-yeni."""
+    """Grid satırları: teklif başına current (onaylı) ya da bekleyen-yeni.
+
+    Satır durumu boyaması (2026-08-04): MISSING_FIELDS = üründe 'D'
+    (sonradan zorunlu) olup boş kalan alan etiketleri → sarı;
+    PENDING'i olanlar → mavi; tam + onaylı → yeşil (renkler JS'te).
+    Onaylı DELETE'i olan teklifler hiç listelenmez."""
     try:
         matrix = load_field_matrix()
         labels = {k: v["label"] for k, v in matrix["products"].items()}
@@ -75,29 +86,39 @@ def api_records():
             f"FROM {db.qualified('FI_OFFER_EVENTS')} e "
             f"JOIN {db.qualified('FI_DEALS')} d ON d.DEAL_ID = e.DEAL_ID "
             "WHERE e.APPROVAL_STATUS = 'PENDING'")
+        deleted = {r["OFFER_ID"] for r in db.query(
+            f"SELECT DISTINCT OFFER_ID FROM {db.qualified('FI_OFFER_EVENTS')} "
+            "WHERE EVENT_TYPE = 'DELETE' AND APPROVAL_STATUS = 'APPROVED'")}
 
         pending_by_offer: dict[str, list[dict]] = {}
         for ev in pending:
+            if ev["OFFER_ID"] in deleted:
+                continue
             pending_by_offer.setdefault(ev["OFFER_ID"], []).append(ev)
+
+        def _decorate(row: dict, src: dict, offer_id: str) -> dict:
+            evs = pending_by_offer.get(offer_id, [])
+            row["PENDING_COUNT"] = len(evs)
+            row["PENDING_DELETE"] = any(e.get("EVENT_TYPE") == "DELETE"
+                                        for e in evs)
+            row["PRODUCT_LABEL"] = labels.get(row.get("PRODUCT_TYPE"),
+                                              row.get("PRODUCT_TYPE"))
+            row["MISSING_FIELDS"] = service.missing_deferred(
+                matrix, src.get("PRODUCT_TYPE") or "", src)
+            return row
 
         rows = []
         for offer_id, cur in current.items():
-            row = _ser_row(cur)
+            row = _decorate(_ser_row(cur), cur, offer_id)
             row["ROW_STATE"] = "CURRENT"
-            row["PENDING_COUNT"] = len(pending_by_offer.get(offer_id, []))
-            row["PRODUCT_LABEL"] = labels.get(row.get("PRODUCT_TYPE"),
-                                              row.get("PRODUCT_TYPE"))
             rows.append(row)
         for offer_id, evs in pending_by_offer.items():
             if offer_id in current:
                 continue
             latest = max(evs, key=lambda e: e["EVENT_SEQ"])
-            row = _ser_row(latest)
+            row = _decorate(_ser_row(latest), latest, offer_id)
             row["ROW_STATE"] = "PENDING_NEW"
-            row["PENDING_COUNT"] = len(evs)
             row["REPORTING_STATUS"] = None
-            row["PRODUCT_LABEL"] = labels.get(row.get("PRODUCT_TYPE"),
-                                              row.get("PRODUCT_TYPE"))
             vd, md = latest.get("VALUE_DT"), latest.get("MATURITY_DT")
             row["TENOR_DAYS"] = (md - vd).days if vd and md else None
             rows.append(row)
@@ -133,6 +154,11 @@ def api_offer_detail(offer_id: str):
             f"SELECT * FROM {db.current_relation()} "
             "WHERE OFFER_ID = :o", {"o": offer_id})
         matrix = load_field_matrix()
+        cost_labels = {r["VALUE_CD"]: r.get("LABEL") or r["VALUE_CD"]
+                       for r in _load_lookups()["lists"]
+                       .get("ADDITIONAL_COST_TYPE", [])}
+        cur_row = current[0] if current else None
+        src = cur_row or events[0]
         return jsonify({
             "ok": True,
             "deal": _ser_row(deal),
@@ -140,7 +166,14 @@ def api_offer_detail(offer_id: str):
                 .get(deal["PRODUCT_TYPE"], {}).get("label", deal["PRODUCT_TYPE"]),
             "events": [_ser_row(e) for e in events],
             "schedules": {str(k): v for k, v in schedules.items()},
-            "current": _ser_row(current[0]) if current else None,
+            "current": _ser_row(cur_row) if cur_row else None,
+            "cost_labels": cost_labels,
+            "missing_fields": service.missing_deferred(
+                matrix, deal["PRODUCT_TYPE"], src),
+            # Detay künyesi bu anahtarlarla boş hücreleri "?" gösterir
+            # (satır sırası sabit kalsın — 2026-08-05 isteği #4).
+            "missing_keys": service.missing_deferred_keys(
+                matrix, deal["PRODUCT_TYPE"], src),
         })
     except Exception as e:
         log.exception("fi_desk offer detail başarısız")
@@ -155,9 +188,9 @@ def api_offer_events(offer_id: str):
     Ürün/borrower deal'dan gelir (değiştirilemez); yalnız DEAL_STATUS
     değiştiyse event tipi STATUS_CHANGE olur (LOST→BIDDING dahil — karar #6).
     """
-    if "ENTRY" not in _user_roles():
-        return jsonify({"ok": False,
-                        "error": "Veri girişi için ENTRY rolü gerekli"}), 403
+    guard = _role_guard("ENTRY", _user_roles)
+    if guard is not None:
+        return guard
     try:
         events = db.query(
             f"SELECT * FROM {db.qualified('FI_OFFER_EVENTS')} "
@@ -199,13 +232,55 @@ def api_offer_events(offer_id: str):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@fi_desk_bp.route("/api/offers/<offer_id>/delete", methods=["POST"])
+@login_required
+def api_offer_delete(offer_id: str):
+    """Teklifi silme TALEBİ — onay akışına girer (2026-08-04 saha isteği).
+
+    Append-only bozulmaz: son snapshot EVENT_TYPE='DELETE' kopyasıyla PENDING
+    event olur. Onaylanınca teklif current ilişkisinden ve listeden düşer;
+    geçmiş events tablosunda kalır. Red edilirse kayıt aynen durur."""
+    guard = _role_guard("ENTRY", _user_roles)
+    if guard is not None:
+        return guard
+    try:
+        events = db.query(
+            f"SELECT * FROM {db.qualified('FI_OFFER_EVENTS')} "
+            "WHERE OFFER_ID = :o ORDER BY EVENT_SEQ DESC", {"o": offer_id})
+        if not events:
+            return jsonify({"ok": False,
+                            "error": f"Teklif bulunamadı: {offer_id}"}), 404
+        if any(e["EVENT_TYPE"] == "DELETE" and e["APPROVAL_STATUS"] == "APPROVED"
+               for e in events):
+            return jsonify({"ok": False,
+                            "error": "Teklif zaten silinmiş"}), 409
+        if any(e["EVENT_TYPE"] == "DELETE" and e["APPROVAL_STATUS"] == "PENDING"
+               for e in events):
+            return jsonify({"ok": False,
+                            "error": "Silme talebi zaten onay bekliyor"}), 409
+        latest = events[0]
+        next_id = db.query(
+            f"SELECT COALESCE(MAX(EVENT_ID), 0) + 1 AS NEXT_ID "
+            f"FROM {db.qualified('FI_OFFER_EVENTS')}")[0]["NEXT_ID"]
+        db.execute(service.build_delete_statements(
+            latest, offer_id, latest["DEAL_ID"], _user_sicil(), db.qualified,
+            int(next_id), int(latest["EVENT_SEQ"]) + 1))
+        log.info("fi_desk silme talebi: offer=%s event=%s user=%s",
+                 offer_id, next_id, _user_sicil())
+        return jsonify({"ok": True, "offer_id": offer_id,
+                        "event_id": int(next_id)})
+    except Exception as e:
+        log.exception("fi_desk silme talebi başarısız")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @fi_desk_bp.route("/api/events/<int:event_id>/approval", methods=["POST"])
 @login_required
 def api_event_approval(event_id: int):
     """Onay/red — {action: 'approve'|'reject', reason?}. APPROVER rolü."""
-    if "APPROVER" not in _user_roles():
-        return jsonify({"ok": False,
-                        "error": "Onay için APPROVER rolü gerekli"}), 403
+    guard = _role_guard("APPROVER", _user_roles)
+    if guard is not None:
+        return guard
     try:
         body = request.get_json(force=True) or {}
         action = {"approve": "APPROVED", "reject": "REJECTED"}.get(

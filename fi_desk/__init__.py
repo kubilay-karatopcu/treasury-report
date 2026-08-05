@@ -38,9 +38,14 @@ fi_desk_bp = Blueprint(
 )
 
 
-def init_app(dc, schema: str = "A16438") -> None:
-    """app.py çağırır — DataClient enjeksiyonu + hedef Oracle şeması."""
-    db.init(dc, schema)
+def init_app(dc, schema: str = "A16438", customer_table: str = "",
+             customer_name_col: str = "") -> None:
+    """app.py çağırır — DataClient enjeksiyonu + hedef Oracle şeması.
+
+    ``customer_table``/``customer_name_col``: Importer typeahead'inin
+    arayacağı EDW müşteri tablosu (boşsa FI_LU_LIST IMPORTER fallback'i)."""
+    db.init(dc, schema, customer_table=customer_table,
+            customer_name_col=customer_name_col)
 
 
 def load_field_matrix() -> dict:
@@ -66,8 +71,14 @@ def _user_sicil() -> str:
     return current_user.sicil
 
 
-def _user_roles() -> set[str]:
-    """FI_LU_USER'dan roller (ENTRY / APPROVER). LOGIN_DISABLED → hepsi."""
+def _user_roles() -> set[str] | None:
+    """FI_LU_USER'dan roller (ENTRY / APPROVER). LOGIN_DISABLED → hepsi.
+
+    ``None`` = rol sorgusu BAŞARISIZ (DB hatası) — bu, 'rolü yok'tan (boş
+    set) FARKLIDIR: sayfalar durumu banner'la gösterir, API'ler 503 döner.
+    2026-08-05 saha bulgusu: tek seferlik Oracle hatası sessizce 'rol yok'
+    sayılınca Düzenle/Sil butonları açıklamasız kayboluyordu (db.query artık
+    taze bağlantıyla bir kez yineliyor; yine de düşerse burası None döner)."""
     if _login_disabled():
         return {"ENTRY", "APPROVER"}
     try:
@@ -79,7 +90,33 @@ def _user_roles() -> set[str]:
         return {r["USER_ROLE"] for r in rows}
     except Exception:
         log.exception("fi_desk rol sorgusu başarısız")
-        return set()
+        return None
+
+
+def _is_admin() -> bool:
+    """Masa admin yetkisi — TRESUARY_LDAP.IS_ADMIN bayrağı (User.is_admin,
+    jobs/ldap_admins.py işaretler). LOGIN_DISABLED (dev) → admin."""
+    if _login_disabled():
+        return True
+    return bool(getattr(current_user, "is_admin", False))
+
+
+_ROLE_ERROR_MSG = ("Rol bilgisi alınamadı (veritabanı hatası) — lütfen "
+                   "sayfayı yenileyip tekrar deneyin")
+
+
+def _role_guard(required: str, roles_fn=None):
+    """API rol kapısı: (hata_cevabı | None). None → devam et.
+
+    ``roles_fn``: çağıran modülün ``_user_roles``'u — call-site'tan geçirilir
+    ki testlerin modül bazlı monkeypatch'leri etkisini korusun."""
+    roles = (roles_fn or _user_roles)()
+    if roles is None:
+        return jsonify({"ok": False, "error": _ROLE_ERROR_MSG}), 503
+    if required not in roles:
+        return jsonify({"ok": False,
+                        "error": f"Bu işlem için {required} rolü gerekli"}), 403
+    return None
 
 
 def _masa_back_url(process_id: str = PROCESS_ID):
@@ -126,18 +163,26 @@ def index():
 @login_required
 def entry():
     roles = _user_roles()
+    role_error = roles is None
+    roles = roles or set()
     return render_template(
         "fi_desk/entry.html",
         can_enter="ENTRY" in roles,
+        role_error=role_error,
+        # Silme butonu sunucuda çizilir: yalnız edit modunda (?offer=...)
+        edit_offer=(request.args.get("offer") or "").strip() or None,
         masa_back_url=_masa_back_url(),
         endpoints={
             "bootstrap": url_for("fi_desk.api_bootstrap"),
             "entries": url_for("fi_desk.api_create_entry"),
             "records_page": url_for("fi_desk.records"),
+            "customers": url_for("fi_desk.api_customers"),
             # Edit modu (?offer=FIO-...): __OID__ JS'te teklif id'siyle değişir
             "offer_detail": url_for("fi_desk.api_offer_detail",
                                     offer_id="__OID__"),
             "offer_events": url_for("fi_desk.api_offer_events",
+                                    offer_id="__OID__"),
+            "offer_delete": url_for("fi_desk.api_offer_delete",
                                     offer_id="__OID__"),
         },
     )
@@ -172,6 +217,28 @@ def api_bootstrap():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@fi_desk_bp.route("/api/customers", methods=["GET"])
+@login_required
+def api_customers():
+    """Importer typeahead — ?q= en az 3 karakter, en çok 30 sonuç.
+
+    Kaynak konfigüre edilmiş EDW müşteri tablosudur (init_app customer_table;
+    UPPER-önek LIKE + ROWNUM erken kesme — 32M satırda contains araması
+    yapılmaz, docs/FI_DESK_SPEC.md §8). Konfigürasyon yoksa/dev'de
+    FI_LU_LIST IMPORTER listesine düşülür."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 3:
+        return jsonify({"ok": True, "rows": [],
+                        "note": "en az 3 karakter girin"})
+    try:
+        rows = db.customer_search(q, limit=30)
+        return jsonify({"ok": True, "rows": rows,
+                        "source": db.customer_source()})
+    except Exception as e:
+        log.exception("fi_desk müşteri araması başarısız")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @fi_desk_bp.route("/api/entries", methods=["POST"])
 @login_required
 def api_create_entry():
@@ -179,9 +246,9 @@ def api_create_entry():
 
     Event PENDING doğar; onaycı ekranı (Faz 2) APPROVED/REJECTED yapar.
     """
-    if "ENTRY" not in _user_roles():
-        return jsonify({"ok": False,
-                        "error": "Veri girişi için ENTRY rolü gerekli"}), 403
+    guard = _role_guard("ENTRY", _user_roles)
+    if guard is not None:
+        return guard
     try:
         payload = request.get_json(force=True) or {}
         matrix = load_field_matrix()
@@ -228,3 +295,5 @@ def api_create_entry():
 
 # Faz 2 route'ları aynı blueprint'e kaydolur (import yan etkisi).
 from . import routes_records  # noqa: E402,F401
+# Admin paneli (lookup yönetimi) — yalnız IS_ADMIN bayraklı kullanıcılar.
+from . import routes_admin  # noqa: E402,F401

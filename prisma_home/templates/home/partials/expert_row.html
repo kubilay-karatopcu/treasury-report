@@ -1,0 +1,21 @@
+{# Tam genişlik uzman/masa SATIRI — landing'de herkes alt alta tek listede
+   (kullanıcı kararı 2026-08-05: hero + "Diğer Uzmanlar" ayrımı yok, satır
+   başına tek uzman). Vars: expert (+ caller scope'ta masa_mode/masa_name). #}
+<a class="expert-row" data-domain="{{ expert.id }}"
+   href="{{ url_for('prisma_home.expert_detail', code=expert.id) }}"
+   style="--er-accent: {{ expert.ui.accent_color }};">
+  <div class="er-badge">{{ expert.code }}</div>
+  <div class="er-who">
+    <span class="er-name">{% if masa_mode %}{{ masa_name(expert.name) }}{% else %}{{ expert.name }}{% endif %}</span>
+    <span class="er-dom">{{ expert.domain_label }}</span>
+  </div>
+  <p class="er-desc">
+    {% if expert.persona and expert.persona.get('voice_examples') %}
+      {{ expert.persona.voice_examples[0] }}
+    {% else %}
+      {{ expert.short_description }}
+    {% endif %}
+  </p>
+  <span class="er-cta">{% if masa_mode %}Masaya git →{% else %}Uzmana bak →{% endif %}</span>
+  <div class="er-accent-line"></div>
+</a>

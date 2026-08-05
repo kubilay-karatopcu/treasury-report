@@ -48,7 +48,7 @@
   // Tutar alanları: binlik ayraçlı gösterim + 5e6 gibi bilimsel girişleri
   // sayıya açma. Gerçek değer daima düz sayı olarak gönderilir.
   const AMOUNT_FIELDS = new Set(["FUNDING_AMT", "USD_EQV", "TRADE_TXN_AMT",
-                                 "FEE", "ADDITIONAL_FEE_COST"]);
+                                 "FEE"]);
 
   function parseAmountText(t) {
     const s = String(t || "").trim().replace(/,/g, "");
@@ -111,6 +111,11 @@
   }
   function prodFields() {
     return MATRIX.products[PRODUCT].fields;
+  }
+  // "D" = girişte opsiyonel, sonradan tamamlanması beklenen alan (eksikse
+  // işlem listesi satırı sarı) — form akışında R/O gibi çizilir.
+  function inProduct(code) {
+    return code === "R" || code === "O" || code === "D";
   }
 
   /* ── tarih: flatpickr — görünen input DAİMA GG.AA.YYYY ─────────────
@@ -228,6 +233,132 @@
     if (sel && sel._combo) sel._combo.sync();
   }
 
+  /* ── additional cost satırları (cost_list) ────────────────────────────
+     Tip dropdown'u (ADDITIONAL_COST_TYPE lookup'ı) + bps girişi + satır
+     ekle/sil. Otorite gizli input'tur: değeri {"TIP": bps} JSON map'i —
+     sunucu da bu şekilde saklar (ADDITIONAL_COSTS kolonu). Her değişimde
+     change event'i yayılır ki all-in otomatiği toplamı güncellesin. */
+  function buildCostList(key, meta) {
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.id = "fi-f-" + key;
+
+    const box = document.createElement("div");
+    box.className = "fi-costs";
+    const rowsHost = document.createElement("div");
+    box.appendChild(rowsHost);
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "pk-btn pk-btn--sm";
+    addBtn.textContent = "+ Maliyet Ekle";
+    addBtn.disabled = !FI_CAN_ENTER;
+    box.appendChild(addBtn);
+    box.appendChild(hidden);
+
+    const types = () => (LOOKUPS.lists[meta.list] || [])
+      .map((r) => ({ value: r.VALUE_CD, label: r.LABEL }));
+
+    function syncHidden() {
+      const map = {};
+      rowsHost.querySelectorAll(".fi-cost-row").forEach((tr) => {
+        const cd = tr.querySelector("select").value;
+        const n = parseAmountText(tr.querySelector("input").value);
+        if (cd && n !== null && !Number.isNaN(n)) map[cd] = n;
+      });
+      hidden.value = Object.keys(map).length ? JSON.stringify(map) : "";
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function addRow(code, bps) {
+      const tr = document.createElement("div");
+      tr.className = "fi-cost-row";
+      const sel = document.createElement("select");
+      sel.className = "pk-input";
+      fillSelect(sel, types(), "— tip seçin —");
+      if (code) sel.value = code;
+      const inp = document.createElement("input");
+      inp.type = "number";
+      inp.step = "any";
+      inp.className = "pk-input";
+      inp.placeholder = "bps";
+      if (bps != null) inp.value = String(bps);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "fi-sched-remove";
+      del.title = "Satırı sil";
+      del.textContent = "✕";
+      del.addEventListener("click", () => { tr.remove(); syncHidden(); });
+      sel.addEventListener("change", syncHidden);
+      inp.addEventListener("input", syncHidden);
+      if (!FI_CAN_ENTER) { sel.disabled = true; inp.disabled = true; del.disabled = true; }
+      tr.appendChild(sel); tr.appendChild(inp); tr.appendChild(del);
+      rowsHost.appendChild(tr);
+      return tr;
+    }
+
+    addBtn.addEventListener("click", () => addRow());
+    hidden._costs = {
+      set(map) {
+        rowsHost.innerHTML = "";
+        Object.keys(map || {}).forEach((cd) => addRow(cd, map[cd]));
+        syncHidden();
+      },
+    };
+    return { el: hidden, widget: box };
+  }
+
+  /* ── müşteri typeahead (customer) ─────────────────────────────────────
+     Importer artık lehtar listesinden gelmez — bizim müşterimizdir ve
+     sunucuda aranır (/api/customers, EDW müşteri tablosu ya da fallback).
+     3+ karakterde debounce'lu önek araması; öneriye tıklanınca değer dolar,
+     serbest metin de kabul (sunucu doğrulaması metin alanı gibi davranır). */
+  function attachCustomerSearch(input) {
+    const wrap = document.createElement("div");
+    wrap.className = "fi-combo";
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const list = document.createElement("div");
+    list.className = "fi-combo-list";
+    wrap.appendChild(list);
+
+    let timer = null, lastQ = "";
+    async function search() {
+      const q = input.value.trim();
+      lastQ = q;
+      if (q.length < 3) { wrap.classList.remove("is-open"); return; }
+      let body;
+      try {
+        const res = await fetch(ENDPOINTS.customers + "?q=" + encodeURIComponent(q));
+        body = await res.json();
+      } catch (e) { return; }
+      if (!body.ok || input.value.trim() !== lastQ) return;
+      list.innerHTML = "";
+      (body.rows || []).forEach((name) => {
+        const item = document.createElement("div");
+        item.className = "fi-combo-item";
+        item.textContent = name;
+        item.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          input.value = name;
+          wrap.classList.remove("is-open");
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        list.appendChild(item);
+      });
+      wrap.classList.toggle("is-open", !!(body.rows || []).length);
+    }
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(search, 250);
+    });
+    input.addEventListener("blur", () => {
+      setTimeout(() => wrap.classList.remove("is-open"), 120);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") wrap.classList.remove("is-open");
+    });
+  }
+
   /* ── alan üretimi ─────────────────────────────────────────────────── */
   function makeOption(value, label) {
     const o = document.createElement("option");
@@ -268,6 +399,13 @@
       star.textContent = "*";
       label.appendChild(star);
     }
+    if (req === "D") {
+      const note = document.createElement("span");
+      note.className = "fi-auto-note";
+      note.textContent = " (sonradan tamamlanabilir)";
+      note.lang = "tr";
+      label.appendChild(note);
+    }
     if (meta.input === "auto" || meta.input === "readonly") {
       const note = document.createElement("span");
       note.className = "fi-auto-note";
@@ -275,6 +413,16 @@
       label.appendChild(note);
     }
     wrap.appendChild(label);
+
+    if (meta.input === "cost_list") {
+      wrap.classList.add("is-wide");
+      const built = buildCostList(key, meta);
+      wrap.appendChild(built.widget);
+      els[key] = built.el;
+      wraps[key] = wrap;
+      built.el.addEventListener("change", onFieldChange);
+      return wrap;
+    }
 
     let el;
     if (meta.input === "lookup_bank") {
@@ -313,6 +461,10 @@
     els[key] = el;
     wraps[key] = wrap;
     if (meta.input === "date") initDate(el);
+    if (meta.input === "customer") {
+      el.placeholder = "müşteri ara (en az 3 karakter)…";
+      attachCustomerSearch(el);
+    }
     if (el.tagName === "SELECT") enhanceSelect(el);
     el.addEventListener("change", onFieldChange);
     return wrap;
@@ -338,7 +490,7 @@
       const keys = Object.keys(MATRIX.fields).filter((k) => {
         const m = MATRIX.fields[k];
         if (m.section !== sec.id) return false;
-        if (m.storage === "event") return pf[k] === "R" || pf[k] === "O";
+        if (m.storage === "event") return inProduct(pf[k]);
         // Türetilen görünüm alanları (TENOR): formda salt-okunur gösterilir,
         // gönderilmez (deal bölümündeki REPORTING_STATUS girişte çizilmez).
         return m.storage === "derived" && m.input === "readonly" &&
@@ -378,7 +530,7 @@
     // Ödeme planı kartı (PAYMENT_PLAN subtable — required_if AMORTIZED)
     const pf = PRODUCT ? prodFields() : {};
     const amort = fieldValue("REPAYMENT_SCHEDULE") === "AMORTIZED" &&
-                  (pf.PAYMENT_PLAN === "R" || pf.PAYMENT_PLAN === "O");
+                  inProduct(pf.PAYMENT_PLAN);
     $("fi-schedule-wrap").style.display = amort ? "" : "none";
     if (amort && !$("fi-sched-body").children.length) addSchedRow();
     // ESG eligibility kaskadı: type değişince seçenekler daralır
@@ -427,10 +579,35 @@
                                                : fieldValue("FLOAT_SPREAD_BPS"));
         if (!isNaN(base)) {
           const cov = parseFloat(fieldValue("COVERAGE_RATE_BPS")) || 0;
-          el.value = String(base + cov);
+          el.value = String(base + cov + costsTotal());
+        }
+      } else if (a.kind === "all_in_label") {
+        // All-in string gösterimi: FLOATING → "{base etiketi} + {allin} bps",
+        // FIXED → "{allin} bps (Fixed)". Sunucu (validate_entry) otoritedir;
+        // buradaki hesap yalnız canlı önizleme.
+        const allin = parseFloat(fieldValue("ALL_IN_RATE_BPS"));
+        if (isNaN(allin)) { el.value = ""; return; }
+        const bps = String(+allin.toFixed(2));
+        if (fieldValue("RATE_TYPE") === "FLOATING") {
+          const sel = els.FLOAT_BASE_RATE;
+          const opt = sel && sel.value
+            ? Array.from(sel.options).find((o) => o.value === sel.value) : null;
+          el.value = opt ? `${opt.textContent} + ${bps} bps` : `${bps} bps`;
+        } else {
+          el.value = `${bps} bps (Fixed)`;
         }
       }
     });
+  }
+
+  function costsTotal() {
+    const raw = fieldValue("ADDITIONAL_COSTS");
+    if (!raw) return 0;
+    try {
+      const map = JSON.parse(raw);
+      return Object.values(map).reduce(
+        (s, v) => s + (typeof v === "number" ? v : 0), 0);
+    } catch (e) { return 0; }
   }
 
   function onFieldChange(ev) {
@@ -582,6 +759,10 @@
       const meta = MATRIX.fields[k];
       const v = ev[k];
       if (v == null || v === "") return;
+      if (meta.input === "cost_list") {
+        try { els[k]._costs.set(JSON.parse(v)); } catch (e) { /* bozuk kayıt — boş başlar */ }
+        return;
+      }
       if (meta.input === "date") {
         setDateVal(els[k], String(v).slice(0, 10));
       } else if (AMOUNT_FIELDS.has(k)) {
@@ -602,6 +783,28 @@
     $("btn-submit").textContent = "Değişikliği Onaya Gönder";
     $("fi-status").textContent =
       `Düzenleme: ${EDIT_OFFER} (v${ev.EVENT_SEQ}, ${ev.APPROVAL_STATUS})`;
+  }
+
+  async function requestDelete() {
+    if (!EDIT_OFFER) return;
+    if (!confirm("Bu teklif için SİLME talebi oluşturulacak ve onaya " +
+                 "gidecek. Devam edilsin mi?")) return;
+    busy(true, "Silme talebi gönderiliyor…");
+    try {
+      const url = ENDPOINTS.offer_delete.replace(
+        "__OID__", encodeURIComponent(EDIT_OFFER));
+      const res = await fetch(url, { method: "POST" });
+      const body = await res.json();
+      if (!body.ok) { toast(body.error || "Silme talebi başarısız", true); return; }
+      toast("Silme talebi onaya gönderildi.");
+      if (ENDPOINTS.records_page) {
+        setTimeout(() => { window.location.href = ENDPOINTS.records_page; }, 900);
+      }
+    } catch (e) {
+      toast(String(e), true);
+    } finally {
+      busy(false);
+    }
   }
 
   /* ── açılış ───────────────────────────────────────────────────────── */
@@ -640,9 +843,12 @@
     $("btn-sched-add").addEventListener("click", () => addSchedRow());
     $("btn-sched-add").disabled = !FI_CAN_ENTER;
     $("btn-submit").addEventListener("click", submit);
+    if ($("btn-delete")) $("btn-delete").addEventListener("click", requestDelete);
     $("fi-status").textContent = FI_CAN_ENTER ? "" : "ENTRY rolü yok — form kilitli";
 
     if (EDIT_OFFER) {
+      // "Kaydı Sil" SUNUCUDA çizilir (can_enter + edit modu) — JS yalnız
+      // tıklamayı bağlar (yukarıda); görünürlük JS'e bağlı değildir.
       busy(true, "Kayıt yükleniyor…");
       try {
         await enterEditMode();

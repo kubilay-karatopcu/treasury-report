@@ -53,6 +53,29 @@ body.prisma .canvas {
 }
 .ag-theme-alpine .ag-row { cursor: pointer; }
 
+/* Satır durumu boyaması (2026-08-04): mavi = onay aşamasında, sarı = eksik
+   (sonradan zorunlu) alan var, yeşil = onaylı + tam. Sol şerit + hafif
+   zemin — koyu temada okunurluğu bozmayacak saydamlıkta. */
+.ag-theme-alpine .ag-row.fi-row-approval {
+  background: rgba(90, 150, 255, .10);
+  box-shadow: inset 3px 0 0 rgba(90, 150, 255, .75);
+}
+.ag-theme-alpine .ag-row.fi-row-missing {
+  background: rgba(255, 190, 60, .10);
+  box-shadow: inset 3px 0 0 rgba(255, 190, 60, .8);
+}
+.ag-theme-alpine .ag-row.fi-row-complete {
+  background: rgba(70, 200, 130, .07);
+  box-shadow: inset 3px 0 0 rgba(70, 200, 130, .6);
+}
+.fi-legend { display: flex; gap: 14px; align-items: center;
+  font-size: 11px; color: var(--ink-mute); }
+.fi-legend .dot { display: inline-block; width: 9px; height: 9px;
+  border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.fi-legend .d-blue { background: rgba(90, 150, 255, .8); }
+.fi-legend .d-yellow { background: rgba(255, 190, 60, .85); }
+.fi-legend .d-green { background: rgba(70, 200, 130, .8); }
+
 /* Detay overlay'i — body'ye portallanır (dış tık / Esc / ✕ kapatır). */
 .fi-ov {
   position: fixed; inset: 0; z-index: 1000; display: none;
@@ -83,6 +106,14 @@ body.prisma .canvas {
 /* Bekleyen değişiklik karşılaştırması: eski değer üstü çizili, yenisi vurgulu */
 .fi-diff-old { text-decoration: line-through; color: var(--ink-faint); margin-right: 6px; }
 .fi-diff-new { color: var(--gold); }
+
+/* Sonradan-zorunlu olup boş alanlar künyede "?" ile yer tutar (sıra sabit) */
+.fi-missing-q { color: var(--gold); font-weight: 600; cursor: help; }
+
+/* Silme talebi butonu — !important: kabuk css'i head'den sonra yüklenip
+   .pk-btn rengini eziyor (padding tuzağının aynısı). */
+.fi-btn-danger { color: var(--red) !important; border-color: var(--red) !important; }
+.fi-btn-danger:hover { background: var(--red) !important; color: var(--bg-1) !important; }
 .fi-ov__loading { padding: 40px 0; text-align: center; color: var(--ink-mute); font-size: 13px; }
 
 /* Meşgul overlay'i (onay/red vb. — JS #fi-busy'yi üretir) */
@@ -111,19 +142,37 @@ body.prisma .canvas {
       <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
       <h2>İşlemler</h2>
     </div>
-    <div class="pk-meta" id="grid-info">—</div>
+    <div style="text-align: right;">
+      {# Rol durumu SESSİZCE gizlenmez (2026-08-05: Düzenle/Sil "kayboldu"
+         bulgusunun kökü rol sorgusunun sessiz düşmesiydi) — açıkça yazılır. #}
+      {% if role_error %}
+      <div class="pk-meta" style="color: var(--red);">⚠ Rol bilgisi alınamadı
+        (veritabanı hatası) — sayfayı yenileyin; Düzenle/Sil geçici gizli</div>
+      {% elif not can_enter %}
+      <div class="pk-meta">salt okunur — ENTRY rolü yok</div>
+      {% endif %}
+      <div class="pk-meta" id="grid-info">—</div>
+    </div>
   </div>
 
   <div class="pk-grid">
     <div class="pk-card">
       <div class="pk-card__head">
         <span class="pk-card__title">Kayıtlar</span>
+        <span class="fi-legend">
+          <span><span class="dot d-blue"></span>Onay aşamasında</span>
+          <span><span class="dot d-yellow"></span>Eksik alan var</span>
+          <span><span class="dot d-green"></span>Tam</span>
+        </span>
         <span style="display:flex; gap:8px; align-items:center;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);">
             <input type="checkbox" id="chk-pending-only"> Yalnız onay bekleyenler
           </label>
           {% if can_enter %}
           <a class="pk-btn pk-btn--sm pk-btn--primary" href="{{ url_for('fi_desk.entry') }}">+ Yeni Giriş</a>
+          {% endif %}
+          {% if is_admin %}
+          <a class="pk-btn pk-btn--sm" href="{{ url_for('fi_desk.admin_page') }}">Yönetim</a>
           {% endif %}
           <button class="pk-btn pk-btn--sm" id="btn-refresh">Yenile</button>
         </span>
@@ -144,7 +193,13 @@ body.prisma .canvas {
         <div class="pk-sub" id="ov-sub"></div>
       </div>
       <div class="fi-actions">
-        <a class="pk-btn pk-btn--sm" id="ov-edit" style="display:none;">Düzenle</a>
+        {# Düzenle/Sil SUNUCUDA çizilir (JS'e bağlı değil — 2026-08-05
+           görünürlük bulgusu): ENTRY rolü varsa daima görünür; href/tıklama
+           JS'te bağlanır. Silme talebi onay akışına gider (PENDING DELETE). #}
+        {% if can_enter %}
+        <a class="pk-btn pk-btn--sm" id="ov-edit">Düzenle</a>
+        <button class="pk-btn pk-btn--sm fi-btn-danger" id="ov-delete">Sil</button>
+        {% endif %}
         <button class="fi-ov__close" id="ov-close" title="Kapat">✕</button>
       </div>
     </div>
@@ -181,5 +236,5 @@ body.prisma .canvas {
   const FI_CAN_ENTER = {{ can_enter | tojson }};
   const FI_CAN_APPROVE = {{ can_approve | tojson }};
 </script>
-<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=3"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=6"></script>
 {% endblock %}

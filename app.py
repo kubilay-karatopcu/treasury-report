@@ -518,6 +518,13 @@ class User(UserMixin):
         # Dashboard maker yetkisi — LDAP tablosundan gelecek. Şimdilik 1.
         # Tabloya kolon eklendiğinde user_json["dashboard_maker"] olarak okunur.
         self.dashboard_maker = int(user_json.get("dashboard_maker", 1)) == 1
+        # Masa admin yetkisi (2026-08-05) — TRESUARY_LDAP.IS_ADMIN kolonu
+        # (jobs/ldap_admins.py ekler/isaretler). Kolon yokken herkes 0:
+        # admin ekranlari (fi_desk /admin gibi) kapali kalir.
+        try:
+            self.is_admin = int(user_json.get("is_admin") or 0) == 1
+        except (TypeError, ValueError):
+            self.is_admin = False
 
     def get_id(self):
         object_id = self.user_json.get('user_id')
@@ -611,10 +618,17 @@ except Exception:
 # uctan uca calisir. FI_DESK_SCHEMA bos birakilirsa tablolar BAGLANTI
 # KULLANICISININ semasinda aranir (schema job'u varsayilanda oraya yaratir);
 # tablolar baska semadaysa env ile ver (GRANT'ler de gerekir).
+# FI_DESK_CUSTOMER_TABLE: Importer typeahead'inin arayacagi EDW musteri
+# tablosu (or. "EDW.MUSTERI_DIM"); FI_DESK_CUSTOMER_NAME_COL isim kolonu
+# (varsayilan FULL_NM). Bos birakilirsa arama FI_LU_LIST IMPORTER
+# listesine duser (lokal/dev ve tablo netlesene kadar gecis davranisi).
 try:
     from fi_desk import fi_desk_bp, init_app as fi_desk_init
 
-    fi_desk_init(dc, schema=os.environ.get("FI_DESK_SCHEMA", ""))
+    fi_desk_init(dc, schema=os.environ.get("FI_DESK_SCHEMA", ""),
+                 customer_table=os.environ.get("FI_DESK_CUSTOMER_TABLE", ""),
+                 customer_name_col=os.environ.get(
+                     "FI_DESK_CUSTOMER_NAME_COL", ""))
     app.register_blueprint(fi_desk_bp, url_prefix="/fi-desk")
     app.config["FI_DESK_ENABLED"] = True
 except Exception:
@@ -656,6 +670,7 @@ if DEV_MODE:
         "department": "FİNANSAL YAPAY ZEKA UYGULAMALARI",
         "password": "",
         "user_id": "dev_user",
+        "is_admin": 1,   # lokalde admin ekranlari test edilebilsin
     })
 
     @app.before_request
@@ -685,8 +700,11 @@ def load_user(user_id):
          "ip": data["IP"].values[0],
          "department": data["DEPARTMENT"].values[0],
          "password": data["PASSW"].values[0],
-         "user_id": data["USER_ID"].values[0]}
-    
+         "user_id": data["USER_ID"].values[0],
+         # IS_ADMIN kolonu henuz eklenmemis olabilir (jobs/ldap_admins.py) —
+         # yokken 0 (SELECT * oldugundan eklenince kendiliginden akar).
+         "is_admin": data["IS_ADMIN"].values[0] if "IS_ADMIN" in data.columns else 0}
+
     if not u: return None
     user = User(u)
     _user_cache[user_id] = (user, now)
@@ -857,7 +875,8 @@ def login():
              "ip": data["IP"].values[0],
              "department": data["DEPARTMENT"].values[0],
              "password": data["PASSW"].values[0],
-             "user_id": data["USER_ID"].values[0]}
+             "user_id": data["USER_ID"].values[0],
+             "is_admin": data["IS_ADMIN"].values[0] if "IS_ADMIN" in data.columns else 0}
 
 
         if not u:

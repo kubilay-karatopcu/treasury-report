@@ -70,9 +70,10 @@ def test_process_ids_registered():
 
 
 class TestMasaLandingFlatList:
-    """Masa modunda landing TEK DÜZ 'Masalar' listesi (kullanıcı kararı
-    2026-07-31): hero + 'Diğer Masalar' ayrımı yok, yetkili olunan tüm
-    masalar (dep + fi) aynı ızgarada. Uzman (Atölye) modu eski tasarımda."""
+    """Landing TEK LİSTE, satır başına TEK uzman (kullanıcı kararı
+    2026-08-05): hero + 'Diğer Uzmanlar/Masalar' ayrımı ve yan yana kart
+    ızgarası İKİ MODDA DA yok; yetkili olunan tüm uzmanlar tam genişlik
+    satırlarla alt alta sıralanır (masa modunda adlar 'Masası')."""
 
     def test_masa_mode_single_flat_section(self, auth_client, flask_app):
         flask_app.config["PRISMA_MASA_MODE"] = True
@@ -81,22 +82,27 @@ class TestMasaLandingFlatList:
         finally:
             flask_app.config["PRISMA_MASA_MODE"] = False
         assert "Diğer Masalar" not in body
-        # CSS tanımı style bloğunda durur; hero ELEMENTİ çizilmemeli
         assert '<a class="expert-featured-c"' not in body
         assert ">Masalar<" in body
         assert 'data-domain="dep"' in body
         assert 'data-domain="fi"' in body
-        # Geniş kart ızgarası (5'li sabit ızgara az masada dikine daralıyordu)
-        assert "experts-grid--masa" in body
+        # Satır başına tek uzman — alt alta (yan yana ızgara yok)
+        assert "experts-stack" in body
+        assert "experts-grid" not in body
         # masa_name çifte çeviri regresyonu: ad "FI Uzmanı" → "FI Masası"
         assert "FI Masası Masası" not in body
         assert "FI Masası" in body
 
-    def test_uzman_mode_keeps_featured_layout(self, auth_client, flask_app):
+    def test_uzman_mode_single_stacked_list(self, auth_client, flask_app):
         flask_app.config["PRISMA_MASA_MODE"] = False
         body = auth_client.get("/").data.decode("utf-8")
-        assert "expert-featured" in body
-        assert "Uzmanların" in body
+        assert "Uzmanlarım" in body
+        # Bölüm ELEMENTİ yok (CSS yorumundaki söz geçebilir)
+        assert ">Diğer Uzmanlar<" not in body
+        assert '<a class="expert-featured-c"' not in body
+        assert "experts-stack" in body
+        assert 'data-domain="dep"' in body
+        assert 'data-domain="fi"' in body
 
 
 def test_dashboards_job_binds_fi_expert():

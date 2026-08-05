@@ -31,16 +31,26 @@ _dc = None
 _schema: str = ""
 _resolved_schema: str | None = None  # boş şema → bağlantı kullanıcısından çözülür
 
+# Importer typeahead'i için müşteri tablosu (2026-08-04): EDW müşteri
+# tablosu ~32M satır — arama UPPER-önek LIKE + erken kesme (ROWNUM) ile
+# yapılır; hız için tabloda UPPER({name_col}) fonksiyon indeksi beklenir.
+# Konfigüre edilmemişse (ya da dev'de) FI_LU_LIST IMPORTER listesine düşülür.
+_customer_table: str = ""
+_customer_name_col: str = ""
+
 # DEV backend durumu
 _duck = None
 _duck_lock = threading.RLock()
 
 
-def init(dc, schema: str) -> None:
-    global _dc, _schema, _resolved_schema
+def init(dc, schema: str, customer_table: str = "",
+         customer_name_col: str = "") -> None:
+    global _dc, _schema, _resolved_schema, _customer_table, _customer_name_col
     _dc = dc
     _schema = (schema or "").strip().rstrip(".")
     _resolved_schema = None
+    _customer_table = (customer_table or "").strip()
+    _customer_name_col = (customer_name_col or "").strip() or "FULL_NM"
 
 
 def is_dev() -> bool:
@@ -227,25 +237,79 @@ def _release(con, pooled: bool) -> None:
         _dc.drop_connection(con)
 
 
-def query(sql: str, params: dict | None = None) -> list[dict]:
-    """SELECT — satırlar dict listesi olarak (kolon adları büyük harf)."""
+def query(sql: str, params: dict | None = None,
+          _retry: bool = True) -> list[dict]:
+    """SELECT — satırlar dict listesi olarak (kolon adları büyük harf).
+
+    Havuzdan gelen bağlantı bayatlamış olabilir (boşta kalan TCP'yi güvenlik
+    duvarı kesince ilk sorgu ORA-03113/03135 ile düşer) — hata TAZE bağlantıyla
+    BİR KEZ yinelenir. 2026-08-05 saha bulgusu: rol sorgusundaki tek seferlik
+    hata sessizce 'rol yok' sayılıp Düzenle/Sil butonlarını gizliyordu."""
     if is_dev():
         with _duck_lock:
             cur = _get_duck().execute(_to_duck_binds(sql), params or {})
             cols = [d[0].upper() for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
-    con, pooled = _acquire()
     try:
-        cur = con.cursor()
+        con, pooled = _acquire()
         try:
-            cur.execute(sql, params or {})
-            cols = [d[0].upper() for d in cur.description]
-            return [dict(zip(cols, row)) for row in cur.fetchall()]
+            cur = con.cursor()
+            try:
+                cur.execute(sql, params or {})
+                cols = [d[0].upper() for d in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+            finally:
+                cur.close()
         finally:
-            cur.close()
-    finally:
-        _release(con, pooled)
+            _release(con, pooled)
+    except Exception:
+        if not _retry:
+            raise
+        log.warning("fi_desk sorgu hatası — taze bağlantıyla yineleniyor",
+                    exc_info=True)
+        return query(sql, params, _retry=False)
+
+
+def customer_source() -> str:
+    """'table' → EDW müşteri tablosu; 'lookup' → FI_LU_LIST IMPORTER fallback."""
+    return "table" if (_customer_table and not is_dev()) else "lookup"
+
+
+def _escape_like(q: str) -> str:
+    return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def customer_search(q: str, limit: int = 30) -> list[str]:
+    """Importer typeahead — isim ÖNEK araması (case-insensitive), erken kesme.
+
+    32M satırlık müşteri tablosunda '%q%' (contains) araması B-tree indeks
+    kullanamaz (full scan); UPPER-önek LIKE ise UPPER({col}) fonksiyon
+    indeksiyle range-scan olur ve ROWNUM tavanı taramayı erken keser.
+    Mükerrer isimler Python'da ayıklanır (DISTINCT+ROWNUM etkileşimine
+    girmemek için aday satır tavanı limit×4 alınır)."""
+    pattern = _escape_like(q.strip().upper()) + "%"
+    if customer_source() == "table":
+        sql = (f"SELECT {_customer_name_col} AS NAME FROM {_customer_table} "  # noqa: S608
+               f"WHERE UPPER({_customer_name_col}) LIKE :q ESCAPE '\\' "
+               "AND ROWNUM <= :lim")
+        rows = query(sql, {"q": pattern, "lim": limit * 4})
+    else:
+        sql = (f"SELECT LABEL AS NAME FROM {qualified('FI_LU_LIST')} "
+               "WHERE LIST_NAME = 'IMPORTER' AND ACTIVE_FLG = 1 "
+               "AND UPPER(LABEL) LIKE :q ESCAPE '\\' ORDER BY SORT_NO")
+        rows = query(sql, {"q": pattern})
+    out: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        name = (r.get("NAME") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def execute(statements: list[tuple[str, dict | None]]) -> None:

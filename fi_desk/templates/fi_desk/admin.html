@@ -1,0 +1,180 @@
+{# FI Masası — Yönetim (lookup tabloları; yalnız IS_ADMIN, 2026-08-05).
+   Kabuk deseni entry/records ile aynı (PRISMA _base + pk-* kit). Üç bölüm:
+   Bankalar (FI_LU_BANK), Kullanıcı Rolleri (FI_LU_USER), Listeler
+   (FI_LU_LIST — EXPORTER varsayılan, liste seçilerek hepsi). Satır "✎" ile
+   üstteki forma dolar, Kaydet/Sil oradan; her yazım anında tabloyu tazeler. #}
+{% extends "home/_base_prisma.html" %}
+{% set mode = "consumer" %}
+{% set hide_mode_switch = True %}
+{% set crumb = "Uygulamalar · FI Masası · Yönetim" %}
+
+{% block title %}FI Masası – Yönetim{% endblock %}
+
+{% block head %}
+<style>
+/* R10 — uygulama sayfaları TAM genişlik (docs/CUSTOM_PAGE_DESIGN.md §7). */
+body.prisma .canvas {
+  max-width: none !important;
+  margin: 0 !important;
+  width: 100%;
+  padding: 40px clamp(48px, 7vw, 170px) 80px !important;
+}
+.pk-page .pk-grid { row-gap: 34px !important; }
+
+.fi-fields {
+  display: grid; gap: 14px 22px; margin-top: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-items: end;
+}
+.fi-fields .pk-field { min-width: 0; }
+.pk-page .pk-label { color: var(--ink-soft); }
+
+/* Yönetim tabloları */
+.fi-adm-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+.fi-adm-table th { text-align: left; font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-faint); padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft); }
+.fi-adm-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft);
+  color: var(--ink-soft); }
+.fi-adm-table td.num { text-align: right; }
+.fi-adm-act { white-space: nowrap; text-align: right; }
+.fi-adm-btn { cursor: pointer; background: none; border: 1px solid var(--border-soft);
+  color: var(--ink-soft); padding: 2px 9px; font-size: 12px; border-radius: 3px; }
+.fi-adm-btn:hover { color: var(--gold); border-color: var(--gold); }
+.fi-adm-btn.is-del:hover { color: var(--red) !important; border-color: var(--red) !important; }
+.fi-adm-filter { max-width: 260px; }
+.fi-self-badge { color: var(--gold); font-size: 10px; letter-spacing: .08em; }
+
+/* Form eylem satırı */
+.fi-adm-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.fi-btn-danger { color: var(--red) !important; border-color: var(--red) !important; }
+.fi-btn-danger:hover { background: var(--red) !important; color: var(--bg-1) !important; }
+
+/* Uyarı notu */
+.fi-adm-note { font-size: 11px; color: var(--ink-faint); margin-top: 10px; line-height: 1.5; }
+
+/* Meşgul overlay'i (entry/records ile aynı) */
+#fi-busy {
+  position: fixed; inset: 0; z-index: 2000; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .55);
+}
+#fi-busy .fi-busy-box {
+  background: var(--bg-2); border: 1px solid var(--border-soft);
+  padding: 18px 28px; font-size: 13px; color: var(--ink);
+  letter-spacing: .04em;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pk-page">
+  <div class="pk-head">
+    <div>
+      <div class="pk-eyebrow">Uygulamalar · FI Masası</div>
+      <h2>Yönetim</h2>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <a class="pk-btn pk-btn--sm" href="{{ records_url }}">← İşlemler</a>
+    </div>
+  </div>
+
+  <div class="pk-grid">
+    <!-- ── Bankalar ─────────────────────────────────────────────────── -->
+    <div class="pk-card">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Bankalar</span>
+        <span class="pk-card__note">FI_LU_BANK — lender/borrower listesi + ülke/grup otomatikleri</span>
+      </div>
+      <div class="fi-fields">
+        <div class="pk-field"><span class="pk-label">Banka Adı *</span>
+          <input class="pk-input" id="bk-name"></div>
+        <div class="pk-field"><span class="pk-label">Ülke</span>
+          <input class="pk-input" id="bk-country"></div>
+        <div class="pk-field"><span class="pk-label">Region</span>
+          <input class="pk-input" id="bk-region"></div>
+        <div class="pk-field"><span class="pk-label">Group Company</span>
+          <input class="pk-input" id="bk-grp"></div>
+        <div class="pk-field"><span class="pk-label">Grup Ülkesi</span>
+          <input class="pk-input" id="bk-grp-c"></div>
+        <div class="pk-field"><span class="pk-label">Grup Region</span>
+          <input class="pk-input" id="bk-grp-r"></div>
+        <div class="pk-field"><span class="pk-label">Self (Borrower varsayılanı)</span>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft);padding:8px 0;">
+            <input type="checkbox" id="bk-self"> bu banka biziz
+          </label></div>
+      </div>
+      <div class="fi-adm-actions">
+        <button class="pk-btn pk-btn--primary pk-btn--sm" id="bk-save">Kaydet</button>
+        <button class="pk-btn pk-btn--sm" id="bk-clear">Temizle / Yeni</button>
+        <span class="pk-status" id="bk-status"></span>
+      </div>
+      <input class="pk-input fi-adm-filter" id="bk-filter" placeholder="tabloda ara…" style="margin-top:16px;">
+      <div class="pk-table-wrap"><table class="fi-adm-table" id="bk-table"></table></div>
+    </div>
+
+    <!-- ── Kullanıcı rolleri ────────────────────────────────────────── -->
+    <div class="pk-card">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Kullanıcı Rolleri</span>
+        <span class="pk-card__note">FI_LU_USER — ENTRY (veri girici) / APPROVER (onaycı)</span>
+      </div>
+      <div class="fi-fields">
+        <div class="pk-field"><span class="pk-label">Sicil *</span>
+          <input class="pk-input" id="us-sicil" placeholder="A12345"></div>
+        <div class="pk-field"><span class="pk-label">Roller</span>
+          <span style="display:flex;gap:18px;align-items:center;padding:8px 0;font-size:12px;color:var(--ink-soft);">
+            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="us-entry"> ENTRY</label>
+            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="us-approver"> APPROVER</label>
+          </span></div>
+      </div>
+      <div class="fi-adm-actions">
+        <button class="pk-btn pk-btn--primary pk-btn--sm" id="us-save">Kaydet</button>
+        <button class="pk-btn pk-btn--sm" id="us-clear">Temizle / Yeni</button>
+        <span class="pk-status" id="us-status"></span>
+      </div>
+      <div class="fi-adm-note">Not: buradaki roller veri girişi/onay yetkisidir.
+        Yönetim ekranına giriş ayrıdır (LDAP IS_ADMIN — jobs/ldap_admins.py).</div>
+      <div class="pk-table-wrap"><table class="fi-adm-table" id="us-table"></table></div>
+    </div>
+
+    <!-- ── Listeler ─────────────────────────────────────────────────── -->
+    <div class="pk-card">
+      <div class="pk-card__head">
+        <span class="pk-card__title">Listeler</span>
+        <span class="pk-card__note">FI_LU_LIST — Exporter, Additional Cost tipleri ve diğer dropdown'lar</span>
+      </div>
+      <div class="fi-fields">
+        <div class="pk-field"><span class="pk-label">Liste</span>
+          <select class="pk-input" id="ls-name"></select></div>
+        <div class="pk-field"><span class="pk-label">Değer Kodu *</span>
+          <input class="pk-input" id="ls-cd"></div>
+        <div class="pk-field"><span class="pk-label">Etiket (görünen ad)</span>
+          <input class="pk-input" id="ls-label"></div>
+        <div class="pk-field"><span class="pk-label">Parent (kaskad)</span>
+          <input class="pk-input" id="ls-parent"></div>
+        <div class="pk-field"><span class="pk-label">Attr1 (ör. COUNTRY→region)</span>
+          <input class="pk-input" id="ls-attr1"></div>
+      </div>
+      <div class="fi-adm-actions">
+        <button class="pk-btn pk-btn--primary pk-btn--sm" id="ls-save">Kaydet</button>
+        <button class="pk-btn pk-btn--sm" id="ls-clear">Temizle / Yeni</button>
+        <span class="pk-status" id="ls-status"></span>
+      </div>
+      <input class="pk-input fi-adm-filter" id="ls-filter" placeholder="tabloda ara…" style="margin-top:16px;">
+      <div class="pk-table-wrap"><table class="fi-adm-table" id="ls-table"></table></div>
+      <div class="fi-adm-note">⚠ Ofis excel job'ları (fi_desk_lookup_import /
+        fi_desk_users) TAM YENİLEME yapar — koşulurlarsa buradaki banka /
+        exporter / kullanıcı değişikliklerinin üzerine yazarlar. Günlük bakım
+        bu ekrandan; job'lar toplu excel yüklemesi içindir.</div>
+    </div>
+  </div>
+
+  <div id="toast-msg" class="pk-toast" role="alert"><span id="toast-body"></span></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="fi-endpoints" type="application/json">{{ endpoints|tojson }}</script>
+<script src="{{ url_for('fi_desk.static', filename='fi_admin.js') }}?v=1"></script>
+{% endblock %}

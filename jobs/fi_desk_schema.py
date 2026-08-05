@@ -22,7 +22,8 @@ sabitlerinden). Ne yapar:
        FI_LU_LIST         genel kod listeleri (LIST_NAME ile ayrışır:
                           CURRENCY, COUNTRY, REPAYMENT, COVERAGE_PROVIDER,
                           BASE_RATE, BUSINESS_SEGMENT, ESG_TYPE,
-                          ESG_ELIGIBILITY, IMPORTER, EXPORTER).
+                          ESG_ELIGIBILITY, ADDITIONAL_COST_TYPE, IMPORTER,
+                          EXPORTER).
        FI_LU_USER         rol tanımı: sicil → ENTRY (veri girici) /
                           APPROVER (onaycı).
 
@@ -105,8 +106,9 @@ DDL = {
         COVERAGE_FLG VARCHAR2(4), COVERAGE_PROVIDER VARCHAR2(64),
         RATE_TYPE VARCHAR2(16), FIXED_RATE_BPS NUMBER,
         FLOAT_BASE_RATE VARCHAR2(32), FIXING_DT DATE, FLOAT_SPREAD_BPS NUMBER,
-        COVERAGE_RATE_BPS NUMBER, FEE NUMBER, ADDITIONAL_FEE_COST NUMBER,
-        ALL_IN_RATE_BPS NUMBER, ALL_IN_FIXED_USD_RATE NUMBER,
+        COVERAGE_RATE_BPS NUMBER, FEE NUMBER, ADDITIONAL_COSTS VARCHAR2(2000),
+        ALL_IN_RATE_BPS NUMBER, ALL_IN_RATE_TXT VARCHAR2(160),
+        ALL_IN_FIXED_USD_RATE NUMBER,
         TRADE_TXN_AMT NUMBER, TRADE_TXN_CCY VARCHAR2(8),
         SHIPMENT_DT DATE, TRADE_PAYMENT_DT DATE,
         IMPORTER VARCHAR2(256), EXPORTER VARCHAR2(256),
@@ -172,6 +174,11 @@ def widen_columns(con, schema: str) -> None:
 COLUMN_ADDITIONS = [
     ("FI_OFFER_EVENTS", "FIXING_DT", "DATE"),   # 2026-07-31: floating fixing tarihi
     ("FI_OFFER_EVENTS", "TRADE_TXN_CCY", "VARCHAR2(8)"),  # 2026-07-31: trade ccy
+    # 2026-08-04: additional cost kalemleri JSON map ({TIP: bps}) + all-in'in
+    # string gösterimi ("3M SOFR + 245 bps"). Eski tek-sayı ADDITIONAL_FEE_COST
+    # kolonu var olan kurulumlarda kalır (dokunulmaz, artık yazılmaz).
+    ("FI_OFFER_EVENTS", "ADDITIONAL_COSTS", "VARCHAR2(2000)"),
+    ("FI_OFFER_EVENTS", "ALL_IN_RATE_TXT", "VARCHAR2(160)"),
 ]
 
 
@@ -230,6 +237,11 @@ FROM (
           SELECT MAX(e2.EVENT_SEQ) FROM {s}FI_OFFER_EVENTS e2
           WHERE e2.OFFER_ID = ev.OFFER_ID
             AND e2.APPROVAL_STATUS = 'APPROVED')
+      AND NOT EXISTS (
+          SELECT 1 FROM {s}FI_OFFER_EVENTS e3
+          WHERE e3.OFFER_ID = ev.OFFER_ID
+            AND e3.EVENT_TYPE = 'DELETE'
+            AND e3.APPROVAL_STATUS = 'APPROVED')
 ) e
 JOIN {s}FI_DEALS d ON d.DEAL_ID = e.DEAL_ID"""
 
@@ -280,6 +292,13 @@ SEED_LISTS: list[tuple[str, str, str, str | None, str | None]] = [
     ("ESG_ELIGIBILITY", "UOP_OTHER", "Other", "UOP", None),
     ("ESG_ELIGIBILITY", "SLL", "SLL", "SLL", None),
     ("ESG_ELIGIBILITY", "TRANSITION", "Transition", "TRANSITION", None),
+    # Additional cost tipleri (2026-08-04): genişletilebilir — yeni tip
+    # eklemek için buraya satır ekleyip script'i yeniden koş (baseline liste,
+    # her koşuda tazelenir; uygulamadan editlenmez — lookup kararı §1.4).
+    ("ADDITIONAL_COST_TYPE", "MUSTERI_PRIMI", "Müşteri Primi", None, None),
+    ("ADDITIONAL_COST_TYPE", "LEGAL_COST", "Legal Cost", None, None),
+    ("ADDITIONAL_COST_TYPE", "KONTRGARANTI_PRIMI", "Kontrgaranti Primi", None, None),
+    ("ADDITIONAL_COST_TYPE", "COORDINATION_RATING", "Coordination Rating", None, None),
     # COUNTRY: ATTR1 = region (Lender Region otomatik buradan gelir)
     ("COUNTRY", "TURKIYE", "Türkiye", None, "Türkiye"),
     ("COUNTRY", "GERMANY", "Germany", None, "Europe"),
@@ -505,7 +524,8 @@ def _event_defaults() -> dict:
             "COVERAGE_PROVIDER", "RATE_TYPE", "FIXED_RATE_BPS",
             "FLOAT_BASE_RATE", "FIXING_DT", "FLOAT_SPREAD_BPS",
             "COVERAGE_RATE_BPS", "FEE",
-            "ADDITIONAL_FEE_COST", "ALL_IN_RATE_BPS", "ALL_IN_FIXED_USD_RATE",
+            "ADDITIONAL_COSTS", "ALL_IN_RATE_BPS", "ALL_IN_RATE_TXT",
+            "ALL_IN_FIXED_USD_RATE",
             "TRADE_TXN_AMT", "TRADE_TXN_CCY", "SHIPMENT_DT",
             "TRADE_PAYMENT_DT", "IMPORTER",
             "EXPORTER", "BUSINESS_SEGMENT", "REFERENCE_NO", "GOODS_DESC",
@@ -571,6 +591,7 @@ def seed_test_data(con, schema: str) -> None:
                          COVERAGE_PROVIDER="ECA", RATE_TYPE="FLOATING",
                          FLOAT_BASE_RATE="SOFR_3M", FLOAT_SPREAD_BPS=185,
                          COVERAGE_RATE_BPS=40, ALL_IN_RATE_BPS=225,
+                         ALL_IN_RATE_TXT="3M SOFR + 225 bps",
                          TRADE_TXN_AMT=52_000_000, SHIPMENT_DT=d(-20),
                          TRADE_PAYMENT_DT=d(-5), IMPORTER="IMP_SAMPLE_1",
                          EXPORTER="EXP_SAMPLE_1", BUSINESS_SEGMENT="CORPORATE",
@@ -579,7 +600,8 @@ def seed_test_data(con, schema: str) -> None:
         loan_db = dict(loan_hsbc, LENDER_BANK="Deutsche Bank",
                        LENDER_COUNTRY="GERMANY", GROUP_COMPANY="Deutsche Bank AG",
                        GROUP_COMPANY_COUNTRY="GERMANY", FLOAT_SPREAD_BPS=210,
-                       ALL_IN_RATE_BPS=250)
+                       ALL_IN_RATE_BPS=250,
+                       ALL_IN_RATE_TXT="3M SOFR + 250 bps")
         bilat = dict(base, DEAL_STATUS="BIDDING", LENDER_BANK="Emirates NBD",
                      LENDER_COUNTRY="UAE", LENDER_REGION="Middle East",
                      GROUP_COMPANY="Emirates NBD Group",
@@ -588,13 +610,16 @@ def seed_test_data(con, schema: str) -> None:
                      USD_EQV=27_000_000, VALUE_DT=d(20), MATURITY_DT=d(750),
                      REPAYMENT_SCHEDULE="BULLET", COVERAGE_FLG="NO",
                      RATE_TYPE="FIXED", FIXED_RATE_BPS=310, COVERAGE_RATE_BPS=0,
-                     ALL_IN_RATE_BPS=310, SUSTAINABILITY_FLG="YES",
+                     ADDITIONAL_COSTS='{"MUSTERI_PRIMI": 15, "LEGAL_COST": 5}',
+                     ALL_IN_RATE_BPS=330, ALL_IN_RATE_TXT="330 bps (Fixed)",
+                     SUSTAINABILITY_FLG="YES",
                      ESG_TYPE="UOP", ESG_ELIGIBILITY="GREEN")
         bond = dict(base, LENDER_BANK="Citibank", OFFER_DT=d(-90),
                     CURRENCY="USD", FUNDING_AMT=100_000_000, USD_EQV=100_000_000,
                     VALUE_DT=d(-60), MATURITY_DT=d(1765),
                     REPAYMENT_SCHEDULE="AMORTIZED", RATE_TYPE="FIXED",
                     FIXED_RATE_BPS=725, ALL_IN_RATE_BPS=725,
+                    ALL_IN_RATE_TXT="725 bps (Fixed)",
                     ALL_IN_FIXED_USD_RATE=7.45, SUSTAINABILITY_FLG="NO")
 
         # (EVENT_ID, OFFER_ID, DEAL_ID, SEQ, TYPE, TS, APPROVAL, APPR_BY, APPR_TS, data)
@@ -603,11 +628,12 @@ def seed_test_data(con, schema: str) -> None:
              "APPROVED", "A16438", d(-29), loan_hsbc),
             (2, "FIO-TEST-001A", "FID-TEST-001", 2, "EDIT", d(-25),
              "APPROVED", "A16438", d(-24),
-             dict(loan_hsbc, FLOAT_SPREAD_BPS=175, ALL_IN_RATE_BPS=215)),
+             dict(loan_hsbc, FLOAT_SPREAD_BPS=175, ALL_IN_RATE_BPS=215,
+                  ALL_IN_RATE_TXT="3M SOFR + 215 bps")),
             (3, "FIO-TEST-001A", "FID-TEST-001", 3, "STATUS_CHANGE", d(-12),
              "APPROVED", "A16438", d(-11),
              dict(loan_hsbc, DEAL_STATUS="WON", FLOAT_SPREAD_BPS=175,
-                  ALL_IN_RATE_BPS=215)),
+                  ALL_IN_RATE_BPS=215, ALL_IN_RATE_TXT="3M SOFR + 215 bps")),
             (4, "FIO-TEST-001B", "FID-TEST-001", 1, "ENTRY", d(-30),
              "APPROVED", "A16438", d(-29), loan_db),
             (5, "FIO-TEST-001B", "FID-TEST-001", 2, "STATUS_CHANGE", d(-12),

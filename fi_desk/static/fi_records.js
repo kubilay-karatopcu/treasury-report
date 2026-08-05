@@ -67,10 +67,17 @@
         return b;
       } },
     { headerName: "Durum", field: "ROW_STATE", width: 130, pinned: "left",
-      valueGetter: (p) => p.data.ROW_STATE === "PENDING_NEW"
-        ? "ONAY BEKLİYOR"
-        : (p.data.PENDING_COUNT > 0 ? "GÜNCELLEME BEKLİYOR" : "ONAYLI"),
+      valueGetter: (p) => {
+        if (p.data.PENDING_DELETE) return "SİLME BEKLİYOR";
+        if (p.data.ROW_STATE === "PENDING_NEW") return "ONAY BEKLİYOR";
+        if (p.data.PENDING_COUNT > 0) return "GÜNCELLEME BEKLİYOR";
+        return (p.data.MISSING_FIELDS || []).length ? "EKSİK ALAN VAR" : "ONAYLI";
+      },
+      tooltipValueGetter: (p) => (p.data.MISSING_FIELDS || []).length
+        ? "Eksik: " + p.data.MISSING_FIELDS.join(", ") : null,
       cellStyle: (p) => p.value === "ONAYLI" ? null : { color: "var(--gold)" } },
+    { headerName: "Eksik Alanlar", colId: "fi_missing", width: 190,
+      valueGetter: (p) => (p.data.MISSING_FIELDS || []).join(", ") },
     { headerName: "Ürün", field: "PRODUCT_LABEL", width: 150, filter: "agSetColumnFilter" },
     { headerName: "Borrower", field: "BORROWER_BANK", width: 120, filter: "agSetColumnFilter" },
     { headerName: "Lender", field: "LENDER_BANK", width: 150, filter: "agSetColumnFilter" },
@@ -86,8 +93,12 @@
     { headerName: "Maturity", field: "MATURITY_DT", width: 105, valueFormatter: (p) => dt(p.value) },
     { headerName: "Tenor (g)", field: "TENOR_DAYS", width: 95, type: "rightAligned",
       valueFormatter: (p) => p.value == null ? "" : String(Math.round(p.value)) },
-    { headerName: "All-in (bps)", field: "ALL_IN_RATE_BPS", width: 110, type: "rightAligned",
-      valueFormatter: (p) => p.value == null ? "" : Number(p.value).toFixed(0) },
+    // All-in: string gösterim ("3M SOFR + 245 bps"); eski kayıtlarda TXT
+    // yoksa sayısal bps'e düşülür.
+    { headerName: "All-in", colId: "fi_allin", width: 160,
+      valueGetter: (p) => p.data.ALL_IN_RATE_TXT
+        || (p.data.ALL_IN_RATE_BPS == null ? ""
+            : Number(p.data.ALL_IN_RATE_BPS).toFixed(0) + " bps") },
     { headerName: "Son İşlem", field: "EVENT_TS", width: 140, sort: "desc",
       valueFormatter: (p) => ts(p.value) },
     { headerName: "Deal ID", field: "DEAL_ID", width: 160 },
@@ -133,20 +144,45 @@
     COVERAGE_PROVIDER: "Coverage Provider", RATE_TYPE: "Rate Type",
     FIXED_RATE_BPS: "Fixed (bps)", FLOAT_BASE_RATE: "Base Rate",
     FLOAT_SPREAD_BPS: "Spread (bps)", COVERAGE_RATE_BPS: "Coverage (bps)",
-    FEE: "Fee", ADDITIONAL_FEE_COST: "Ek Maliyet",
+    FEE: "Fee", ADDITIONAL_COSTS: "Ek Maliyetler",
+    ALL_IN_RATE_TXT: "All-in Rate",
     ALL_IN_RATE_BPS: "All-in (bps)", ALL_IN_FIXED_USD_RATE: "All-in USD",
     TRADE_TXN_AMT: "Trade Amount", IMPORTER: "Importer", EXPORTER: "Exporter",
     BUSINESS_SEGMENT: "Segment", REFERENCE_NO: "Referans",
     SUSTAINABILITY_FLG: "ESG", ESG_TYPE: "ESG Type",
-    ESG_ELIGIBILITY: "Eligibility", NOTES: "Notlar",
+    ESG_ELIGIBILITY: "Eligibility", GOODS_DESC: "Goods", NOTES: "Notlar",
   };
   const DATEISH = new Set(["OFFER_DT", "VALUE_DT", "MATURITY_DT"]);
   const AMTISH = new Set(["FUNDING_AMT", "USD_EQV", "TRADE_TXN_AMT"]);
+
+  // Ek maliyet tipi → etiket (detay API'sinin cost_labels alanından dolar)
+  let COST_LABELS = {};
+  // Sonradan-zorunlu ('D') olup henüz boş alanlar (detay API missing_keys):
+  // künyede satır ATLANMAZ, değeri "?" çizilir — satır sırası sabit kalır
+  // (2026-08-05 isteği #4).
+  let MISSING_KEYS = new Set();
+
+  function missingMark() {
+    const s = document.createElement("span");
+    s.className = "fi-missing-q";
+    s.title = "Henüz doldurulmadı — Düzenle ile girilebilir";
+    s.textContent = "?";
+    return s;
+  }
 
   function _fmtVal(k, v) {
     if (v == null || v === "") return null;
     if (DATEISH.has(k)) return dt(v);
     if (AMTISH.has(k)) return amt(v);
+    if (k === "ADDITIONAL_COSTS") {
+      // JSON map {"TIP": bps} → "Müşteri Primi 15 bps · Legal Cost 5 bps"
+      try {
+        const map = JSON.parse(v);
+        const bits = Object.keys(map).map(
+          (cd) => `${COST_LABELS[cd] || cd} ${map[cd]} bps`);
+        return bits.length ? bits.join(" · ") : null;
+      } catch (e) { return String(v); }
+    }
     return String(v);
   }
 
@@ -183,6 +219,8 @@
         push(label, frag);
       } else if (curv != null) {
         push(label, curv);
+      } else if (MISSING_KEYS.has(k)) {
+        push(label, missingMark());
       }
     };
 
@@ -197,7 +235,9 @@
         `Onay Bekleyen Giriş (#${first.EVENT_SEQ} · ${first.EVENT_TYPE} · ${ts(first.EVENT_TS)})`;
       push("Deal Status", _fmtVal("DEAL_STATUS", first.DEAL_STATUS));
       Object.keys(FIELD_LABELS).forEach((k) => {
-        push(FIELD_LABELS[k], _fmtVal(k, first[k]));
+        const v = _fmtVal(k, first[k]);
+        push(FIELD_LABELS[k], v != null ? v
+          : (MISSING_KEYS.has(k) ? missingMark() : null));
       });
       const tn = dayDiffRow(first);
       push("Tenor (gün)", tn != null ? String(tn) : null);
@@ -260,10 +300,12 @@
   }
 
   function summarize(ev) {
+    if (ev.EVENT_TYPE === "DELETE") return "SİLME TALEBİ";
     const bits = [];
     if (ev.DEAL_STATUS) bits.push(ev.DEAL_STATUS);
     if (ev.FUNDING_AMT != null) bits.push(`${amt(ev.FUNDING_AMT)} ${ev.CURRENCY || ""}`);
-    if (ev.ALL_IN_RATE_BPS != null) bits.push(`all-in ${Number(ev.ALL_IN_RATE_BPS).toFixed(0)}bps`);
+    if (ev.ALL_IN_RATE_TXT) bits.push(`all-in ${ev.ALL_IN_RATE_TXT}`);
+    else if (ev.ALL_IN_RATE_BPS != null) bits.push(`all-in ${Number(ev.ALL_IN_RATE_BPS).toFixed(0)}bps`);
     if (ev.VALUE_DT) bits.push(`val ${dt(ev.VALUE_DT)}`);
     return bits.join(" · ");
   }
@@ -317,7 +359,10 @@
     $("ov-eyebrow").textContent = "";
     $("ov-title").textContent = "Yükleniyor…";
     $("ov-sub").textContent = "";
-    $("ov-edit").style.display = "none";
+    // Düzenle/Sil butonlarına DOKUNULMAZ: görünürlükleri sunucu kararıdır
+    // (can_enter ile şablonda çizilir/çizilmez) — JS yalnız href/tıklama
+    // bağlar. Eski display-toggle deseni JS aksadığında butonları sessizce
+    // yutuyordu (2026-08-05 saha bulgusu).
     $("ov-current-title").textContent = "Güncel Durum";
     $("ov-current").innerHTML = '<dt></dt><dd class="fi-ov__loading">Yükleniyor…</dd>';
     $("ov-sched-card").style.display = "none";
@@ -339,18 +384,43 @@
       closeDetail();
       return;
     }
+    COST_LABELS = body.cost_labels || {};
+    MISSING_KEYS = new Set(body.missing_keys || []);
     $("ov-eyebrow").textContent = `${body.deal.DEAL_ID} · ${offerId}`;
     $("ov-title").textContent =
       `${body.product_label} — ${body.deal.BORROWER_BANK}`;
-    $("ov-sub").textContent = body.deal.DEAL_LABEL || "";
+    const missing = body.missing_fields || [];
+    $("ov-sub").textContent = (body.deal.DEAL_LABEL || "") +
+      (missing.length ? `${body.deal.DEAL_LABEL ? " · " : ""}` +
+        `⚠ Eksik: ${missing.join(", ")}` : "");
+    // Düzenle/Sil sunucuda çizilir (can_enter yoksa element hiç yok) —
+    // burada yalnız hedef bağlanır.
     const edit = $("ov-edit");
-    if (FI_CAN_ENTER) {
-      edit.style.display = "";
+    if (edit) {
       edit.href = `${ENDPOINTS.entry_page}?offer=${encodeURIComponent(offerId)}`;
     }
     renderCurrent(body);
     renderSchedule(body);
     renderTimeline(body);
+  }
+
+  async function requestDelete() {
+    if (!CURRENT_OFFER) return;
+    if (!confirm("Bu teklif için SİLME talebi oluşturulacak ve onaya " +
+                 "gidecek. Devam edilsin mi?")) return;
+    busy(true, "Silme talebi gönderiliyor…");
+    try {
+      const res = await fetch(offerUrl(ENDPOINTS.offer_delete, CURRENT_OFFER),
+                              { method: "POST" });
+      const body = await res.json();
+      if (!body.ok) { toast(body.error || "Silme talebi başarısız", true); return; }
+      toast("Silme talebi onaya gönderildi.");
+      const oid = CURRENT_OFFER;
+      await load();
+      await openDetail(oid);   // timeline'da PENDING DELETE görünsün
+    } finally {
+      busy(false);
+    }
   }
 
   function closeDetail() {
@@ -368,6 +438,19 @@
       rowData: [],
       defaultColDef: { sortable: true, resizable: true, filter: true },
       animateRows: false,
+      enableBrowserTooltips: true,
+      // Satır durumu boyaması (2026-08-04): mavi = onay aşamasında,
+      // sarı = eksik (sonradan zorunlu) alan var, yeşil = onaylı + tam.
+      rowClassRules: {
+        "fi-row-approval": (p) => p.data.ROW_STATE === "PENDING_NEW" ||
+                                  p.data.PENDING_COUNT > 0,
+        "fi-row-missing": (p) => p.data.ROW_STATE !== "PENDING_NEW" &&
+                                 !(p.data.PENDING_COUNT > 0) &&
+                                 (p.data.MISSING_FIELDS || []).length > 0,
+        "fi-row-complete": (p) => p.data.ROW_STATE === "CURRENT" &&
+                                  !(p.data.PENDING_COUNT > 0) &&
+                                  !(p.data.MISSING_FIELDS || []).length,
+      },
       // Tek tık modal AÇMAZ (yanlışlıkla açılıyordu) — ✎ butonu ya da çift tık
       onRowDoubleClicked: (ev) => openDetail(ev.data.OFFER_ID),
       overlayLoadingTemplate:
@@ -379,6 +462,7 @@
 
     $("btn-refresh").addEventListener("click", load);
     $("chk-pending-only").addEventListener("change", refreshGrid);
+    if ($("ov-delete")) $("ov-delete").addEventListener("click", requestDelete);
     $("ov-close").addEventListener("click", closeDetail);
     $("fi-ov").addEventListener("click", (e) => {
       if (!e.target.closest(".fi-ov__inner")) closeDetail();

@@ -140,22 +140,29 @@ class TestLandingHTTP:
         rv = auth_client.get("/")
         assert rv.status_code == 200
         body = rv.data.decode("utf-8", errors="replace")
-        # Featured component present + at least 5 expert-cell items in grid.
-        assert "expert-featured" in body
-        assert body.count("expert-cell") >= 5
+        # 2026-08-05 kararı: hero + "Diğer Uzmanlar" ayrımı yok — herkes tek
+        # "Uzmanlarım" listesinde, satır başına tek uzman (alt alta).
+        assert "experts-stack" in body
+        assert body.count('class="expert-row"') >= 6
+        assert "Uzmanlarım" in body
+        assert ">Diğer Uzmanlar<" not in body   # bölüm elementi yok
+        assert '<a class="expert-featured-c"' not in body
 
     def test_landing_featured_matches_user_dept(self, auth_client, flask_app):
         # DEV stub user is FİNANSAL YAPAY ZEKA UYGULAMALARI → liq.
         rv = auth_client.get("/")
         body = rv.data.decode("utf-8", errors="replace")
-        # featured_expert link must point at /uzmanlar/liq
+        # featured artık görsel ayrım değil SIRALAMA: kullanıcının uzmanı
+        # listenin İLK satırıdır.
         assert '/uzmanlar/liq' in body
+        first_row = body.split('class="expert-row"')[1]
+        assert 'data-domain="liq"' in first_row[:80]
 
     def test_uzmanlar_url_renders_same_layout(self, auth_client):
         rv = auth_client.get("/uzmanlar/")
         assert rv.status_code == 200
         body = rv.data.decode("utf-8", errors="replace")
-        assert "expert-featured" in body
+        assert "experts-stack" in body
         assert "Uzmanlar" in body  # crumb
 
 
