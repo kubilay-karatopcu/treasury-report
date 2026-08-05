@@ -106,6 +106,14 @@ body.prisma .canvas {
 /* Bekleyen değişiklik karşılaştırması: eski değer üstü çizili, yenisi vurgulu */
 .fi-diff-old { text-decoration: line-through; color: var(--ink-faint); margin-right: 6px; }
 .fi-diff-new { color: var(--gold); }
+
+/* Sonradan-zorunlu olup boş alanlar künyede "?" ile yer tutar (sıra sabit) */
+.fi-missing-q { color: var(--gold); font-weight: 600; cursor: help; }
+
+/* Silme talebi butonu — !important: kabuk css'i head'den sonra yüklenip
+   .pk-btn rengini eziyor (padding tuzağının aynısı). */
+.fi-btn-danger { color: var(--red) !important; border-color: var(--red) !important; }
+.fi-btn-danger:hover { background: var(--red) !important; color: var(--bg-1) !important; }
 .fi-ov__loading { padding: 40px 0; text-align: center; color: var(--ink-mute); font-size: 13px; }
 
 /* Meşgul overlay'i (onay/red vb. — JS #fi-busy'yi üretir) */
@@ -173,6 +181,9 @@ body.prisma .canvas {
       </div>
       <div class="fi-actions">
         <a class="pk-btn pk-btn--sm" id="ov-edit" style="display:none;">Düzenle</a>
+        {# Silme talebi — onay akışına gider (PENDING DELETE event'i) #}
+        <button class="pk-btn pk-btn--sm fi-btn-danger" id="ov-delete"
+                style="display:none;">Sil</button>
         <button class="fi-ov__close" id="ov-close" title="Kapat">✕</button>
       </div>
     </div>
@@ -209,5 +220,5 @@ body.prisma .canvas {
   const FI_CAN_ENTER = {{ can_enter | tojson }};
   const FI_CAN_APPROVE = {{ can_approve | tojson }};
 </script>
-<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=4"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_records.js') }}?v=5"></script>
 {% endblock %}

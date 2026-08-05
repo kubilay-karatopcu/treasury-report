@@ -111,9 +111,11 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
 .fi-cost-row { display: grid; grid-template-columns: minmax(220px, 1fr) 120px 28px;
   gap: 8px; align-items: center; width: 100%; max-width: 460px; }
 
-/* Silme butonu (yalnız edit modunda görünür) — talep onaya gider */
-.fi-btn-danger { color: var(--red); border-color: var(--red); }
-.fi-btn-danger:hover { background: var(--red); color: var(--bg-1); }
+/* Silme butonu (yalnız edit modunda görünür) — talep onaya gider.
+   !important: kabuk css'i head bloğundan SONRA yüklenir ve .pk-btn rengi
+   ezer (padding'de yaşanan tuzağın aynısı). */
+.fi-btn-danger { color: var(--red) !important; border-color: var(--red) !important; }
+.fi-btn-danger:hover { background: var(--red) !important; color: var(--bg-1) !important; }
 
 /* Hata listesi */
 .fi-errors { margin: 10px 0 0; padding: 0; list-style: none; }
@@ -208,5 +210,5 @@ span.flatpickr-weekday { color: var(--ink); fill: var(--ink); }
   const FI_CAN_ENTER = {{ can_enter | tojson }};
 </script>
 <script src="{{ url_for('fi_desk.static', filename='vendor/flatpickr.min.js') }}"></script>
-<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=5"></script>
+<script src="{{ url_for('fi_desk.static', filename='fi_desk.js') }}?v=6"></script>
 {% endblock %}

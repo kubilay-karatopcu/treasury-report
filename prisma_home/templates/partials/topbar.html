@@ -39,6 +39,16 @@
          data-target="masa"
          title="Masaya dön">← Masaya dön</a>
       {% endif %}
+    {% elif masa_back_url %}
+      {# 2026-08-05 — MODDAN BAĞIMSIZ geri dönüş: uzman > süreç/uygulama
+         altındaki her sayfa masa_back_url geçirdiğinde (folders.expert_url
+         zinciri) sağ üstte ilgili uzmanın masasına dönen pil çıkar.
+         Önceden yalnız masa modunda vardı; PRISMA_MASA_MODE=0'da süreçten
+         uzmana bir tık geri gitmek mümkün değildi. #}
+      <a class="mode-back" id="modeBack"
+         href="{{ masa_back_url }}"
+         data-target="masa"
+         title="Bu sürecin uzmanına dön">← Uzmana dön</a>
     {% elif not hide_mode_switch %}
     {% if request.endpoint == 'prisma_home.atolye_home' %}
       <a class="mode-back" id="modeBack"

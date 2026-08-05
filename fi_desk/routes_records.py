@@ -43,6 +43,7 @@ def _endpoints() -> dict:
         "entry_page": url_for("fi_desk.entry"),
         "offer_detail": url_for("fi_desk.api_offer_detail", offer_id="__OID__"),
         "offer_events": url_for("fi_desk.api_offer_events", offer_id="__OID__"),
+        "offer_delete": url_for("fi_desk.api_offer_delete", offer_id="__OID__"),
         "approval": url_for("fi_desk.api_event_approval", event_id=0)
                     .replace("/0/", "/__EID__/"),
     }
@@ -163,6 +164,10 @@ def api_offer_detail(offer_id: str):
             "current": _ser_row(cur_row) if cur_row else None,
             "cost_labels": cost_labels,
             "missing_fields": service.missing_deferred(
+                matrix, deal["PRODUCT_TYPE"], src),
+            # Detay künyesi bu anahtarlarla boş hücreleri "?" gösterir
+            # (satır sırası sabit kalsın — 2026-08-05 isteği #4).
+            "missing_keys": service.missing_deferred_keys(
                 matrix, deal["PRODUCT_TYPE"], src),
         })
     except Exception as e:

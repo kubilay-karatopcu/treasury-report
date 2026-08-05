@@ -3,62 +3,52 @@
 
 {% block head %}
 <style>
-  /* ── Masa modu düz listesi (2026-07-31): 5'li sabit ızgara 6-uzman
-     tasarımıdır — az masa varken kartlar dikine daralıyordu. Masa
-     ızgarası genişliğe göre akar: kart en az 340px, satır dolmayınca
-     kalan alanı paylaşır (2 masa → yarı-yarıya). ─────────────────────── */
-  .experts-grid--masa {
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  }
-  .experts-grid--masa .expert-cell { min-height: 200px; border-right: 1px solid var(--border-soft); }
-  .experts-grid--masa .expert-cell:last-child { border-right: none; }
-
-  /* ── Öne çıkan uzman kartı — Tasarım C ("uzmanın sesi önde"), 2026-07-22.
-     Aksan rengi uzmanın alanından (--efc-accent, ör. dep=yeşil). ─────────── */
-  .expert-featured-c {
+  /* ── Uzman/masa listesi — TEK LİSTE, satır başına TEK uzman (kullanıcı
+     kararı 2026-08-05): hero + "Diğer Uzmanlar" ayrımı ve yan yana kart
+     ızgarası kaldırıldı; her iki modda da (uzman/masa) yetkili olunan tüm
+     uzmanlar tam genişlik yatay kartlarla ALT ALTA sıralanır. ─────────── */
+  .experts-stack { display: flex; flex-direction: column; gap: 14px; }
+  .expert-row {
     display: grid;
-    grid-template-columns: 1fr auto;   /* rail yoksa (metrik yok) sağ kolon çöker */
-    gap: 36px;
-    padding: 32px 36px;
+    grid-template-columns: auto minmax(190px, 260px) 1fr auto;
+    align-items: center;
+    gap: 28px;
+    position: relative;
+    padding: 22px 30px;
     background: linear-gradient(135deg, var(--bg-2), var(--bg-1));
     border: 1px solid var(--border-soft);
-    border-left: 2px solid var(--efc-accent, var(--gold));
-    transition: transform 0.3s, border-color 0.3s;
+    border-left: 2px solid var(--er-accent, var(--gold));
+    text-decoration: none; color: inherit;
+    transition: transform 0.25s, border-color 0.25s;
   }
-  .expert-featured-c:hover { transform: translateX(2px); border-color: var(--border); }
-  .efc-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-  .efc-badge {
-    width: 46px; height: 46px; border-radius: 10px; flex: none;
+  .expert-row:hover { transform: translateX(2px); border-color: var(--border); }
+  .er-badge {
+    width: 44px; height: 44px; border-radius: 10px; flex: none;
     display: grid; place-items: center;
-    border: 1px solid var(--efc-accent, var(--gold));
-    background: rgba(255,255,255,0.03);
-    background: color-mix(in srgb, var(--efc-accent, var(--gold)) 12%, transparent);
-    font-family: var(--mono); font-size: 14px; letter-spacing: 0.04em;
-    color: var(--efc-accent, var(--gold));
+    border: 1px solid var(--er-accent, var(--gold));
+    background: color-mix(in srgb, var(--er-accent, var(--gold)) 12%, transparent);
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em;
+    color: var(--er-accent, var(--gold));
   }
-  .efc-who .efc-name { display: block; font-size: 20px; font-weight: 300; color: var(--ink); letter-spacing: -0.01em; }
-  .efc-who .efc-dom { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); margin-top: 4px; }
-  .efc-quote {
-    font-family: var(--serif); font-size: 21px; font-weight: 200; font-style: italic;
-    line-height: 1.5; letter-spacing: -0.005em; color: var(--ink); margin: 0;
+  .er-who .er-name { display: block; font-size: 17px; font-weight: 300; color: var(--ink); letter-spacing: -0.01em; }
+  .er-who .er-dom { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint); margin-top: 4px; }
+  .er-desc {
+    margin: 0; min-width: 0;
+    font-family: var(--serif); font-size: 15px; font-weight: 200; font-style: italic;
+    line-height: 1.5; color: var(--ink-soft);
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
-  .efc-quote::before {
-    content: "\201C"; color: var(--efc-accent, var(--gold)); font-size: 46px;
-    font-style: normal; line-height: 0; vertical-align: -16px;
-    margin-right: 6px; margin-left: -6px; opacity: 0.7;
+  .er-cta {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--ink-faint); white-space: nowrap;
+    transition: color 0.2s;
   }
-  .efc-status { margin-top: 22px; display: inline-flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--efc-accent, var(--gold)); }
-  .efc-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--efc-accent, var(--gold)); }
-  .efc-cta { display: block; margin-top: 18px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); transition: color 0.2s; }
-  .expert-featured-c:hover .efc-cta { color: var(--efc-accent, var(--gold)); }
-  .efc-rail { width: 212px; display: flex; flex-direction: column; gap: 16px; justify-content: center; border-left: 1px solid var(--border-soft); padding-left: 28px; }
-  .efc-rail .efc-m .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
-  .efc-rail .efc-m .v { display: block; font-size: 22px; font-weight: 200; margin-top: 3px; color: var(--ink); font-variant-numeric: tabular-nums; }
-  .efc-rail .efc-m .v.neg { color: var(--red-soft); }
-  .efc-rail .efc-m .v.pos { color: var(--efc-accent, var(--gold)); }
-  @media (max-width: 900px) {
-    .expert-featured-c { grid-template-columns: 1fr; gap: 22px; }
-    .efc-rail { border-left: none; border-top: 1px solid var(--border-soft); padding-left: 0; padding-top: 20px; flex-direction: row; flex-wrap: wrap; gap: 28px; }
+  .expert-row:hover .er-cta { color: var(--er-accent, var(--gold)); }
+  .er-accent-line { display: none; }
+  @media (max-width: 820px) {
+    .expert-row { grid-template-columns: auto 1fr; gap: 16px 20px; }
+    .er-desc { grid-column: 1 / -1; }
+    .er-cta { grid-column: 1 / -1; }
   }
 </style>
 {% endblock %}
@@ -80,81 +70,21 @@
     <span class="gold-rule"></span>
   </div>
 
-  {% if masa_mode %}
-  {# ── Masa modu: TEK DÜZ LİSTE (kullanıcı kararı 2026-07-31) — hero +
-     "Diğer Masalar" ayrımı yok; yetkili olunan TÜM masalar aynı ızgarada
-     eşit kartlarla sıralanır (erişim zaten list_for_user'dan süzülür). #}
+  {# Tüm uzmanlar tek listede — featured ayrımı görsel olarak yok, sıralamada
+     yalnız öne alınır (kullanıcının uzmanı en üstte durur). #}
   {% set all_experts = ([featured_expert] if featured_expert else []) + (other_experts or []) %}
   {% if all_experts %}
   <div class="section-head">
     <span class="section-num">01</span>
-    <span class="section-title">Masalar</span>
+    <span class="section-title">{% if masa_mode %}Masalar{% else %}Uzmanlarım{% endif %}</span>
     <span class="section-tail"></span>
   </div>
-  <div class="experts-grid experts-grid--masa">
+  <div class="experts-stack">
     {% for expert in all_experts %}
-      {% include "home/partials/expert_card.html" %}
+      {% include "home/partials/expert_row.html" %}
     {% endfor %}
   </div>
   {% endif %}
-  {% else %}
-
-  {% if featured_expert %}
-  {# ── Featured expert ────────────────────────────────────────────────── #}
-  <div class="section-head">
-    <span class="section-num">01</span>
-    <span class="section-title">Uzmanların</span>
-    <span class="section-tail"></span>
-  </div>
-
-  {# Tasarım C — "uzmanın sesi önde" (kullanıcı seçimi 2026-07-22). #}
-  <a class="expert-featured-c"
-     href="{{ url_for('prisma_home.expert_detail', code=featured_expert.id) }}"
-     style="--efc-accent: {{ featured_expert.ui.accent_color }};
-            text-decoration: none; color: inherit;">
-    <div class="efc-main">
-      <div class="efc-head">
-        <div class="efc-badge">{{ featured_expert.code }}</div>
-        <div class="efc-who">
-          <span class="efc-name">{% if masa_mode %}{{ masa_name(featured_expert.name) }}{% else %}{{ featured_expert.name }}{% endif %}</span>
-          <span class="efc-dom">{{ featured_expert.domain_label }}</span>
-        </div>
-      </div>
-      <p class="efc-quote">
-        {% if featured_expert.persona.voice_examples %}{{ featured_expert.persona.voice_examples[0] }}{% else %}{{ featured_expert.short_description }}{% endif %}
-      </p>
-      <span class="efc-status"><span class="dot"></span>Öne çıkan</span>
-      <span class="efc-cta">{% if masa_mode %}Masaya git →{% else %}Uzmana bak →{% endif %}</span>
-    </div>
-
-    {% if featured_briefing.metrics %}
-    <div class="efc-rail">
-      {% for m in featured_briefing.metrics[:3] %}
-      <div class="efc-m">
-        <span class="k">{{ m.k }}</span>
-        <span class="v {% if m.tone == 'neg' %}neg{% elif m.tone == 'pos' %}pos{% endif %}">{{ m.v }}{% if m.delta %} {{ m.delta }}{% endif %}</span>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-  </a>
-  {% endif %}
-
-  {% if other_experts %}
-  {# ── Other experts (5 cells) ──────────────────────────────────────────── #}
-  <div class="section-head">
-    <span class="section-num">02</span>
-    <span class="section-title">Diğer Uzmanlar</span>
-    <span class="section-tail"></span>
-  </div>
-
-  <div class="experts-grid">
-    {% for expert in other_experts %}
-      {% include "home/partials/expert_card.html" %}
-    {% endfor %}
-  </div>
-  {% endif %}
-  {% endif %}{# masa_mode düz liste / uzman modu hero+diğerleri #}
 
   {# Panolar bölümü Faz P0'da kaldırıldı — manuel panolar artık ilgili
      uzmanın "Süreçler" bölümünde listelenir (bound_content.processes). #}

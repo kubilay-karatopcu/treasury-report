@@ -182,6 +182,7 @@ def test_records_page_renders(client):
     html = r.get_data(as_text=True)
     assert 'id="fi-grid"' in html and 'id="fi-ov"' in html
     assert "__OID__" in html  # detay/edit URL şablonları gömülü
+    assert 'id="ov-delete"' in html  # silme butonu overlay'de de durur
 
 
 def test_records_pending_then_current(client):
@@ -278,6 +279,12 @@ def test_records_missing_deferred_fields_flagged(client):
     assert rows[0]["ROW_STATE"] == "CURRENT"
     assert set(rows[0]["MISSING_FIELDS"]) == {
         "Importer", "Exporter", "Reference No", "Goods / Underlying Trade"}
+
+    # Detay künyesi boş hücreleri "?" çizebilsin diye alan ADLARI da döner
+    detail = client.get(f"/fi-desk/api/offers/{ids['offer_id']}").get_json()
+    assert set(detail["missing_keys"]) == {"IMPORTER", "EXPORTER",
+                                           "REFERENCE_NO", "GOODS_DESC"}
+    assert set(detail["missing_fields"]) == set(rows[0]["MISSING_FIELDS"])
 
     # Eksikler edit ile tamamlanınca liste temizlenir
     p = _valid_payload()

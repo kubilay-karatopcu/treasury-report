@@ -783,11 +783,6 @@
     $("btn-submit").textContent = "Değişikliği Onaya Gönder";
     $("fi-status").textContent =
       `Düzenleme: ${EDIT_OFFER} (v${ev.EVENT_SEQ}, ${ev.APPROVAL_STATUS})`;
-
-    // Silme yalnız edit ekranında (2026-08-04 saha isteği #3): talep onay
-    // akışına girer — onaylanınca kayıt listeden düşer, geçmiş silinmez.
-    const delBtn = $("btn-delete");
-    if (delBtn && FI_CAN_ENTER) delBtn.style.display = "";
   }
 
   async function requestDelete() {
@@ -852,6 +847,10 @@
     $("fi-status").textContent = FI_CAN_ENTER ? "" : "ENTRY rolü yok — form kilitli";
 
     if (EDIT_OFFER) {
+      // Silme yalnız edit ekranında (2026-08-04 #3): buton kayıt yüklemesini
+      // BEKLEMEDEN açılır — yükleme aksasa da erişilebilir kalsın (2026-08-05
+      // "butonu göremiyorum" bulgusu). Talep onay akışına girer.
+      if (FI_CAN_ENTER && $("btn-delete")) $("btn-delete").style.display = "";
       busy(true, "Kayıt yükleniyor…");
       try {
         await enterEditMode();

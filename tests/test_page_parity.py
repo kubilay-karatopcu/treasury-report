@@ -584,6 +584,19 @@ def test_masa_mode_topbar_has_return_button():
     assert "prisma_home.landing" in top
 
 
+def test_topbar_back_to_expert_mode_independent():
+    """2026-08-05 — MODDAN BAĞIMSIZ geri dönüş: masa modu KAPALIYKEN de
+    masa_back_url geçiren süreç/uygulama sayfalarında '← Uzmana dön' pili
+    çıkar (hide_mode_switch'ten önce değerlendirilir)."""
+    top = (REPO / "prisma_home/templates/partials/topbar.html").read_text(encoding="utf-8")
+    assert "{% elif masa_back_url %}" in top
+    assert "← Uzmana dön" in top
+    # Sıralama: masa_mode → masa_back_url → hide_mode_switch zinciri
+    assert top.index("{% if masa_mode %}") \
+        < top.index("{% elif masa_back_url %}") \
+        < top.index("{% elif not hide_mode_switch %}")
+
+
 def test_expert_section_title_is_just_surecler():
     html = (REPO / "prisma_home/templates/home/expert.html").read_text(encoding="utf-8")
     assert '<span class="section-title">Süreçler</span>' in html

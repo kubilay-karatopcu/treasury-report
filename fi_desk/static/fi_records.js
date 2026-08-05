@@ -150,13 +150,25 @@
     TRADE_TXN_AMT: "Trade Amount", IMPORTER: "Importer", EXPORTER: "Exporter",
     BUSINESS_SEGMENT: "Segment", REFERENCE_NO: "Referans",
     SUSTAINABILITY_FLG: "ESG", ESG_TYPE: "ESG Type",
-    ESG_ELIGIBILITY: "Eligibility", NOTES: "Notlar",
+    ESG_ELIGIBILITY: "Eligibility", GOODS_DESC: "Goods", NOTES: "Notlar",
   };
   const DATEISH = new Set(["OFFER_DT", "VALUE_DT", "MATURITY_DT"]);
   const AMTISH = new Set(["FUNDING_AMT", "USD_EQV", "TRADE_TXN_AMT"]);
 
   // Ek maliyet tipi → etiket (detay API'sinin cost_labels alanından dolar)
   let COST_LABELS = {};
+  // Sonradan-zorunlu ('D') olup henüz boş alanlar (detay API missing_keys):
+  // künyede satır ATLANMAZ, değeri "?" çizilir — satır sırası sabit kalır
+  // (2026-08-05 isteği #4).
+  let MISSING_KEYS = new Set();
+
+  function missingMark() {
+    const s = document.createElement("span");
+    s.className = "fi-missing-q";
+    s.title = "Henüz doldurulmadı — Düzenle ile girilebilir";
+    s.textContent = "?";
+    return s;
+  }
 
   function _fmtVal(k, v) {
     if (v == null || v === "") return null;
@@ -207,6 +219,8 @@
         push(label, frag);
       } else if (curv != null) {
         push(label, curv);
+      } else if (MISSING_KEYS.has(k)) {
+        push(label, missingMark());
       }
     };
 
@@ -221,7 +235,9 @@
         `Onay Bekleyen Giriş (#${first.EVENT_SEQ} · ${first.EVENT_TYPE} · ${ts(first.EVENT_TS)})`;
       push("Deal Status", _fmtVal("DEAL_STATUS", first.DEAL_STATUS));
       Object.keys(FIELD_LABELS).forEach((k) => {
-        push(FIELD_LABELS[k], _fmtVal(k, first[k]));
+        const v = _fmtVal(k, first[k]);
+        push(FIELD_LABELS[k], v != null ? v
+          : (MISSING_KEYS.has(k) ? missingMark() : null));
       });
       const tn = dayDiffRow(first);
       push("Tenor (gün)", tn != null ? String(tn) : null);
@@ -344,6 +360,7 @@
     $("ov-title").textContent = "Yükleniyor…";
     $("ov-sub").textContent = "";
     $("ov-edit").style.display = "none";
+    if ($("ov-delete")) $("ov-delete").style.display = "none";
     $("ov-current-title").textContent = "Güncel Durum";
     $("ov-current").innerHTML = '<dt></dt><dd class="fi-ov__loading">Yükleniyor…</dd>';
     $("ov-sched-card").style.display = "none";
@@ -366,6 +383,7 @@
       return;
     }
     COST_LABELS = body.cost_labels || {};
+    MISSING_KEYS = new Set(body.missing_keys || []);
     $("ov-eyebrow").textContent = `${body.deal.DEAL_ID} · ${offerId}`;
     $("ov-title").textContent =
       `${body.product_label} — ${body.deal.BORROWER_BANK}`;
@@ -378,9 +396,32 @@
       edit.style.display = "";
       edit.href = `${ENDPOINTS.entry_page}?offer=${encodeURIComponent(offerId)}`;
     }
+    // Sil butonu overlay'de de durur (edit ekranındakiyle aynı akış:
+    // talep PENDING DELETE event'i olarak onaya gider — 2026-08-05 #5).
+    const del = $("ov-delete");
+    if (del && FI_CAN_ENTER) del.style.display = "";
     renderCurrent(body);
     renderSchedule(body);
     renderTimeline(body);
+  }
+
+  async function requestDelete() {
+    if (!CURRENT_OFFER) return;
+    if (!confirm("Bu teklif için SİLME talebi oluşturulacak ve onaya " +
+                 "gidecek. Devam edilsin mi?")) return;
+    busy(true, "Silme talebi gönderiliyor…");
+    try {
+      const res = await fetch(offerUrl(ENDPOINTS.offer_delete, CURRENT_OFFER),
+                              { method: "POST" });
+      const body = await res.json();
+      if (!body.ok) { toast(body.error || "Silme talebi başarısız", true); return; }
+      toast("Silme talebi onaya gönderildi.");
+      const oid = CURRENT_OFFER;
+      await load();
+      await openDetail(oid);   // timeline'da PENDING DELETE görünsün
+    } finally {
+      busy(false);
+    }
   }
 
   function closeDetail() {
@@ -422,6 +463,7 @@
 
     $("btn-refresh").addEventListener("click", load);
     $("chk-pending-only").addEventListener("change", refreshGrid);
+    if ($("ov-delete")) $("ov-delete").addEventListener("click", requestDelete);
     $("ov-close").addEventListener("click", closeDetail);
     $("fi-ov").addEventListener("click", (e) => {
       if (!e.target.closest(".fi-ov__inner")) closeDetail();

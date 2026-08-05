@@ -166,18 +166,23 @@ def costs_total(additional_costs: Any) -> float:
     return float(sum(v for v in data.values() if isinstance(v, (int, float))))
 
 
-def missing_deferred(matrix: dict, product: str, row: dict) -> list[str]:
-    """Üründe 'D' (sonradan zorunlu) işaretli olup boş kalan alan etiketleri.
-
-    İşlem listesi bu listeyle satırı sarı boyar ve kullanıcıya eksikleri
-    hatırlatır (row anahtarları event kolon adlarıdır)."""
+def missing_deferred_keys(matrix: dict, product: str, row: dict) -> list[str]:
+    """Üründe 'D' (sonradan zorunlu) işaretli olup boş kalan alan ADLARI
+    (event kolon adları). Detay künyesi bu anahtarlarla boş hücreleri '?'
+    olarak çizer (kolon sırası sabit kalsın — 2026-08-05 isteği)."""
     prod = matrix["products"].get(product)
     if not prod:
         return []
-    return [matrix["fields"][key]["label"]
-            for key, code in prod["fields"].items()
+    return [key for key, code in prod["fields"].items()
             if code == DEFERRED_CODE and key in matrix["fields"]
             and _blank(row.get(key))]
+
+
+def missing_deferred(matrix: dict, product: str, row: dict) -> list[str]:
+    """missing_deferred_keys'in etiket hâli — işlem listesi satırı sarı
+    boyar ve kullanıcıya eksikleri okunur adlarıyla hatırlatır."""
+    return [matrix["fields"][key]["label"]
+            for key in missing_deferred_keys(matrix, product, row)]
 
 
 def _cond_map(matrix: dict) -> dict[str, tuple[str, str]]:
